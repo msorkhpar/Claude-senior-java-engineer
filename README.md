@@ -12,18 +12,18 @@ Additionally, please highlight any new features or updates in Java that are rele
 Your goal is to provide me with a comprehensive review of Java concepts, syntax, features, and related topics, with a strong emphasis on clear explanations, practical examples (when applicable), and interactive discussion. By the end of our sessions, I should feel confident and well-prepared for my senior Java engineer interview.
 ```
 
-# 1. Java Fundamentals (TDD examples) - Refresher on core concepts for concurrency
-  ## 1.1. Variables, Data Types, Operators
-    ### 1.1.1. Primitive data types
-    ### 1.1.2. Reference data types
-    ### 1.1.3. Type casting and conversion
-    ### 1.1.4. Arithmetic, relational, and logical operators
-  ## 1.2. Control Flow Statements (if/else, for, while, switch, switch expressions)
-    ### 1.2.1. if/else statements
-    ### 1.2.2. for loops
-    ### 1.2.3. while and do-while loops
-    ### 1.2.4. switch statements
-    ### 1.2.5. switch expressions (Java 14+)
+1. Java Fundamentals (TDD examples) - Refresher on core concepts for concurrency
+  - 1.1. Variables, Data Types, Operators
+  - 1.1.1. Primitive data types
+    - 1.1.2. Reference data types
+    - 1.1.3. Type casting and conversion
+    - 1.1.4. Arithmetic, relational, and logical operators
+  - 1.2. Control Flow Statements (if/else, for, while, switch, switch expressions)
+     - 1.2.1. if/else statements
+     - 1.2.2. for loops
+     - 1.2.3. while and do-while loops
+     - 1.2.4. switch statements
+     - 1.2.5. switch expressions (Java 14+)
   1.3. Methods & Functions (focusing on passing by value/reference)
     1.3.1. Method declaration and invocation
     1.3.2. Method parameters and return types
