@@ -13,7 +13,7 @@ Additionally, please highlight any new features or updates in Java that are rele
 Your goal is to provide me with a comprehensive review of Java concepts, syntax, features, and related topics, with a strong emphasis on clear explanations, practical examples (when applicable), and interactive discussion. By the end of our sessions, I should feel confident and well-prepared for my senior Java engineer interview.
 ```
 
-1. Java Fundamentals (TDD examples) - Refresher on core concepts for concurrency
+1. Java Fundamentals
 
 - 1.1. Variables, Data Types, Operators
     - 1.1.1. Primitive data types
@@ -43,7 +43,7 @@ Your goal is to provide me with a comprehensive review of Java concepts, syntax,
     - 1.5.3. Record patterns (Java 19+)
     - 1.5.4. Switch patterns (Java 19+)
 
-2. Java Classes & Objects (TDD examples) - As needed for concurrency examples with OOP concepts
+2. Java Classes & Objects
 
 - 2.1. Defining Classes & Objects
     - 2.1.1. Class structure and components
@@ -76,7 +76,7 @@ Your goal is to provide me with a comprehensive review of Java concepts, syntax,
     - 2.5.2. Permitted and non-permitted subclasses
     - 2.5.3. Use cases for sealed classes and interfaces
 
-3. Exception Handling (TDD examples) - Essential for concurrency
+3. Exception Handling
 
 - 3.1. try/catch/finally blocks
     - 3.1.1. Handling exceptions with try/catch
@@ -122,7 +122,7 @@ Your goal is to provide me with a comprehensive review of Java concepts, syntax,
 
 5. Java Memory Model
 
-- 5.1. Understanding the Java Memory Model and its implications for concurrent programming
+- 5.1. Understanding the Java Memory Model
     - 5.1.1. Overview of the Java Memory Model
     - 5.1.2. Shared memory and thread-local memory
     - 5.1.3. Synchronization and memory consistency
@@ -140,7 +140,7 @@ Your goal is to provide me with a comprehensive review of Java concepts, syntax,
     - 5.3.3. Visibility issues and proper synchronization techniques
     - 5.3.4. Best practices for safe concurrent programming
 
-6. Multithreading and Concurrency (Extensive) (TDD examples)
+6. Multithreading and Concurrency
 
 - 6.1. Thread Basics
     - 6.1.1. Creating threads (Runnable interface and Thread class)
