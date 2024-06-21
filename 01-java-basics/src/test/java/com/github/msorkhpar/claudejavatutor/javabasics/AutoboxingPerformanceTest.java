@@ -3,6 +3,7 @@ package com.github.msorkhpar.claudejavatutor.javabasics;
 import com.github.msorkhpar.claudejavatutor.base.PerformanceTestUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
@@ -44,8 +45,8 @@ class AutoboxingPerformanceTest {
             wrapperArray[i] = i;
         }
 
-        var primitiveSum = PerformanceTestUtil.measureExecution(() ->  testSubject.sumPrimitiveArray(primitiveArray));
-        var wrapperSum = PerformanceTestUtil.measureExecution(() ->  testSubject.sumWrapperArray(wrapperArray));
+        var primitiveSum = PerformanceTestUtil.measureExecution(() -> testSubject.sumPrimitiveArray(primitiveArray));
+        var wrapperSum = PerformanceTestUtil.measureExecution(() -> testSubject.sumWrapperArray(wrapperArray));
 
         System.out.println("Primitive array sum time: " + primitiveSum.executionTime() + "ns");
         System.out.println("Wrapper array sum time: " + wrapperSum.executionTime() + "ns");
@@ -58,8 +59,8 @@ class AutoboxingPerformanceTest {
     void testPrimitiveStreamVsWrapperStream() {
         int limit = 10_000_000;
 
-        var primitiveStreamSum = PerformanceTestUtil.measureExecution(() ->  testSubject.sumPrimitiveStream(limit));
-        var wrapperStreamSum = PerformanceTestUtil.measureExecution(() ->  testSubject.sumWrapperStream(limit));
+        var primitiveStreamSum = PerformanceTestUtil.measureExecution(() -> testSubject.sumPrimitiveStream(limit));
+        var wrapperStreamSum = PerformanceTestUtil.measureExecution(() -> testSubject.sumWrapperStream(limit));
 
         System.out.println("Primitive stream sum time: " + primitiveStreamSum.executionTime() + "ns");
         System.out.println("Wrapper stream sum time: " + wrapperStreamSum.executionTime() + "ns");

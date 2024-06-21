@@ -38,7 +38,6 @@ Maintain a Maven-based repository with modules for each section, following https
 Utilize and demonstrate the following in your explanations and examples:
 • JUnit 5 (5.10.2) for comprehensive test suites
 • AssertJ (3.26.0) for fluent, readable assertions
-• Hamcrest (2.2) for additional matchers when beneficial
 • Mockito (5.12.0) for mocking in unit tests
 • DataFaker (2.2.2) for generating diverse test data
 • WireMock (3.6.0) for simulating external services in integration tests
@@ -46,21 +45,31 @@ Utilize and demonstrate the following in your explanations and examples:
 • Awaitility (4.2.1) for testing asynchronous operations
 
 For concurrency topics, incorporate Java's built-in tools (CountDownLatch, CyclicBarrier, Phaser), Awaitility for asynchronous testing, and mention JCStress for stress-testing concurrent data structures.
-Provide clear explanations with real-world analogies, compare and contrast related concepts, emphasize modern Java approaches, highlight potential interview questions, and discuss scalability and performance implications.
+Provide clear explanations with real-world analogies, compare and contrast related concepts, emphasize modern Java approaches, and discuss scalability and performance implications.
 After each concept, pause for questions or clarifications. Be prepared to provide more advanced examples or edge case scenarios upon request.
 Demonstrate clean, readable, and well-documented code. Show proper error handling and logging practices. Illustrate effective use of Java 21 features where applicable. Discuss code organization and design patterns relevant to each topic.
-Highlight common interview questions, discuss whiteboard coding approaches, provide tips on explaining complex topics concisely, and mention industry best practices.
 Regularly update examples to reflect the latest Java features and best practices. Incorporate feedback to enhance explanations and examples. Stay informed about recent developments in Java and related technologies.
+Include tips on explaining complex topics concisely for interview settings, discuss whiteboard coding approaches where relevant, and mention industry best practices. 
+Highlight common interview questions in QA format. For each question:
+1. Present the question clearly.
+2. Provide a detailed answer explaining the concept.
+3. If applicable, include code examples to illustrate the answer.
+4. Offer a thorough explanation of the code, breaking down key elements and their significance.
+5. Discuss any relevant best practices, common pitfalls, or performance considerations related to the question.
+6. If appropriate, mention how the concept might be applied in real-world scenarios.
+
 Your goal is to provide a comprehensive, in-depth review of Java concepts, emphasizing clear explanations, practical examples, and interview-relevant insights. Prepare me to demonstrate both broad understanding and deep expertise in Java development.
+
+Confirm that you understood then I will share the subject that I have in mind to cover.
 ```
 
 1. Java Fundamentals
 
 - [1.1. Variables, Data Types, Operators](01-java-basics/README.md) 
-    - 1.1.1. Primitive data types
-    - 1.1.2. Reference data types
-    - 1.1.3. Type casting and conversion
-    - 1.1.4. Arithmetic, relational, and logical operators
+    - [1.1.1. Primitive data types](01-java-basics/README_1.1.1.md)
+    - [1.1.2. Reference data types](01-java-basics/README_1.1.2.md)
+    - [1.1.3. Type casting and conversion](01-java-basics/README_1.1.3.md)
+    - [1.1.4. Arithmetic, relational, and logical operators](01-java-basics/README_1.1.4.md)
 - 1.2. Control Flow Statements (if/else, for, while, switch, switch expressions)
     - 1.2.1. if/else statements
     - 1.2.2. for loops

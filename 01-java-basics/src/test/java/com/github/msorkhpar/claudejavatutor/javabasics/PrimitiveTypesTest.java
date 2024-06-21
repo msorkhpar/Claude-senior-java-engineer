@@ -3,42 +3,43 @@ package com.github.msorkhpar.claudejavatutor.javabasics;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PrimitiveTypesTest {
 
-        @Test
-        void testPrimitiveRanges() {
-            PrimitiveTypes primitiveTypes = new PrimitiveTypes();
+    @Test
+    void testPrimitiveRanges() {
+        PrimitiveTypes primitiveTypes = new PrimitiveTypes();
 
-            // Byte
-            assertThat(primitiveTypes.getByteRange()).containsExactly((byte)-128, (byte)127);
+        // Byte
+        assertThat(primitiveTypes.getByteRange()).containsExactly((byte) -128, (byte) 127);
 
-            // Short
-            assertThat(primitiveTypes.getShortRange()).containsExactly((short)-32768, (short)32767);
+        // Short
+        assertThat(primitiveTypes.getShortRange()).containsExactly((short) -32768, (short) 32767);
 
-            // Integer
-            assertThat(primitiveTypes.getIntRange()).containsExactly(-2147483648, 2147483647);
+        // Integer
+        assertThat(primitiveTypes.getIntRange()).containsExactly(-2147483648, 2147483647);
 
-            // Long
-            assertThat(primitiveTypes.getLongRange()).containsExactly(-9223372036854775808L, 9223372036854775807L);
+        // Long
+        assertThat(primitiveTypes.getLongRange()).containsExactly(-9223372036854775808L, 9223372036854775807L);
 
-            // Float
-            assertThat(primitiveTypes.getFloatRange()).containsExactly(1.4E-45f, 3.4028235E38f);
+        // Float
+        assertThat(primitiveTypes.getFloatRange()).containsExactly(1.4E-45f, 3.4028235E38f);
 
 
-            // Double
-            double[] expectedDoubleRange = primitiveTypes.getDoubleRange();
-            assertThat(primitiveTypes.getDoubleRange()).containsExactly(4.9E-324, 1.7976931348623157E308);
+        // Double
+        double[] expectedDoubleRange = primitiveTypes.getDoubleRange();
+        assertThat(primitiveTypes.getDoubleRange()).containsExactly(4.9E-324, 1.7976931348623157E308);
 
-            // Boolean
-            assertThat(primitiveTypes.getBooleanValues()).containsExactly(false, true);
+        // Boolean
+        assertThat(primitiveTypes.getBooleanValues()).containsExactly(false, true);
 
-            // Char
-            assertThat(primitiveTypes.getCharRange()).containsExactly('\u0000', '\uffff');
-        }
+        // Char
+        assertThat(primitiveTypes.getCharRange()).containsExactly('\u0000', '\uffff');
+    }
 
     @Test
     void testIntegerOverflow() {
