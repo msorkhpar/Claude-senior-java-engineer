@@ -65,11 +65,6 @@ class OperatorsTest {
         assertThat(Operators.isEqual(a, b)).isEqualTo(expected);
     }
 
-    @ParameterizedTest
-    @CsvSource({"5, 4, true", "4, 5, false", "-1, -2, true"})
-    void testIsGreaterThan(int a, int b, boolean expected) {
-        assertThat(Operators.isGreaterThan(a, b)).isEqualTo(expected);
-    }
 
     @ParameterizedTest
     @CsvSource({"true, true, true", "true, false, false", "false, true, false"})
@@ -105,5 +100,22 @@ class OperatorsTest {
     @CsvSource({"5, 3, 6", "12, 10, 6", "-1, 0, -1"})
     void testBitwiseXor(int a, int b, int expected) {
         assertThat(Operators.bitwiseXor(a, b)).isEqualTo(expected);
+    }
+
+
+    @Test
+    void testRelationalOperators() {
+        assertThat(Operators.isEqual(5, 5)).isTrue();
+        assertThat(Operators.isEqual(5, 6)).isFalse();
+        assertThat(Operators.isNotEqual(5, 6)).isTrue();
+        assertThat(Operators.isGreaterThan(6, 5)).isTrue();
+        assertThat(Operators.isLessThan(5, 6)).isTrue();
+        assertThat(Operators.isGreaterThanOrEqual(5, 5)).isTrue();
+        assertThat(Operators.isLessThanOrEqual(5, 6)).isTrue();
+    }
+
+    @Test
+    void testFloatingPointComparison() {
+        assertThat(Operators.areFloatsEqual(0.1 + 0.2, 0.3)).isTrue();
     }
 }

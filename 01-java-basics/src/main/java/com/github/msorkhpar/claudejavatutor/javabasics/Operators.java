@@ -40,6 +40,22 @@ public class Operators {
         return a == b;
     }
 
+    public static boolean isNotEqual(int a, int b) {
+        return a != b;
+    }
+
+    public static boolean isLessThan(int a, int b) {
+        return a < b;
+    }
+
+    public static boolean isGreaterThanOrEqual(int a, int b) {
+        return a >= b;
+    }
+
+    public static boolean isLessThanOrEqual(int a, int b) {
+        return a <= b;
+    }
+
     public static boolean isGreaterThan(int a, int b) {
         return a > b;
     }
@@ -66,5 +82,10 @@ public class Operators {
 
     public static int bitwiseXor(int a, int b) {
         return a ^ b;
+    }
+
+    public static boolean areFloatsEqual(double a, double b) {
+        final double EPSILON = 1e-9;
+        return Math.abs(a - b) < EPSILON;
     }
 }
