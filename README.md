@@ -100,6 +100,9 @@ DO NOT FORGET TO COVER THE DETAILS AS MUCH AS NEEDED BY PROVING EXAMPLES FOR WHA
 IS FULLY COVERED, AND QA WITH THE EXAMPLES ARE PROVIDED, START COVERING ALL THE MENTIONED TOPICS IN TEH README FILE 
 BY WRITING A CODE. EACH METHOD SHOULD BE COVERED BY ENOUGH UNIT OR INTEGRATION TESTS COVERING HAPPY PATHS, EDGE CASES,
 EXCEPTIONS, AND ANYTHING ELSE HELPS ME TO LEARN THE SUBJECT BETTER AND INCREASES CODE COVERAGE.
+FOR TESTING DO NOT FORGET TO USE TEH MENTIONED LIBS(Assertj, Mockito, DataFaker, WireMock, Testcontainers, Awaitility) 
+TESTS ARE VERY IMPORTANT AND SHOULD BE READABLE, COVER DIFFERENT
+CASES AND EVEN TEST EXPECTED EXCEPTIONS 
 
 Confirm your understanding, and I will share the specific Java subject to be covered.
 ```
@@ -117,17 +120,17 @@ Confirm your understanding, and I will share the specific Java subject to be cov
     - [1.2.3. while and do-while loops](02-control-flow/README_1.2.3.md)
     - [1.2.4. switch statements](02-control-flow/README_1.2.4.md)
     - [1.2.5. switch expressions (Java 14+)](02-control-flow/README_1.2.5.md)
-- 1.3. Methods & Functions (focusing on passing by value/reference)
-    - 1.3.1. Method declaration and invocation
-    - 1.3.2. Method parameters and return types
-    - 1.3.3. Pass by value and pass by reference
-    - 1.3.4. Method overloading
-- 1.4. String Literals and Manipulations (Strings are immutable)
-    - 1.4.1. String creation and initialization
-    - 1.4.2. String concatenation
-    - 1.4.3. String methods (e.g., length(), charAt(), substring())
-    - 1.4.4. String comparison (equals() vs. ==)
-    - 1.4.5. StringBuilder and StringBuffer
+- [1.3. Methods & Functions (focusing on passing by value/reference)](03-methods/README.md)
+    - [1.3.1. Method declaration and invocation](03-methods/README_1.3.1.md)
+    - [1.3.2. Method parameters and return types](03-methods/README_1.3.2.md)
+    - [1.3.3. Pass by value and pass by reference](03-methods/README_1.3.3.md)
+    - [1.3.4. Method overloading](03-methods/README_1.3.4.md)
+- [1.4. String Literals and Manipulations (Strings are immutable)](04-str-literals/README.md)
+    - [1.4.1. String creation and initialization](04-str-literals/README_1.4.1.md)
+    - [1.4.2. String concatenation](04-str-literals/README_1.4.2.md)
+    - [1.4.3. String methods (e.g., length(), charAt(), substring())](04-str-literals/README_1.4.3.md)
+    - [1.4.4. String comparison (equals() vs. ==)](04-str-literals/README_1.4.4.md)
+    - [1.4.5. StringBuilder and StringBuffer](04-str-literals/README_1.4.5.md)
 - 1.5. Pattern Matching (instanceof, record patterns, switch patterns)
     - 1.5.1. instanceof operator
     - 1.5.2. Pattern matching for instanceof (Java 14+)
