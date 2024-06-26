@@ -1,4 +1,4 @@
-# Arithmetic, Relational, and Logical Operators in Java
+# 1.1.4 Arithmetic, Relational, and Logical Operators in Java
 
 ## Table of Contents
 

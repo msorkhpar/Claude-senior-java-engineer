@@ -84,8 +84,8 @@ Interview Preparation
 Output Format
 For each topic:
 - Provide the README.md content
-- Present the test file (if applicable)
-- Show the Java implementation (if applicable)
+- Present the test file (if applicable). Do not use Demo or Example as postfix of the files, not using any postfix is preferred
+- Show the Java implementation (if applicable). Do not use Demo or Example as postfix of the files, not using any postfix is preferred
 
 Cover only one subject per message. For interview Q&A requiring code, include a Java code block after each question.
 For text-based answers, include a text block after each Q&A question.
@@ -96,10 +96,10 @@ Adaptability
 - For implementation-heavy topics, emphasize code examples, testing, and practical application
 - Adjust the use of tools and libraries based on their relevance to the current topic
 
-DO NOT FORGET TO COVER THE DETAILS AS MUCH AS NEEDED BY PROVING EXAMPLES FOR WHATEVER IS MENTIONED. WHEN README
-IS FULLY COVERED, AND QA WITH THE EXAMPLES ARE PROVIDED, START COVERING ALL THE MENTIONED TOPICS IN TEH README FILE 
+DO NOT FORGET TO COVER THE DETAILS AS MUCH AS NEEDED BY PROVIDING EXAMPLES FOR WHATEVER IS MENTIONED. WHEN README
+IS FULLY COVERED, AND QA, WITH THE EXAMPLES PROVIDED, STARTS COVERING ALL THE MENTIONED TOPICS IN THE README FILE 
 BY WRITING A CODE. EACH METHOD SHOULD BE COVERED BY ENOUGH UNIT OR INTEGRATION TESTS COVERING HAPPY PATHS, EDGE CASES,
-EXCEPTIONS, AND ANYTHING ELSE HELPS ME TO LEARN THE SUBJECT BETTER AND INCREASES CODE COVERAGE.
+EXCEPTIONS AND ANYTHING ELSE HELP ME TO LEARN THE SUBJECT BETTER AND INCREASE CODE COVERAGE.
 FOR TESTING DO NOT FORGET TO USE TEH MENTIONED LIBS(Assertj, Mockito, DataFaker, WireMock, Testcontainers, Awaitility) 
 TESTS ARE VERY IMPORTANT AND SHOULD BE READABLE, COVER DIFFERENT
 CASES AND EVEN TEST EXPECTED EXCEPTIONS 
@@ -131,33 +131,33 @@ Confirm your understanding, and I will share the specific Java subject to be cov
     - [1.4.3. String methods (e.g., length(), charAt(), substring())](04-str-literals/README_1.4.3.md)
     - [1.4.4. String comparison (equals() vs. ==)](04-str-literals/README_1.4.4.md)
     - [1.4.5. StringBuilder and StringBuffer](04-str-literals/README_1.4.5.md)
-- 1.5. Pattern Matching (instanceof, record patterns, switch patterns)
-    - 1.5.1. instanceof operator
-    - 1.5.2. Pattern matching for instanceof (Java 14+)
-    - 1.5.3. Record patterns (Java 19+)
-    - 1.5.4. Switch patterns (Java 19+)
+- 1.5. [Pattern Matching (instanceof, record patterns, switch patterns)](05-pattern-matching/README.md)
+    - [1.5.1. instanceof operator](05-pattern-matching/README_1.5.1.md)
+    - [1.5.2. Pattern matching for instanceof (Java 14+)](05-pattern-matching/README_1.5.2.md)
+    - [1.5.3. Record patterns (Java 19+)](05-pattern-matching/README_1.5.3.md)
+    - [1.5.4. Switch patterns (Java 19+)](05-pattern-matching/README_1.5.4.md)
 
 2. Java Classes & Objects
 
-- 2.1. Defining Classes & Objects
-    - 2.1.1. Class structure and components
-    - 2.1.2. Creating objects and using constructors
-    - 2.1.3. Instance and static members
-    - 2.1.4. Inheritance basics
-- 2.2. Encapsulation & Access Modifiers
-    - 2.2.1. Public, private, protected, and default access modifiers
-    - 2.2.2. Getter and setter methods
-    - 2.2.3. Data hiding and protection
-- 2.3. Object Oriented Concepts
-    - 2.3.1. Inheritance
+- 2.1. [Defining Classes & Objects](06-class-obj/README.md)
+    - [2.1.1. Class structure and components](06-class-obj/README_2.1.1.md)
+    - [2.1.2. Creating objects and using constructors](06-class-obj/README_2.1.1.md)
+    - [2.1.3. Instance and static members](06-class-obj/README_2.1.1.md)
+    - [2.1.4. Inheritance basics](06-class-obj/README_2.1.1.md)
+- 2.2. [Encapsulation & Access Modifiers](07-encapsulation/README.md)
+    - [2.2.1. Public, private, protected, and default access modifiers](07-encapsulation/README_2.2.1.md)
+    - [2.2.2. Getter and setter methods](07-encapsulation/README_2.2.2.md)
+    - [2.2.3. Data hiding and protection](07-encapsulation/README_2.2.3.md)
+- [2.3. Object Oriented Concepts](08-object-oriented/README.md)
+    - [2.3.1. Inheritance](08-object-oriented/README_2.3.1.md)
         - 2.3.1.1. Extending classes and code reusability
         - 2.3.1.2. Method overriding and super keyword
         - 2.3.1.3. Abstract classes and methods
-    - 2.3.2. Polymorphism
+    - [2.3.2. Polymorphism](08-object-oriented/README_2.3.2.md)
         - 2.3.2.1. Method overloading
         - 2.3.2.2. Dynamic method dispatch and virtual methods
         - 2.3.2.3. Interfaces and implementing classes
-    - 2.3.3. Abstraction
+    - [2.3.3. Abstraction](08-object-oriented/README_2.3.3.md)
         - 2.3.3.1. Focusing on essential features and behavior
         - 2.3.3.2. Interfaces as contracts
         - 2.3.3.3. Abstract classes vs. interfaces

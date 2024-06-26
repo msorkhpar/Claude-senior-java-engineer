@@ -1,4 +1,4 @@
-# 1.4.3. String methods (e.g., length(), charAt(), substring())
+# 1.4.3 String methods (e.g., length(), charAt(), substring())
 
 String methods are essential tools for manipulating and extracting information from strings in Java. This section covers
 three fundamental string methods: `length()`, `charAt()`, and `substring()`.

@@ -1,4 +1,4 @@
-# 1.1.3. Type Casting and Conversion
+# 1.1.3 Type Casting and Conversion
 
 Type casting and conversion are fundamental concepts in Java that allow changing a value from one data type to another. This process is crucial for manipulating data and ensuring type safety in various programming scenarios.
 

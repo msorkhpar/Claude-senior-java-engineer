@@ -1,4 +1,4 @@
-# 1.1.1. Primitive Data Types
+# 1.1.1 Primitive Data Types
 
 Primitive data types are the most basic data types available in Java. They are the building blocks for data manipulation
 and are essential for efficient memory management and performance optimization.

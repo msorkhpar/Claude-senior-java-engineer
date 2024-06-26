@@ -1,4 +1,4 @@
-# 1.2.1. if/else statements in Java
+# 1.2.1 if/else statements in Java
 
 ## Concept Explanation
 

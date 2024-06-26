@@ -1,4 +1,4 @@
-# 1.1.2. Reference Data Types
+# 1.1.2 Reference Data Types
 
 Reference data types in Java are complex data types that hold references (memory addresses) to objects rather than the actual data. Unlike primitive types, reference types are created using the `new` keyword (with some exceptions like String literals) and are stored in the heap memory.
 
