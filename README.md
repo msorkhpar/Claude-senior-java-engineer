@@ -178,11 +178,11 @@ Confirm your understanding, and I will share the specific Java subject to be cov
     - [3.1.2. Using multiple catch blocks for different exception types](11-try-catch/README_3.1.2.md)
     - [3.1.3. The finally block for cleanup operations](11-try-catch/README_3.1.3.md)
     - [3.1.4. try-with-resources statement](11-try-catch/README_3.1.4.md)
-- 3.2. Throwing custom exceptions
-    - 3.2.1. Creating custom exception classes
-    - 3.2.2. Throwing exceptions using the throw keyword
-    - 3.2.3. Best practices for custom exceptions
-    - 3.2.4. Checked vs. unchecked exceptions
+- 3.2. [Throwing custom exceptions](12-custom-exception/README.md)
+    - [3.2.1. Creating custom exception classes](12-custom-exception/README_3.2.1.md)
+    - [3.2.2. Throwing exceptions using the throw keyword](12-custom-exception/README_3.2.2.md)
+    - [3.2.3. Best practices for custom exceptions](12-custom-exception/README_3.2.3.md)
+    - [3.2.4. Checked vs. unchecked exceptions](12-custom-exception/README_3.2.4.md)
 
 4. Functional Programming in Java
 
@@ -313,33 +313,24 @@ Confirm your understanding, and I will share the specific Java subject to be cov
         - 7.1.2.4. Nested Based Access Control
         - 7.1.2.5. Running Java Files Directly
     - 7.1.3. Java 15
-        - 7.1.3.1. Sealed Classes and Interfaces (Preview)
-        - 7.1.3.2. Text Blocks (Standard)
-        - 7.1.3.3. Pattern Matching for instanceof (Second Preview)
-        - 7.1.3.4. Records (Second Preview)
-        - 7.1.3.5. Hidden Classes
+        - 7.1.3.1. Text Blocks (Standard)
+        - 7.1.3.2. Pattern Matching for instanceof (Second Preview)
+        - 7.1.3.3. Hidden Classes
     - 7.1.4. Java 17 (LTS)
-        - 7.1.4.1. Sealed Classes (Standard)
-        - 7.1.4.2. Pattern Matching for instanceof (Standard)
-        - 7.1.4.3. Records (Standard)
-        - 7.1.4.4. Enhanced Pseudo-Random Number Generators
-        - 7.1.4.5. Deprecation of the Security Manager
+        - 7.1.4.1. Enhanced Pseudo-Random Number Generators
+        - 7.1.4.2. Deprecation of the Security Manager
     - 7.1.5. Java 21 (LTS)
         - 7.1.5.1. Pattern Matching for switch (Fourth Preview)
         - 7.1.5.2. Record Patterns (Preview)
         - 7.1.5.3. Virtual Threads (Second Preview)
         - 7.1.5.4. Structured Concurrency (Incubator)
         - 7.1.5.5. Foreign Function & Memory API (Second Preview)
-- 7.2. Functional Interfaces
-    - 7.2.1. Definition and Purpose
-    - 7.2.2. Built-in Functional Interfaces (java.util.function package)
-        - 7.2.2.1. Consumer and BiConsumer
-        - 7.2.2.2. Supplier
-        - 7.2.2.3. Function and BiFunction
-        - 7.2.2.4. Predicate and BiPredicate
-        - 7.2.2.5. UnaryOperator and BinaryOperator
-    - 7.2.3. Creating Custom Functional Interfaces
-    - 7.2.4. Using Functional Interfaces with Lambda Expressions and Method References
+- 7.2. Enhanced Enums (adding generics support)
+    - 7.2.1. Limitations of Traditional Enums
+    - 7.2.2. Declaring Generic Enums
+    - 7.2.3. Parameterized Enum Constants
+    - 7.2.4. Generic Methods in Enums
+    - 7.2.5. Use Cases and Examples
 - 7.3. New Date and Time API
     - 7.3.1. Limitations of the Legacy Date and Calendar Classes
     - 7.3.2. Overview of the java.time package
@@ -349,45 +340,12 @@ Confirm your understanding, and I will share the specific Java subject to be cov
         - 7.3.2.4. DateTimeFormatter
         - 7.3.2.5. Zoned and Offset Date and Time
     - 7.3.3. Interoperability with Legacy Date and Calendar Classes
-- 7.4. Modular Programming with Jigsaw
-    - 7.4.1. Introduction to the Java Platform Module System (JPMS)
-    - 7.4.2. Defining Modules and their Dependencies
-        - 7.4.2.1. module-info.java File
-        - 7.4.2.2. Exporting and Opening Packages
-        - 7.4.2.3. Requiring and Using Modules
-    - 7.4.3. Creating and Running Modular Applications
-    - 7.4.4. Migrating Existing Code to Modules
-    - 7.4.5. Advantages of Modular Programming
-- 7.5. Text Blocks (multi-line string literals)
-    - 7.5.1. Limitations of Traditional String Literals
-    - 7.5.2. Syntax and Usage of Text Blocks
-    - 7.5.3. Formatting and Indentation
-    - 7.5.4. Escape Sequences and Special Characters
-    - 7.5.5. Use Cases and Benefits
-- 7.6. Enhanced Enums (adding generics support)
-    - 7.6.1. Limitations of Traditional Enums
-    - 7.6.2. Declaring Generic Enums
-    - 7.6.3. Parameterized Enum Constants
-    - 7.6.4. Generic Methods in Enums
-    - 7.6.5. Use Cases and Examples
-- 7.7. Pattern Matching for instanceof (type testing and casting)
-    - 7.7.1. Limitations of Traditional instanceof and Casting
-    - 7.7.2. Syntax and Usage of Pattern Matching for instanceof
-    - 7.7.3. Type Patterns and Binding Variables
-    - 7.7.4. Combining Multiple Patterns
-    - 7.7.5. Benefits and Readability Improvements
-- 7.8. Record Classes (concise data classes)
-    - 7.8.1. Boilerplate Code in Traditional Data Classes
-    - 7.8.2. Declaring Record Classes
-    - 7.8.3. Implicit Constructor, Accessors, and toString/equals/hashCode
-    - 7.8.4. Customizing Record Classes
-    - 7.8.5. Use Cases and Comparison with Lombok
-- 7.9. Sealed Classes (restricted inheritance)
-    - 7.9.1. Limitations of Open Inheritance
-    - 7.9.2. Declaring Sealed Classes and Interfaces
-    - 7.9.3. Permitted Subclasses and Exhaustiveness Checking
-    - 7.9.4. Sealed Hierarchies and Pattern Matching
-    - 7.9.5. Use Cases and Design Benefits
+- 7.4. Text Blocks (multi-line string literals)
+    - 7.4.1. Limitations of Traditional String Literals
+    - 7.4.2. Syntax and Usage of Text Blocks
+    - 7.4.3. Formatting and Indentation
+    - 7.4.4. Escape Sequences and Special Characters
+    - 7.4.5. Use Cases and Benefits
 
 8. Principles
 
