@@ -2,9 +2,7 @@ package com.github.msorkhpar.claudejavatutor.oo;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
-import org.mockito.Mockito;
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 class PolymorphismDemoTest {
 

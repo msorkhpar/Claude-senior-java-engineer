@@ -81,12 +81,6 @@ Interview Preparation
 - Mention industry best practices related to the specific topic
 - Highlight common interview questions in QA format
 
-Output Format
-For each topic:
-- Provide the README.md content
-- Present the test file (if applicable). Do not use Demo or Example as postfix of the files, not using any postfix is preferred
-- Show the Java implementation (if applicable). Do not use Demo or Example as postfix of the files, not using any postfix is preferred
-
 Cover only one subject per message. For interview Q&A requiring code, include a Java code block after each question.
 For text-based answers, include a text block after each Q&A question.
 
@@ -96,13 +90,20 @@ Adaptability
 - For implementation-heavy topics, emphasize code examples, testing, and practical application
 - Adjust the use of tools and libraries based on their relevance to the current topic
 
+Output Format
+For each topic:
+- Provide the README.md content with QA questions and their answers
+- Maintain a Maven-based repository with modules for each section, following https://github.com/msorkhpar/Claude-senior-java-engineer. Use the package naming convention com.github.msorkhpar.claudejavatutor.[modulename].
+- Present the test file (if applicable).
+- Show the Java implementation (if applicable).
+
 DO NOT FORGET TO COVER THE DETAILS AS MUCH AS NEEDED BY PROVIDING EXAMPLES FOR WHATEVER IS MENTIONED. WHEN README
 IS FULLY COVERED, AND QA, WITH THE EXAMPLES PROVIDED, STARTS COVERING ALL THE MENTIONED TOPICS IN THE README FILE 
 BY WRITING A CODE. EACH METHOD SHOULD BE COVERED BY ENOUGH UNIT OR INTEGRATION TESTS COVERING HAPPY PATHS, EDGE CASES,
 EXCEPTIONS AND ANYTHING ELSE HELP ME TO LEARN THE SUBJECT BETTER AND INCREASE CODE COVERAGE.
 FOR TESTING DO NOT FORGET TO USE TEH MENTIONED LIBS(Assertj, Mockito, DataFaker, WireMock, Testcontainers, Awaitility) 
 TESTS ARE VERY IMPORTANT AND SHOULD BE READABLE, COVER DIFFERENT
-CASES AND EVEN TEST EXPECTED EXCEPTIONS 
+CASES AND EVEN TEST EXPECTED EXCEPTIONS BUT DO NOT MOCK OR TEST PRIVATE METHODS
 
 Confirm your understanding, and I will share the specific Java subject to be covered.
 ```
@@ -161,22 +162,22 @@ Confirm your understanding, and I will share the specific Java subject to be cov
         - 2.3.3.1. Focusing on essential features and behavior
         - 2.3.3.2. Interfaces as contracts
         - 2.3.3.3. Abstract classes vs. interfaces
-- 2.4. Records
-    - 2.4.1. Defining and using records
-    - 2.4.2. Advantages of records over traditional classes
-    - 2.4.3. Limitations and use cases for records
-- 2.5. Sealed Classes and Interfaces
-    - 2.5.1. Defining sealed classes and interfaces
-    - 2.5.2. Permitted and non-permitted subclasses
-    - 2.5.3. Use cases for sealed classes and interfaces
+- 2.4. [Records](09-records/README.md)
+    - [2.4.1. Defining and using records](09-records/README_2.4.1.md)
+    - [2.4.2. Advantages of records over traditional classes](09-records/README_2.4.2.md)
+    - [2.4.3. Limitations and use cases for records](09-records/README_2.4.3.md)
+- 2.5. [Sealed Classes and Interfaces](10-sealed/README.md)
+    - [2.5.1. Defining sealed classes and interfaces](10-sealed/README_2.5.1.md)
+    - [2.5.2. Permitted and non-permitted subclasses](10-sealed/README_2.5.2.md)
+    - [2.5.3. Use cases for sealed classes and interfaces](10-sealed/README_2.5.3.md)
 
 3. Exception Handling
 
-- 3.1. try/catch/finally blocks
-    - 3.1.1. Handling exceptions with try/catch
-    - 3.1.2. Using multiple catch blocks for different exception types
-    - 3.1.3. The finally block for cleanup operations
-    - 3.1.4. try-with-resources statement
+- [3.1. try/catch/finally blocks](11-try-catch/README.md)
+    - [3.1.1. Handling exceptions with try/catch](11-try-catch/README_3.1.1.md)
+    - [3.1.2. Using multiple catch blocks for different exception types](11-try-catch/README_3.1.2.md)
+    - [3.1.3. The finally block for cleanup operations](11-try-catch/README_3.1.3.md)
+    - [3.1.4. try-with-resources statement](11-try-catch/README_3.1.4.md)
 - 3.2. Throwing custom exceptions
     - 3.2.1. Creating custom exception classes
     - 3.2.2. Throwing exceptions using the throw keyword
