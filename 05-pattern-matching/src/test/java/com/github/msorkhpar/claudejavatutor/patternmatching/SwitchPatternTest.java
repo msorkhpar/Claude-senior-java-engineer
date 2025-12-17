@@ -23,10 +23,10 @@ class SwitchPatternTest {
 
     private static Stream<Arguments> provideShapesForProcessing() {
         return Stream.of(
-            Arguments.of(new Circle(5), "Circle with radius 5.0"),
-            Arguments.of(new Rectangle(4, 6), "Rectangle with width 4.0 and height 6.0"),
-            Arguments.of(new Triangle(3, 4), "Triangle with base 3.0 and height 4.0"),
-            Arguments.of(null, "No shape provided")
+                Arguments.of(new Circle(5), "Circle with radius 5.0"),
+                Arguments.of(new Rectangle(4, 6), "Rectangle with width 4.0 and height 6.0"),
+                Arguments.of(new Triangle(3, 4), "Triangle with base 3.0 and height 4.0"),
+                Arguments.of(null, "No shape provided")
         );
     }
 
@@ -38,10 +38,10 @@ class SwitchPatternTest {
 
     private static Stream<Arguments> provideShapesForAreaCalculation() {
         return Stream.of(
-            Arguments.of(new Circle(2), Math.PI * 4),
-            Arguments.of(new Rectangle(3, 4), 12.0),
-            Arguments.of(new Triangle(5, 3), 7.5),
-            Arguments.of(null, 0.0)
+                Arguments.of(new Circle(2), Math.PI * 4),
+                Arguments.of(new Rectangle(3, 4), 12.0),
+                Arguments.of(new Triangle(5, 3), 7.5),
+                Arguments.of(null, 0.0)
         );
     }
 
@@ -53,13 +53,13 @@ class SwitchPatternTest {
 
     private static Stream<Arguments> provideShapesForClassification() {
         return Stream.of(
-            Arguments.of(new Circle(3), "Small circle"),
-            Arguments.of(new Circle(7), "Large circle"),
-            Arguments.of(new Rectangle(5, 5), "Square"),
-            Arguments.of(new Rectangle(4, 6), "Rectangle"),
-            Arguments.of(new Triangle(4, 4), "Equilateral triangle"),
-            Arguments.of(new Triangle(3, 5), "Triangle"),
-            Arguments.of(null, "No shape")
+                Arguments.of(new Circle(3), "Small circle"),
+                Arguments.of(new Circle(7), "Large circle"),
+                Arguments.of(new Rectangle(5, 5), "Square"),
+                Arguments.of(new Rectangle(4, 6), "Rectangle"),
+                Arguments.of(new Triangle(4, 4), "Equilateral triangle"),
+                Arguments.of(new Triangle(3, 5), "Triangle"),
+                Arguments.of(null, "No shape")
         );
     }
 

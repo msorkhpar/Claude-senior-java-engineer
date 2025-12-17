@@ -2,12 +2,16 @@
 
 ## Concept Explanation
 
-While and do-while loops are fundamental control flow structures in Java used for repetitive execution of code blocks. They are particularly useful when the number of iterations is not known in advance.
+While and do-while loops are fundamental control flow structures in Java used for repetitive execution of code blocks.
+They are particularly useful when the number of iterations is not known in advance.
 
 ### While Loop
-A while loop repeatedly executes a block of code as long as a specified condition is true. The condition is checked before each iteration.
+
+A while loop repeatedly executes a block of code as long as a specified condition is true. The condition is checked
+before each iteration.
 
 Syntax:
+
 ```java
 while (condition) {
     // code block to be executed
@@ -15,9 +19,12 @@ while (condition) {
 ```
 
 ### Do-While Loop
-A do-while loop is similar to a while loop, but it guarantees that the code block is executed at least once before checking the condition. The condition is checked after each iteration.
+
+A do-while loop is similar to a while loop, but it guarantees that the code block is executed at least once before
+checking the condition. The condition is checked after each iteration.
 
 Syntax:
+
 ```java
 do {
     // code block to be executed
@@ -57,17 +64,21 @@ do {
 
 ## Interview-specific Insights
 
-Interviewers often ask about the differences between while and do-while loops, and scenarios where one might be preferred over the other. Be prepared to discuss:
+Interviewers often ask about the differences between while and do-while loops, and scenarios where one might be
+preferred over the other. Be prepared to discuss:
+
 - When you would choose a while loop over a do-while loop and vice versa.
 - How to ensure loop termination and prevent infinite loops.
 - The performance implications of different loop constructs.
 
-
 Q1: What is the main difference between a while loop and a do-while loop?
-A1: The main difference is the point at which the condition is checked. In a while loop, the condition is checked before the first iteration, so the loop body may never execute if the condition is initially false. In a do-while loop, the condition is checked after the first iteration, guaranteeing that the loop body executes at least once.
+A1: The main difference is the point at which the condition is checked. In a while loop, the condition is checked before
+the first iteration, so the loop body may never execute if the condition is initially false. In a do-while loop, the
+condition is checked after the first iteration, guaranteeing that the loop body executes at least once.
 
 Q2: Can you provide an example of when you would prefer a do-while loop over a while loop?
-A2: A do-while loop is preferred when you want to ensure that a block of code executes at least once, regardless of the condition. For example, when getting user input:
+A2: A do-while loop is preferred when you want to ensure that a block of code executes at least once, regardless of the
+condition. For example, when getting user input:
 
 ```java
 String input;
@@ -81,6 +92,7 @@ This ensures that the user is prompted at least once, even if they provide a val
 
 Q3: How can you prevent infinite loops when using while or do-while loops?
 A3: To prevent infinite loops:
+
 1. Ensure that the loop condition can eventually become false.
 2. Always update the variables involved in the loop condition within the loop body.
 3. Double-check the loop condition logic.
@@ -102,6 +114,7 @@ if (safetyCounter >= maxIterations) {
 
 Q4: What are some common use cases for while loops in real-world applications?
 A4: Common use cases for while loops include:
+
 1. Reading data from a file or stream until EOF is reached.
 2. Processing elements in a linked list or tree structure.
 3. Implementing retry mechanisms with backoff strategies.
@@ -119,7 +132,8 @@ while ((line = reader.readLine()) != null) {
 ```
 
 Q5: How would you explain the concept of loop invariants in the context of while loops?
-A5: A loop invariant is a condition that remains true before and after each iteration of a loop. It helps in reasoning about the correctness of the loop. For a while loop, you typically have:
+A5: A loop invariant is a condition that remains true before and after each iteration of a loop. It helps in reasoning
+about the correctness of the loop. For a while loop, you typically have:
 
 1. Initialization: Establish the loop invariant before the loop starts.
 2. Maintenance: Ensure that if the invariant is true before an iteration, it remains true after the iteration.
@@ -145,9 +159,8 @@ int findMax(int[] arr) {
 }
 ```
 
-Understanding loop invariants is crucial for proving the correctness of algorithms and is often discussed in technical interviews for more senior positions.
-
-
+Understanding loop invariants is crucial for proving the correctness of algorithms and is often discussed in technical
+interviews for more senior positions.
 
 ## Code Examples
 

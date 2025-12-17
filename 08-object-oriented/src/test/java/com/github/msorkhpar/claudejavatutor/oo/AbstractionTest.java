@@ -1,6 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.oo;
 
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -12,7 +13,7 @@ class AbstractionTest {
     @Test
     void testCarBehavior() {
         Car car = new Car("Toyota");
-        
+
         ByteArrayOutputStream outContent = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outContent));
 

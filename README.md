@@ -1,10 +1,12 @@
 # Claude Senior Java Engineer Interview Preparation
 
-A comprehensive Java tutorial repository designed to prepare students for senior Java engineer interviews. This project covers Java fundamentals through advanced topics including concurrency, design patterns, and modern Java features.
+A comprehensive Java tutorial repository designed to prepare students for senior Java engineer interviews. This project
+covers Java fundamentals through advanced topics including concurrency, design patterns, and modern Java features.
 
 ## Overview
 
-This repository contains a structured curriculum organized as Maven modules, with each module focusing on a specific Java topic. Each module includes:
+This repository contains a structured curriculum organized as Maven modules, with each module focusing on a specific
+Java topic. Each module includes:
 
 - **Detailed README documentation** with concept explanations, best practices, and common pitfalls
 - **Comprehensive test suites** using JUnit 5, AssertJ, Mockito, and other modern testing tools
@@ -37,7 +39,7 @@ mvn test -pl 05-pattern-matching
 
 1. Java Fundamentals
 
-- [1.1. Variables, Data Types, Operators](01-java-basics/README.md) 
+- [1.1. Variables, Data Types, Operators](01-java-basics/README.md)
     - [1.1.1. Primitive data types](01-java-basics/README_1.1.1.md)
     - [1.1.2. Reference data types](01-java-basics/README_1.1.2.md)
     - [1.1.3. Type casting and conversion](01-java-basics/README_1.1.3.md)
@@ -113,11 +115,11 @@ mvn test -pl 05-pattern-matching
 
 4. Functional Programming in Java
 
-- 4.1. Lambda Expressions
-    - 4.1.1. Introduction to lambda expressions
-    - 4.1.2. Syntax and structure of lambda expressions
-    - 4.1.3. Using lambda expressions with functional interfaces
-    - 4.1.4. Best practices and readability considerations
+- [4.1. Lambda Expressions](13-lambda-expressions/README.md)
+    - [4.1.1. Introduction to lambda expressions](13-lambda-expressions/README_4.1.1.md)
+    - [4.1.2. Syntax and structure of lambda expressions](13-lambda-expressions/README_4.1.2.md)
+    - [4.1.3. Using lambda expressions with functional interfaces](13-lambda-expressions/README_4.1.3.md)
+    - [4.1.4. Best practices and readability considerations](13-lambda-expressions/README_4.1.4.md)
 - 4.2. Functional Interfaces
     - 4.2.1. Consumer
         - 4.2.1.1. Accepting and consuming values

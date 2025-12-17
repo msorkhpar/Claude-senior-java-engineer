@@ -1,6 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.javabasics;
 
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
 
 class TypeCastingTest {
@@ -50,6 +51,6 @@ class TypeCastingTest {
     @Test
     void testInvalidStringToNumber() {
         assertThatThrownBy(() -> typeCasting.stringToInt("not a number"))
-            .isInstanceOf(NumberFormatException.class);
+                .isInstanceOf(NumberFormatException.class);
     }
 }

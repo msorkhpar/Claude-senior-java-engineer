@@ -22,7 +22,7 @@ class CustomExceptionDemoTest {
 
     @Test
     void validateUsername_shouldNotThrowException_whenUsernameIsValid() {
-        assertThatCode(()->demo.validateUsername("validUsername")).doesNotThrowAnyException();
+        assertThatCode(() -> demo.validateUsername("validUsername")).doesNotThrowAnyException();
     }
 
     @Test
@@ -36,6 +36,6 @@ class CustomExceptionDemoTest {
 
     @Test
     void processFile_shouldNotThrowException_whenFileExists() {
-        assertThatCode(()->demo.processFile("existing.txt")).doesNotThrowAnyException();
+        assertThatCode(() -> demo.processFile("existing.txt")).doesNotThrowAnyException();
     }
 }

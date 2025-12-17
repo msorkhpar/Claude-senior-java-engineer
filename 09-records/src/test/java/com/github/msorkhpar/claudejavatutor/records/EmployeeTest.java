@@ -44,7 +44,7 @@ class EmployeeTest {
             "Charlie Brown, 6, 2022-01-01, false"
     })
     void testIsNewHire(String name, int id, LocalDate hireDate, boolean expectedIsNewHire) {
-        LocalDate mockedDate=LocalDate.of(2023, 8, 22);
+        LocalDate mockedDate = LocalDate.of(2023, 8, 22);
         Clock fixedClock = Clock.fixed(mockedDate.atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
 
         try (MockedStatic<Clock> mockedClock = mockStatic(Clock.class)) {

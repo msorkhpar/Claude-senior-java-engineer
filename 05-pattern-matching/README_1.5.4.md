@@ -3,11 +3,12 @@
 ## Concept Explanation
 
 Switch patterns, introduced as a preview feature in Java 19 and enhanced in subsequent versions, represent a significant
-improvement in Java's pattern matching capabilities. This feature extends the switch statement and expression to work 
-with patterns, allowing for more expressive and concise code when dealing with complex data structures and type hierarchies.
+improvement in Java's pattern matching capabilities. This feature extends the switch statement and expression to work
+with patterns, allowing for more expressive and concise code when dealing with complex data structures and type
+hierarchies.
 
-Switch patterns enable developers to combine type checking, type casting, and data extraction into a single, readable 
-construct. This feature is particularly useful when working with sealed classes, records, and other hierarchical data 
+Switch patterns enable developers to combine type checking, type casting, and data extraction into a single, readable
+construct. This feature is particularly useful when working with sealed classes, records, and other hierarchical data
 structures.
 
 ## Key Points to Remember
@@ -61,6 +62,7 @@ A: Switch patterns offer several advantages over traditional instanceof checks a
 Here's a comparison:
 
 Traditional approach:
+
 ```java
 if (shape instanceof Circle) {
     Circle circle = (Circle) shape;
@@ -72,6 +74,7 @@ if (shape instanceof Circle) {
 ```
 
 Switch pattern approach:
+
 ```java
 return switch (shape) {
     case Circle c -> "Circle with radius " + c.radius();
@@ -86,19 +89,20 @@ Q: How do switch patterns interact with sealed classes, and why is this interact
 
 A: Switch patterns work particularly well with sealed classes due to their complementary nature:
 
-1. Exhaustiveness checking: Sealed classes define a fixed set of possible subtypes. When used with switch patterns, 
+1. Exhaustiveness checking: Sealed classes define a fixed set of possible subtypes. When used with switch patterns,
 2. the compiler can ensure that all possible subtypes are handled, providing compile-time safety.
 
-2. Pattern matching: Switch patterns can match against the specific subtypes of a sealed class, allowing for type-safe, 
+2. Pattern matching: Switch patterns can match against the specific subtypes of a sealed class, allowing for type-safe,
 3. expressive code.
 
-3. Extensibility control: Sealed classes restrict which classes can extend them, and switch patterns provide a natural 
+3. Extensibility control: Sealed classes restrict which classes can extend them, and switch patterns provide a natural
 4. way to handle all permitted subtypes.
 
 4. Design clarity: The combination encourages clear hierarchies and promotes thinking about all possible cases in the
 5. domain model.
 
 Example:
+
 ```java
 sealed interface Vehicle permits Car, Truck, Motorcycle {}
 record Car(int doors) implements Vehicle {}
@@ -123,11 +127,13 @@ A: Guards in switch patterns allow you to add additional conditions to a case, p
 pattern matching. They are introduced using the `when` keyword followed by a boolean expression.
 
 Key points about guards:
+
 1. They allow for more specific matching beyond just the type.
 2. Guards are evaluated only if the pattern matches.
 3. They can reference pattern variables introduced in the case label.
 
 Example:
+
 ```java
 String classifyNumber(Object obj) {
     return switch (obj) {
@@ -144,7 +150,8 @@ String classifyNumber(Object obj) {
 ```
 
 In this example, guards are used to further classify integers based on their value, and doubles based on their special
-properties. This allows for much more expressive and precise pattern matching than would be possible with type patterns alone.
+properties. This allows for much more expressive and precise pattern matching than would be possible with type patterns
+alone.
 
 Q: How does null handling work with switch patterns, and what are the best practices for dealing with null values?
 
@@ -153,15 +160,18 @@ A: Switch patterns provide explicit support for handling null values. Here are t
 1. Null case: You can explicitly handle null using `case null ->`.
 2. Placement: The null case, if present, is typically placed last (but before any default case).
 3. Exhaustiveness: Including a null case contributes to exhaustiveness checking.
-4. Default case: If you don't explicitly handle null and don't have a default case, a NullPointerException will be thrown for null inputs.
+4. Default case: If you don't explicitly handle null and don't have a default case, a NullPointerException will be
+   thrown for null inputs.
 
 Best practices:
+
 1. Always consider null handling in your switch patterns.
 2. Explicitly handle null if it's a valid input in your domain.
 3. If null is not expected, you might omit the null case to fail fast with a NullPointerException.
 4. Use a default case to handle both null and any future subtypes, if appropriate.
 
 Example:
+
 ```java
 String describeObject(Object obj) {
     return switch (obj) {
@@ -174,10 +184,11 @@ String describeObject(Object obj) {
 }
 ```
 
-In this example, null is explicitly handled. If you remove the null case and the default case, a null input would result in a NullPointerException.
-
+In this example, null is explicitly handled. If you remove the null case and the default case, a null input would result
+in a NullPointerException.
 
 ## Code Examples
 
-- Test: [SwitchPatternTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/SwitchPatternTest.java)
+-
+Test: [SwitchPatternTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/SwitchPatternTest.java)
 - Source: [SwitchPattern.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/SwitchPattern.java)

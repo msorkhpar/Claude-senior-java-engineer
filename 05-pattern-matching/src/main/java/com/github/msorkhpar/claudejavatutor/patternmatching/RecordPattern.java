@@ -4,16 +4,20 @@ import java.util.List;
 
 public class RecordPattern {
 
-    record Point(int x, int y) {}
-    record Rectangle(Point topLeft, Point bottomRight) {}
-    record Circle(Point center, int radius) {}
+    record Point(int x, int y) {
+    }
+
+    record Rectangle(Point topLeft, Point bottomRight) {
+    }
+
+    record Circle(Point center, int radius) {
+    }
 
     public static String describeShape(Object shape) {
         return switch (shape) {
             case Rectangle(Point(var x1, var y1), Point(var x2, var y2)) ->
                     String.format("Rectangle from (%d,%d) to (%d,%d)", x1, y1, x2, y2);
-            case Circle(Point(var x, var y), var r) ->
-                    String.format("Circle at (%d,%d) with radius %d", x, y, r);
+            case Circle(Point(var x, var y), var r) -> String.format("Circle at (%d,%d) with radius %d", x, y, r);
             default -> "Unknown shape";
         };
     }

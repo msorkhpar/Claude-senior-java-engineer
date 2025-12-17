@@ -2,8 +2,8 @@
 
 ## Concept Explanation
 
-In Java, a String is an immutable sequence of characters. The String class is a fundamental part of the Java language 
-and is widely used in almost every Java program. Understanding how to create and initialize Strings is crucial for 
+In Java, a String is an immutable sequence of characters. The String class is a fundamental part of the Java language
+and is widely used in almost every Java program. Understanding how to create and initialize Strings is crucial for
 effective Java programming.
 
 ## Key Points to Remember
@@ -23,7 +23,7 @@ The most common way to create a String is by using string literals:
 String name = "John Doe";
 ```
 
-When you create a String like this, Java checks the String pool. If an identical String already exists, it returns a 
+When you create a String like this, Java checks the String pool. If an identical String already exists, it returns a
 reference to that String. If not, it creates a new String object and adds it to the pool.
 
 ### 2. Using the `new` Keyword
@@ -66,16 +66,19 @@ String dynamic = sb.toString();
 
 ## Java 21 Features
 
-While String creation hasn't changed significantly in Java 21, it's worth noting that Java 21 includes performance 
+While String creation hasn't changed significantly in Java 21, it's worth noting that Java 21 includes performance
 improvements in String handling and memory usage.
 
 ## Common Pitfalls and How to Avoid Them
 
-1. **Unnecessary String object creation**: Avoid using `new String("literal")` unless you specifically need a new object. Use string literals instead.
+1. **Unnecessary String object creation**: Avoid using `new String("literal")` unless you specifically need a new
+   object. Use string literals instead.
 
-2. **Ignoring String immutability**: Remember that Strings are immutable. Operations like concatenation create new String objects.
+2. **Ignoring String immutability**: Remember that Strings are immutable. Operations like concatenation create new
+   String objects.
 
-3. **Misunderstanding String pool**: Be aware that `==` compares object references, not String contents. Use `equals()` for content comparison.
+3. **Misunderstanding String pool**: Be aware that `==` compares object references, not String contents. Use `equals()`
+   for content comparison.
 
 ## Best Practices and Optimization Techniques
 
@@ -97,6 +100,7 @@ improvements in String handling and memory usage.
 
 Q1: What are the different ways to create a String in Java?
 A1: There are several ways to create a String in Java:
+
 1. Using string literals: `String s = "Hello";`
 2. Using the `new` keyword: `String s = new String("Hello");`
 3. From a char array: `char[] chars = {'H', 'e', 'l', 'l', 'o'}; String s = new String(chars);`
@@ -104,7 +108,7 @@ A1: There are several ways to create a String in Java:
 5. From StringBuilder or StringBuffer: `StringBuilder sb = new StringBuilder("Hello"); String s = sb.toString();`
 
 Q2: What is the String pool in Java, and how does it work?
-A2: The String pool, also known as the String intern pool, is a special memory area in Java's heap memory. When you 
+A2: The String pool, also known as the String intern pool, is a special memory area in Java's heap memory. When you
 create a String using a string literal, Java first checks if an identical String already exists in the pool. If it does,
 Java returns a reference to that existing String instead of creating a new object. This mechanism helps conserve memory
 by reusing String objects. For example:
@@ -119,8 +123,9 @@ In this case, both `s1` and `s2` refer to the same String object in the pool.
 
 Q3: What's the difference between creating a String with and without the `new` keyword?
 A3:
+
 - Without `new` (string literal): `String s = "Hello";`
-  This checks the String pool and returns a reference to an existing String if one exists, or creates a new String in 
+  This checks the String pool and returns a reference to an existing String if one exists, or creates a new String in
 - the pool if it doesn't.
 - With `new`: `String s = new String("Hello");`
   This always creates a new String object in heap memory, separate from the String pool.
@@ -138,8 +143,8 @@ System.out.println(s1.equals(s3));  // true (same content)
 ```
 
 Q4: What is String interning, and when would you use it?
-A4: String interning is the process of adding a String to the String pool. You can manually intern a String using the 
-`intern()` method. This is useful when you have many String objects with the same content and want to save memory by 
+A4: String interning is the process of adding a String to the String pool. You can manually intern a String using the
+`intern()` method. This is useful when you have many String objects with the same content and want to save memory by
 ensuring only one instance exists in memory. Here's an example:
 
 ```java
@@ -181,7 +186,7 @@ if (emptyString == null || emptyString.isBlank()) {
 
 Always check for null before calling methods on a String to avoid NullPointerExceptions.
 
-These examples and explanations should provide a comprehensive understanding of String creation and initialization in 
+These examples and explanations should provide a comprehensive understanding of String creation and initialization in
 Java, suitable for a senior Java engineer interview preparation.
 
 ## Code Examples

@@ -41,7 +41,7 @@ public class Loop {
     /**
      * Finds the first occurrence of a target value in an array using a while loop.
      *
-     * @param arr The array to search.
+     * @param arr    The array to search.
      * @param target The value to find.
      * @return The index of the first occurrence of the target, or -1 if not found.
      */

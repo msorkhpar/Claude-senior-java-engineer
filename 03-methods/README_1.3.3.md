@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-In Java, understanding how arguments are passed to methods is crucial for writing efficient and bug-free code. Java uses a mechanism called "pass by value" for all its method arguments. However, this can be confusing when dealing with object references.
+In Java, understanding how arguments are passed to methods is crucial for writing efficient and bug-free code. Java uses
+a mechanism called "pass by value" for all its method arguments. However, this can be confusing when dealing with object
+references.
 
 ### Key Points:
 
@@ -14,11 +16,13 @@ In Java, understanding how arguments are passed to methods is crucial for writin
 
 ## Pass by Value for Primitives
 
-When you pass a primitive type to a method, Java creates a copy of the value and passes that copy to the method. Any changes made to the parameter inside the method do not affect the original value outside the method.
+When you pass a primitive type to a method, Java creates a copy of the value and passes that copy to the method. Any
+changes made to the parameter inside the method do not affect the original value outside the method.
 
 ## Pass by Value for Objects
 
-When you pass an object to a method, Java creates a copy of the reference to the object and passes that copy to the method. This means:
+When you pass an object to a method, Java creates a copy of the reference to the object and passes that copy to the
+method. This means:
 
 1. The method receives a copy of the reference, not the original reference.
 2. The method can use this reference to modify the object's state.
@@ -26,11 +30,15 @@ When you pass an object to a method, Java creates a copy of the reference to the
 
 ### Pass by Reference (Sort of)
 
-For objects, Java passes the reference by value. This means that when you pass an object to a method, you're passing a copy of the reference to that object. The method receives its own copy of the reference, but both the original reference and the copy point to the same object in memory.
+For objects, Java passes the reference by value. This means that when you pass an object to a method, you're passing a
+copy of the reference to that object. The method receives its own copy of the reference, but both the original reference
+and the copy point to the same object in memory.
 
 This behavior can sometimes be mistaken for "pass by reference," but it's important to understand the distinction:
+
 - The method can use the reference to modify the object's state, and these changes will be visible outside the method.
-- However, if the method reassigns the reference to a new object, it doesn't affect the original reference outside the method.
+- However, if the method reassigns the reference to a new object, it doesn't affect the original reference outside the
+  method.
 
 ## Common Pitfalls
 
@@ -45,12 +53,13 @@ This behavior can sometimes be mistaken for "pass by reference," but it's import
 
 ## Interview Insights
 
-Interviewers often test understanding of this concept by asking candidates to predict the output of code snippets involving method calls with primitives and objects.
-
+Interviewers often test understanding of this concept by asking candidates to predict the output of code snippets
+involving method calls with primitives and objects.
 
 ## Tests
 
-Unit tests demonstrating the behavior of pass by value for both primitives and objects can be found in `PassByValueExampleTest.java`.
+Unit tests demonstrating the behavior of pass by value for both primitives and objects can be found in
+`PassByValueExampleTest.java`.
 
 Now, let's implement the code and tests to demonstrate these concepts.
 
@@ -112,6 +121,7 @@ Now, let's go through the Q&A section to reinforce these concepts:
 Q1: What is the difference between pass by value and pass by reference?
 
 A1:
+
 ```
 Pass by value means that a copy of the value is passed to the method. Changes to the parameter inside the method do not affect the original value.
 
@@ -123,6 +133,7 @@ Java always uses pass by value, but for objects, it passes the value of the refe
 Q2: In Java, is it possible to swap two integer values using a method? Why or why not?
 
 A2:
+
 ```
 No, it's not possible to swap two integer values using a method in Java without returning a new value or using a wrapper class. This is because Java uses pass by value for primitives. When you pass integers to a method, copies of their values are passed, not references to the original variables. Any changes made to these copies inside the method do not affect the original variables.
 
@@ -145,6 +156,7 @@ To achieve a swap, you would need to return new values or use a wrapper class or
 Q3: How does pass by value work with object references in Java?
 
 A3:
+
 ```
 In Java, when you pass an object to a method, you're actually passing the value of the reference to that object. This means:
 
@@ -184,6 +196,7 @@ public class Test {
 ```
 
 A4:
+
 ```
 The output will be 10.
 
@@ -197,10 +210,11 @@ Here's why:
 This example demonstrates that while we can modify the contents of the array (because we have a copy of the reference to the same array), we cannot change what the original reference points to.
 ```
 
-These examples and explanations should provide a comprehensive understanding of pass by value in Java, both for primitives and object references. Remember, the key is to understand that Java always passes by value, but the value being passed for objects is a copy of the reference to the object.
+These examples and explanations should provide a comprehensive understanding of pass by value in Java, both for
+primitives and object references. Remember, the key is to understand that Java always passes by value, but the value
+being passed for objects is a copy of the reference to the object.
 
 Process finished with exit code 0
-
 
 ## Code Examples
 
@@ -208,11 +222,13 @@ Process finished with exit code 0
 - Source: [PassByValue.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/PassByValue.java)
 
 This example demonstrates that:
+
 1. Changes to the primitive `primitive` inside the method don't affect `number`.
 2. Changes to the object's state (`object.append()`) are reflected in `text`.
 3. Reassigning `object` inside the method doesn't affect `text`.
 
 These tests demonstrate:
+
 1. Primitives are passed by value, and modifications inside methods don't affect the original value.
 2. Objects (like StringBuilder) are passed by value of the reference, allowing modifications to the object's state.
 3. Reassigning object references inside methods doesn't affect the original reference.

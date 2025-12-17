@@ -1,20 +1,27 @@
 # 2.4.3. Limitations and Use Cases for Records
 
-Records in Java provide a concise way to create immutable data carrier classes. However, they come with certain limitations and are best suited for specific use cases. Understanding these limitations and appropriate use cases is crucial for effective utilization of records in Java programming.
+Records in Java provide a concise way to create immutable data carrier classes. However, they come with certain
+limitations and are best suited for specific use cases. Understanding these limitations and appropriate use cases is
+crucial for effective utilization of records in Java programming.
 
 ## Limitations of Records
 
-1. **Immutability**: Records are implicitly final and their fields are final by default. This means you cannot modify the state of a record after creation.
+1. **Immutability**: Records are implicitly final and their fields are final by default. This means you cannot modify
+   the state of a record after creation.
 
-2. **Inheritance Restrictions**: Records cannot extend other classes (except `java.lang.Record`), and they are implicitly final, so they cannot be extended.
+2. **Inheritance Restrictions**: Records cannot extend other classes (except `java.lang.Record`), and they are
+   implicitly final, so they cannot be extended.
 
-3. **Limited Customization**: While you can add methods to records, you cannot add instance fields beyond those declared in the record header.
+3. **Limited Customization**: While you can add methods to records, you cannot add instance fields beyond those declared
+   in the record header.
 
 4. **No Default No-Arg Constructor**: Records do not provide a default no-argument constructor.
 
-5. **Serialization Constraints**: Records use a different serialization mechanism compared to regular classes, which may cause issues with existing serialization frameworks.
+5. **Serialization Constraints**: Records use a different serialization mechanism compared to regular classes, which may
+   cause issues with existing serialization frameworks.
 
-6. **No Compatibility with Frameworks Requiring Default Constructor**: Some frameworks that rely on default constructors (e.g., certain ORM tools) may not work well with records.
+6. **No Compatibility with Frameworks Requiring Default Constructor**: Some frameworks that rely on default
+   constructors (e.g., certain ORM tools) may not work well with records.
 
 ## Use Cases for Records
 
@@ -54,6 +61,7 @@ Records in Java provide a concise way to create immutable data carrier classes. 
 ## Q&A Section
 
 Q1: What are the main limitations of using records in Java?
+
 ```text
 A1: The main limitations of records in Java include:
 1. Immutability: Records are implicitly final and their fields are final by default.
@@ -65,6 +73,7 @@ A1: The main limitations of records in Java include:
 ```
 
 Q2: In what scenarios would you recommend using a record instead of a traditional class?
+
 ```text
 A2: Records are recommended in the following scenarios:
 1. Data Transfer Objects (DTOs): For transferring data between application layers.
@@ -79,6 +88,7 @@ Records are particularly useful when you need a simple, immutable data carrier w
 ```
 
 Q3: Can you provide an example of a record and how it might be used in a real-world scenario?
+
 ```java
 public record PersonDTO(String name, int age, String email) {
     // Custom constructor with validation
@@ -105,8 +115,6 @@ PersonDTO person = new PersonDTO("John Doe", 30, "john@example.com");
 System.out.println(person.name()); // John Doe
 System.out.println(person.isAdult()); // true
 ```
-
-
 
 ## Code Examples
 

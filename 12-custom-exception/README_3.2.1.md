@@ -1,10 +1,12 @@
 # 3.2.1. Creating Custom Exception Classes
 
-Custom exceptions in Java allow developers to create specific error types tailored to their application's needs. These exceptions can carry additional information and provide more meaningful error messages.
+Custom exceptions in Java allow developers to create specific error types tailored to their application's needs. These
+exceptions can carry additional information and provide more meaningful error messages.
 
 To create a custom exception:
 
-1. Create a new class that extends either `Exception` (for checked exceptions) or `RuntimeException` (for unchecked exceptions).
+1. Create a new class that extends either `Exception` (for checked exceptions) or `RuntimeException` (for unchecked
+   exceptions).
 2. Implement constructors to allow various ways of creating the exception.
 3. Optionally, add custom methods or fields to provide additional information about the error.
 
@@ -32,8 +34,10 @@ To throw a custom exception, use the `throw` keyword followed by an instance of 
 Example:
 
 ```java
-if (user == null) {
-    throw new InvalidUserException("User not found", userId);
+if(user ==null){
+        throw new
+
+InvalidUserException("User not found",userId);
 }
 ```
 
@@ -49,36 +53,41 @@ if (user == null) {
 ## 3.2.4. Checked vs. Unchecked Exceptions
 
 ### Checked Exceptions
+
 - Extend from `Exception` (but not `RuntimeException`).
 - Must be declared in the method signature or caught within the method.
 - Used for recoverable errors that the calling code should be aware of.
 - Example: `IOException`, `SQLException`
 
 ### Unchecked Exceptions
+
 - Extend from `RuntimeException`.
 - Do not need to be declared or caught explicitly.
 - Used for programming errors or unrecoverable states.
 - Example: `NullPointerException`, `IllegalArgumentException`
 
-Choose between checked and unchecked based on whether the calling code can reasonably be expected to recover from the exception.
+Choose between checked and unchecked based on whether the calling code can reasonably be expected to recover from the
+exception.
 
 ## Key Points to Remember
+
 - Custom exceptions enhance code readability and error handling.
 - Use descriptive names and include relevant error information.
 - Choose between checked and unchecked exceptions based on the nature of the error.
 - Follow Java naming conventions and best practices when creating custom exceptions.
 
 ## Common Pitfalls
+
 - Overusing exceptions for flow control.
 - Creating too many or too few custom exceptions.
 - Not providing enough information in custom exceptions.
 - Using checked exceptions for unrecoverable errors.
 
 ## Interview Insights
+
 - Be prepared to explain when and why you would create a custom exception.
 - Understand the difference between checked and unchecked exceptions and when to use each.
 - Be able to discuss best practices in exception handling and creation.
-
 
 Q1: What is the difference between checked and unchecked exceptions in Java?
 
@@ -150,5 +159,7 @@ By following these practices, you can create more maintainable and understandabl
 
 ## Code Examples
 
-- Test: [CustomExceptionDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemoTest.java)
-- Source: [CustomExceptionDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemo.java)
+-
+Test: [CustomExceptionDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemoTest.java)
+-
+Source: [CustomExceptionDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemo.java)

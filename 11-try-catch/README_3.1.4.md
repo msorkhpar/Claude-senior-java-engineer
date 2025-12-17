@@ -1,6 +1,8 @@
 # 3.1.4 Try-with-resources Statement
 
-The try-with-resources statement is a powerful feature introduced in Java 7 that simplifies resource management and helps prevent resource leaks. It automatically closes resources that implement the `AutoCloseable` interface at the end of the try block, eliminating the need for explicit cleanup in a finally block.
+The try-with-resources statement is a powerful feature introduced in Java 7 that simplifies resource management and
+helps prevent resource leaks. It automatically closes resources that implement the `AutoCloseable` interface at the end
+of the try block, eliminating the need for explicit cleanup in a finally block.
 
 ## Key Points
 
@@ -23,7 +25,8 @@ try (Resource1 res1 = new Resource1();
 
 ## Benefits
 
-1. **Automatic Resource Management**: Resources are automatically closed when the try block exits, reducing the risk of resource leaks.
+1. **Automatic Resource Management**: Resources are automatically closed when the try block exits, reducing the risk of
+   resource leaks.
 2. **Cleaner Code**: Eliminates the need for explicit finally blocks to close resources.
 3. **Exception Handling**: Properly handles exceptions thrown during resource closing.
 4. **Multiple Resources**: Can manage multiple resources in a single try statement.
@@ -32,7 +35,8 @@ try (Resource1 res1 = new Resource1();
 
 1. Use try-with-resources for all `AutoCloseable` resources.
 2. Declare resources in the order you want them to be closed (reverse order of closing).
-3. Avoid declaring variables or performing operations in the try-with-resources statement that are not related to resource initialization.
+3. Avoid declaring variables or performing operations in the try-with-resources statement that are not related to
+   resource initialization.
 
 ## Common Pitfalls
 
@@ -110,8 +114,9 @@ public class TryWithResourcesExample {
 }
 ```
 
-
 ## Code Examples
 
-- Test: [TryWithResourcesDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemoTest.java)
-- Source: [TryWithResourcesDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemo.java)
+-
+Test: [TryWithResourcesDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemoTest.java)
+-
+Source: [TryWithResourcesDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemo.java)

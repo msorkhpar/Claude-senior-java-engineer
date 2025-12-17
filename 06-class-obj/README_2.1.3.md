@@ -11,6 +11,7 @@ Instance members are associated with specific instances (objects) of a class. Ea
 its own copy of instance variables and can call instance methods.
 
 Key characteristics:
+
 - Declared without the `static` keyword
 - Accessed through object references
 - Can access both instance and static members of the class
@@ -22,6 +23,7 @@ Static members belong to the class itself rather than to any specific instance o
 all objects of the class.
 
 Key characteristics:
+
 - Declared with the `static` keyword
 - Accessed through the class name (though can also be accessed through object references, it's not recommended)
 - Can only directly access other static members of the class
@@ -29,15 +31,19 @@ Key characteristics:
 
 ## Key Points to Remember
 
-1. Memory allocation: Instance members are allocated memory for each object, while static members are allocated memory only once when the class is loaded.
-2. Accessibility: Instance members require an object to be accessed, while static members can be accessed without creating an object.
-3. Initialization: Instance variables are initialized when an object is created, static variables are initialized when the class is loaded.
-4. Usage in methods: Static methods can only directly access static members, while instance methods can access both static and instance members.
+1. Memory allocation: Instance members are allocated memory for each object, while static members are allocated memory
+   only once when the class is loaded.
+2. Accessibility: Instance members require an object to be accessed, while static members can be accessed without
+   creating an object.
+3. Initialization: Instance variables are initialized when an object is created, static variables are initialized when
+   the class is loaded.
+4. Usage in methods: Static methods can only directly access static members, while instance methods can access both
+   static and instance members.
 5. `this` keyword: Cannot be used in static context as it refers to the current instance.
 
 ## Relevant Java 21 Features
 
-While the concept of instance and static members hasn't changed significantly, Java 21 introduces some features that 
+While the concept of instance and static members hasn't changed significantly, Java 21 introduces some features that
 can impact how we use them:
 
 - Record classes: Implicitly static nested records are now allowed in inner classes.
@@ -74,13 +80,14 @@ can impact how we use them:
 ## Interview-specific Insights
 
 Common questions often revolve around:
+
 - Differences between static and instance members
 - Appropriate use cases for static members
 - Understanding of memory allocation and lifecycle
 - Static method overloading vs overriding (static methods can't be overridden)
 
-
 Q1: What is the difference between static and instance variables in Java?
+
 ```text
 A: Static variables belong to the class and are shared among all instances of the class. They are initialized when 
 the class is loaded and exist in memory only once. Instance variables, on the other hand, belong to individual objects 
@@ -88,6 +95,7 @@ the class is loaded and exist in memory only once. Instance variables, on the ot
 ```
 
 Q2: Can a static method access non-static (instance) variables directly? Why or why not?
+
 ```text
 A: No, a static method cannot access non-static variables directly. This is because static methods belong to the class
  itself and not to any specific instance of the class. Instance variables, by definition, belong to a specific instance.
@@ -161,7 +169,6 @@ This creates a constant that belongs to the class (static) and cannot be changed
 
 These questions and answers cover important aspects of static and instance members in Java, demonstrating their behavior
 , usage, and some common scenarios that might be encountered in interviews or real-world programming.
-
 
 ## Code Examples
 

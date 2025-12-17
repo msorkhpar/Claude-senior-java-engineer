@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-In Java, a method is a block of code that performs a specific task. Methods are fundamental to Java programming as they allow for code reuse, modularity, and better organization of code. Method declaration defines the method's structure, while invocation is the process of calling or executing the method.
+In Java, a method is a block of code that performs a specific task. Methods are fundamental to Java programming as they
+allow for code reuse, modularity, and better organization of code. Method declaration defines the method's structure,
+while invocation is the process of calling or executing the method.
 
 ### Method Declaration
 
@@ -16,6 +18,7 @@ A method declaration consists of six components:
 6. Method Body: The actual code of the method, enclosed in curly braces {}.
 
 General syntax:
+
 ```java
 accessModifier returnType methodName(parameterList) throws exceptionList {
     // method body
@@ -42,7 +45,8 @@ Method invocation is the process of calling a method to execute its code. There 
 
 ## Relevant Java 21 Features
 
-1. Sealed Classes and Interfaces: While not directly related to method declaration, they can affect how methods are declared in subclasses.
+1. Sealed Classes and Interfaces: While not directly related to method declaration, they can affect how methods are
+   declared in subclasses.
 2. Pattern Matching for switch: Can be used within method bodies for more expressive code.
 
 ## Common Pitfalls and How to Avoid Them
@@ -71,7 +75,6 @@ Method invocation is the process of calling a method to execute its code. There 
 1. Be prepared to explain the difference between static and instance methods.
 2. Understand how method overloading works and its limitations.
 3. Be able to discuss the trade-offs between long parameter lists and using objects to group parameters.
-
 
 Q1: What is the difference between static and instance methods?
 
@@ -173,10 +176,11 @@ A3: Using methods in Java programming offers several advantages:
 10. Parameterization: Methods allow for parameterization, making code more flexible and adaptable to different inputs.
 ```
 
-These examples and explanations should provide a comprehensive understanding of method declaration and invocation in Java, suitable for a senior Java engineer interview preparation.
-
+These examples and explanations should provide a comprehensive understanding of method declaration and invocation in
+Java, suitable for a senior Java engineer interview preparation.
 
 ## Code Examples
 
-- Test: [MethodDeclarationTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodDeclarationTest.java)
+-
+Test: [MethodDeclarationTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodDeclarationTest.java)
 - Source: [MethodDeclaration.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodDeclaration.java)

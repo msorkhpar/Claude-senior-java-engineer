@@ -2,6 +2,7 @@ package com.github.msorkhpar.claudejavatutor.trycatch;
 
 public sealed interface VehicleType permits Car2, Motorcycle2, Truck2 {
     String getDescription();
+
     int getWheelCount();
 }
 

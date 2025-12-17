@@ -1,6 +1,5 @@
 # 3.1. try/catch/finally blocks
 
-
 ## Contents
 
 1. [3.1.1. Handling exceptions with try/catch](README_3.1.1.md)

@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-Getter and setter methods, also known as accessor and mutator methods, are a fundamental aspect of encapsulation in Java. They provide controlled access to the private fields of a class, allowing you to implement data hiding while still providing a way to read and modify the object's state.
+Getter and setter methods, also known as accessor and mutator methods, are a fundamental aspect of encapsulation in
+Java. They provide controlled access to the private fields of a class, allowing you to implement data hiding while still
+providing a way to read and modify the object's state.
 
 - **Getter methods** (accessors) retrieve the value of a private field.
 - **Setter methods** (mutators) set or update the value of a private field.
@@ -17,13 +19,15 @@ Getter and setter methods, also known as accessor and mutator methods, are a fun
 
 ## Relevant Java 21 Features
 
-- Record classes (introduced in Java 14, standard in Java 16+) provide a concise way to create immutable data classes with implicit getters.
+- Record classes (introduced in Java 14, standard in Java 16+) provide a concise way to create immutable data classes
+  with implicit getters.
 
 ## Common Pitfalls and How to Avoid Them
 
 1. **Redundant getters and setters**: Avoid creating them for all fields without considering their necessity.
 2. **Lack of validation in setters**: Always validate input in setters to maintain object integrity.
-3. **Returning mutable objects**: Be cautious when returning mutable objects from getters to prevent unintended modifications.
+3. **Returning mutable objects**: Be cautious when returning mutable objects from getters to prevent unintended
+   modifications.
 4. **Performance overhead**: In performance-critical code, direct field access might be preferred.
 
 ## Best Practices and Optimization Techniques
@@ -107,7 +111,9 @@ A4: The main differences are:
 4. Primitive getters don't need to handle null values, while object getters might need to consider null checks.
 5. Performance-wise, returning primitives is generally faster as it doesn't involve object creation or reference handling.
 ```
+
 Example:
+
 ```java
 public class Example {
     private int age;  // primitive
@@ -122,7 +128,6 @@ public class Example {
     }
 }
 ```
-
 
 ## Code Examples
 

@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-In Java, multiple catch blocks allow developers to handle different types of exceptions separately within a single try-catch structure. This feature enables more granular and specific exception handling, improving code readability and maintainability.
+In Java, multiple catch blocks allow developers to handle different types of exceptions separately within a single
+try-catch structure. This feature enables more granular and specific exception handling, improving code readability and
+maintainability.
 
 ## Key Points
 
@@ -13,18 +15,19 @@ In Java, multiple catch blocks allow developers to handle different types of exc
 
 ## Java 21 Features
 
-Java 21 doesn't introduce new features specific to multiple catch blocks, but it supports all previous enhancements, including multi-catch syntax introduced in Java 7.
+Java 21 doesn't introduce new features specific to multiple catch blocks, but it supports all previous enhancements,
+including multi-catch syntax introduced in Java 7.
 
 ## Common Pitfalls and How to Avoid Them
 
 1. **Catching Exception class first**: This will catch all exceptions, preventing more specific handlers from executing.
-   - Solution: Order catch blocks from most specific to most general.
+    - Solution: Order catch blocks from most specific to most general.
 
 2. **Duplicating code in catch blocks**: This can lead to maintenance issues.
-   - Solution: Use multi-catch syntax or extract common handling logic to a separate method.
+    - Solution: Use multi-catch syntax or extract common handling logic to a separate method.
 
 3. **Catching and ignoring exceptions**: This can hide important errors.
-   - Solution: Always log or handle exceptions appropriately.
+    - Solution: Always log or handle exceptions appropriately.
 
 ## Best Practices and Optimization Techniques
 
@@ -37,11 +40,12 @@ Java 21 doesn't introduce new features specific to multiple catch blocks, but it
 
 1. **Nested exceptions**: Use getCause() method to access the underlying cause.
 2. **Exceptions in catch or finally blocks**: These can overshadow the original exception.
-   - Solution: Use try-catch within catch blocks if necessary.
+    - Solution: Use try-catch within catch blocks if necessary.
 
 ## Interview-specific Insights
 
 Interviewers often look for:
+
 - Understanding of exception hierarchy
 - Proper ordering of catch blocks
 - Knowledge of multi-catch syntax
@@ -127,8 +131,8 @@ Compared to languages like Python or JavaScript, Java's approach is more structu
 verbose, which can lead to more robust error handling but requires more explicit code.
 ```
 
-
 ## Code Examples
 
-- Test: [ExceptionHandlerTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlerTest.java)
+-
+Test: [ExceptionHandlerTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlerTest.java)
 - Source: [ExceptionHandler.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandler.java)

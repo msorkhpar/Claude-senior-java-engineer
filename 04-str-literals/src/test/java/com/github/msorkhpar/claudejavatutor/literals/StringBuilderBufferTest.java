@@ -1,7 +1,9 @@
 package com.github.msorkhpar.claudejavatutor.literals;
 
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
+
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
@@ -62,6 +64,6 @@ class StringBuilderBufferTest {
     @Test
     void testNegativeCapacity() {
         assertThatThrownBy(() -> new StringBuilder(-1))
-            .isInstanceOf(NegativeArraySizeException.class);
+                .isInstanceOf(NegativeArraySizeException.class);
     }
 }

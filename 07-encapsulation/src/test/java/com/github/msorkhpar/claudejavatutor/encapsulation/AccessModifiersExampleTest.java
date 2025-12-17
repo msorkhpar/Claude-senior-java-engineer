@@ -1,6 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.encapsulation;
 
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
 
 class AccessModifiersExampleTest {
@@ -31,10 +32,10 @@ class AccessModifiersExampleTest {
         AccessModifiersExample example = new AccessModifiersExample();
         // The line below would not compile if uncommented
         // example.privateField = 5;
-        
+
         // The line below would not compile if uncommented
         // example.privateMethod();
-        
+
         // We can indirectly test private method by calling a public method that uses it
         example.callPrivateMethod(); // This should run without issues
     }
@@ -49,14 +50,14 @@ class AccessModifiersExampleTest {
     @Test
     void testInnerClasses() {
         AccessModifiersExample example = new AccessModifiersExample();
-        
+
         AccessModifiersExample.PublicInnerClass publicInner = example.new PublicInnerClass();
         AccessModifiersExample.ProtectedInnerClass protectedInner = example.new ProtectedInnerClass();
         AccessModifiersExample.DefaultInnerClass defaultInner = example.new DefaultInnerClass();
-        
+
         // The line below would not compile if uncommented
         // AccessModifiersExample.PrivateInnerClass privateInner = example.new PrivateInnerClass();
-        
+
         assertThat(publicInner).isNotNull();
         assertThat(protectedInner).isNotNull();
         assertThat(defaultInner).isNotNull();

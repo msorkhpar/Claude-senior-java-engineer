@@ -1,7 +1,7 @@
 # 2.1.4 Inheritance Basics in Java
 
 Inheritance is a fundamental concept in object-oriented programming (OOP) that allows a class to inherit properties and
-methods from another class. This mechanism promotes code reuse and establishes a relationship between a more general 
+methods from another class. This mechanism promotes code reuse and establishes a relationship between a more general
 class (superclass or parent class) and a more specialized class (subclass or child class).
 
 ## Key Concepts
@@ -66,9 +66,11 @@ class (superclass or parent class) and a more specialized class (subclass or chi
 
 Q1: What is the difference between `extends` and `implements` in Java?
 A:
-`extends` is used for class inheritance, where a subclass inherits from a superclass. A class can extend only one superclass.
+`extends` is used for class inheritance, where a subclass inherits from a superclass. A class can extend only one
+superclass.
 `implements` is used to implement interfaces. A class can implement multiple interfaces.
 Example:
+
 ```java
    class Dog extends Animal implements Runnable, Comparable<Dog> {
        // Dog inherits from Animal and implements Runnable and Comparable interfaces
@@ -76,16 +78,19 @@ Example:
 ```
 
 Q2: Can you override private methods in Java?
-A: No, private methods cannot be overridden in Java. They are not inherited by subclasses, so there's no way to override them. 
+A: No, private methods cannot be overridden in Java. They are not inherited by subclasses, so there's no way to override
+them.
 You can, however, define a method with the same name in the subclass, but it will be a new method, not an override.
 
 Q3: What is the purpose of the `super` keyword in Java?
 A:
 The `super` keyword in Java is used to refer to the superclass (parent class). It has several uses:
+
 1. To call the superclass constructor: super();
 2. To access superclass methods: super.methodName();
-3. To access superclass fields: super.fieldName; 
-It's particularly useful when you want to extend the functionality of a parent class method instead of completely replacing it.
+3. To access superclass fields: super.fieldName;
+   It's particularly useful when you want to extend the functionality of a parent class method instead of completely
+   replacing it.
 
 Q4: Explain the concept of method overriding with an example.
 A:
@@ -94,6 +99,7 @@ Method overriding occurs when a subclass defines a method with the same name, re
 in its superclass. The overridden method in the subclass takes precedence over the superclass method.
 
 Example:
+
 ```java
    class Animal {
        public void makeSound() {
@@ -109,10 +115,12 @@ Example:
    }
 
 ```
+
 In this example, Dog overrides the makeSound() method from Animal, providing its own implementation.
 
 Q5: What is the Liskov Substitution Principle, and how does it relate to inheritance?
 A:
+
    ```text
    The Liskov Substitution Principle (LSP) states that objects of a superclass should be replaceable with objects of 
    its subclasses without affecting the correctness of the program. In other words, a subclass should be usable through
@@ -128,5 +136,6 @@ A:
 
 ## Code Examples
 
-- Test: [InheritanceExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/classobj/InheritanceExampleTest.java)
+-
+Test: [InheritanceExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/classobj/InheritanceExampleTest.java)
 - Source: [InheritanceExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/classobj/InheritanceExample.java)

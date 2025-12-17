@@ -44,9 +44,9 @@ class StringConcatenationTest {
 
     @ParameterizedTest
     @CsvSource({
-        "42, true, 3.14",
-        "0, false, 0.0",
-        "-1, true, -1.5"
+            "42, true, 3.14",
+            "0, false, 0.0",
+            "-1, true, -1.5"
     })
     void testConcatWithDifferentTypes(int number, boolean flag, double value) {
         String result = StringConcatenation.concatWithDifferentTypes(number, flag, value);
@@ -80,7 +80,7 @@ class StringConcatenationTest {
         System.out.println("Concatenation took " + duration + " ms");
 
         Assertions.assertThat(duration)
-            .as("Concatenation should complete in a reasonable time")
-            .isLessThan(1000); // Assuming it should take less than 1 second
+                .as("Concatenation should complete in a reasonable time")
+                .isLessThan(1000); // Assuming it should take less than 1 second
     }
 }

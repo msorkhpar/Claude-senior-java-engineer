@@ -1,6 +1,5 @@
 # 2.5. Sealed Classes and Interfaces
 
-
 ## Contents
 
 1. [2.5.1. Defining sealed classes and interfaces](README_2.5.1.md)

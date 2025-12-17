@@ -2,7 +2,9 @@ package com.github.msorkhpar.claudejavatutor.classobj;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+
 import static org.assertj.core.api.Assertions.*;
+
 import net.datafaker.Faker;
 
 class PersonTest {
@@ -40,8 +42,8 @@ class PersonTest {
     @Test
     void testSetAgeWithNegativeValue() {
         assertThatThrownBy(() -> person.setAge(-1))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Age cannot be negative");
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Age cannot be negative");
     }
 
     @Test

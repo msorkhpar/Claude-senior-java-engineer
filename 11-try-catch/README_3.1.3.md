@@ -1,14 +1,17 @@
 # 3.1.3 The finally block for cleanup operations
 
-The `finally` block is an essential component of Java's exception handling mechanism, primarily used for cleanup operations. It ensures that certain code is executed regardless of whether an exception occurs or not.
+The `finally` block is an essential component of Java's exception handling mechanism, primarily used for cleanup
+operations. It ensures that certain code is executed regardless of whether an exception occurs or not.
 
 ## Key Points
 
-1. The `finally` block is executed after the `try` and `catch` blocks, regardless of whether an exception was thrown or caught.
+1. The `finally` block is executed after the `try` and `catch` blocks, regardless of whether an exception was thrown or
+   caught.
 2. It's commonly used for cleanup operations like closing resources (files, database connections, etc.).
 3. The `finally` block is optional but can only be used in conjunction with a `try` block.
 4. If a `finally` block is present, it will execute even if the `try` or `catch` blocks contain a `return` statement.
-5. In rare cases, a `finally` block might not execute if the JVM exits abruptly or if the thread executing the `try` block is interrupted or killed.
+5. In rare cases, a `finally` block might not execute if the JVM exits abruptly or if the thread executing the `try`
+   block is interrupted or killed.
 
 ## Common Pitfalls
 
@@ -27,12 +30,13 @@ The `finally` block is an essential component of Java's exception handling mecha
 ## Edge Cases
 
 1. If the `try` block exits via a `return` statement, the `finally` block still executes before the method returns.
-2. If an exception is thrown in the `try` block and another in the `finally` block, the exception from the `finally` block is propagated, potentially masking the original exception.
+2. If an exception is thrown in the `try` block and another in the `finally` block, the exception from the `finally`
+   block is propagated, potentially masking the original exception.
 
 ## Interview Insights
 
-Interviewers often ask about the execution order of `try`, `catch`, and `finally` blocks, especially in complex scenarios involving exceptions and return statements. Be prepared to explain the flow control in various situations.
-
+Interviewers often ask about the execution order of `try`, `catch`, and `finally` blocks, especially in complex
+scenarios involving exceptions and return statements. Be prepared to explain the flow control in various situations.
 
 ## Interview Q&A Section
 
@@ -56,8 +60,8 @@ The `finally` block is an essential tool for writing robust, resource-safe Java 
 
 Q2: Will a `finally` block execute if there's a `return` statement in the `try` block? Provide an example.
 
-
 A2: Yes, the `finally` block will execute even if there's a `return` statement in the `try` block. Here's an example:
+
 ```java
 public class FinallyWithReturnDemo {
     public static int demonstrateFinally() {
@@ -80,7 +84,10 @@ public class FinallyWithReturnDemo {
 // In finally block
 // Method returned: 1
 ```
-In this example, even though the `try` block has a `return` statement, the `finally` block still executes before the method actually returns. The `finally` block is guaranteed to execute (barring JVM exit or thread death) regardless of how the `try` block exits, whether by normal completion, a `return` statement, or an exception.
+
+In this example, even though the `try` block has a `return` statement, the `finally` block still executes before the
+method actually returns. The `finally` block is guaranteed to execute (barring JVM exit or thread death) regardless of
+how the `try` block exits, whether by normal completion, a `return` statement, or an exception.
 
 Q3: What happens if both the `try` block and the `finally` block throw exceptions?
 
@@ -105,12 +112,15 @@ try {
 }
 ```
 
-In this case, the RuntimeException from the finally block will be thrown, and the IllegalArgumentException from the try block will be lost.
+In this case, the RuntimeException from the finally block will be thrown, and the IllegalArgumentException from the try
+block will be lost.
 
-To preserve information about both exceptions, you could catch the exception in the try block, store it, and then in the finally block, if you're forced to throw an exception, you can set the original exception as the cause of the new exception using the initCause() method.
-
+To preserve information about both exceptions, you could catch the exception in the try block, store it, and then in the
+finally block, if you're forced to throw an exception, you can set the original exception as the cause of the new
+exception using the initCause() method.
 
 ## Code Examples
 
-- Test: [FinallyBlockDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/FinallyBlockDemoTest.java)
+-
+Test: [FinallyBlockDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/FinallyBlockDemoTest.java)
 - Source: [FinallyBlockDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/FinallyBlockDemo.java)

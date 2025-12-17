@@ -1,6 +1,8 @@
 # 2.4.2. Advantages of Records over Traditional Classes
 
-Records, introduced in Java 14 and finalized in Java 16, offer several advantages over traditional classes, particularly for simple data carriers. This section explores these benefits and how they contribute to more concise, readable, and less error-prone code.
+Records, introduced in Java 14 and finalized in Java 16, offer several advantages over traditional classes, particularly
+for simple data carriers. This section explores these benefits and how they contribute to more concise, readable, and
+less error-prone code.
 
 ## Key Advantages
 
@@ -8,7 +10,8 @@ Records, introduced in Java 14 and finalized in Java 16, offer several advantage
 
 2. **Immutability by Default**: Records are implicitly final and their fields are final, promoting immutability.
 
-3. **Automatic Generation of Boilerplate Code**: Records automatically generate methods like `equals()`, `hashCode()`, and `toString()`.
+3. **Automatic Generation of Boilerplate Code**: Records automatically generate methods like `equals()`, `hashCode()`,
+   and `toString()`.
 
 4. **Clear Intent**: Records clearly communicate the purpose of the class as a simple data carrier.
 
@@ -33,17 +36,20 @@ Records, introduced in Java 14 and finalized in Java 16, offer several advantage
 
 ## Performance Considerations
 
-Records generally have similar performance characteristics to regular classes. However, their immutability can lead to better performance in concurrent scenarios and when used as keys in hash-based collections.
+Records generally have similar performance characteristics to regular classes. However, their immutability can lead to
+better performance in concurrent scenarios and when used as keys in hash-based collections.
 
 ## Interview Insights
 
-Interviewers often ask about the benefits of records and scenarios where they are most appropriate. Be prepared to discuss the trade-offs between records and traditional classes, and when you would choose one over the other.
+Interviewers often ask about the benefits of records and scenarios where they are most appropriate. Be prepared to
+discuss the trade-offs between records and traditional classes, and when you would choose one over the other.
 
 ## Interview Q&A
 
 Q1: What are the main advantages of using records over traditional classes?
 
 A1: The main advantages of records include:
+
 - Concise syntax for declaring data carrier classes
 - Automatic generation of boilerplate methods (equals, hashCode, toString)
 - Immutability by default
@@ -54,6 +60,7 @@ A1: The main advantages of records include:
 Q2: How do records promote immutability?
 
 A2: Records promote immutability in several ways:
+
 - Record classes are implicitly final, preventing inheritance
 - All fields (components) of a record are final by default
 - Records do not provide setter methods
@@ -62,6 +69,7 @@ A2: Records promote immutability in several ways:
 Q3: Can you modify the automatically generated methods in a record? If so, how?
 
 A3: Yes, you can modify the automatically generated methods in a record:
+
 - You can provide custom implementations for equals, hashCode, and toString methods
 - You can use compact constructors to validate or normalize the input data
 - You can add additional methods to the record
@@ -93,6 +101,7 @@ public record Person(String name, int age) {
 Q4: How do records improve code readability compared to traditional classes?
 
 A4: Records improve code readability in several ways:
+
 - The concise syntax clearly shows the structure and components of the data
 - The absence of boilerplate code (like getters, setters, equals, hashCode) reduces clutter
 - The immutability by default makes the code's intent clearer
@@ -101,10 +110,12 @@ A4: Records improve code readability in several ways:
 Q5: Are there any limitations to using records that developers should be aware of?
 
 A5: Yes, there are some limitations to records:
+
 - Records cannot extend other classes (except java.lang.Record)
 - All fields in a record are final, so they cannot have mutable state
 - Records are designed for use as simple data carriers and may not be suitable for complex domain objects
-- Records cannot declare instance fields other than the private final fields for the components of the record component list
+- Records cannot declare instance fields other than the private final fields for the components of the record component
+  list
 - Records cannot have explicit extends clause (other than java.lang.Record)
 
 ## Code Examples

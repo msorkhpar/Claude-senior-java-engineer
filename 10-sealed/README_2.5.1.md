@@ -1,6 +1,8 @@
 # 2.5.1 Defining Sealed Classes and Interfaces
 
-Sealed classes and interfaces, introduced in Java 15 and finalized in Java 17, provide a way to restrict which other classes or interfaces may extend or implement them. This feature enhances control over class hierarchies and enables more precise modeling of domain-specific relationships.
+Sealed classes and interfaces, introduced in Java 15 and finalized in Java 17, provide a way to restrict which other
+classes or interfaces may extend or implement them. This feature enhances control over class hierarchies and enables
+more precise modeling of domain-specific relationships.
 
 ## Key Points
 
@@ -39,18 +41,20 @@ public sealed interface Vehicle permits Car, Motorcycle, Truck { }
 ## Interview Insights
 
 Interviewers often ask about:
+
 - The purpose and benefits of sealed classes
 - How sealed classes differ from final classes or enums
 - The relationship between sealed classes and pattern matching
 - Use cases for sealed classes in API design and domain modeling
 
-
 Q1: What is the primary purpose of sealed classes in Java?
+
 ```text
 A1: The primary purpose of sealed classes in Java is to restrict which other classes can extend them. This allows developers to have more control over class hierarchies and enables more precise modeling of domain-specific relationships. Sealed classes provide a middle ground between regular inheritance (which is completely open) and final classes (which prevent any inheritance).
 ```
 
 Q2: How do you define a sealed class and its permitted subclasses?
+
 ```java
 public sealed class Animal permits Dog, Cat, Bird {
     // Class body
@@ -70,6 +74,7 @@ non-sealed class Bird extends Animal {
 ```
 
 Q3: What are the rules for subclasses of a sealed class?
+
 ```text
 A3: Subclasses of a sealed class must adhere to the following rules:
 1. They must be declared in the same module as the sealed class (or in the same package if the sealed class is in the unnamed module).
@@ -81,6 +86,7 @@ A3: Subclasses of a sealed class must adhere to the following rules:
 ```
 
 Q4: How do sealed classes differ from enums?
+
 ```text
 A4: While both sealed classes and enums represent a fixed set of possibilities, they differ in several ways:
 1. Instances: Enum constants are singleton instances, while sealed classes can have multiple instances of each subclass.
@@ -90,6 +96,7 @@ A4: While both sealed classes and enums represent a fixed set of possibilities, 
 ```
 
 Q5: Can you demonstrate how sealed classes improve pattern matching in switch expressions?
+
 ```java
 public String describeShape(Shape shape) {
     return switch (shape) {
@@ -101,6 +108,7 @@ public String describeShape(Shape shape) {
 ```
 
 Q6: What are some practical use cases for sealed classes in real-world applications?
+
 ```text
 A6: Sealed classes are useful in various scenarios:
 1. Domain modeling: Representing a fixed set of subtypes in a domain model, such as different types of financial transactions or document types.
@@ -113,5 +121,6 @@ A6: Sealed classes are useful in various scenarios:
 
 ## Code Examples
 
-- Test: [SealedClassesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassesTest.java)
+-
+Test: [SealedClassesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassesTest.java)
 - Source: [Shape.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/Shape.java)

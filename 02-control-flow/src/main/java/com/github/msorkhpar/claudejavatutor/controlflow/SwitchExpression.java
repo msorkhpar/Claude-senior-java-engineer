@@ -5,7 +5,7 @@ import java.util.logging.Logger;
 public class SwitchExpression {
     private static final Logger logger = Logger.getLogger(SwitchExpression.class.getName());
 
-    public enum Day { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY }
+    public enum Day {MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY}
 
     public String getDayType(Day day) {
         return switch (day) {

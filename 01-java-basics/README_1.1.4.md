@@ -130,9 +130,11 @@ When answering these questions, focus on:
 - Discussing performance implications where relevant
 
 ## References
+
 - [Java Language Specification - Operators](https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html#jls-15.17)
 - [Java Tutorials - Operators](https://docs.oracle.com/javase/tutorial/java/nutsandbolts/operators.html)
 
 ## Code Examples:
+
 - test: [OperatorsTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/javabasics/OperatorsTest.java)
 - source: [Operators.java](src/main/java/com/github/msorkhpar/claudejavatutor/javabasics/Operators.java)

@@ -12,6 +12,7 @@ Parameters are variables listed in the method declaration that specify the data 
 it's called. They act as placeholders for the actual values (arguments) that will be used when the method is invoked.
 
 Key points:
+
 - Parameters are defined in the method signature, enclosed in parentheses.
 - Multiple parameters are separated by commas.
 - Each parameter must have a type and a name.
@@ -23,6 +24,7 @@ The return type of a method specifies the type of data that the method will send
 It's declared before the method name in the method signature.
 
 Key points:
+
 - Every method must declare a return type.
 - If a method doesn't return any value, use the `void` keyword.
 - The `return` statement is used to send a value back from the method.
@@ -42,7 +44,7 @@ Key points:
 While method parameters and return types are fundamental concepts that haven't changed significantly, Java 21 introduces
 some features that can be relevant:
 
-1. Record Classes: Simplify the creation of data carrier classes, which can be useful when dealing with complex 
+1. Record Classes: Simplify the creation of data carrier classes, which can be useful when dealing with complex
 2. parameter or return types.
 2. Pattern Matching for switch: Can be useful when working with different parameter types.
 
@@ -79,19 +81,20 @@ some features that can be relevant:
 ## Interview-specific Insights
 
 Common interview questions often focus on:
+
 - The difference between pass-by-value and pass-by-reference.
 - How object references are passed to methods.
 - The implications of modifying parameters inside a method.
 - Best practices for method design, including parameter and return type choices.
 
-Interviewers may ask you to write methods with specific parameter and return type requirements, 
+Interviewers may ask you to write methods with specific parameter and return type requirements,
 or to explain the behavior of given code snippets.
-
 
 Q1: What is the difference between parameters and arguments in Java methods?
 A1:
-Parameters are the variables defined in the method declaration, while arguments are the actual values passed to 
+Parameters are the variables defined in the method declaration, while arguments are the actual values passed to
 the method when it is called. For example:
+
 ```java
 public void exampleMethod(int parameter) {  // 'parameter' is the parameter
     // Method body
@@ -108,16 +111,19 @@ A2:
 Java uses pass-by-value for both primitive types and object references, but the behavior appears different:
 
 For primitive types:
+
 - The actual value is copied and passed to the method.
 - Changes to the parameter inside the method do not affect the original value.
 
 For object references:
+
 - The value of the reference (memory address) is copied and passed to the method.
 - The method receives a copy of the reference, pointing to the same object.
-- Changes to the object's state are reflected outside the method, but reassigning the reference inside the method 
+- Changes to the object's state are reflected outside the method, but reassigning the reference inside the method
 - doesn't affect the original reference.
 
 Example:
+
 ```java
 
 
@@ -136,8 +142,9 @@ System.out.println(str);  // Outputs: Hello World
 Q3: What are varargs in Java and how are they used?
 A3:
 
-Varargs (variable-length arguments) allow a method to accept zero or more arguments of a specified type. They are 
+Varargs (variable-length arguments) allow a method to accept zero or more arguments of a specified type. They are
 denoted by ... after the type. For example:
+
 ```java
 public static int sum(int... numbers) {
     int total = 0;
@@ -152,11 +159,12 @@ sum(1, 2, 3);
 sum(10, 20);
 sum();
 ```
+
 Key points:
+
 1. Only one vararg parameter is allowed per method.
 2. The vararg parameter must be the last parameter in the method signature.
 3. Internally, varargs are treated as an array.
-
 
 Q4: How can a method return multiple values in Java?
 A4:
@@ -209,10 +217,12 @@ Java methods can only return a single value, but there are several ways to retur
 
 Q5: What is method overloading and how does it relate to method parameters?
 A5:
-Method overloading is a feature in Java that allows a class to have multiple methods with the same name but different 
-parameter lists. The compiler distinguishes between overloaded methods based on the number, type, and order of parameters.
+Method overloading is a feature in Java that allows a class to have multiple methods with the same name but different
+parameter lists. The compiler distinguishes between overloaded methods based on the number, type, and order of
+parameters.
 
 Example:
+
 ```java
 public class Calculator {
     public int add(int a, int b) {
@@ -228,16 +238,20 @@ public class Calculator {
     }
 }
 ```
+
 Key points:
+
 1. Overloaded methods must have different parameter lists.
 2. Return type alone is not sufficient to distinguish overloaded methods.
 3. It improves code readability and allows for more intuitive method names.
 4. The compiler determines which method to call based on the arguments provided at the call site.
 
-These examples and explanations should provide a comprehensive understanding of method parameters and return types 
+These examples and explanations should provide a comprehensive understanding of method parameters and return types
 in Java, suitable for a senior Java engineer interview preparation.
 
 ## Code Examples
 
-- Test: [MethodParametersAndReturnTypesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypesTest.java)
-- Source: [MethodParametersAndReturnTypes.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypes.java)
+-
+Test: [MethodParametersAndReturnTypesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypesTest.java)
+-
+Source: [MethodParametersAndReturnTypes.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypes.java)

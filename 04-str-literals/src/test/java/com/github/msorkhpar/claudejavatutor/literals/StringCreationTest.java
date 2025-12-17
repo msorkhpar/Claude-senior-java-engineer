@@ -1,6 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.literals;
 
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
 
 class StringCreationTest {

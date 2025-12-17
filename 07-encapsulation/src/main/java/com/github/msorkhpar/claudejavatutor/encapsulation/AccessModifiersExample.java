@@ -29,10 +29,17 @@ public class AccessModifiersExample {
     }
 
     // Inner class to demonstrate access modifiers on nested classes
-    public class PublicInnerClass {}
-    protected class ProtectedInnerClass {}
-    class DefaultInnerClass {}
-    private class PrivateInnerClass {}
+    public class PublicInnerClass {
+    }
+
+    protected class ProtectedInnerClass {
+    }
+
+    class DefaultInnerClass {
+    }
+
+    private class PrivateInnerClass {
+    }
 }
 
 // This class is used to test default access within the same package

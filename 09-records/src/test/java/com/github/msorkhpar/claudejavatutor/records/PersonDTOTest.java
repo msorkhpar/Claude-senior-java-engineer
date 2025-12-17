@@ -3,6 +3,7 @@ package com.github.msorkhpar.claudejavatutor.records;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+
 import static org.assertj.core.api.Assertions.*;
 
 class PersonDTOTest {
@@ -25,30 +26,30 @@ class PersonDTOTest {
 
     @ParameterizedTest
     @CsvSource({
-        ", 30, john@example.com",
-        "'', 30, john@example.com"
+            ", 30, john@example.com",
+            "'', 30, john@example.com"
     })
     void testInvalidName(String name, int age, String email) {
         assertThatThrownBy(() -> new PersonDTO(name, age, email))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Name cannot be null or empty");
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Name cannot be null or empty");
     }
 
     @Test
     void testInvalidAge() {
         assertThatThrownBy(() -> new PersonDTO("John Doe", -1, "john@example.com"))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Age cannot be negative");
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Age cannot be negative");
     }
 
     @ParameterizedTest
     @CsvSource({
-        "John Doe, 30, ",
-        "John Doe, 30, invalidemail"
+            "John Doe, 30, ",
+            "John Doe, 30, invalidemail"
     })
     void testInvalidEmail(String name, int age, String email) {
         assertThatThrownBy(() -> new PersonDTO(name, age, email))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Invalid email format");
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid email format");
     }
 }

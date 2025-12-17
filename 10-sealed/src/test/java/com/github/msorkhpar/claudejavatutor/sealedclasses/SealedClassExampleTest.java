@@ -2,6 +2,7 @@ package com.github.msorkhpar.claudejavatutor.trycatch;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
@@ -38,9 +39,9 @@ class SealedClassExampleTest {
     @Test
     void testExhaustivePatternMatching() {
         SealedClassExample.Shape[] shapes = {
-            example.new Circle(2),
-            example.new Square(3),
-            example.new Triangle(4, 5)
+                example.new Circle(2),
+                example.new Square(3),
+                example.new Triangle(4, 5)
         };
 
         for (SealedClassExample.Shape shape : shapes) {

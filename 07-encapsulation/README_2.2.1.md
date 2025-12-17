@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-Access modifiers in Java are keywords used to control the visibility and accessibility of classes, methods, and variables. They are a fundamental aspect of encapsulation, one of the four pillars of Object-Oriented Programming (OOP). Java provides four types of access modifiers:
+Access modifiers in Java are keywords used to control the visibility and accessibility of classes, methods, and
+variables. They are a fundamental aspect of encapsulation, one of the four pillars of Object-Oriented Programming (OOP).
+Java provides four types of access modifiers:
 
 1. Public
 2. Private
@@ -27,6 +29,7 @@ These modifiers help in implementing data hiding, maintaining code security, and
 - Used when you want to make a class, method, or variable accessible to all parts of your application.
 
 Example:
+
 ```java
 public class PublicExample {
     public int publicVariable = 10;
@@ -43,6 +46,7 @@ public class PublicExample {
 - Used to hide implementation details and protect data from unauthorized access.
 
 Example:
+
 ```java
 public class PrivateExample {
     private int privateVariable = 20;
@@ -59,6 +63,7 @@ public class PrivateExample {
 - Used when you want to allow access to subclasses but restrict access to unrelated classes.
 
 Example:
+
 ```java
 public class ProtectedExample {
     protected int protectedVariable = 30;
@@ -75,6 +80,7 @@ public class ProtectedExample {
 - Used when you want to restrict access to classes within the same package.
 
 Example:
+
 ```java
 class DefaultExample {
     int defaultVariable = 40;
@@ -108,12 +114,12 @@ class DefaultExample {
 - Understand how access modifiers relate to encapsulation and information hiding.
 - Be able to discuss the trade-offs between accessibility and security.
 
-
 ## Interview Q&A Section
 
 Q1: What are the four access modifiers in Java, and how do they differ?
 
 A1:
+
 ```text
 The four access modifiers in Java are:
 
@@ -128,6 +134,7 @@ They differ in their level of accessibility, with public being the most accessib
 Q2: Can you apply all access modifiers to top-level classes? Why or why not?
 
 A2:
+
 ```text
 No, you cannot apply all access modifiers to top-level classes. Only public and default (package-private) access modifiers can be applied to top-level classes.
 
@@ -144,6 +151,7 @@ However, all four access modifiers can be applied to inner classes.
 Q3: What is the difference between protected and default access modifiers?
 
 A3:
+
 ```text
 The main differences between protected and default access modifiers are:
 
@@ -169,6 +177,7 @@ In summary, protected provides a wider scope of accessibility compared to defaul
 Q4: How would you implement a singleton class using access modifiers?
 
 A4:
+
 ```java
 public class Singleton {
     private static Singleton instance;
@@ -187,6 +196,7 @@ public class Singleton {
 ```
 
 This implementation uses:
+
 - A private constructor to prevent direct instantiation.
 - A private static variable to hold the single instance.
 - A public static method to provide controlled access to the instance.
@@ -194,6 +204,7 @@ This implementation uses:
 Q5: What happens if you don't specify an access modifier for a class or class member?
 
 A5:
+
 ```text
 If you don't specify an access modifier for a class or class member, it defaults to package-private (also known as default) access. This means:
 
@@ -207,5 +218,7 @@ Best practice is to always explicitly declare access modifiers to make your inte
 
 ## Code Examples
 
-- Test: [AccessModifiersExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExampleTest.java)
-- Source: [AccessModifiersExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExample.java)
+-
+Test: [AccessModifiersExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExampleTest.java)
+-
+Source: [AccessModifiersExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExample.java)

@@ -19,13 +19,13 @@ class SwitchStatementTest {
 
     @ParameterizedTest
     @CsvSource({
-        "Monday, Weekday",
-        "TUESDAY, Weekday",
-        "wednesday, Weekday",
-        "Thursday, Weekday",
-        "Friday, Weekday",
-        "Saturday, Weekend",
-        "SUNDAY, Weekend"
+            "Monday, Weekday",
+            "TUESDAY, Weekday",
+            "wednesday, Weekday",
+            "Thursday, Weekday",
+            "Friday, Weekday",
+            "Saturday, Weekend",
+            "SUNDAY, Weekend"
     })
     void getDayType_shouldReturnCorrectDayType(String day, String expectedDayType) {
         assertThat(demo.getDayType(day)).isEqualTo(expectedDayType);
@@ -38,11 +38,11 @@ class SwitchStatementTest {
 
     @ParameterizedTest
     @CsvSource({
-        "1, 2023, 31",
-        "2, 2023, 28",
-        "2, 2024, 29",
-        "4, 2023, 30",
-        "12, 2023, 31"
+            "1, 2023, 31",
+            "2, 2023, 28",
+            "2, 2024, 29",
+            "4, 2023, 30",
+            "12, 2023, 31"
     })
     void getMonthDays_shouldReturnCorrectDays(int month, int year, int expectedDays) {
         assertThat(demo.getMonthDays(month, year)).isEqualTo(expectedDays);
@@ -55,11 +55,11 @@ class SwitchStatementTest {
 
     @ParameterizedTest
     @CsvSource({
-        "1, Winter",
-        "3, Spring",
-        "7, Summer",
-        "10, Fall",
-        "12, Winter"
+            "1, Winter",
+            "3, Spring",
+            "7, Summer",
+            "10, Fall",
+            "12, Winter"
     })
     void getSeasonForMonth_shouldReturnCorrectSeason(int month, String expectedSeason) {
         assertThat(demo.getSeasonForMonth(month)).isEqualTo(expectedSeason);

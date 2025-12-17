@@ -1,13 +1,17 @@
 # 3.2.1. Creating Custom Exception Classes
 
-Custom exceptions are user-defined exception classes that extend existing Java exception classes. They allow developers to create specific exception types for their application's unique error conditions.
+Custom exceptions are user-defined exception classes that extend existing Java exception classes. They allow developers
+to create specific exception types for their application's unique error conditions.
 
 ## Key points:
-- Custom exceptions typically extend `Exception` (for checked exceptions) or `RuntimeException` (for unchecked exceptions).
+
+- Custom exceptions typically extend `Exception` (for checked exceptions) or `RuntimeException` (for unchecked
+  exceptions).
 - They should have meaningful names that describe the error condition.
 - Include constructors that allow passing error messages and cause exceptions.
 
 Example:
+
 ```java
 public class InvalidUserInputException extends Exception {
     public InvalidUserInputException(String message) {
@@ -22,14 +26,18 @@ public class InvalidUserInputException extends Exception {
 
 ## 3.2.2. Throwing Exceptions Using the `throw` Keyword
 
-The `throw` keyword is used to explicitly throw an exception in Java. It's followed by an instance of the exception class you want to throw.
+The `throw` keyword is used to explicitly throw an exception in Java. It's followed by an instance of the exception
+class you want to throw.
 
 Key points:
+
 - Use `throw` when a specific error condition is met.
 - You can throw both built-in and custom exceptions.
-- After throwing an exception, the current method execution stops, and control is transferred to the nearest matching catch block.
+- After throwing an exception, the current method execution stops, and control is transferred to the nearest matching
+  catch block.
 
 Example:
+
 ```java
 if (userInput.isEmpty()) {
     throw new InvalidUserInputException("User input cannot be empty");
@@ -41,10 +49,12 @@ if (userInput.isEmpty()) {
 When creating and using custom exceptions, follow these best practices:
 
 1. Use descriptive names: Name your custom exceptions clearly to indicate the error condition they represent.
-2. Extend the appropriate exception class: Choose between extending `Exception` or `RuntimeException` based on whether you want a checked or unchecked exception.
+2. Extend the appropriate exception class: Choose between extending `Exception` or `RuntimeException` based on whether
+   you want a checked or unchecked exception.
 3. Include constructors: Provide constructors that accept error messages and cause exceptions.
 4. Add custom information: If needed, include additional fields or methods to provide more context about the error.
-5. Use custom exceptions judiciously: Create custom exceptions only for truly unique error conditions specific to your application domain.
+5. Use custom exceptions judiciously: Create custom exceptions only for truly unique error conditions specific to your
+   application domain.
 6. Document your exceptions: Use Javadoc to describe when and why the exception might be thrown.
 7. Keep the exception hierarchy shallow: Avoid creating deep hierarchies of custom exceptions.
 8. Follow naming conventions: End the exception class name with "Exception".
@@ -54,18 +64,21 @@ When creating and using custom exceptions, follow these best practices:
 Java has two main categories of exceptions: checked and unchecked.
 
 Checked Exceptions:
+
 - Extend `Exception` (but not `RuntimeException`).
 - Must be declared in the method signature using the `throws` clause or handled using try-catch.
 - Represent recoverable errors that the calling code should be aware of.
 - Examples: `IOException`, `SQLException`
 
 Unchecked Exceptions:
+
 - Extend `RuntimeException`.
 - Don't need to be declared or caught explicitly.
 - Represent programming errors or unrecoverable conditions.
 - Examples: `NullPointerException`, `IllegalArgumentException`
 
 When to use each:
+
 - Use checked exceptions for recoverable errors that the caller should be aware of and might want to handle.
 - Use unchecked exceptions for programming errors or unrecoverable situations.
 
@@ -73,7 +86,10 @@ When to use each:
 
 Q1: What's the difference between throwing a custom exception and a built-in Java exception?
 
-A1: The main difference lies in the specificity and context provided by the custom exception. Custom exceptions allow you to create error types specific to your application's domain, making the code more readable and maintainable. They can also include additional information relevant to your application. Built-in Java exceptions are more general-purpose and may not convey the exact nature of the error in your specific use case.
+A1: The main difference lies in the specificity and context provided by the custom exception. Custom exceptions allow
+you to create error types specific to your application's domain, making the code more readable and maintainable. They
+can also include additional information relevant to your application. Built-in Java exceptions are more general-purpose
+and may not convey the exact nature of the error in your specific use case.
 
 Here's an example of throwing a custom exception vs. a built-in exception:
 
@@ -91,7 +107,8 @@ if (user.getAge() < 18) {
 
 Q2: How do you decide whether to create a checked or unchecked custom exception?
 
-A2: The decision to create a checked or unchecked custom exception depends on the nature of the error and how you expect it to be handled:
+A2: The decision to create a checked or unchecked custom exception depends on the nature of the error and how you expect
+it to be handled:
 
 - Use checked exceptions when:
     1. The error is recoverable.
@@ -104,6 +121,7 @@ A2: The decision to create a checked or unchecked custom exception depends on th
     3. Forcing every caller to handle the exception would lead to cluttered code.
 
 Example scenario:
+
 ```java
 // Checked exception - recoverable, caller should be aware
 public class InsufficientFundsException extends Exception {
@@ -166,8 +184,6 @@ public class InsufficientFundsException extends Exception {
     }
 }
 ```
-
-
 
 ## Code Examples
 

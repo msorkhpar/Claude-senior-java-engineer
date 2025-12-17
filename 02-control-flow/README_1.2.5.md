@@ -2,9 +2,12 @@
 
 ## Concept Explanation
 
-Switch expressions, introduced as a standard feature in Java 14, are an enhancement to the traditional switch statement. They provide a more concise and expressive way to write multi-way conditionals, allowing the switch construct to be used as an expression that returns a value.
+Switch expressions, introduced as a standard feature in Java 14, are an enhancement to the traditional switch statement.
+They provide a more concise and expressive way to write multi-way conditionals, allowing the switch construct to be used
+as an expression that returns a value.
 
 Key features of switch expressions include:
+
 1. Arrow syntax (`->`) for concise case labels
 2. Multiple case labels per branch
 3. No fall-through between cases (unless explicitly stated)
@@ -59,6 +62,7 @@ Key features of switch expressions include:
 Q1: What are the main advantages of switch expressions over traditional switch statements?
 
 A1: Switch expressions offer several advantages:
+
 1. Conciseness: They allow for more compact code, especially with the arrow syntax.
 2. Safety: They eliminate accidental fall-through between cases.
 3. Expressiveness: They can be used as expressions, returning values directly.
@@ -102,7 +106,8 @@ String result = switch (day) {
 
 Q2: How do you handle multi-statement logic in a switch expression case?
 
-A2: For cases that require multiple statements, you can use a block with the `yield` keyword to return a value. Here's an example:
+A2: For cases that require multiple statements, you can use a block with the `yield` keyword to return a value. Here's
+an example:
 
 ```java
 int result = switch (status) {
@@ -121,7 +126,9 @@ int result = switch (status) {
 
 Q3: How does exhaustiveness checking work in switch expressions?
 
-A3: The compiler performs exhaustiveness checking for switch expressions, ensuring that all possible values of the switched variable are handled. This is particularly useful for enum types and sealed classes. If not all cases are covered, you'll get a compilation error. You can use a default case to catch any unhandled values:
+A3: The compiler performs exhaustiveness checking for switch expressions, ensuring that all possible values of the
+switched variable are handled. This is particularly useful for enum types and sealed classes. If not all cases are
+covered, you'll get a compilation error. You can use a default case to catch any unhandled values:
 
 ```java
 enum Color { RED, GREEN, BLUE }
@@ -139,7 +146,8 @@ String shade = switch (color) {
 
 Q4: Can you use switch expressions with null values?
 
-A4: Switch expressions don't handle null values by default. Attempting to switch on a null value will result in a NullPointerException. To handle potential null values, you should perform a null check before the switch expression:
+A4: Switch expressions don't handle null values by default. Attempting to switch on a null value will result in a
+NullPointerException. To handle potential null values, you should perform a null check before the switch expression:
 
 ```java
 String result = (obj == null) ? "Null input" : switch (obj) {
@@ -151,7 +159,9 @@ String result = (obj == null) ? "Null input" : switch (obj) {
 
 Q5: How do switch expressions interact with pattern matching in Java 21 (preview feature)?
 
-A5: Pattern matching in switch, introduced as a preview feature in Java 21, enhances switch expressions by allowing you to match against patterns, including type patterns and guarded patterns. This makes switch expressions even more powerful:
+A5: Pattern matching in switch, introduced as a preview feature in Java 21, enhances switch expressions by allowing you
+to match against patterns, including type patterns and guarded patterns. This makes switch expressions even more
+powerful:
 
 ```java
 Object obj = // some object
@@ -164,4 +174,5 @@ String result = switch (obj) {
 };
 ```
 
-This feature combines the conciseness of switch expressions with the power of pattern matching, allowing for more expressive and type-safe code.
+This feature combines the conciseness of switch expressions with the power of pattern matching, allowing for more
+expressive and type-safe code.

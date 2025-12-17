@@ -3,6 +3,7 @@ package com.github.msorkhpar.claudejavatutor.javabasics;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+
 import static org.assertj.core.api.Assertions.*;
 
 class OperatorsTest {
@@ -34,7 +35,7 @@ class OperatorsTest {
     @Test
     void testDivideByZero() {
         assertThatExceptionOfType(ArithmeticException.class)
-            .isThrownBy(() -> Operators.divide(5, 0));
+                .isThrownBy(() -> Operators.divide(5, 0));
     }
 
     @ParameterizedTest
@@ -46,7 +47,7 @@ class OperatorsTest {
     @Test
     void testModulusByZero() {
         assertThatExceptionOfType(ArithmeticException.class)
-            .isThrownBy(() -> Operators.modulus(5, 0));
+                .isThrownBy(() -> Operators.modulus(5, 0));
     }
 
     @Test

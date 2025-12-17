@@ -63,6 +63,7 @@ non-sealed class Triangle extends Shape {
 // Sealed interface example
 sealed interface Vehicle permits Car, Motorcycle, Truck {
     String getType();
+
     int getWheels();
 }
 

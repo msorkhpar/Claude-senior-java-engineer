@@ -1,6 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.oo;
 
 import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.*;
 
 class ShapeTest {
@@ -24,8 +25,8 @@ class ShapeTest {
     @Test
     void testPolymorphism() {
         Shape[] shapes = {
-            new Circle("Green", 3.0),
-            new Rectangle("Yellow", 2.0, 3.0)
+                new Circle("Green", 3.0),
+                new Rectangle("Yellow", 2.0, 3.0)
         };
 
         assertThat(shapes[0].calculateArea()).isCloseTo(28.27, within(0.01));

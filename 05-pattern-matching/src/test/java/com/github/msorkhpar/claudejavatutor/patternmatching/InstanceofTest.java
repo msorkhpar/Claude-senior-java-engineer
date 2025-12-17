@@ -19,11 +19,11 @@ class InstanceofTest {
 
     private static Stream<Arguments> provideObjectsForTypeCheck() {
         return Stream.of(
-            Arguments.of("Hello", "String"),
-            Arguments.of(42, "Integer"),
-            Arguments.of(3.14, "Double"),
-            Arguments.of(new Object[]{"array"}, "Object Array"),
-            Arguments.of(new Object(), "Other")
+                Arguments.of("Hello", "String"),
+                Arguments.of(42, "Integer"),
+                Arguments.of(3.14, "Double"),
+                Arguments.of(new Object[]{"array"}, "Object Array"),
+                Arguments.of(new Object(), "Other")
         );
     }
 
@@ -41,11 +41,11 @@ class InstanceofTest {
 
     private static Stream<Arguments> provideObjectsForNumberCheck() {
         return Stream.of(
-            Arguments.of(42, true),
-            Arguments.of(3.14, true),
-            Arguments.of(Long.valueOf(1000L), true),
-            Arguments.of("42", false),
-            Arguments.of(new Object(), false)
+                Arguments.of(42, true),
+                Arguments.of(3.14, true),
+                Arguments.of(Long.valueOf(1000L), true),
+                Arguments.of("42", false),
+                Arguments.of(new Object(), false)
         );
     }
 
@@ -57,11 +57,11 @@ class InstanceofTest {
 
     private static Stream<Arguments> provideObjectsForStringOrNumberCheck() {
         return Stream.of(
-            Arguments.of("Hello", true),
-            Arguments.of(42, true),
-            Arguments.of(3.14, true),
-            Arguments.of(new Object(), false),
-            Arguments.of(null, false)
+                Arguments.of("Hello", true),
+                Arguments.of(42, true),
+                Arguments.of(3.14, true),
+                Arguments.of(new Object(), false),
+                Arguments.of(null, false)
         );
     }
 }

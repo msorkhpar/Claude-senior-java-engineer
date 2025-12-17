@@ -2,7 +2,8 @@
 
 ## Concept Explanation
 
-Switch statements in Java provide a way to execute different code blocks based on the value of an expression. They offer an alternative to multiple if-else statements when comparing a single variable against several possible values.
+Switch statements in Java provide a way to execute different code blocks based on the value of an expression. They offer
+an alternative to multiple if-else statements when comparing a single variable against several possible values.
 
 ## Key Points to Remember
 
@@ -14,7 +15,8 @@ Switch statements in Java provide a way to execute different code blocks based o
 
 ## Java 21 Features
 
-While switch statements themselves haven't changed significantly in Java 21, it's worth noting that Java 14 introduced switch expressions, which offer more concise syntax and eliminate the need for break statements.
+While switch statements themselves haven't changed significantly in Java 21, it's worth noting that Java 14 introduced
+switch expressions, which offer more concise syntax and eliminate the need for break statements.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -39,19 +41,21 @@ While switch statements themselves haven't changed significantly in Java 21, it'
 ## Interview-specific Insights
 
 Interviewers often ask about:
+
 - Differences between `switch` and `if-else`
 - Fall-through behavior and its uses
 - Handling of `String` cases (case-sensitive comparison)
 - Performance implications of `switch` vs `if-else`
 
-
 Q1: What are the main differences between `switch` statements and `if-else` chains?
 
 A1: The main differences are:
+
 1. `switch` can only compare equality, while `if-else` can use any boolean expression.
 2. `switch` is generally more readable and potentially more efficient for multiple equality comparisons.
 3. `switch` can have fall-through behavior, which `if-else` doesn't have.
-4. `switch` works with a limited set of data types (int, byte, short, char, String, enum), while `if-else` can work with any type.
+4. `switch` works with a limited set of data types (int, byte, short, char, String, enum), while `if-else` can work with
+   any type.
 
 ```java
 // switch example
@@ -78,7 +82,7 @@ if (value == 1) {
 
 Q2: Explain the fall-through behavior in switch statements and when it might be useful.
 
-A2: Fall-through behavior occurs when a `break` statement is omitted in a case, causing execution to continue to the 
+A2: Fall-through behavior occurs when a `break` statement is omitted in a case, causing execution to continue to the
 next case. It can be useful when you want multiple cases to execute the same code. For example:
 
 ```java
@@ -101,7 +105,7 @@ In this example, the fall-through behavior allows us to group weekdays together 
 
 Q3: How does Java handle `String` comparisons in switch statements?
 
-A3: Java uses the `equals()` method to compare `String` values in switch statements. The comparison is case-sensitive. 
+A3: Java uses the `equals()` method to compare `String` values in switch statements. The comparison is case-sensitive.
 Internally, Java optimizes this by using the hash codes of the strings. Here's an example:
 
 ```java
@@ -122,13 +126,14 @@ It's important to note that if `fruit` is `null`, this will throw a `NullPointer
 
 Q4: What are the performance implications of using `switch` vs `if-else`?
 
-A4: In general, `switch` statements can be more efficient than equivalent `if-else` chains, especially when there are 
-many cases. This is because the Java compiler can optimize switch statements into a jump table or a binary search, depending on the case values and their distribution.
+A4: In general, `switch` statements can be more efficient than equivalent `if-else` chains, especially when there are
+many cases. This is because the Java compiler can optimize switch statements into a jump table or a binary search,
+depending on the case values and their distribution.
 
-For a small number of cases (typically less than 5), the performance difference is negligible. 
+For a small number of cases (typically less than 5), the performance difference is negligible.
 For a large number of cases, especially with integer values, `switch` can be significantly faster.
 
-However, the actual performance can vary based on the specific use case and the Java version. It's always best to 
+However, the actual performance can vary based on the specific use case and the Java version. It's always best to
 profile your code if performance is critical.
 
 ```java
@@ -150,9 +155,8 @@ if (value == 1) { // O(n) time complexity in worst case
 
 Remember, readability and maintainability should usually be prioritized over small performance gains.
 
-
-
 ## Code Examples
 
-- Test: [SwitchStatementTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchStatementTest.java)
+-
+Test: [SwitchStatementTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchStatementTest.java)
 - Source: [SwitchStatement.java](src/main/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchStatement.java)

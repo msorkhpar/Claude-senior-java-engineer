@@ -29,7 +29,8 @@ A typical Java class consists of the following components:
 
 ## Common Pitfalls and How to Avoid Them
 
-1. **Overusing public fields**: Encapsulate fields by making them private and providing public getter and setter methods.
+1. **Overusing public fields**: Encapsulate fields by making them private and providing public getter and setter
+   methods.
 2. **Forgetting to initialize fields**: Always initialize fields, either at declaration or in constructors.
 3. **Not following naming conventions**: Use PascalCase for class names and camelCase for method and variable names.
 
@@ -43,7 +44,8 @@ A typical Java class consists of the following components:
 
 ## Edge Cases and Their Handling
 
-1. **Circular Dependencies**: Avoid circular dependencies between classes. Use interfaces or redesign the class structure if necessary.
+1. **Circular Dependencies**: Avoid circular dependencies between classes. Use interfaces or redesign the class
+   structure if necessary.
 2. **Deep Inheritance Hierarchies**: Limit inheritance depth to maintain code clarity and reduce complexity.
 
 ## Interview-specific Insights
@@ -52,8 +54,8 @@ A typical Java class consists of the following components:
 - Understand the importance of encapsulation and how it's achieved in Java.
 - Be able to discuss the pros and cons of using nested classes.
 
-
 Q1: What are the main components of a Java class?
+
 ```text
 A: The main components of a Java class are:
 1. Class declaration
@@ -66,6 +68,7 @@ Each component plays a specific role in defining the structure and behavior of o
 ```
 
 Q2: How would you implement a simple immutable class in Java?
+
 ```java
 public final class ImmutablePerson {
     private final String name;
@@ -87,6 +90,7 @@ public final class ImmutablePerson {
 ```
 
 Q3: What is the difference between instance and static members of a class?
+
 ```text
 A: Instance members are associated with specific instances (objects) of a class, while static members are associated with the class itself.
 
@@ -103,6 +107,7 @@ Static members:
 ```
 
 Q4: How would you implement a singleton class in Java?
+
 ```java
 public class Singleton {
     private static Singleton instance;
@@ -119,6 +124,7 @@ public class Singleton {
 ```
 
 Q5: What is the purpose of the `final` keyword when applied to a class, method, or variable?
+
 ```text
 A: The `final` keyword has different effects depending on where it's used:
 
@@ -131,8 +137,8 @@ A: The `final` keyword has different effects depending on where it's used:
 Using `final` can help in creating immutable classes, preventing unintended overriding, and optimizing performance in certain cases.
 ```
 
-These Q&A examples cover important aspects of class structure and components, including immutability, static vs 
-instance members, singleton pattern, and the use of the `final` keyword. They provide a good foundation for 
+These Q&A examples cover important aspects of class structure and components, including immutability, static vs
+instance members, singleton pattern, and the use of the `final` keyword. They provide a good foundation for
 understanding and discussing Java class design in an interview setting.
 
 ## Code Examples

@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-The `if/else` statement in Java is a fundamental control flow construct that allows you to execute different blocks of code based on specified conditions. It enables your program to make decisions and choose different paths of execution depending on whether certain conditions are true or false.
+The `if/else` statement in Java is a fundamental control flow construct that allows you to execute different blocks of
+code based on specified conditions. It enables your program to make decisions and choose different paths of execution
+depending on whether certain conditions are true or false.
 
 ## Key Points to Remember
 
@@ -39,7 +41,8 @@ The `if/else` statement in Java is a fundamental control flow construct that all
 
 ## Java 21 Features
 
-While `if/else` statements haven't changed significantly, Java 21 introduces pattern matching in `if` statements (preview feature), allowing for more concise and expressive code:
+While `if/else` statements haven't changed significantly, Java 21 introduces pattern matching in `if` statements (
+preview feature), allowing for more concise and expressive code:
 
 ```java
 if (obj instanceof String s && s.length() > 5) {
@@ -77,6 +80,7 @@ if (obj instanceof String s && s.length() > 5) {
 
 - [Java Language Specification - The if Statement](https://docs.oracle.com/javase/specs/jls/se21/html/jls-14.html#jls-14.9)
 - [Oracle Java Tutorials - The if-then and if-then-else Statements](https://docs.oracle.com/javase/tutorial/java/nutsandbolts/if.html)
+
 ```
 
 Now, let's move on to the Interview Q&A section:
@@ -92,9 +96,14 @@ if (0 == x) {
     System.out.println("x is zero (Yoda condition)");
 }
 ```
-A1: Both conditions are logically equivalent and will produce the same result. The second form (`0 == x`) is sometimes called a "Yoda condition". In languages like C, where assignment `=` can be mistakenly used instead of comparison `==`, Yoda conditions can prevent accidental assignments. In Java, this is less of an issue because the compiler will catch most of these errors. Generally, the first form (`x == 0`) is more readable and commonly used in Java.
+
+A1: Both conditions are logically equivalent and will produce the same result. The second form (`0 == x`) is sometimes
+called a "Yoda condition". In languages like C, where assignment `=` can be mistakenly used instead of comparison `==`,
+Yoda conditions can prevent accidental assignments. In Java, this is less of an issue because the compiler will catch
+most of these errors. Generally, the first form (`x == 0`) is more readable and commonly used in Java.
 
 Q2: How can you use `if/else` statements to implement absolute value function?
+
 ```java
 public static int abs(int number) {
     if (number < 0) {
@@ -104,9 +113,13 @@ public static int abs(int number) {
     }
 }
 ```
-A2: This implementation uses an `if/else` statement to check if the number is negative. If it is, it returns the negation of the number (making it positive). Otherwise, it returns the number as is. This effectively implements the absolute value function.
+
+A2: This implementation uses an `if/else` statement to check if the number is negative. If it is, it returns the
+negation of the number (making it positive). Otherwise, it returns the number as is. This effectively implements the
+absolute value function.
 
 Q3: What's wrong with the following code, and how would you fix it?
+
 ```java
 if (score >= 90)
     System.out.println("A");
@@ -118,12 +131,16 @@ if (score >= 70)
 else
     System.out.println("Needs improvement");
 ```
+
 A3: There are several issues with this code:
-1. The first `if` statement is missing curly braces, so only the first `println` is part of the `if` block. The "Excellent!" message will always print.
+
+1. The first `if` statement is missing curly braces, so only the first `println` is part of the `if` block. The "
+   Excellent!" message will always print.
 2. The conditions are not mutually exclusive, so multiple grade letters could print for a single score.
 3. The `else` is associated with the last `if`, which might not be the intent.
 
 Here's a corrected version:
+
 ```java
 if (score >= 90) {
     System.out.println("A");
@@ -138,19 +155,22 @@ if (score >= 90) {
 ```
 
 Q4: Explain the ternary operator and provide an example of its usage.
+
 ```java
 int age = 20;
 String status = (age >= 18) ? "Adult" : "Minor";
 System.out.println(status);  // Outputs: Adult
 ```
+
 A4: The ternary operator is a shorthand way of writing a simple if/else statement. It has the form:
+
 ```
 condition ? expression1 : expression2
 ```
-If the condition is true, expression1 is evaluated and becomes the result. If the condition is false, expression2 is 
+
+If the condition is true, expression1 is evaluated and becomes the result. If the condition is false, expression2 is
 evaluated and becomes the result. In the example, we check if age is greater than or equal to 18. If true, "Adult" is
 assigned to status; otherwise, "Minor" is assigned.
-
 
 ## Code Examples
 

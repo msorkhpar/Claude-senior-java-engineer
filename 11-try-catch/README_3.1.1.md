@@ -2,7 +2,8 @@
 
 ## Concept Explanation
 
-Exception handling in Java is a mechanism to deal with runtime errors and exceptional situations that may occur during program execution. The `try/catch` block is the fundamental construct for handling exceptions in Java.
+Exception handling in Java is a mechanism to deal with runtime errors and exceptional situations that may occur during
+program execution. The `try/catch` block is the fundamental construct for handling exceptions in Java.
 
 The basic syntax of a try/catch block is as follows:
 
@@ -25,16 +26,19 @@ try {
 
 ## Relevant Java 21 Features
 
-While the basic concept of try/catch remains the same, Java 21 continues to support and encourage the use of more specific exception handling introduced in earlier versions:
+While the basic concept of try/catch remains the same, Java 21 continues to support and encourage the use of more
+specific exception handling introduced in earlier versions:
 
 - Pattern matching in catch blocks (preview feature in Java 21)
 - Multi-catch statements (introduced in Java 7)
 
 ## Common Pitfalls and How to Avoid Them
 
-1. **Catching Exception**: Avoid catching the generic `Exception` class unless absolutely necessary. It can mask other important exceptions and make debugging difficult.
+1. **Catching Exception**: Avoid catching the generic `Exception` class unless absolutely necessary. It can mask other
+   important exceptions and make debugging difficult.
 2. **Empty catch blocks**: Never leave catch blocks empty. At the very least, log the exception.
-3. **Catching and rethrowing**: Be cautious when catching an exception only to rethrow it immediately, as this can lose the original stack trace.
+3. **Catching and rethrowing**: Be cautious when catching an exception only to rethrow it immediately, as this can lose
+   the original stack trace.
 
 ## Best Practices and Optimization Techniques
 
@@ -46,16 +50,17 @@ While the basic concept of try/catch remains the same, Java 21 continues to supp
 
 ## Edge Cases and Their Handling
 
-1. **Nested try/catch blocks**: While possible, they should be used sparingly as they can make code harder to read and maintain.
+1. **Nested try/catch blocks**: While possible, they should be used sparingly as they can make code harder to read and
+   maintain.
 2. **Exceptions in catch blocks**: Remember that code in catch blocks can also throw exceptions.
 
 ## Interview-specific Insights
 
 Interviewers often focus on:
+
 - Your understanding of when to use exception handling
 - Your ability to write clean, effective try/catch blocks
 - Your knowledge of best practices in exception handling
-
 
 ## Interview Q&A Section
 
@@ -124,8 +129,9 @@ try {
 In this example, the IOException is wrapped inside a CustomException, preserving the original exception as the cause.
 ```
 
-
 ## Code Examples
 
-- Test: [ExceptionHandlingExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExampleTest.java)
-- Source: [ExceptionHandlingExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExample.java)
+-
+Test: [ExceptionHandlingExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExampleTest.java)
+-
+Source: [ExceptionHandlingExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExample.java)

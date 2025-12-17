@@ -4,14 +4,16 @@
 
 Abstraction is a fundamental principle in object-oriented programming that allows developers to hide complex
 implementation details and expose only the essential features of an object. It's about creating a simplified view of
-an object that represents its core functionality without getting bogged down in the specifics of how that functionality is achieved.
+an object that represents its core functionality without getting bogged down in the specifics of how that functionality
+is achieved.
 
-In Java, abstraction is primarily achieved through abstract classes and interfaces. These constructs allow developers 
+In Java, abstraction is primarily achieved through abstract classes and interfaces. These constructs allow developers
 to define a common structure and behavior for a group of related classes without specifying all the details.
 
 ## Focusing on Essential Features and Behavior
 
-Abstraction involves identifying the core attributes and behaviors of an object that are relevant to the problem at hand. This process helps in:
+Abstraction involves identifying the core attributes and behaviors of an object that are relevant to the problem at
+hand. This process helps in:
 
 1. Simplifying complex systems by breaking them down into manageable parts.
 2. Hiding unnecessary details from the user of the class.
@@ -41,6 +43,7 @@ Key points about interfaces:
 3. A class can implement multiple interfaces, allowing for a form of multiple inheritance.
 
 Example:
+
 ```java
 public interface Drawable {
     void draw();
@@ -56,11 +59,14 @@ While both abstract classes and interfaces are used for abstraction, they have s
 
 1. **Multiple Inheritance**: A class can implement multiple interfaces but can extend only one abstract class.
 2. **State**: Abstract classes can have instance variables (state), while interfaces cannot (except for constants).
-3. **Method Implementation**: Abstract classes can have both abstract and concrete methods, while interfaces (prior to Java 8) could only have abstract methods.
+3. **Method Implementation**: Abstract classes can have both abstract and concrete methods, while interfaces (prior to
+   Java 8) could only have abstract methods.
 4. **Constructor**: Abstract classes can have constructors, interfaces cannot.
-5. **Access Modifiers**: Abstract class methods can have any access modifier, while interface methods are implicitly public and abstract.
+5. **Access Modifiers**: Abstract class methods can have any access modifier, while interface methods are implicitly
+   public and abstract.
 
 Example of an abstract class:
+
 ```java
 public abstract class Animal {
     protected String name;
@@ -82,14 +88,17 @@ public abstract class Animal {
 1. Abstraction helps in managing complexity by hiding unnecessary details.
 2. Use interfaces when you want to define a contract for behavior without implementation.
 3. Use abstract classes when you want to provide a common base implementation for a group of related classes.
-4. From Java 8, interfaces can have default and static methods, blurring the line between interfaces and abstract classes.
+4. From Java 8, interfaces can have default and static methods, blurring the line between interfaces and abstract
+   classes.
 5. Abstraction promotes code reusability and makes the system more maintainable.
 
 ## Common Pitfalls and How to Avoid Them
 
-1. **Overuse of Abstraction**: Don't create abstractions for every possible scenario. Use them when there's a clear need for hiding complexity or defining a common structure.
+1. **Overuse of Abstraction**: Don't create abstractions for every possible scenario. Use them when there's a clear need
+   for hiding complexity or defining a common structure.
 2. **Leaky Abstractions**: Ensure that your abstraction doesn't expose unnecessary implementation details.
-3. **Ignoring the Liskov Substitution Principle**: Ensure that derived classes can be used interchangeably with their base classes without affecting the correctness of the program.
+3. **Ignoring the Liskov Substitution Principle**: Ensure that derived classes can be used interchangeably with their
+   base classes without affecting the correctness of the program.
 
 ## Best Practices
 
@@ -102,7 +111,8 @@ public abstract class Animal {
 ## Interview Questions and Answers
 
 1. Q: What is abstraction in Java, and why is it important?
-   A: Abstraction in Java is a process of hiding the implementation details and showing only functionality to the user. It's important because:
+   A: Abstraction in Java is a process of hiding the implementation details and showing only functionality to the user.
+   It's important because:
    ```text
    - It reduces complexity by hiding unnecessary details
    - It enhances code reusability
@@ -122,13 +132,13 @@ public abstract class Animal {
 3. Q: What's the difference between an interface and an abstract class?
    A: The main differences are:
    ```text`
-   1. Multiple Inheritance: A class can implement multiple interfaces but extend only one abstract class.
-   2. State: Abstract classes can have instance variables, interfaces cannot (except constants).
-   3. Method Implementation: Abstract classes can have both abstract and concrete methods, while interfaces
-      (prior to Java 8) could only have abstract methods.
-   4. Constructor: Abstract classes can have constructors, interfaces cannot.
-   5. Access Modifiers: Abstract class methods can have any access modifier, while interface methods are
-      implicitly public and abstract.
+    1. Multiple Inheritance: A class can implement multiple interfaces but extend only one abstract class.
+    2. State: Abstract classes can have instance variables, interfaces cannot (except constants).
+    3. Method Implementation: Abstract classes can have both abstract and concrete methods, while interfaces
+       (prior to Java 8) could only have abstract methods.
+    4. Constructor: Abstract classes can have constructors, interfaces cannot.
+    5. Access Modifiers: Abstract class methods can have any access modifier, while interface methods are
+       implicitly public and abstract.
    ```
 
 4. Q: Can you provide an example of how abstraction might be used in a real-world application?
@@ -167,9 +177,9 @@ public abstract class Animal {
    }
    ```
 
-   In this example, `PaymentProcessor` is an interface that abstracts the concept of processing payments. Different 
+   In this example, `PaymentProcessor` is an interface that abstracts the concept of processing payments. Different
    payment methods (credit card, PayPal) implement this interface, providing their specific implementations.
-   The rest of the application can work with the `PaymentProcessor` interface without needing to know the details of 
+   The rest of the application can work with the `PaymentProcessor` interface without needing to know the details of
    how each payment method is processed.
 
 5. Q: How does abstraction contribute to code maintainability and scalability?
@@ -187,8 +197,8 @@ public abstract class Animal {
    ```
 
 These questions and answers cover the key aspects of abstraction in Java, including its importance, implementation,
-and practical applications. They also touch on the differences between abstract classes and interfaces, which is a common topic in Java interviews.
-
+and practical applications. They also touch on the differences between abstract classes and interfaces, which is a
+common topic in Java interviews.
 
 ## Code Examples
 

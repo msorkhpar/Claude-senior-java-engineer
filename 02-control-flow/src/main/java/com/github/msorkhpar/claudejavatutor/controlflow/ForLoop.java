@@ -27,7 +27,7 @@ public class ForLoop {
                 count++;
             }
         }
-        
+
         int[] evenNumbers = new int[count];
         int index = 0;
         for (int num : numbers) {

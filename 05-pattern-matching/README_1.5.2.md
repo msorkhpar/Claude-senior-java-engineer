@@ -2,11 +2,12 @@
 
 ## Concept Explanation
 
-Pattern matching for `instanceof` is a feature introduced in Java 14 as a preview feature and became standard in Java 
-16. It simplifies and enhances the traditional `instanceof` operator by allowing you to declare and initialize a 
+Pattern matching for `instanceof` is a feature introduced in Java 14 as a preview feature and became standard in Java
+
+16. It simplifies and enhances the traditional `instanceof` operator by allowing you to declare and initialize a
 17. variable of the tested type in a single step.
 
-This feature reduces boilerplate code and improves readability, especially when working with polymorphic code or when 
+This feature reduces boilerplate code and improves readability, especially when working with polymorphic code or when
 you need to perform type-specific operations after an `instanceof` check.
 
 ## Key Points to Remember
@@ -122,7 +123,7 @@ public static String describeShape(Object obj) {
 
 Q5: How does pattern matching for instanceof handle null values?
 
-A5: Pattern matching for instanceof does not handle null values automatically. You still need to perform explicit null 
+A5: Pattern matching for instanceof does not handle null values automatically. You still need to perform explicit null
 checks if necessary. For example:
 
 ```java
@@ -139,7 +140,7 @@ public void processObject(Object obj) {
 
 Q6: Can you explain how pattern matching for instanceof can improve code readability in complex type hierarchies?
 
-A6: Pattern matching for instanceof can significantly improve code readability in complex type hierarchies by reducing 
+A6: Pattern matching for instanceof can significantly improve code readability in complex type hierarchies by reducing
 the amount of boilerplate code and making the intent clearer. Here's an example with a more complex hierarchy:
 
 ```java
@@ -162,13 +163,15 @@ public void processVehicle(Vehicle vehicle) {
 }
 ```
 
-This code is more readable and less error-prone than the equivalent code using traditional instanceof checks and 
+This code is more readable and less error-prone than the equivalent code using traditional instanceof checks and
 explicit casts.
 
-These examples and explanations cover the key aspects of pattern matching for instanceof, demonstrating its usage, 
+These examples and explanations cover the key aspects of pattern matching for instanceof, demonstrating its usage,
 benefits, and integration with other Java features.
 
 ## Code Examples
 
-- Test: [PatternMatchingTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatchingTest.java)
-- Source: [PatternMatching.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatching.java)
+-
+Test: [PatternMatchingTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatchingTest.java)
+-
+Source: [PatternMatching.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatching.java)

@@ -2,9 +2,13 @@
 
 ## Concept Explanation
 
-Data hiding, also known as information hiding, is a fundamental principle of object-oriented programming (OOP) that emphasizes restricting direct access to some of an object's components. In Java, data hiding is primarily achieved through encapsulation, which involves bundling the data (attributes) and the methods that operate on the data within a single unit or object.
+Data hiding, also known as information hiding, is a fundamental principle of object-oriented programming (OOP) that
+emphasizes restricting direct access to some of an object's components. In Java, data hiding is primarily achieved
+through encapsulation, which involves bundling the data (attributes) and the methods that operate on the data within a
+single unit or object.
 
 The main goals of data hiding are:
+
 1. To reduce system complexity by limiting interdependencies between software components.
 2. To protect the integrity of data by preventing unauthorized access or modifications.
 3. To make the internal implementation of a class independent from the code that uses the class.
@@ -19,7 +23,8 @@ The main goals of data hiding are:
 
 ## Relevant Java Features
 
-- Java 16 introduced Records, which provide a concise way to create immutable data classes with built-in data protection.
+- Java 16 introduced Records, which provide a concise way to create immutable data classes with built-in data
+  protection.
 - Java 9 introduced the `private` interface method, allowing better encapsulation within interfaces.
 
 ## Common Pitfalls and How to Avoid Them
@@ -51,7 +56,8 @@ The main goals of data hiding are:
 
 Q1: What is data hiding, and why is it important in Java?
 
-A1: 
+A1:
+
 ```text
 Data hiding is a principle of encapsulation in object-oriented programming where the internal details of a class are hidden from the outside world. It's important in Java for several reasons:
 
@@ -67,6 +73,7 @@ In Java, data hiding is typically achieved by declaring class variables as priva
 Q2: How would you implement data hiding for a class representing a bank account?
 
 A2:
+
 ```java
 public class BankAccount {
     private String accountNumber;
@@ -106,6 +113,7 @@ public class BankAccount {
 Q3: How does data hiding contribute to the principle of least privilege?
 
 A3:
+
 ```text
 Data hiding contributes to the principle of least privilege by ensuring that each part of a program has access only to the information and resources that are necessary for its legitimate purpose. Here's how:
 

@@ -8,8 +8,8 @@ public class PolymorphismDemo {
     }
 
     public static void main(String[] args) {
-        Shape2 circle = new Circle2( 5);
-        Shape2 rectangle = new Rectangle2( 4, 5);
+        Shape2 circle = new Circle2(5);
+        Shape2 rectangle = new Rectangle2(4, 5);
 
         printShapeArea(circle);
         printShapeArea(rectangle);

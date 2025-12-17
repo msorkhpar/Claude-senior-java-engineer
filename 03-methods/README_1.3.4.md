@@ -9,9 +9,9 @@ or number of inputs.
 ## Key Points to Remember
 
 1. Methods can be overloaded based on:
-   - Number of parameters
-   - Types of parameters
-   - Order of parameters
+    - Number of parameters
+    - Types of parameters
+    - Order of parameters
 2. Return type alone is not sufficient for method overloading
 3. Overloading happens at compile-time (static polymorphism)
 4. It improves code readability and reusability
@@ -24,8 +24,10 @@ statements, which can be useful when working with overloaded methods that handle
 ## Common Pitfalls and How to Avoid Them
 
 1. Overloading with only return type differences: This is not valid and will result in a compilation error.
-2. Ambiguous method calls: When two overloaded methods are equally valid for a given call, it results in a compilation error.
-3. Autoboxing and varargs confusion: Be cautious when overloading methods with primitive types and their wrapper classes, especially when varargs are involved.
+2. Ambiguous method calls: When two overloaded methods are equally valid for a given call, it results in a compilation
+   error.
+3. Autoboxing and varargs confusion: Be cautious when overloading methods with primitive types and their wrapper
+   classes, especially when varargs are involved.
 
 ## Best Practices and Optimization Techniques
 
@@ -49,7 +51,9 @@ and may present scenarios to test understanding of method resolution in overload
 
 Q1: What is method overloading, and why is it useful?
 
-A1: Method overloading is a feature in Java that allows a class to have multiple methods with the same name but different parameters. It's useful because it:
+A1: Method overloading is a feature in Java that allows a class to have multiple methods with the same name but
+different parameters. It's useful because it:
+
 1. Improves code readability by using the same method name for related operations.
 2. Provides flexibility to call the same method with different types or numbers of arguments.
 3. Reduces the need to remember multiple method names for similar operations.
@@ -64,7 +68,9 @@ class Calculator {
 
 Q2: Can you overload methods based on return type alone?
 
-A2: No, you cannot overload methods based on return type alone. Java uses method signatures (method name and parameter list) to distinguish between overloaded methods. The return type is not part of the method signature. For example, this will result in a compilation error:
+A2: No, you cannot overload methods based on return type alone. Java uses method signatures (method name and parameter
+list) to distinguish between overloaded methods. The return type is not part of the method signature. For example, this
+will result in a compilation error:
 
 ```java
 class Example {
@@ -77,6 +83,7 @@ class Example {
 Q3: How does Java resolve calls to overloaded methods?
 
 A3: Java resolves calls to overloaded methods in the following order:
+
 1. Exact match by type
 2. Matching with type promotion
 3. Matching with autoboxing/unboxing
@@ -103,12 +110,14 @@ Q4: What's the difference between method overloading and method overriding?
 
 A4:
 Method Overloading:
+
 - Occurs in the same class
 - Methods have the same name but different parameters
 - Resolved at compile-time (static polymorphism)
 - Return type can be different
 
 Method Overriding:
+
 - Occurs in parent and child classes
 - Methods have the same name and parameters
 - Resolved at runtime (dynamic polymorphism)
@@ -137,7 +146,8 @@ A5: Yes, you can overload the main method in Java, but the JVM will always call 
 public static void main(String[] args)
 ```
 
-Other overloaded versions of main won't be called automatically by the JVM but can be called from the standard main method:
+Other overloaded versions of main won't be called automatically by the JVM but can be called from the standard main
+method:
 
 ```java
 public class MainOverload {
@@ -153,9 +163,11 @@ public class MainOverload {
 ```
 
 These questions and answers cover the key aspects of method overloading that are often discussed in Java interviews.
-Remember to not only know the concepts but also be able to explain them clearly and provide relevant examples when asked.
+Remember to not only know the concepts but also be able to explain them clearly and provide relevant examples when
+asked.
 
 ## Code Examples
 
-- Test: [MethodOverloadingTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodOverloadingTest.java)
+-
+Test: [MethodOverloadingTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodOverloadingTest.java)
 - Source: [MethodOverloading.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodOverloading.java)

@@ -2,7 +2,9 @@
 
 ## Concept Explanation
 
-In Java, objects are instances of classes, and constructors are special methods used to initialize these objects. Creating objects and using constructors are fundamental concepts in object-oriented programming (OOP) that allow you to instantiate classes and set initial states for objects.
+In Java, objects are instances of classes, and constructors are special methods used to initialize these objects.
+Creating objects and using constructors are fundamental concepts in object-oriented programming (OOP) that allow you to
+instantiate classes and set initial states for objects.
 
 ## Key Points to Remember
 
@@ -15,24 +17,27 @@ In Java, objects are instances of classes, and constructors are special methods 
 
 ## Relevant Java 21 Features
 
-While object creation and constructors are core concepts that haven't changed significantly, Java 21 introduces some related features:
+While object creation and constructors are core concepts that haven't changed significantly, Java 21 introduces some
+related features:
 
-- Record classes (preview feature) provide a compact syntax for declaring classes that are transparent holders for shallowly immutable data.
-- Sealed classes (finalized in Java 17) allow for more precise control over which classes can extend or implement them, affecting object creation patterns.
+- Record classes (preview feature) provide a compact syntax for declaring classes that are transparent holders for
+  shallowly immutable data.
+- Sealed classes (finalized in Java 17) allow for more precise control over which classes can extend or implement them,
+  affecting object creation patterns.
 
 ## Common Pitfalls and How to Avoid Them
 
 1. Forgetting to initialize all necessary fields in constructors.
-   - Solution: Use constructor parameters or initialization blocks to ensure all fields are properly set.
+    - Solution: Use constructor parameters or initialization blocks to ensure all fields are properly set.
 
 2. Overusing complex constructor hierarchies.
-   - Solution: Consider using the Builder pattern for classes with many optional parameters.
+    - Solution: Consider using the Builder pattern for classes with many optional parameters.
 
 3. Circular dependencies in constructor calls.
-   - Solution: Refactor the design to break the circular dependency or use setter methods for some initializations.
+    - Solution: Refactor the design to break the circular dependency or use setter methods for some initializations.
 
 4. Performing too much logic in constructors.
-   - Solution: Keep constructors simple and move complex logic to separate initialization methods.
+    - Solution: Keep constructors simple and move complex logic to separate initialization methods.
 
 ## Best Practices and Optimization Techniques
 
@@ -46,7 +51,8 @@ While object creation and constructors are core concepts that haven't changed si
 
 1. Null parameters: Decide whether to allow null values or throw NullPointerException.
 2. Invalid input: Use validation in constructors and throw appropriate exceptions (e.g., IllegalArgumentException).
-3. Resource allocation failures: Handle exceptions that might occur during object creation (e.g., IOException for file operations).
+3. Resource allocation failures: Handle exceptions that might occur during object creation (e.g., IOException for file
+   operations).
 
 ## Interview-specific Insights
 
@@ -55,8 +61,8 @@ While object creation and constructors are core concepts that haven't changed si
 - Know how to implement and use copy constructors.
 - Be familiar with the concept of constructor injection in dependency injection frameworks.
 
-
 Q1: What is the purpose of a constructor in Java?
+
 ```text
 A constructor in Java is a special method used to initialize objects. It is called when an object of a 
 class is created and can be used to set initial values for object attributes. Constructors have the same name as the 
@@ -64,12 +70,14 @@ class and do not have a return type, not even void.
 ```
 
 Q2: How do you create an object in Java? Provide an example.
+
 ```java
 // Example of creating an object
 Person john = new Person("John Doe", LocalDate.of(1990, 1, 1), "john@example.com");
 ```
 
 Q3: What happens if you don't define any constructor in a class?
+
 ```text
 If you don't define any constructor in a class, Java automatically provides a default no-argument constructor. 
 This constructor initializes all instance variables to their default values (e.g., 0 for numeric types, null for 
@@ -77,6 +85,7 @@ object references, false for boolean).
 ```
 
 Q4: Explain constructor overloading with an example.
+
 ```java
 public class Person {
     private String name;
@@ -100,6 +109,7 @@ Person p2 = new Person("Bob", 30);      // Uses the second constructor
 ```
 
 Q5: What is the difference between a constructor and a regular method?
+
 ```text
 Key differences between constructors and regular methods:
 1. Constructors have the same name as the class, while methods have their own names.
@@ -110,6 +120,7 @@ Key differences between constructors and regular methods:
 ```
 
 Q6: What is constructor chaining? Provide an example.
+
 ```java
 public class Employee {
     private String name;
@@ -133,6 +144,7 @@ public class Employee {
 ```
 
 Q7: What is the purpose of the `this()` call in a constructor?
+
 ```text
 The `this()` call in a constructor is used to invoke another constructor in the same class. It must be the first 
 statement in the constructor body. This technique is known as constructor chaining and is useful for reducing code
@@ -140,6 +152,7 @@ statement in the constructor body. This technique is known as constructor chaini
 ```
 
 Q8: How would you implement a singleton pattern using a private constructor?
+
 ```java
 public class Singleton {
     private static Singleton instance;
@@ -158,6 +171,7 @@ public class Singleton {
 ```
 
 Q9: What is a copy constructor? When would you use one?
+
 ```text
 A copy constructor is a constructor that creates an object by initializing it with an object of the same class.
  It's used when you want to create a new object as a copy of an existing object. This is useful for creating deep
@@ -171,6 +185,7 @@ Example use cases:
 ```
 
 Q10: How do you handle parameter validation in constructors?
+
 ```java
 public class Person {
     private final String name;

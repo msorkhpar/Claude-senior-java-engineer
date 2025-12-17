@@ -1,16 +1,22 @@
 # 2.5.2. Permitted and Non-Permitted Subclasses in Sealed Classes and Interfaces
 
 ## Overview
-Sealed classes and interfaces in Java allow you to restrict which classes can inherit from them. This feature provides more control over the class hierarchy and enables better code organization and maintainability. In this section, we'll explore permitted and non-permitted subclasses in the context of sealed classes and interfaces.
+
+Sealed classes and interfaces in Java allow you to restrict which classes can inherit from them. This feature provides
+more control over the class hierarchy and enables better code organization and maintainability. In this section, we'll
+explore permitted and non-permitted subclasses in the context of sealed classes and interfaces.
 
 ## Key Concepts
 
 ### Permitted Subclasses
+
 - Explicitly listed classes that are allowed to extend a sealed class or implement a sealed interface.
 - Defined using the `permits` keyword in the sealed class or interface declaration.
-- Must be in the same module as the sealed class or interface, or in the same package if the sealed type is in an unnamed module.
+- Must be in the same module as the sealed class or interface, or in the same package if the sealed type is in an
+  unnamed module.
 
 ### Non-Permitted Subclasses
+
 - Classes that are not allowed to extend a sealed class or implement a sealed interface.
 - Any attempt to create a non-permitted subclass will result in a compilation error.
 
@@ -23,7 +29,8 @@ There are three ways to declare permitted subclasses:
    public sealed class Shape permits Circle, Square, Triangle { }
    ```
 
-2. **Implicit Declaration**: When the permitted subclasses are defined in the same file as the sealed class or interface.
+2. **Implicit Declaration**: When the permitted subclasses are defined in the same file as the sealed class or
+   interface.
    ```java
    public sealed class Shape { }
    final class Circle extends Shape { }
@@ -61,7 +68,8 @@ There are three ways to declare permitted subclasses:
 ## Best Practices
 
 1. Use sealed classes and interfaces when you want to restrict the inheritance hierarchy.
-2. Choose the appropriate modifier (`final`, `sealed`, or `non-sealed`) for permitted subclasses based on your design needs.
+2. Choose the appropriate modifier (`final`, `sealed`, or `non-sealed`) for permitted subclasses based on your design
+   needs.
 3. Keep the list of permitted subclasses minimal and focused on the domain model.
 4. Use sealed classes in combination with pattern matching for more robust switch expressions.
 
@@ -71,13 +79,13 @@ There are three ways to declare permitted subclasses:
 - Understand the implications of sealed classes on class design and inheritance.
 - Be able to discuss scenarios where sealed classes provide benefits over traditional class hierarchies.
 
-
 Q: What are the three ways to declare permitted subclasses in a sealed class or interface?
 
 A: The three ways to declare permitted subclasses are:
 
 1. Explicit Declaration: Using the `permits` clause in the sealed class or interface declaration.
    Example:
+
 ```java
    public sealed class Shape permits Circle, Square, Triangle { }
 ```
@@ -110,9 +118,12 @@ A: Permitted subclasses must follow these rules:
 
 Q: How does using sealed classes and interfaces improve pattern matching in switch expressions?
 
-A: Sealed classes and interfaces improve pattern matching in switch expressions by enabling exhaustive pattern matching. Since the compiler knows all possible subclasses of a sealed type, it can ensure that all cases are covered in a switch expression. This leads to more robust and maintainable code.
+A: Sealed classes and interfaces improve pattern matching in switch expressions by enabling exhaustive pattern matching.
+Since the compiler knows all possible subclasses of a sealed type, it can ensure that all cases are covered in a switch
+expression. This leads to more robust and maintainable code.
 
 Example:
+
 ```java
 public double calculateArea(Shape shape) {
     return switch (shape) {
@@ -123,17 +134,20 @@ public double calculateArea(Shape shape) {
 }
 ```
 
-In this example, the compiler can verify that all possible subclasses of `Shape` are handled in the switch expression, making it exhaustive.
+In this example, the compiler can verify that all possible subclasses of `Shape` are handled in the switch expression,
+making it exhaustive.
 
 Q: What is the difference between `final`, `sealed`, and `non-sealed` subclasses of a sealed class?
 
 A: The differences are:
 
 1. `final` subclasses: Cannot be extended further. They are the end of the inheritance chain.
-2. `sealed` subclasses: Can be extended, but only by their own permitted subclasses. This creates a multi-level sealed hierarchy.
+2. `sealed` subclasses: Can be extended, but only by their own permitted subclasses. This creates a multi-level sealed
+   hierarchy.
 3. `non-sealed` subclasses: Can be freely extended by any class, effectively "opening up" the hierarchy at that point.
 
 Example:
+
 ```java
 public sealed class Vehicle permits Car, Truck, Motorcycle {
     // Vehicle implementation
@@ -163,6 +177,7 @@ A: Common pitfalls include:
 5. Not considering the impact on future extensibility of the codebase.
 
 To avoid these pitfalls:
+
 - Always declare the permitted subclasses with the appropriate modifier.
 - Keep the sealed class and its permitted subclasses in the same package or module.
 - Use sealed classes judiciously, balancing control over the class hierarchy with flexibility for future changes.
@@ -170,5 +185,7 @@ To avoid these pitfalls:
 
 ## Code Examples
 
-- Test: [SealedClassExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExampleTest.java)
-- Source: [SealedClassExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExample.java)
+-
+Test: [SealedClassExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExampleTest.java)
+-
+Source: [SealedClassExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExample.java)
