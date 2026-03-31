@@ -121,6 +121,5 @@ A6: Sealed classes are useful in various scenarios:
 
 ## Code Examples
 
--
-Test: [SealedClassesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassesTest.java)
+- Test: [SealedClassesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassesTest.java)
 - Source: [Shape.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/Shape.java)

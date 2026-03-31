@@ -251,7 +251,5 @@ in Java, suitable for a senior Java engineer interview preparation.
 
 ## Code Examples
 
--
-Test: [MethodParametersAndReturnTypesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypesTest.java)
--
-Source: [MethodParametersAndReturnTypes.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypes.java)
+- Test: [MethodParametersAndReturnTypesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypesTest.java)
+- Source: [MethodParametersAndReturnTypes.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodParametersAndReturnTypes.java)

@@ -218,7 +218,5 @@ Best practice is to always explicitly declare access modifiers to make your inte
 
 ## Code Examples
 
--
-Test: [AccessModifiersExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExampleTest.java)
--
-Source: [AccessModifiersExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExample.java)
+- Test: [AccessModifiersExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExampleTest.java)
+- Source: [AccessModifiersExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/encapsulation/AccessModifiersExample.java)

@@ -149,6 +149,5 @@ application.
 
 ## Code Examples
 
--
-Test: [ExceptionTypeDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/ExceptionTypeDemoTest.java)
+- Test: [ExceptionTypeDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/ExceptionTypeDemoTest.java)
 - Source: [ExceptionTypeDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/ExceptionTypeDemo.java)

@@ -121,6 +121,5 @@ exception using the initCause() method.
 
 ## Code Examples
 
--
-Test: [FinallyBlockDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/FinallyBlockDemoTest.java)
+- Test: [FinallyBlockDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/FinallyBlockDemoTest.java)
 - Source: [FinallyBlockDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/FinallyBlockDemo.java)

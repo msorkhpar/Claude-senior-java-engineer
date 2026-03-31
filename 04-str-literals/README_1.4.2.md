@@ -161,7 +161,5 @@ especially with complex objects or when precision is important (e.g., with float
 
 ## Code Examples
 
--
-Test: [StringConcatenationTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringConcatenationTest.java)
--
-Source: [StringConcatenation.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringConcatenation.java)
+- Test: [StringConcatenationTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringConcatenationTest.java)
+- Source: [StringConcatenation.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringConcatenation.java)

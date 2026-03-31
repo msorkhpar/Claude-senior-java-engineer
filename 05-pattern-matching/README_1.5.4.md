@@ -189,6 +189,5 @@ in a NullPointerException.
 
 ## Code Examples
 
--
-Test: [SwitchPatternTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/SwitchPatternTest.java)
+- Test: [SwitchPatternTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/SwitchPatternTest.java)
 - Source: [SwitchPattern.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/SwitchPattern.java)

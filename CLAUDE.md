@@ -883,3 +883,59 @@ Use Maven's `-Dtest` flag with wildcards:
 mvn test -Dtest="*Pattern*Test"  # Run all pattern-related tests
 mvn test -pl 05-pattern-matching -Dtest="RecordPatternTest#*nested*"  # Run nested tests only
 ```
+
+---
+
+## Autonomous Curriculum Workflow
+
+This project uses custom slash commands and a progress tracker to build modules autonomously.
+
+### Curriculum Progress Tracker
+
+`PROGRESS.md` — The source of truth for what has been built and what remains.
+
+Status values:
+- `⬜ pending` — Not started
+- `🔄 in-progress` — An agent is currently working on it (do not claim)
+- `✅ done` — Complete and validated
+
+### Custom Commands
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `/new-module <id>` | `/new-module 14` | Create a single module end-to-end with full quality gates |
+| `/validate-module <dir>` | `/validate-module 14-functional-interfaces` | Validate an existing module |
+| `/continue-curriculum [N]` | `/continue-curriculum 3` | Build the next N modules in parallel (default: 3) |
+
+### Module Creation Quality Gates
+
+Every module created via `/new-module` or `/continue-curriculum` must pass ALL of the following before being marked `✅ done`:
+
+1. **1:1 test mapping** — Every `ClassName.java` has a `ClassNameTest.java`
+2. **Correct package** — `com.github.msorkhpar.claudejavatutor.{modulename}`
+3. **Tests pass** — `mvn test -pl {module-dir}` exits with `BUILD SUCCESS`
+4. **README complete** — Has concept explanation, key points, pitfalls, best practices, and Q&A section
+5. **Validation script passes** — `bash scripts/validate-module.sh {module-dir}` reports `RESULT: PASS`
+6. **Registered in parent POM** — Module listed in root `pom.xml`
+
+### Parallel Agent Coordination Rules
+
+When `/continue-curriculum N` launches multiple agents simultaneously:
+
+- **Claim before launch**: The orchestrator marks all N modules as `🔄 in-progress` in `PROGRESS.md` AND
+  pre-registers them in `pom.xml` BEFORE any agent starts — this prevents race conditions
+- **Agent scope**: Each agent works ONLY in its own module directory; it never touches `PROGRESS.md` or root `pom.xml`
+- **No sharing**: Two agents never work on the same module; the orchestrator enforces this through the claim step
+- **Validation script**: Every agent runs `bash scripts/validate-module.sh` as a mandatory final step
+- **Self-healing**: If `mvn test` fails, the agent reads the error, fixes it, and re-runs before reporting done
+
+### Validation Script
+
+```bash
+bash scripts/validate-module.sh <module-dir>
+```
+
+Checks: directory structure, pom.xml, README.md, 1:1 test mapping, non-empty tests,
+package naming, parent POM registration, and runs Maven tests.
+
+Returns exit code 0 (PASS) or >0 (FAIL with error count).

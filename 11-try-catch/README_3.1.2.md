@@ -133,6 +133,5 @@ verbose, which can lead to more robust error handling but requires more explicit
 
 ## Code Examples
 
--
-Test: [ExceptionHandlerTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlerTest.java)
+- Test: [ExceptionHandlerTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlerTest.java)
 - Source: [ExceptionHandler.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandler.java)

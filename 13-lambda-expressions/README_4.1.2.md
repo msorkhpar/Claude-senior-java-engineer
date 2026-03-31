@@ -861,6 +861,5 @@ Choose the form that best balances conciseness and clarity!
 
 ## Code Examples
 
--
-Test: [LambdaSyntaxTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaSyntaxTest.java)
+- Test: [LambdaSyntaxTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaSyntaxTest.java)
 - Source: [LambdaSyntax.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaSyntax.java)

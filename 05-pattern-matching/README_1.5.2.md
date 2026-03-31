@@ -171,7 +171,5 @@ benefits, and integration with other Java features.
 
 ## Code Examples
 
--
-Test: [PatternMatchingTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatchingTest.java)
--
-Source: [PatternMatching.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatching.java)
+- Test: [PatternMatchingTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatchingTest.java)
+- Source: [PatternMatching.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/PatternMatching.java)

@@ -159,7 +159,5 @@ By following these practices, you can create more maintainable and understandabl
 
 ## Code Examples
 
--
-Test: [CustomExceptionDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemoTest.java)
--
-Source: [CustomExceptionDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemo.java)
+- Test: [CustomExceptionDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemoTest.java)
+- Source: [CustomExceptionDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemo.java)

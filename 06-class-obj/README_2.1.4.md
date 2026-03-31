@@ -136,6 +136,5 @@ A:
 
 ## Code Examples
 
--
-Test: [InheritanceExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/classobj/InheritanceExampleTest.java)
+- Test: [InheritanceExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/classobj/InheritanceExampleTest.java)
 - Source: [InheritanceExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/classobj/InheritanceExample.java)

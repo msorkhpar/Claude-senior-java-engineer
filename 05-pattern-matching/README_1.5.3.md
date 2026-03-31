@@ -174,6 +174,5 @@ These examples demonstrate how to safely handle null values when working with re
 
 ## Code Examples
 
--
-Test: [RecordPatternTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/RecordPatternTest.java)
+- Test: [RecordPatternTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/patternmatching/RecordPatternTest.java)
 - Source: [RecordPattern.java](src/main/java/com/github/msorkhpar/claudejavatutor/patternmatching/RecordPattern.java)

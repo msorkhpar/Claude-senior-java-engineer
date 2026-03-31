@@ -116,7 +116,5 @@ public class TryWithResourcesExample {
 
 ## Code Examples
 
--
-Test: [TryWithResourcesDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemoTest.java)
--
-Source: [TryWithResourcesDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemo.java)
+- Test: [TryWithResourcesDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemoTest.java)
+- Source: [TryWithResourcesDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/TryWithResourcesDemo.java)

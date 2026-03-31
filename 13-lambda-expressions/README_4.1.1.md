@@ -440,7 +440,5 @@ Choose the approach based on:
 
 ## Code Examples
 
--
-Test: [LambdaIntroductionTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaIntroductionTest.java)
--
-Source: [LambdaIntroduction.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaIntroduction.java)
+- Test: [LambdaIntroductionTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaIntroductionTest.java)
+- Source: [LambdaIntroduction.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaIntroduction.java)

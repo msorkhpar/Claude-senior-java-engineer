@@ -181,6 +181,5 @@ Java, suitable for a senior Java engineer interview preparation.
 
 ## Code Examples
 
--
-Test: [MethodDeclarationTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodDeclarationTest.java)
+- Test: [MethodDeclarationTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/MethodDeclarationTest.java)
 - Source: [MethodDeclaration.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/MethodDeclaration.java)

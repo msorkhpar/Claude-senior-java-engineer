@@ -141,6 +141,5 @@ comparing, as it avoids creating new String objects.
 
 ## Code Examples
 
--
-Test: [StringComparisonTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringComparisonTest.java)
+- Test: [StringComparisonTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringComparisonTest.java)
 - Source: [StringComparison.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringComparison.java)

@@ -129,7 +129,5 @@ System.out.println(sb.length());   // Outputs: 0
 
 ## Code Examples
 
--
-Test: [StringBuilderBufferTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBufferTest.java)
--
-Source: [StringBuilderBuffer.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBuffer.java)
+- Test: [StringBuilderBufferTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBufferTest.java)
+- Source: [StringBuilderBuffer.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBuffer.java)

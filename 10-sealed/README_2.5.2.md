@@ -185,7 +185,5 @@ To avoid these pitfalls:
 
 ## Code Examples
 
--
-Test: [SealedClassExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExampleTest.java)
--
-Source: [SealedClassExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExample.java)
+- Test: [SealedClassExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExampleTest.java)
+- Source: [SealedClassExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/SealedClassExample.java)

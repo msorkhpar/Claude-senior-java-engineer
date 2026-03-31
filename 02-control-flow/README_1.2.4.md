@@ -157,6 +157,5 @@ Remember, readability and maintainability should usually be prioritized over sma
 
 ## Code Examples
 
--
-Test: [SwitchStatementTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchStatementTest.java)
+- Test: [SwitchStatementTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchStatementTest.java)
 - Source: [SwitchStatement.java](src/main/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchStatement.java)

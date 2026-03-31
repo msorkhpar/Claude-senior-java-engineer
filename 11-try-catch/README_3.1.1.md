@@ -131,7 +131,5 @@ In this example, the IOException is wrapped inside a CustomException, preserving
 
 ## Code Examples
 
--
-Test: [ExceptionHandlingExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExampleTest.java)
--
-Source: [ExceptionHandlingExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExample.java)
+- Test: [ExceptionHandlingExampleTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExampleTest.java)
+- Source: [ExceptionHandlingExample.java](src/main/java/com/github/msorkhpar/claudejavatutor/trycatch/ExceptionHandlingExample.java)
