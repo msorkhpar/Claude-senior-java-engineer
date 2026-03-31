@@ -8,9 +8,9 @@ Track module completion status across the full curriculum.
 - ⬜ `pending` — Not yet started
 
 ## Summary
-- **Completed:** 31 / 45
-- **In Progress:** 2 / 45
-- **Pending:** 12 / 45
+- **Completed:** 41 / 45
+- **In Progress:** 0 / 45
+- **Pending:** 4 / 45
 
 ---
 
@@ -84,26 +84,26 @@ Track module completion status across the full curriculum.
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
 | 31 | `31-solid-principles` | **8.1** SOLID Principles | ✅ done |
-| 32 | `32-kiss-principle` | **8.2** KISS Principle | 🔄 in-progress |
-| 33 | `33-dry-principle` | **8.3** DRY Principle | 🔄 in-progress |
-| 34 | `34-composition-inheritance` | **8.4** Composition over Inheritance | ⬜ pending |
-| 35 | `35-fail-fast-safe` | **8.5** Fail-Fast vs. Fail-Safe Iterator Principles | ⬜ pending |
+| 32 | `32-kiss-principle` | **8.2** KISS Principle | ✅ done |
+| 33 | `33-dry-principle` | **8.3** DRY Principle | ✅ done |
+| 34 | `34-composition-inheritance` | **8.4** Composition over Inheritance | ✅ done |
+| 35 | `35-fail-fast-safe` | **8.5** Fail-Fast vs. Fail-Safe Iterator Principles | ✅ done |
 
 ## 9. Design Patterns
 
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
-| 36 | `36-creational-patterns` | **9.1** Creational Patterns (Singleton, Factory Method, Builder) | ⬜ pending |
-| 37 | `37-structural-patterns` | **9.2** Structural Patterns (Adapter, Decorator, Proxy) | ⬜ pending |
-| 38 | `38-behavioral-patterns` | **9.3** Behavioral Patterns (Strategy, Observer, Command) | ⬜ pending |
+| 36 | `36-creational-patterns` | **9.1** Creational Patterns (Singleton, Factory Method, Builder) | ✅ done |
+| 37 | `37-structural-patterns` | **9.2** Structural Patterns (Adapter, Decorator, Proxy) | ✅ done |
+| 38 | `38-behavioral-patterns` | **9.3** Behavioral Patterns (Strategy, Observer, Command) | ✅ done |
 
 ## 10. Advanced Java Topics
 
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
-| 39 | `39-data-structures` | **10.1** Data Structures and Algorithms | ⬜ pending |
-| 40 | `40-memory-management` | **10.2** Java Memory Management and Garbage Collection | ⬜ pending |
-| 41 | `41-reflection` | **10.3** Reflection | ⬜ pending |
+| 39 | `39-data-structures` | **10.1** Data Structures and Algorithms | ✅ done |
+| 40 | `40-memory-management` | **10.2** Java Memory Management and Garbage Collection | ✅ done |
+| 41 | `41-reflection` | **10.3** Reflection | ✅ done |
 | 42 | `42-annotations` | **10.4** Annotations | ⬜ pending |
 | 43 | `43-jvm-internals` | **10.5** JVM Internals | ⬜ pending |
 | 44 | `44-java-security` | **10.6** Java Security | ⬜ pending |
