@@ -8,7 +8,9 @@ Track module completion status across the full curriculum.
 - ⬜ `pending` — Not yet started
 
 ## Summary
-- **Completed:** 15 / 45
+- **Completed:** 31 / 45
+- **In Progress:** 2 / 45
+- **Pending:** 12 / 45
 
 ---
 
@@ -46,44 +48,44 @@ Track module completion status across the full curriculum.
 | 13 | `13-lambda-expressions` | **4.1** Lambda Expressions | ✅ done |
 | 14 | `14-functional-interfaces` | **4.2** Functional Interfaces (Consumer, Supplier, Function, Predicate) | ✅ done |
 | 15 | `15-method-references` | **4.3** Method References | ✅ done |
-| 16 | `16-streams-api` | **4.4** Streams API | ⬜ pending |
+| 16 | `16-streams-api` | **4.4** Streams API | ✅ done |
 
 ## 5. Java Memory Model
 
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
-| 17 | `17-java-memory-model` | **5.1** Understanding the Java Memory Model | ⬜ pending |
-| 18 | `18-happens-before` | **5.2** Happens-before Relationships and Memory Visibility | ⬜ pending |
-| 19 | `19-concurrency-pitfalls` | **5.3** Avoiding Common Concurrency Pitfalls (Memory) | ⬜ pending |
+| 17 | `17-java-memory-model` | **5.1** Understanding the Java Memory Model | ✅ done |
+| 18 | `18-happens-before` | **5.2** Happens-before Relationships and Memory Visibility | ✅ done |
+| 19 | `19-concurrency-pitfalls` | **5.3** Avoiding Common Concurrency Pitfalls (Memory) | ✅ done |
 
 ## 6. Multithreading and Concurrency
 
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
-| 20 | `20-thread-basics` | **6.1** Thread Basics | ⬜ pending |
-| 21 | `21-synchronization` | **6.2** Synchronization | ⬜ pending |
-| 22 | `22-locks-semaphores` | **6.3** Locks and Semaphores | ⬜ pending |
-| 23 | `23-executors` | **6.4** Executors and Thread Pools | ⬜ pending |
-| 24 | `24-concurrent-collections` | **6.5** Concurrent Collections | ⬜ pending |
-| 25 | `25-fork-join` | **6.6** Fork/Join Framework | ⬜ pending |
-| 26 | `26-virtual-threads` | **6.7** Virtual Threads (Project Loom) | ⬜ pending |
+| 20 | `20-thread-basics` | **6.1** Thread Basics | ✅ done |
+| 21 | `21-synchronization` | **6.2** Synchronization | ✅ done |
+| 22 | `22-locks-semaphores` | **6.3** Locks and Semaphores | ✅ done |
+| 23 | `23-executors` | **6.4** Executors and Thread Pools | ✅ done |
+| 24 | `24-concurrent-collections` | **6.5** Concurrent Collections | ✅ done |
+| 25 | `25-fork-join` | **6.6** Fork/Join Framework | ✅ done |
+| 26 | `26-virtual-threads` | **6.7** Virtual Threads (Project Loom) | ✅ done |
 
 ## 7. Modern Java Features
 
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
-| 27 | `27-modern-java-overview` | **7.1** Java 8 / 11 / 15 / 17 / 21 Feature Overview | ⬜ pending |
-| 28 | `28-enhanced-enums` | **7.2** Enhanced Enums | ⬜ pending |
-| 29 | `29-date-time-api` | **7.3** New Date and Time API | ⬜ pending |
-| 30 | `30-text-blocks` | **7.4** Text Blocks | ⬜ pending |
+| 27 | `27-modern-java-overview` | **7.1** Java 8 / 11 / 15 / 17 / 21 Feature Overview | ✅ done |
+| 28 | `28-enhanced-enums` | **7.2** Enhanced Enums | ✅ done |
+| 29 | `29-date-time-api` | **7.3** New Date and Time API | ✅ done |
+| 30 | `30-text-blocks` | **7.4** Text Blocks | ✅ done |
 
 ## 8. Principles
 
 | Module | Directory | Topic | Status |
 |--------|-----------|-------|--------|
-| 31 | `31-solid-principles` | **8.1** SOLID Principles | ⬜ pending |
-| 32 | `32-kiss-principle` | **8.2** KISS Principle | ⬜ pending |
-| 33 | `33-dry-principle` | **8.3** DRY Principle | ⬜ pending |
+| 31 | `31-solid-principles` | **8.1** SOLID Principles | ✅ done |
+| 32 | `32-kiss-principle` | **8.2** KISS Principle | 🔄 in-progress |
+| 33 | `33-dry-principle` | **8.3** DRY Principle | 🔄 in-progress |
 | 34 | `34-composition-inheritance` | **8.4** Composition over Inheritance | ⬜ pending |
 | 35 | `35-fail-fast-safe` | **8.5** Fail-Fast vs. Fail-Safe Iterator Principles | ⬜ pending |
 
