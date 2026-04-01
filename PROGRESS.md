@@ -8,9 +8,9 @@ Track module completion status across the full curriculum.
 - ⬜ `pending` — Not yet started
 
 ## Summary
-- **Completed:** 41 / 45
+- **Completed:** 45 / 45
 - **In Progress:** 0 / 45
-- **Pending:** 4 / 45
+- **Pending:** 0 / 45
 
 ---
 
@@ -104,7 +104,7 @@ Track module completion status across the full curriculum.
 | 39 | `39-data-structures` | **10.1** Data Structures and Algorithms | ✅ done |
 | 40 | `40-memory-management` | **10.2** Java Memory Management and Garbage Collection | ✅ done |
 | 41 | `41-reflection` | **10.3** Reflection | ✅ done |
-| 42 | `42-annotations` | **10.4** Annotations | ⬜ pending |
-| 43 | `43-jvm-internals` | **10.5** JVM Internals | ⬜ pending |
-| 44 | `44-java-security` | **10.6** Java Security | ⬜ pending |
-| 45 | `45-java-persistence` | **10.7** Java Persistence and Databases | ⬜ pending |
+| 42 | `42-annotations` | **10.4** Annotations | ✅ done |
+| 43 | `43-jvm-internals` | **10.5** JVM Internals | ✅ done |
+| 44 | `44-java-security` | **10.6** Java Security | ✅ done |
+| 45 | `45-java-persistence` | **10.7** Java Persistence and Databases | ✅ done |

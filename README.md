@@ -161,8 +161,8 @@ mvn test -pl 05-pattern-matching
 - [5.3. Avoiding common concurrency pitfalls related to memory](19-concurrency-pitfalls/README.md)
     - [5.3.1. Data races and how to prevent them](19-concurrency-pitfalls/README_5.3.1.md)
     - [5.3.2. Atomicity violations and ensuring atomic operations](19-concurrency-pitfalls/README_5.3.2.md)
-    - 5.3.3. Visibility issues and proper synchronization techniques
-    - 5.3.4. Best practices for safe concurrent programming
+    - [5.3.3. Visibility issues and proper synchronization techniques](19-concurrency-pitfalls/README_5.3.3.md)
+    - [5.3.4. Best practices for safe concurrent programming](19-concurrency-pitfalls/README_5.3.4.md)
 
 6. Multithreading and Concurrency
 
@@ -170,7 +170,7 @@ mvn test -pl 05-pattern-matching
     - [6.1.1. Creating threads (Runnable interface and Thread class)](20-thread-basics/README_6.1.1.md)
     - [6.1.2. Starting threads (start() method)](20-thread-basics/README_6.1.2.md)
     - [6.1.3. Stopping threads (interrupt() method and cooperative cancellation)](20-thread-basics/README_6.1.3.md)
-    - 6.1.4. Thread lifecycle and states
+    - [6.1.4. Thread lifecycle and states](20-thread-basics/README_6.1.4.md)
 - [6.2. Synchronization (ensuring thread safety)](21-synchronization/README.md)
     - [6.2.1. Monitors and synchronized blocks](21-synchronization/README_6.2.1.md)
         - 6.2.1.1. Intrinsic locks and the synchronized keyword
@@ -415,39 +415,39 @@ mvn test -pl 05-pattern-matching
     - [10.3.2. Accessing Fields, Methods, and Constructors](41-reflection/README_10.3.2.md)
     - [10.3.3. Dynamic Object Creation and Method Invocation](41-reflection/README_10.3.3.md)
     - [10.3.4. Reflection Performance Considerations](41-reflection/README_10.3.4.md)
-- 10.4. Annotations (meta-data for code)
-    - 10.4.1. Built-in Annotations (@Override, @Deprecated, @SuppressWarnings)
-    - 10.4.2. Custom Annotation Creation
-    - 10.4.3. Annotation Retention Policies (SOURCE, CLASS, RUNTIME)
-    - 10.4.4. Annotation Processing and Code Generation
-- 10.5. JVM Internals (high-level overview)
-    - 10.5.1. JVM Architecture (Class Loader, Execution Engine, Runtime Data Areas)
-    - 10.5.2. Bytecode Execution and Interpretation
-    - 10.5.3. JIT (Just-In-Time) Compilation
-    - 10.5.4. JVM Performance Tuning and Monitoring
-- 10.6. Java Security
-    - 10.6.1. Security Best Practices in Java
+- [10.4. Annotations (meta-data for code)](42-annotations/README.md)
+    - [10.4.1. Built-in Annotations (@Override, @Deprecated, @SuppressWarnings)](42-annotations/README_10.4.1.md)
+    - [10.4.2. Custom Annotation Creation](42-annotations/README_10.4.2.md)
+    - [10.4.3. Annotation Retention Policies (SOURCE, CLASS, RUNTIME)](42-annotations/README_10.4.3.md)
+    - [10.4.4. Annotation Processing and Code Generation](42-annotations/README_10.4.4.md)
+- [10.5. JVM Internals (high-level overview)](43-jvm-internals/README.md)
+    - [10.5.1. JVM Architecture (Class Loader, Execution Engine, Runtime Data Areas)](43-jvm-internals/README_10.5.1.md)
+    - [10.5.2. Bytecode Execution and Interpretation](43-jvm-internals/README_10.5.2.md)
+    - [10.5.3. JIT (Just-In-Time) Compilation](43-jvm-internals/README_10.5.3.md)
+    - [10.5.4. JVM Performance Tuning and Monitoring](43-jvm-internals/README_10.5.4.md)
+- [10.6. Java Security](44-java-security/README.md)
+    - [10.6.1. Security Best Practices in Java](44-java-security/README_10.6.1.md)
         - 10.6.1.1. Secure Coding Guidelines
         - 10.6.1.2. Input Validation and Sanitization
         - 10.6.1.3. Secure Configuration and Deployment
-    - 10.6.2. Common Vulnerabilities
+    - [10.6.2. Common Vulnerabilities](44-java-security/README_10.6.2.md)
         - 10.6.2.1. Injection Flaws (SQL Injection, XSS)
         - 10.6.2.2. Authentication and Access Control Flaws
         - 10.6.2.3. Sensitive Data Exposure
-    - 10.6.3. Cryptography and Encryption in Java
+    - [10.6.3. Cryptography and Encryption in Java](44-java-security/README_10.6.3.md)
         - 10.6.3.1. Java Cryptography Architecture (JCA)
         - 10.6.3.2. Symmetric and Asymmetric Encryption
         - 10.6.3.3. Hashing and Digital Signatures
-- 10.7. Java Persistence and Databases
-    - 10.7.1. JDBC (Java Database Connectivity)
+- [10.7. Java Persistence and Databases](45-java-persistence/README.md)
+    - [10.7.1. JDBC (Java Database Connectivity)](45-java-persistence/README_10.7.1.md)
         - 10.7.1.1. Connecting to Databases
         - 10.7.1.2. Executing SQL Statements (Statement, PreparedStatement)
         - 10.7.1.3. ResultSet Processing and Mapping
-    - 10.7.2. ORM (Object-Relational Mapping) Frameworks
+    - [10.7.2. ORM (Object-Relational Mapping) Frameworks](45-java-persistence/README_10.7.2.md)
         - 10.7.2.1. Hibernate and JPA (Java Persistence API)
         - 10.7.2.2. Mapping Objects to Database Tables
         - 10.7.2.3. Query Languages (HQL, JPQL)
-    - 10.7.3. Transactions and Database Concurrency Control
+    - [10.7.3. Transactions and Database Concurrency Control](45-java-persistence/README_10.7.3.md)
         - 10.7.3.1. ACID Properties (Atomicity, Consistency, Isolation, Durability)
         - 10.7.3.2. Transaction Isolation Levels
         - 10.7.3.3. Optimistic and Pessimistic Locking
