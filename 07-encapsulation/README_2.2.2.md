@@ -28,7 +28,8 @@ providing a way to read and modify the object's state.
 2. **Lack of validation in setters**: Always validate input in setters to maintain object integrity.
 3. **Returning mutable objects**: Be cautious when returning mutable objects from getters to prevent unintended
    modifications.
-4. **Performance overhead**: In performance-critical code, direct field access might be preferred.
+4. **Performance overhead**: Rarely a real concern: the JIT compiler inlines trivial getters and setters, so they
+   cost the same as direct field access in hot code.
 
 ## Best Practices and Optimization Techniques
 
@@ -105,11 +106,13 @@ Q4: What is the difference between a getter that returns a primitive and one tha
 ```text
 A4: The main differences are:
 
-1. Primitives are passed by value, while objects are passed by reference.
+1. Everything is returned by value: for a primitive the value itself is copied, for an object the reference is copied,
+   and the copy still points to the same object.
 2. Returning a primitive always gives a copy of the value, so the caller can't modify the original.
 3. Returning an object gives a reference to the original object, potentially allowing modification unless precautions are taken (like returning an immutable view or a defensive copy).
 4. Primitive getters don't need to handle null values, while object getters might need to consider null checks.
-5. Performance-wise, returning primitives is generally faster as it doesn't involve object creation or reference handling.
+5. Performance-wise, returning a primitive or a reference costs the same; only a getter that builds a defensive copy
+   pays for creating that copy.
 ```
 
 Example:

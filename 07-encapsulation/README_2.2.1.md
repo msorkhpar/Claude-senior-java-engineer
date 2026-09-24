@@ -15,7 +15,7 @@ These modifiers help in implementing data hiding, maintaining code security, and
 
 ## Key Points to Remember
 
-1. Access modifiers can be applied to classes, methods, variables, and constructors.
+1. Access modifiers can be applied to classes, methods, fields, and constructors (not to local variables).
 2. The order of restrictiveness from most to least is: private > default > protected > public.
 3. Only public and default can be applied to top-level classes.
 4. Inner classes can use all four access modifiers.
@@ -100,7 +100,8 @@ class DefaultExample {
 ## Common Pitfalls and How to Avoid Them
 
 1. Overusing public access: This can lead to tight coupling and make it harder to change implementation details later.
-2. Neglecting to use access modifiers: Always explicitly declare access modifiers to make your intentions clear.
+2. Neglecting to choose access levels: Decide each member's access deliberately. Package-private has no keyword, so
+   when you leave the modifier out on purpose, a short comment can make that intention clear.
 3. Misunderstanding protected: Remember that protected also allows access within the same package, not just subclasses.
 
 ## Edge Cases and Their Handling
@@ -143,7 +144,9 @@ No, you cannot apply all access modifiers to top-level classes. Only public and 
 
 Private and protected cannot be applied to top-level classes because:
 - Private would make the class inaccessible from anywhere, rendering it useless.
-- Protected is meant for inheritance, which doesn't make sense for top-level classes as they can't be subclasses.
+- Protected means "package plus subclasses". A top-level class is a member of a package, not of another class, so
+  "subclass access" to it has no meaning, and the JLS allows only public or package access for top-level classes.
+  (A top-level class can of course itself be a subclass.)
 
 However, all four access modifiers can be applied to inner classes.
 ```
@@ -201,6 +204,10 @@ This implementation uses:
 - A private static variable to hold the single instance.
 - A public static method to provide controlled access to the instance.
 
+This lazy version is not thread-safe: two threads can both see `instance == null` and create two objects. In
+concurrent code, use an eagerly initialized `private static final Singleton INSTANCE = new Singleton();`, the
+initialization-on-demand holder idiom, or a single-element `enum`.
+
 Q5: What happens if you don't specify an access modifier for a class or class member?
 
 A5:
@@ -213,7 +220,8 @@ If you don't specify an access modifier for a class or class member, it defaults
 
 It's important to note that this is different from other object-oriented languages where the default might be public. In Java, the absence of an access modifier is a deliberate choice to restrict access to the package level.
 
-Best practice is to always explicitly declare access modifiers to make your intentions clear and avoid confusion.
+Best practice is to choose every access level deliberately. Since package-private has no keyword, leave the modifier
+out only when package access is what you want, and consider a short comment saying so.
 ```
 
 ## Code Examples
