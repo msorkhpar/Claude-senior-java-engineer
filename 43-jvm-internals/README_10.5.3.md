@@ -110,9 +110,9 @@ to interpreted execution. Common triggers:
    Shape s = getRandomShape(); // Circle, Square, Triangle, Hexagon...
    s.draw(); // Virtual dispatch every time -- slower
    ```
-   **Solution**: Minimize polymorphism at hot call sites. (Declaring the hierarchy `sealed` does not change this:
-   HotSpot devirtualizes from the receiver types it has profiled and from the classes actually loaded, not from the
-   `permits` list.)
+   **Solution**: Minimize polymorphism at hot call sites. (`sealed` is a type-system feature, not a performance
+   one: HotSpot's devirtualization comes from receiver-type profiling and class hierarchy analysis of the loaded
+   classes, so do not expect a speed-up from declaring the hierarchy `sealed`.)
 
 3. **Methods too large to inline**: By default HotSpot inlines a method of at most 35 bytes of bytecode at an ordinary
    call site (`MaxInlineSize`) and at most 325 bytes at a hot, frequently executed call site (`FreqInlineSize`); larger
@@ -148,8 +148,8 @@ to interpreted execution. Common triggers:
    inhibit optimization.
 2. **Keep hot methods small**: Smaller methods are more likely to be inlined, which enables cascading optimizations.
 3. **Use final classes and methods where the design allows**: A `final` method has exactly one target, so the JIT can
-   bind it directly. (`sealed` documents a closed hierarchy but gives HotSpot no extra devirtualization information;
-   it relies on the classes actually loaded and on type profiles.)
+   bind it directly. (`sealed` documents a closed hierarchy for readers and the compiler; the JIT's devirtualization
+   comes from profiling and class hierarchy analysis, so `sealed` should not be chosen for speed.)
 4. **Favor immutable objects in hot paths**: They enable better escape analysis and elimination.
 5. **Use `@ForceInline` and `@DontInline`** (JDK-internal, for JDK developers) -- for application code, structure
    methods to be naturally inline-friendly.
@@ -316,7 +316,8 @@ public class InliningDemo {
     }
 
     // Sealed classes document every implementation for readers and for switch
-    // exhaustiveness; HotSpot does not use 'permits' for inlining decisions
+    // exhaustiveness (a type-system feature); the JIT's inlining decisions come from
+    // profiling and class hierarchy analysis, so expect no speed-up from 'sealed' itself
     sealed interface SealedShape permits SealedCircle, SealedSquare {
         int area();
     }
