@@ -277,6 +277,30 @@ class SecureCodingPracticesTest {
         }
 
         @Test
+        @DisplayName("Should reject a symbolic link inside the base that points outside it")
+        void testSymlinkEscape(@TempDir Path outsideDir) throws IOException {
+            Path link = tempDir.resolve("link");
+            try {
+                Files.createSymbolicLink(link, outsideDir);
+            } catch (UnsupportedOperationException | IOException e) {
+                org.junit.jupiter.api.Assumptions.abort("symbolic links not supported here: " + e);
+            }
+            Files.writeString(outsideDir.resolve("secret.txt"), "secret");
+
+            assertThatExceptionOfType(SecurityException.class)
+                    .isThrownBy(() -> practices.validatePath(tempDir, "link/secret.txt"))
+                    .withMessageContaining("Path traversal");
+        }
+
+        @Test
+        @DisplayName("Should allow an existing file inside the base")
+        void testExistingFileAllowed() throws IOException {
+            Files.writeString(tempDir.resolve("present.txt"), "ok");
+            Path result = practices.validatePath(tempDir, "present.txt");
+            assertThat(result).isEqualTo(tempDir.resolve("present.txt"));
+        }
+
+        @Test
         @DisplayName("Should throw on null base path")
         void testNullBasePath() {
             assertThatNullPointerException()
@@ -398,6 +422,13 @@ class SecureCodingPracticesTest {
         void testEmailWithoutAt() {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> practices.maskEmail("invalidemail"));
+        }
+
+        @Test
+        @DisplayName("Should throw on email with an empty local part")
+        void testEmailWithEmptyLocalPart() {
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> practices.maskEmail("@example.com"));
         }
     }
 

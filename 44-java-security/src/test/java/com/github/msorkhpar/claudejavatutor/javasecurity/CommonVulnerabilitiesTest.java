@@ -144,6 +144,33 @@ class CommonVulnerabilitiesTest {
         }
 
         @Test
+        @DisplayName("Should count every failure when attempts arrive concurrently")
+        void testConcurrentFailuresAreAllCounted() throws Exception {
+            for (int trial = 0; trial < 200; trial++) {
+                var tracker = new CommonVulnerabilities.LoginAttemptTracker();
+                var start = new java.util.concurrent.CountDownLatch(1);
+                List<Thread> threads = new java.util.ArrayList<>();
+                for (int i = 0; i < 4; i++) {
+                    Thread t = new Thread(() -> {
+                        try {
+                            start.await();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        tracker.recordFailedAttempt("user1");
+                    });
+                    threads.add(t);
+                    t.start();
+                }
+                start.countDown();
+                for (Thread t : threads) {
+                    t.join();
+                }
+                assertThat(tracker.getFailedAttemptCount("user1")).isEqualTo(4);
+            }
+        }
+
+        @Test
         @DisplayName("Should throw on null username")
         void testNullUsername() {
             var tracker = new CommonVulnerabilities.LoginAttemptTracker();

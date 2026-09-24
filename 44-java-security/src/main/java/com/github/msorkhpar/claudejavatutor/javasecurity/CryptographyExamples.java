@@ -26,7 +26,7 @@ public class CryptographyExamples {
      *
      * @param input the string to hash
      * @return hex-encoded hash
-     * @throws IllegalArgumentException if input is null
+     * @throws NullPointerException if input is null
      */
     public String sha256Hash(String input) {
         Objects.requireNonNull(input, "Input must not be null");
