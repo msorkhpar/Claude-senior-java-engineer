@@ -29,9 +29,13 @@ The core mechanics are:
 |---|---|---|---|
 | Pre-Java 5 | Eager initialization | Yes | Simple but wastes memory if never used |
 | Pre-Java 5 | Synchronized method | Yes | Correct but slow due to lock contention |
-| Java 5+ | Double-checked locking with volatile | Yes | Efficient and lazy |
-| Java 5+ | Enum-based singleton | Yes | Serialization-safe, reflection-safe |
-| Java 5+ | Holder idiom (Bill Pugh) | Yes | Lazy, no synchronization overhead |
+| Java 5+ | Double-checked locking with volatile | Yes | Efficient and lazy; safe only since Java 5's memory model (JSR-133) |
+| Java 5+ | Enum-based singleton | Yes | Serialization-safe, reflection-safe (enums arrived in Java 5) |
+| Any Java version | Holder idiom (Bill Pugh) | Yes | Lazy, no synchronization overhead |
+
+The Holder idiom relies only on the JVM's thread-safe class initialization, which every Java version guarantees, so it
+works on any Java version. What Java 5's revised memory model (JSR-133) changed is `volatile`: it is what made
+double-checked locking safe, and it has nothing to do with the Holder idiom.
 
 ## Key Points to Remember
 
@@ -47,10 +51,13 @@ The core mechanics are:
 
 ## Relevant Java 21 Features
 
-- **Sealed classes**: You can declare a Singleton as a sealed class to prevent subclassing, adding an extra layer of
-  protection beyond the private constructor.
-- **Records**: While records cannot be used directly for Singleton (they require a public canonical constructor), they
-  can model the data a Singleton manages.
+- **Sealed classes**: A sealed class restricts subclassing to the classes it permits; it cannot be used to forbid
+  subclassing altogether (a sealed class with no permitted subclasses does not compile). To prevent subclassing, declare
+  the Singleton `final`, as the examples below do. Sealing is useful when a Singleton is one of a fixed set of
+  implementations of a sealed interface.
+- **Records**: While records cannot be used directly for Singleton (a record's canonical constructor must be at least as
+  accessible as the record itself, so a public record cannot hide its constructor), they can model the data a Singleton
+  manages.
 - **Virtual threads**: Singletons managing thread pools should consider virtual threads for scalability. A Singleton
   executor service could return a virtual-thread-based executor.
 - **Pattern matching for switch**: Can be used when Singletons implement sealed interfaces, enabling exhaustive pattern
@@ -153,7 +160,9 @@ Use it when:
 1. Exactly one instance of a class is needed to coordinate actions across the system (e.g., a configuration manager,
    logging service, or connection pool).
 2. The single instance should be extensible by subclassing, and clients should be able to use an extended instance
-   without modifying their code.
+   without modifying their code. (This is the intent the GoF book states. It conflicts with the `final` singletons
+   and private constructors shown in this lesson, which forbid subclassing; a subclassable singleton needs a
+   non-final class with a protected constructor and some registry that decides which subclass is the instance.)
 3. Controlled access to a shared resource is required (e.g., a file system or printer spooler).
 
 Avoid it when:
@@ -226,7 +235,7 @@ public final class LazyRegistry {
 A3: Joshua Bloch recommends enum-based Singleton in "Effective Java" because it provides three guarantees automatically:
 
 1. Thread safety: The JVM guarantees that enum values are instantiated exactly once, in a thread-safe manner, during
-   class loading. No synchronization code is needed.
+   class initialization. No synchronization code is needed.
 
 2. Serialization safety: Java's serialization mechanism handles enums specially. It serializes only the enum constant's
    name and deserializes by calling Enum.valueOf(), always returning the same instance. No readResolve() needed.
@@ -236,7 +245,8 @@ A3: Joshua Bloch recommends enum-based Singleton in "Effective Java" because it 
 
 Limitations:
 - Cannot extend another class (enums implicitly extend java.lang.Enum).
-- Eager initialization only (the instance is created when the enum class is loaded).
+- No separate lazy step (the instance is created when the enum class is initialized, i.e. on its first use, together
+  with all other static state of the enum).
 - Looks unusual to developers unfamiliar with the idiom.
 ```
 
@@ -266,9 +276,9 @@ A4: The Bill Pugh Singleton, also known as the Initialization-on-Demand Holder i
 hold the Singleton instance. It leverages the JVM's class loading mechanism for thread safety.
 
 How it works:
-1. The inner holder class is NOT loaded when the outer class is loaded.
-2. The holder class is loaded only when getInstance() is called for the first time.
-3. Class loading in the JVM is guaranteed to be thread-safe (the JLS specifies this).
+1. The inner holder class is NOT initialized when the outer class is initialized.
+2. The holder class is initialized only when getInstance() first reads Holder.INSTANCE.
+3. Class initialization in the JVM is guaranteed to be thread-safe (JLS 12.4.2 specifies this).
 4. Therefore, the instance is created lazily and safely without any explicit synchronization.
 
 Advantages over other approaches:
@@ -303,7 +313,7 @@ public final class ServiceRegistry {
 **Q5: How can Singleton be broken and how do you prevent it?**
 
 ```text
-A5: A non-enum Singleton can be broken in three ways:
+A5: A non-enum Singleton can be broken in four ways:
 
 1. Reflection: Using setAccessible(true) on the private constructor allows creating new instances.
    Prevention: Check in the constructor if an instance already exists and throw an exception.
@@ -326,8 +336,10 @@ public final class SecureSingleton implements Serializable {
     @java.io.Serial
     private static final long serialVersionUID = 1L;
 
-    private static final SecureSingleton INSTANCE = new SecureSingleton();
+    // Declared BEFORE INSTANCE: static initializers run in textual order. If this line came after INSTANCE,
+    // its "= false" would run after the constructor had set the flag and reset it, disabling the guard.
     private static boolean instantiated = false;
+    private static final SecureSingleton INSTANCE = new SecureSingleton();
 
     private SecureSingleton() {
         // Prevent reflection attack

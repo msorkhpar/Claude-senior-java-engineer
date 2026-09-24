@@ -160,7 +160,7 @@ public class HeapStackMemory {
 
         /**
          * Demonstrates weak references using WeakReference.
-         * Weakly referenced objects can be collected at next GC cycle.
+         * A weakly referenced object is cleared by the first GC cycle that finds it only weakly reachable.
          */
         public WeakReference<byte[]> createWeakReference() {
             byte[] data = new byte[1024 * 1024]; // 1MB
@@ -174,7 +174,14 @@ public class HeapStackMemory {
          * Softly referenced objects are collected only when memory is low.
          */
         public SoftReference<byte[]> createSoftReference() {
-            byte[] data = new byte[1024 * 1024]; // 1MB
+            return createSoftReference(new byte[1024 * 1024]); // 1MB
+        }
+
+        /**
+         * Wraps the given data in a SoftReference. While the caller still holds a strong
+         * reference to {@code data}, the GC cannot clear the soft reference.
+         */
+        public SoftReference<byte[]> createSoftReference(byte[] data) {
             return new SoftReference<>(data);
         }
 
@@ -186,15 +193,31 @@ public class HeapStackMemory {
             Object obj = new Object();
             WeakReference<Object> weakRef = new WeakReference<>(obj);
             obj = null; // remove strong reference
-            System.gc(); // suggest GC (not guaranteed)
-            // After GC, weakRef.get() may return null
-            return weakRef.get() == null;
+            return awaitCleared(weakRef);
         }
 
         /**
-         * Demonstrates memory leak through static collections.
-         * Objects added to static collections are never eligible for GC
-         * unless explicitly removed.
+         * Suggests a GC up to ten times until the reference is cleared, and reports whether it was.
+         * System.gc() is only a hint, but with the default collectors (and without
+         * -XX:+DisableExplicitGC) it runs a full collection, which clears a weakly reachable referent.
+         */
+        public static boolean awaitCleared(java.lang.ref.Reference<?> ref) {
+            for (int attempt = 0; attempt < 10 && ref.get() != null; attempt++) {
+                System.gc();
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            return ref.get() == null;
+        }
+
+        /**
+         * Demonstrates retention through a long-lived collection (a static collection behaves
+         * the same way for the whole program): objects added to it are never eligible for GC
+         * while the collection is reachable, unless explicitly removed.
          */
         private final List<Object> retainedObjects = new ArrayList<>();
 
@@ -222,8 +245,8 @@ public class HeapStackMemory {
 
         /**
          * Demonstrates the escape analysis concept.
-         * Objects that don't escape a method can potentially be allocated on the stack
-         * by the JIT compiler (scalar replacement).
+         * The JIT compiler can eliminate the allocation of an object that doesn't escape a method
+         * (scalar replacement: its fields become local values).
          */
         public int computeWithNonEscapingObject(int x, int y) {
             // The JIT compiler may optimize this Point allocation away

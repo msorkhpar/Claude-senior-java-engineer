@@ -1,6 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.structuralpatterns;
 
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.*;
@@ -333,7 +334,12 @@ public class ProxyPattern {
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             String argStr = args == null ? "" : Arrays.toString(args);
             invocationLog.add(method.getName() + "(" + argStr + ")");
-            return method.invoke(target, args);
+            try {
+                return method.invoke(target, args);
+            } catch (InvocationTargetException e) {
+                // Rethrow what the target threw; otherwise the caller would get an UndeclaredThrowableException
+                throw e.getCause();
+            }
         }
 
         public List<String> getInvocationLog() {

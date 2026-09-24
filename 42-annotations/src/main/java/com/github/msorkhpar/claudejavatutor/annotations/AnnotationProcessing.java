@@ -161,19 +161,19 @@ public class AnnotationProcessing {
                     try {
                         targetMethod = target.getClass().getMethod(method.getName(), method.getParameterTypes());
                     } catch (NoSuchMethodException e) {
-                        return method.invoke(target, args);
+                        return invokeUnwrapped(method, target, args);
                     }
 
                     if (targetMethod.isAnnotationPresent(Timed.class)) {
                         long start = System.nanoTime();
-                        Object result = method.invoke(target, args);
+                        Object result = invokeUnwrapped(method, target, args);
                         long duration = System.nanoTime() - start;
                         String label = targetMethod.getAnnotation(Timed.class).label();
                         String logLabel = label.isEmpty() ? method.getName() : label;
                         logs.add(new InvocationLog(logLabel, duration, result));
                         return result;
                     }
-                    return method.invoke(target, args);
+                    return invokeUnwrapped(method, target, args);
                 }
         );
     }
@@ -191,7 +191,7 @@ public class AnnotationProcessing {
                     try {
                         targetMethod = target.getClass().getMethod(method.getName(), method.getParameterTypes());
                     } catch (NoSuchMethodException e) {
-                        return method.invoke(target, args);
+                        return invokeUnwrapped(method, target, args);
                     }
 
                     if (targetMethod.isAnnotationPresent(RequiresPermission.class)) {
@@ -200,9 +200,22 @@ public class AnnotationProcessing {
                             throw new SecurityException("Missing permission: " + required);
                         }
                     }
-                    return method.invoke(target, args);
+                    return invokeUnwrapped(method, target, args);
                 }
         );
+    }
+
+    /**
+     * Invokes the target method and rethrows what the target threw. Method.invoke() wraps it in
+     * InvocationTargetException; letting that checked exception escape a proxy handler would reach
+     * the caller as an UndeclaredThrowableException instead of the original exception.
+     */
+    private static Object invokeUnwrapped(Method method, Object target, Object[] args) throws Throwable {
+        try {
+            return method.invoke(target, args);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
     }
 
     // ========================

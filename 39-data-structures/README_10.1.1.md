@@ -27,7 +27,7 @@ Sets are collections that contain no duplicate elements.
 
 Maps store key-value pairs, where each key maps to at most one value.
 
-- **HashMap**: The workhorse map. O(1) average-case get/put. Since Java 8, buckets with many collisions use a balanced tree (O(log n)) instead of a linked list. Does not maintain order.
+- **HashMap**: The workhorse map. O(1) average-case get/put. Since Java 8, buckets with many collisions use a balanced tree instead of a linked list (O(log n) lookups when the colliding keys are `Comparable`). Does not maintain order.
 - **TreeMap**: Backed by a Red-Black tree. O(log n) operations with keys maintained in sorted order. Supports range queries, floor/ceiling operations.
 - **LinkedHashMap**: Like HashMap but maintains insertion order (or access order if configured). Useful for building LRU caches.
 
@@ -55,7 +55,7 @@ Graphs consist of vertices (nodes) and edges (connections). They can be directed
 4. **TreeSet/TreeMap** require elements to implement `Comparable` or a `Comparator` to be provided.
 5. Never modify a collection while iterating over it (unless using `Iterator.remove()` or concurrent collections).
 6. The `Collections.unmodifiableXXX()` methods create read-only views, not copies.
-7. Java's `HashMap` uses treeification (converting linked-list buckets to balanced trees) when a bucket reaches 8 entries, improving worst-case from O(n) to O(log n).
+7. Java's `HashMap` uses treeification (converting linked-list buckets to balanced trees) when an entry is added to a bucket that already holds 8 entries, provided the table has at least 64 buckets (a smaller table is resized instead). This improves the worst case from O(n) to O(log n) when the colliding keys are `Comparable`; for keys that are not, a lookup in a tree bucket can still be O(n).
 8. `ConcurrentHashMap` is the thread-safe alternative to `HashMap`; `Collections.synchronizedMap()` is a simpler but coarser alternative.
 9. Graph representations should be chosen based on density: adjacency list for sparse graphs, adjacency matrix for dense graphs.
 10. BST traversals are a common interview topic: in-order gives sorted output, pre-order is useful for serialization, level-order for breadth-first processing.
@@ -98,8 +98,11 @@ Graphs consist of vertices (nodes) and edges (connections). They can be directed
    // WRONG: ConcurrentModificationException
    List<String> list = new ArrayList<>(List.of("a", "b", "c"));
    for (String s : list) {
-       if (s.equals("b")) list.remove(s);
+       if (s.equals("a")) list.remove(s);
    }
+   // Note: removing "b" (the second-to-last element) would NOT throw: the loop's hasNext()
+   // then returns false before next() checks for modification, and "c" is silently skipped.
+   // The fail-fast check is best-effort, so never rely on it.
    ```
    **Solution**: Use `Iterator.remove()`, `List.removeIf()`, or create a new collection.
 
@@ -136,7 +139,7 @@ Graphs consist of vertices (nodes) and edges (connections). They can be directed
 
 ## Edge Cases and Their Handling
 
-1. **Null elements**: `HashSet`, `HashMap`, `ArrayList`, and `LinkedList` allow null elements/keys. `TreeSet` and `TreeMap` do NOT allow null (throws `NullPointerException` during comparison). `List.of()`, `Set.of()`, `Map.of()` do NOT allow null.
+1. **Null elements**: `HashSet`, `HashMap`, `ArrayList`, and `LinkedList` allow null elements/keys. `TreeSet` and `TreeMap` with natural ordering do NOT allow null (throws `NullPointerException` during comparison); they accept null only with a comparator that handles it, such as `Comparator.nullsFirst(...)`. `List.of()`, `Set.of()`, `Map.of()` do NOT allow null.
 2. **Empty collections**: Always check `isEmpty()` before calling `first()`/`last()` on `TreeSet` or `firstKey()`/`lastKey()` on `TreeMap`. Use `Optional` or null checks.
 3. **Single-element collections**: BST with one node has height 0. A graph with one vertex and no edges is trivially acyclic.
 4. **Integer overflow in HashMap capacity**: The internal capacity is always a power of 2. The maximum is `1 << 30`. Beyond that, further resizing is not possible.
@@ -158,7 +161,7 @@ Interviewers commonly focus on:
 
 Common tricky questions:
 
-- "What is the time complexity of `HashMap.get()` in the worst case?" (O(log n) after Java 8 treeification; O(n) before Java 8)
+- "What is the time complexity of `HashMap.get()` in the worst case?" (O(log n) after Java 8 treeification when the colliding keys are `Comparable`; O(n) for non-comparable colliding keys, and O(n) before Java 8)
 - "When would you use a LinkedList over an ArrayList?" (Almost never in practice; only for very specific Deque/queue patterns)
 - "How does TreeMap maintain order?" (Red-Black tree, a self-balancing BST)
 - "What happens if two objects have the same hashCode but are not equal?" (They end up in the same bucket; equals() resolves the collision)
@@ -231,12 +234,17 @@ How put(key, value) works:
    (double the table and rehash all entries).
 
 Treeification (Java 8+):
-- When a single bucket's chain length reaches 8 (TREEIFY_THRESHOLD), the linked list is
-  converted to a balanced Red-Black tree.
-- This improves worst-case lookup from O(n) to O(log n) for that bucket.
-- When the tree shrinks below 6 (UNTREEIFY_THRESHOLD) due to removals, it converts back
-  to a linked list.
-- Treeification requires keys to implement Comparable (or uses identity hash as tiebreaker).
+- When an entry is added to a bucket that already holds 8 entries (TREEIFY_THRESHOLD), the
+  linked list is converted to a balanced Red-Black tree -- but only if the table has at least
+  64 buckets (MIN_TREEIFY_CAPACITY); a smaller table is doubled instead.
+- This improves worst-case lookup from O(n) to O(log n) for that bucket when the keys are
+  Comparable (the tree is ordered by hash, then by compareTo).
+- Keys do not have to be Comparable to be treeified: ties are broken by class name and
+  identity hash code, which orders insertion but cannot guide a lookup, so a lookup among
+  colliding non-comparable keys may still visit every node (O(n)).
+- A tree bucket converts back to a linked list during a resize when its split part has
+  6 or fewer entries (UNTREEIFY_THRESHOLD), and after removals when the tree becomes too
+  small.
 
 Key constants:
 - DEFAULT_INITIAL_CAPACITY = 16
@@ -276,7 +284,8 @@ A3: There are four standard tree traversal orders:
 
 2. Pre-order (Root, Left, Right):
    - Visits the root before its children.
-   - Used for tree serialization/copying (can reconstruct the tree from pre-order output).
+   - Used for tree serialization/copying (re-inserting a BST's pre-order output rebuilds the
+     same BST; a general binary tree also needs null markers in the output).
    - Also used for creating prefix expression from expression trees.
 
 3. Post-order (Left, Right, Root):
@@ -318,7 +327,8 @@ A4: Use TreeSet/TreeMap when you need:
 
 1. Sorted order: Elements/keys are maintained in natural order or custom Comparator order.
 2. Range queries: subSet(), headSet(), tailSet() for TreeSet; subMap(), headMap(),
-   tailMap() for TreeMap. These are O(log n) to create.
+   tailMap() for TreeMap. These return views in O(1); lookups in a view are O(log n), and
+   iterating its k elements costs O(log n + k).
 3. Navigation methods: first(), last(), ceiling(), floor(), higher(), lower().
 4. Ordered iteration: Iterating always gives elements in sorted order.
 
@@ -328,7 +338,7 @@ Use HashSet/HashMap when:
 3. Elements don't need to be Comparable
 
 Performance comparison:
-- HashSet/HashMap: O(1) average, O(log n) worst case (Java 8+)
+- HashSet/HashMap: O(1) average; worst case O(log n) (Java 8+, Comparable colliding keys) or O(n)
 - TreeSet/TreeMap: O(log n) guaranteed for all operations
 
 Memory:

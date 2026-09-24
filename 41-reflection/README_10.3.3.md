@@ -29,7 +29,7 @@ The key mechanisms are:
 - **`MethodHandles.lookup()`**: A more performant alternative to `Method.invoke()` for dynamic invocation.
 - **Virtual threads**: Dynamic proxy handlers can leverage virtual threads for non-blocking invocation.
 - **`ServiceLoader`**: The preferred mechanism for plugin discovery in modular Java, reducing the need for raw `Class.forName()`.
-- **Record constructors**: Records have a canonical constructor that can be discovered and invoked reflectively via `getRecordComponents()`.
+- **Record constructors**: Records have a canonical constructor; pass the types from `getRecordComponents()` (each component's `getType()`) to `getDeclaredConstructor()` to find it and invoke it reflectively.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -107,7 +107,7 @@ The key mechanisms are:
 
 ## Edge Cases and Their Handling
 
-1. **Abstract classes and interfaces**: Cannot be instantiated directly. `Constructor.newInstance()` will throw `InstantiationException`.
+1. **Abstract classes and interfaces**: Cannot be instantiated directly. For an abstract class, `Constructor.newInstance()` throws `InstantiationException`; an interface has no constructors at all, so `getDeclaredConstructor()` throws `NoSuchMethodException`.
 2. **Enum classes**: Constructors are private and reflective instantiation is explicitly blocked by the JVM; `Constructor.newInstance()` throws `IllegalArgumentException`.
 3. **Zero-length arrays**: `Array.newInstance(type, 0)` is valid and creates an empty array.
 4. **Null elements in arrays**: `Array.set(arr, 0, null)` is valid for reference-type arrays but throws `IllegalArgumentException` for primitive arrays.

@@ -320,6 +320,29 @@ class AnnotationProcessingTest {
         }
 
         @Test
+        @DisplayName("Proxies should rethrow the target's own exception, not a wrapper")
+        void testProxiesRethrowTargetException() {
+            AnnotationProcessing.Calculator failing = new AnnotationProcessing.CalculatorImpl() {
+                @Override
+                public int add(int a, int b) {
+                    throw new ArithmeticException("overflow");
+                }
+            };
+
+            AnnotationProcessing.Calculator timed = AnnotationProcessing.createTimedProxy(
+                    failing, AnnotationProcessing.Calculator.class, new ArrayList<>());
+            AnnotationProcessing.Calculator secured = AnnotationProcessing.createSecuredProxy(
+                    failing, AnnotationProcessing.Calculator.class, Set.of());
+
+            assertThatThrownBy(() -> timed.add(1, 2))
+                    .isInstanceOf(ArithmeticException.class)
+                    .hasMessage("overflow");
+            assertThatThrownBy(() -> secured.add(1, 2))
+                    .isInstanceOf(ArithmeticException.class)
+                    .hasMessage("overflow");
+        }
+
+        @Test
         @DisplayName("Timed proxy result should match direct invocation")
         void testTimedProxyResultConsistency() {
             AnnotationProcessing.CalculatorImpl impl = new AnnotationProcessing.CalculatorImpl();

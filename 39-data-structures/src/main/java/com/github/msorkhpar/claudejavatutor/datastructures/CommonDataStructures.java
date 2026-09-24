@@ -63,7 +63,8 @@ public class CommonDataStructures {
         }
 
         /**
-         * Demonstrates subList view (changes to subList reflect in original).
+         * Demonstrates subList: List.subList() is a view (changes to it reflect in the original);
+         * this method returns a copy of that view, so callers cannot modify the original through it.
          */
         public List<Integer> getSubList(List<Integer> list, int from, int to) {
             if (from < 0 || to > list.size() || from > to) {

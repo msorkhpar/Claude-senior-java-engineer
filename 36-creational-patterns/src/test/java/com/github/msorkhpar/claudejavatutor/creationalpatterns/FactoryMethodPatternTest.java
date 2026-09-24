@@ -336,6 +336,17 @@ class FactoryMethodPatternTest {
         }
 
         @Test
+        @DisplayName("Should find types registered in lower case")
+        void testLowerCaseRegistration() {
+            var registry = new FactoryMethodPattern.NotificationRegistry(
+                    Map.of("email", () -> new FactoryMethodPattern.EmailNotification("user@test.com")));
+
+            assertThat(registry.supports("email")).isTrue();
+            assertThat(registry.create("Email"))
+                    .isInstanceOf(FactoryMethodPattern.EmailNotification.class);
+        }
+
+        @Test
         @DisplayName("Should work with empty registry")
         void testEmptyRegistry() {
             var registry = new FactoryMethodPattern.NotificationRegistry(Map.of());

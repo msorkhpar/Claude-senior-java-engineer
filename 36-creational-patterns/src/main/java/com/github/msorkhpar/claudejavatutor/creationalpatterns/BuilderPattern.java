@@ -382,7 +382,8 @@ public class BuilderPattern {
         private HttpRequest(Builder builder) {
             this.url = builder.url;
             this.method = builder.method;
-            this.headers = Map.copyOf(builder.headers);
+            // Map.copyOf would not keep the insertion order the builder's LinkedHashMap records
+            this.headers = Collections.unmodifiableMap(new LinkedHashMap<>(builder.headers));
             this.body = builder.body;
             this.timeoutMs = builder.timeoutMs;
         }

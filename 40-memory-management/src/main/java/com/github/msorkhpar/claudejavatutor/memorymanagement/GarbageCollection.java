@@ -263,7 +263,7 @@ public class GarbageCollection {
 
         /**
          * Demonstrates WeakReference behavior with GC.
-         * WeakReferences are collected eagerly when no strong refs exist.
+         * The referent is cleared by the first GC that finds it only weakly reachable.
          */
         public WeakReference<byte[]> createWeakRef(int sizeBytes) {
             byte[] data = new byte[sizeBytes];
@@ -394,7 +394,7 @@ public class GarbageCollection {
 
         /**
          * Demonstrates a custom stack that can leak memory if not properly implemented.
-         * The "leaky" version keeps obsolete references; the "fixed" version nulls them out.
+         * A leaky version would keep obsolete references in the array; this one nulls them out on pop().
          */
         public static class FixedStack<E> {
             private Object[] elements;

@@ -402,6 +402,19 @@ class BuilderPatternTest {
         }
 
         @Test
+        @DisplayName("Should keep headers in insertion order")
+        void testHeaderOrder() {
+            var request = BuilderPattern.HttpRequest.builder("https://api.com", "GET")
+                    .header("Z-Last-Alphabetically", "1")
+                    .header("Accept", "text/html")
+                    .header("M-Middle", "2")
+                    .build();
+
+            assertThat(request.getHeaders().keySet())
+                    .containsExactly("Z-Last-Alphabetically", "Accept", "M-Middle");
+        }
+
+        @Test
         @DisplayName("Should throw for null URL")
         void testNullUrl() {
             assertThatThrownBy(() -> BuilderPattern.HttpRequest.builder(null, "GET"))

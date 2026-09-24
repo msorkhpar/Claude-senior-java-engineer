@@ -249,7 +249,9 @@ public class DynamicCreationInvocation {
     // --- Simple DI Container ---
 
     /**
-     * A minimal dependency injection container that creates and wires objects using reflection.
+     * A minimal dependency injection container built on Supplier bindings.
+     * It uses no reflection: each binding supplies its own instances (compare the lesson's
+     * MiniDI, which finds and invokes constructors reflectively).
      */
     public static class SimpleDIContainer {
         private final Map<Class<?>, Supplier<?>> bindings = new HashMap<>();

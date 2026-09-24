@@ -80,7 +80,7 @@ public class BigONotation {
         }
 
         /**
-         * O(log n) - Finding power using fast exponentiation.
+         * O(log n) - Finding power modulo 1_000_000_007 using fast exponentiation.
          */
         public long fastPower(long base, long exponent) {
             if (exponent < 0) {
@@ -99,12 +99,17 @@ public class BigONotation {
         }
 
         /**
-         * O(log n) - Count the number of digits in a number.
+         * O(log n) - Count the number of digits in a number (one division per digit).
+         * Works on the negative value, because Math.abs(Long.MIN_VALUE) is still negative.
          */
         public int countDigits(long number) {
-            if (number == 0) return 1;
-            number = Math.abs(number);
-            return (int) Math.floor(Math.log10(number)) + 1;
+            if (number > 0) number = -number;
+            int digits = 1;
+            while (number <= -10) {
+                number /= 10;
+                digits++;
+            }
+            return digits;
         }
     }
 
@@ -156,7 +161,7 @@ public class BigONotation {
         }
 
         /**
-         * O(n) - Reverse an array in place.
+         * O(n) - Reverse an array (returns a reversed copy; the input is not modified).
          */
         public int[] reverse(int[] array) {
             if (array == null) return null;
@@ -442,7 +447,9 @@ public class BigONotation {
          * QuickSort implementation demonstrating different time complexity cases:
          * - Best case: O(n log n) when pivot divides array evenly
          * - Average case: O(n log n)
-         * - Worst case: O(n^2) when array is already sorted and pivot is always min/max
+         * - Worst case: O(n^2) when the pivot is repeatedly the min or max. A naive first- or
+         *   last-element pivot hits this on sorted input; the median-of-three pivot used here
+         *   avoids that case, but this Lomuto partition is still O(n^2) when all elements are equal.
          */
         public int[] quickSort(int[] array) {
             if (array == null || array.length <= 1) {
@@ -508,8 +515,8 @@ public class BigONotation {
         /**
          * HashMap get operation demonstrating different cases:
          * - Best/Average case: O(1) with good hash distribution
-         * - Worst case: O(n) when all keys hash to same bucket (pre-Java 8)
-         *   or O(log n) with treeification (Java 8+)
+         * - Worst case: O(n) when all keys hash to same bucket (pre-Java 8, or Java 8+ with
+         *   keys that are not Comparable); O(log n) with treeification and Comparable keys (Java 8+)
          */
         public <K, V> V hashMapGet(Map<K, V> map, K key) {
             return map.get(key);

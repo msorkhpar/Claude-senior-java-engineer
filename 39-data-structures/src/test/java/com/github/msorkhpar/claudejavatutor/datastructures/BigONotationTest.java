@@ -136,6 +136,16 @@ class BigONotationTest {
             assertThat(logarithmic.countDigits(12345)).isEqualTo(5);
             assertThat(logarithmic.countDigits(-999)).isEqualTo(3);
         }
+
+        @Test
+        @DisplayName("Should count digits exactly at the edges of long")
+        void testCountDigitsLongEdges() {
+            // Math.log10 rounds 999_999_999_999_999_999 to 18.0, and Math.abs(Long.MIN_VALUE) stays negative
+            assertThat(logarithmic.countDigits(999_999_999_999_999_999L)).isEqualTo(18);
+            assertThat(logarithmic.countDigits(1_000_000_000_000_000_000L)).isEqualTo(19);
+            assertThat(logarithmic.countDigits(Long.MAX_VALUE)).isEqualTo(19);
+            assertThat(logarithmic.countDigits(Long.MIN_VALUE)).isEqualTo(19);
+        }
     }
 
     // ========== Linear Time O(n) Tests ==========

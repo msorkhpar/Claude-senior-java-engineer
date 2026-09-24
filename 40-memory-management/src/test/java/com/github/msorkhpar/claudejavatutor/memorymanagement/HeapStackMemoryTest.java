@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -216,23 +217,32 @@ class HeapStackMemoryTest {
         }
 
         @Test
-        @DisplayName("Should create soft reference")
+        @DisplayName("Soft reference keeps its referent while a strong reference exists")
         void testCreateSoftReference() {
-            SoftReference<byte[]> softRef = demo.createSoftReference();
-            assertThat(softRef).isNotNull();
-            // Soft references are typically kept unless memory is low
-            // so get() should return non-null right after creation
-            assertThat(softRef.get()).isNotNull();
+            byte[] data = new byte[1024 * 1024];
+            SoftReference<byte[]> softRef = demo.createSoftReference(data);
+
+            // 'data' is strongly reachable until the reachabilityFence below, so the GC
+            // may not clear the soft reference, even under memory pressure
+            assertThat(softRef.get()).isSameAs(data);
+            Reference.reachabilityFence(data);
         }
 
         @Test
-        @DisplayName("Should demonstrate nullification makes object eligible for GC")
+        @DisplayName("Nullifying the only strong reference lets the GC clear a weak reference")
         void testDemonstrateNullification() {
-            // This test demonstrates the concept - GC behavior is non-deterministic
-            boolean collected = demo.demonstrateNullification();
-            // We can only assert the return is a valid boolean;
-            // the actual result depends on whether GC ran
-            assertThat(collected).isIn(true, false);
+            assertThat(demo.demonstrateNullification()).isTrue();
+        }
+
+        @Test
+        @DisplayName("A weak reference is not cleared while a strong reference exists")
+        void testWeakReferenceKeptWhileStronglyReachable() {
+            Object strong = new Object();
+            WeakReference<Object> weakRef = new WeakReference<>(strong);
+
+            assertThat(HeapStackMemory.MemoryAllocationDemo.awaitCleared(weakRef)).isFalse();
+            assertThat(weakRef.get()).isSameAs(strong);
+            Reference.reachabilityFence(strong);
         }
 
         @Test

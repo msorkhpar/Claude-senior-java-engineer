@@ -4,7 +4,7 @@
 
 Big O notation is a mathematical notation used to describe the upper bound of an algorithm's growth rate in terms of time or space as the input size increases. It abstracts away constants and lower-order terms to focus on the dominant factor that determines scalability.
 
-**Real-world analogy**: Imagine you are sorting a deck of cards. If you have 10 cards, even a bad sorting method works quickly. But if you have 1,000,000 cards, the method matters enormously. Big O notation tells you HOW your algorithm's performance scales. An O(n) algorithm (like dealing cards one by one) scales linearly: 10x more cards = 10x more time. An O(n^2) algorithm (like repeatedly finding the smallest card) scales quadratically: 10x more cards = 100x more time. An O(log n) algorithm (like binary search on sorted cards) scales logarithmically: 10x more cards = only 3.3x more time.
+**Real-world analogy**: Imagine you are sorting a deck of cards. If you have 10 cards, even a bad sorting method works quickly. But if you have 1,000,000 cards, the method matters enormously. Big O notation tells you HOW your algorithm's performance scales. An O(n) algorithm (like dealing cards one by one) scales linearly: 10x more cards = 10x more time. An O(n^2) algorithm (like repeatedly finding the smallest card) scales quadratically: 10x more cards = 100x more time. An O(log n) algorithm (like binary search on sorted cards) scales logarithmically: 10x more cards = only about 3.3 more steps (log2 10 ≈ 3.3).
 
 ### Time Complexity
 
@@ -50,15 +50,15 @@ Big O typically describes the **worst case** unless stated otherwise. However, *
 5. **Space complexity includes** the call stack for recursive algorithms.
 6. **Amortized complexity** considers the average cost over a sequence of operations (e.g., dynamic array resizing).
 7. O(log n) base is irrelevant (log base changes are constant factors): O(log_2 n) = O(log_10 n) = O(ln n).
-8. In Java, `Arrays.sort()` for primitives uses dual-pivot quicksort (O(n log n) average, O(n^2) worst). For objects, it uses TimSort (O(n log n) guaranteed).
-9. HashMap operations are O(1) average, O(log n) worst case (Java 8+ with treeification).
+8. In Java, `Arrays.sort()` for primitives uses dual-pivot quicksort, which since Java 14 falls back to heap sort when recursion gets too deep, so it is O(n log n) on all inputs (before Java 14 its worst case was O(n^2)). For objects, it uses TimSort (O(n log n) guaranteed).
+9. HashMap operations are O(1) average; worst case O(log n) with Java 8+ treeification when the colliding keys are `Comparable`, O(n) otherwise.
 10. When analyzing nested loops, multiply the complexities: an O(n) loop inside an O(m) loop is O(n * m).
 
 ## Relevant Java 21 Features
 
 - **TimSort**: Java's default sort for objects (`Collections.sort()`, `Arrays.sort()` for objects) uses TimSort, which is O(n log n) worst case and O(n) best case for nearly sorted data. This is a hybrid merge sort/insertion sort.
 - **Parallel streams**: `parallelStream()` can improve throughput for CPU-bound O(n) operations on large datasets by distributing work across cores, but introduces overhead that can make small datasets slower.
-- **ConcurrentHashMap**: Thread-safe O(1) operations without locking the entire map (uses segment/bucket-level locking).
+- **ConcurrentHashMap**: Thread-safe O(1) average operations without locking the entire map (since Java 8: lock-free reads, CAS to fill an empty bucket, and a lock on a bucket's first node for other updates; the segment-based locking was Java 7 and earlier).
 - **Virtual Threads**: For I/O-bound operations, virtual threads can be used to parallelize processing without the overhead of platform threads, effectively making I/O-bound O(n) work complete in O(n/k) wall-clock time where k is concurrency level.
 - **`Stream.toList()`** (Java 16+): More efficient than `.collect(Collectors.toList())` as it creates an unmodifiable list with potentially less copying.
 
@@ -108,8 +108,8 @@ Big O typically describes the **worst case** unless stated otherwise. However, *
 
 5. **Assuming HashMap is always O(1)**
    ```java
-   // HashMap worst case is O(log n) per operation (Java 8+)
-   // If all keys hash to the same bucket, performance degrades
+   // HashMap worst case is O(log n) per operation (Java 8+) if the colliding keys are Comparable,
+   // and still O(n) if they are not. If all keys hash to the same bucket, performance degrades
    // This can be exploited in adversarial scenarios (HashDoS attacks)
    ```
    **Solution**: Use good hash functions and be aware of worst-case scenarios.
@@ -152,7 +152,7 @@ Common tricky questions:
 
 - "Is O(n) always faster than O(n^2)?" (No, for small n with different constants.)
 - "What is the space complexity of a recursive DFS on a graph?" (O(V) for the visited set + O(V) for the call stack = O(V).)
-- "What is the time complexity of `Arrays.sort()` in Java?" (O(n log n) for objects/TimSort; O(n log n) average, O(n^2) worst for primitives/dual-pivot quicksort.)
+- "What is the time complexity of `Arrays.sort()` in Java?" (O(n log n) for objects/TimSort; O(n log n) for primitives too since Java 14, where dual-pivot quicksort falls back to heap sort; O(n^2) worst for primitives before Java 14.)
 - "How do you reduce O(n^2) to O(n) for the two-sum problem?" (Use a HashSet/HashMap.)
 
 ## Interview Q&A Section
@@ -251,7 +251,7 @@ int max = Arrays.stream(arr).max().orElseThrow(); // Must check every element
 
 // O(n log n) - Linearithmic time
 int[] sorted = arr.clone();
-Arrays.sort(sorted); // TimSort: O(n log n)
+Arrays.sort(sorted); // int[]: dual-pivot quicksort, O(n log n)
 
 // O(n^2) - Quadratic time
 // Find all pairs that sum to a target (naive approach)
@@ -387,7 +387,7 @@ How to mitigate QuickSort's worst case:
 1. Median-of-three pivot: Choose the median of the first, middle, and last elements.
 2. Random pivot: Choose a random element as pivot.
 3. Introsort: Switch to heapsort when recursion depth exceeds a threshold (used by
-   many C++ standard libraries).
+   many C++ standard libraries, and by Java's primitive Arrays.sort() since Java 14).
 
 Comparison with other sorts:
 - Insertion sort: Best O(n), Average O(n^2), Worst O(n^2)
@@ -396,7 +396,8 @@ Comparison with other sorts:
 
 This is why Java uses:
 - TimSort for objects (stable, guaranteed O(n log n), great for nearly sorted data)
-- Dual-pivot QuickSort for primitives (faster in practice, stability not needed)
+- Dual-pivot QuickSort for primitives (faster in practice, stability not needed;
+  since Java 14 it falls back to heap sort, so it is O(n log n) worst case too)
 ```
 
 ```java
@@ -477,12 +478,14 @@ int[][] matrix = space.createMatrix(100); // 100x100 = 10,000 entries
 A7: Java uses two different sorting algorithms depending on the data type:
 
 For primitive arrays (int[], long[], double[], etc.):
-- Algorithm: Dual-Pivot QuickSort (since Java 7)
-- Time: O(n log n) average, O(n^2) worst case
-- Space: O(log n) for recursion stack
+- Algorithm: Dual-Pivot QuickSort (since Java 7); since Java 14 it also merges
+  pre-sorted runs and falls back to heap sort when recursion gets too deep
+- Time: O(n log n) on all inputs (the Java 21 javadoc says so); before Java 14 the
+  worst case was O(n^2)
+- Space: O(log n) for recursion, plus an O(n) buffer when it merges pre-sorted runs
 - Stability: NOT stable (equal elements may be reordered)
 - Why: Fastest in practice for primitives due to cache efficiency and
-  no object overhead. Worst case is rare with the dual-pivot strategy.
+  no object overhead. Stability is meaningless for equal primitive values.
 
 For object arrays (Integer[], String[], etc.) and Collections.sort():
 - Algorithm: TimSort (since Java 7)
@@ -510,7 +513,7 @@ For parallel sorting: Arrays.parallelSort()
 ```java
 // Primitive array: uses Dual-Pivot QuickSort
 int[] primitives = {5, 2, 8, 1, 9, 3};
-Arrays.sort(primitives); // O(n log n) average, NOT stable
+Arrays.sort(primitives); // O(n log n), NOT stable
 
 // Object array: uses TimSort
 Integer[] objects = {5, 2, 8, 1, 9, 3};

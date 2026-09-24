@@ -34,7 +34,7 @@ There are two main variants:
 
 Evolution across Java versions:
 - **Java 8**: Introduced default methods in interfaces and lambdas, which made lightweight adapters trivial.
-- **Java 14+**: Records provide a concise way to represent data-carrying adapters.
+- **Java 16+**: Records (a preview feature in Java 14 and 15) provide a concise way to represent data-carrying adapters.
 - **Java 17+**: Sealed classes/interfaces allow controlled adapter hierarchies.
 
 ## Common Pitfalls and How to Avoid Them
@@ -144,7 +144,7 @@ class PaymentAdapter implements ModernPaymentGateway {
 
     @Override
     public PaymentResult processPayment(String cardNumber, double amount) {
-        int cents = (int) (amount * 100);
+        int cents = (int) Math.round(amount * 100); // (int) (amount * 100) truncates: 19.99 * 100 = 1998.999... -> 1998
         int statusCode = legacy.charge(cardNumber, cents);
         return new PaymentResult(statusCode == 0, statusCode);
     }
@@ -267,8 +267,9 @@ A4: The Java SDK uses the Adapter pattern extensively:
 
 6. java.util.concurrent.FutureTask — adapts Callable to both Runnable and Future.
 
-7. javax.xml.bind.annotation.adapters.XmlAdapter — used in JAXB for custom
-   marshalling/unmarshalling between XML and Java types.
+7. XmlAdapter in JAXB — used for custom marshalling/unmarshalling between XML and Java
+   types. JAXB is no longer part of the JDK: it was removed in Java 11 (JEP 320) and now
+   ships separately as Jakarta XML Binding (jakarta.xml.bind.annotation.adapters.XmlAdapter).
 
 Each of these converts one interface to another without changing the underlying behavior.
 ```

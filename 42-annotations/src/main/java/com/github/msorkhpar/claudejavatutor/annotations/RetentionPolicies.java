@@ -167,7 +167,7 @@ public class RetentionPolicies {
     }
 
     /**
-     * Checks if a SOURCE or CLASS annotation is present — demonstrates it is NOT available.
+     * Checks if a SOURCE annotation is present — demonstrates it is NOT available.
      */
     public static boolean isSourceAnnotationPresent(Class<?> clazz, String methodName) {
         try {

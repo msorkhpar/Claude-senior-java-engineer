@@ -70,20 +70,24 @@ public class ClassIntrospection {
     // --- Introspection methods ---
 
     /**
-     * Obtains a Class object using three different approaches.
+     * Obtains the Class object for String using the three different approaches.
+     * All three return the same Class object.
      */
-    public static List<Class<?>> getClassObjectThreeWays(Object instance) {
+    public static List<Class<?>> getClassObjectThreeWays(String instance) {
         List<Class<?>> results = new ArrayList<>();
 
         // Way 1: .getClass() on an instance
         results.add(instance.getClass());
 
-        // Way 2: .class literal (demonstrated using the runtime class)
-        // Here we simulate by using the Class object we already have
-        results.add(instance.getClass());
+        // Way 2: .class literal (needs the type at compile time)
+        results.add(String.class);
 
-        // Way 3: Class.forName() (demonstrated in separate method due to checked exception)
-        results.add(instance.getClass());
+        // Way 3: Class.forName() by fully-qualified name
+        try {
+            results.add(Class.forName("java.lang.String"));
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("java.lang.String is always loadable", e);
+        }
 
         return results;
     }
