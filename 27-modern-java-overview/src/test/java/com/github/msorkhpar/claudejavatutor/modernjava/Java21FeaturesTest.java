@@ -25,13 +25,13 @@ class Java21FeaturesTest {
         @Test
         @DisplayName("Should format positive integer")
         void testFormatPositiveInteger() {
-            assertThat(Java21Features.formatValue(42)).isEqualTo("Positive integer: 42");
+            assertThat(Java21Features.formatValue(42)).isEqualTo("Non-negative integer: 42");
         }
 
         @Test
-        @DisplayName("Should format zero as positive integer")
+        @DisplayName("Should format zero as non-negative integer")
         void testFormatZeroInteger() {
-            assertThat(Java21Features.formatValue(0)).isEqualTo("Positive integer: 0");
+            assertThat(Java21Features.formatValue(0)).isEqualTo("Non-negative integer: 0");
         }
 
         @Test

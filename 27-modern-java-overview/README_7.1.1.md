@@ -4,8 +4,8 @@
 
 Java 8, released in March 2014, is one of the most transformative releases in Java's history. It introduced fundamental
 paradigm shifts that moved Java from a purely object-oriented language into one that embraces functional programming
-concepts. Java 8 remains the baseline for many enterprise applications and is still the most widely deployed Java version
-in production environments.
+concepts. Java 8 remains the baseline for many enterprise applications and is still widely deployed in production
+environments.
 
 **Real-world analogy**: Think of Java 8 as the moment a traditional workshop added power tools. The craftsmen (developers)
 could still use their hand tools (imperative programming), but the new power tools (lambdas, streams, Optional) let them
@@ -99,7 +99,8 @@ Java 21 builds on every Java 8 foundation:
 ## Best Practices and Optimization Techniques
 
 1. **Prefer method references** over lambdas for improved readability: `String::toUpperCase` vs `s -> s.toUpperCase()`.
-2. **Cache reusable lambdas** as static final fields to avoid repeated object creation.
+2. **Don't cache lambdas just to save allocations**: on HotSpot a non-capturing lambda is created once per call site
+   and reused; only lambdas that capture variables allocate a new object on each evaluation.
 3. **Use primitive stream specializations** (`IntStream`, `LongStream`, `DoubleStream`) to avoid autoboxing overhead.
 4. **Chain Optional operations** instead of nested if-null checks: `opt.map(f).filter(p).orElse(default)`.
 5. **Prefer `Collectors.toUnmodifiableList()`** (Java 10+) for immutable results.
@@ -175,6 +176,7 @@ public class Java8AllFeatures {
         }
     }
 
+    // record is Java 16+ syntax, used here for brevity; in Java 8 this would be a small class
     record Person(String name, LocalDate birthDate) implements Describable {
         public String describe() { return name + " born " + birthDate; }
     }

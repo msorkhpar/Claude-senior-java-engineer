@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-Java 21, released in September 2023, is the latest Long-Term Support release and represents the culmination of years of evolution in the Java platform. It finalizes pattern matching for switch, record patterns, and virtual threads — three features that together transform how Java applications are written, from data processing to high-concurrency server-side code.
+Java 21, released in September 2023, is a Long-Term Support release (the one after Java 17) and represents the culmination of years of evolution in the Java platform. It finalizes pattern matching for switch, record patterns, and virtual threads — three features that together transform how Java applications are written, from data processing to high-concurrency server-side code.
 
 **Real-world analogy**: Java 21 is like a city completing its multi-year transit overhaul. The express rail line (virtual threads) is now open to all passengers — handling millions of riders without needing a dedicated platform thread per passenger. The smart traffic routing system (pattern matching for switch) can now inspect and route any kind of vehicle (object type) with full GPS data (record patterns), and the new organized neighborhoods (sequenced collections) finally give every district a clear first and last address.
 
@@ -21,9 +21,9 @@ The five pillars of Java 21 are:
 - Virtual threads are designed for I/O-bound workloads; they unmount from carrier threads when blocking.
 - `Executors.newVirtualThreadPerTaskExecutor()` is the primary way to use virtual threads.
 - `Thread.ofVirtual()` and `Thread.ofPlatform()` provide the builder API for thread creation.
-- Sequenced collections (`SequencedCollection`, `SequencedSet`, `SequencedMap`) add `getFirst()`, `getLast()`, and `reversed()`.
+- Sequenced collections (`SequencedCollection`, `SequencedSet`, `SequencedMap`) add `getFirst()`, `getLast()`, and `reversed()` (maps: `firstEntry()`, `lastEntry()`, `reversed()`).
 - Structured concurrency ensures child tasks complete before the parent scope exits.
-- The Foreign Function & Memory API replaces JNI with a pure-Java, type-safe alternative.
+- The Foreign Function & Memory API offers a pure-Java alternative to JNI (third preview in Java 21, final in Java 22).
 - Java 21 switch expressions with sealed types don't need a `default` branch — the compiler verifies exhaustiveness.
 
 ## Relevant Java 21 Features
@@ -33,7 +33,7 @@ This *is* the Java 21 module. Key interactions between features:
 - **Pattern matching + sealed classes + records** = algebraic data types with exhaustive handling, enabling functional programming patterns in Java.
 - **Virtual threads + structured concurrency** = scalable server applications without callback hell or reactive frameworks.
 - **Sequenced collections** = consistent first/last element access across `List`, `LinkedHashSet`, `LinkedHashMap`, `SortedSet`, and `SortedMap`.
-- **Foreign Function & Memory API** = safe native interop that works with virtual threads (no thread-pinning issues like JNI).
+- **Foreign Function & Memory API** = safe native interop. Like JNI, a foreign-function call pins a virtual thread to its carrier while it runs.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -56,7 +56,7 @@ This *is* the Java 21 module. Key interactions between features:
    // WRONG: NPE if obj is null and no null case
    // String result = switch (obj) {
    //     case String s -> s;
-   //     default -> "other";  // null falls through to default but throws NPE
+   //     default -> "other";  // default does NOT match null: a null obj throws NPE
    // };
 
    // RIGHT: handle null explicitly
@@ -159,7 +159,8 @@ Virtual threads (JEP 444) are lightweight threads managed by the JVM rather than
 
 Key differences:
 1. Resource cost: Platform threads map 1:1 to OS threads (~1MB stack each). Virtual
-   threads are JVM-managed with small initial stacks (~few KB), growing as needed.
+   threads are JVM-managed; their stacks live on the heap and start small (well under
+   1 KB for a shallow stack), growing as needed.
 2. Scalability: You can create millions of virtual threads vs. thousands of platform threads.
 3. Scheduling: Platform threads are scheduled by the OS. Virtual threads are scheduled
    by the JVM onto a pool of carrier (platform) threads.
@@ -286,13 +287,15 @@ String describe(Object obj) {
 }
 
 // Nested record pattern — deconstruct through multiple levels
+// (`_` for unused components is a preview feature in Java 21, JEP 443, final in Java 22,
+//  so this Java 21 example names every component)
 String describeLine(Line line) {
     return switch (line) {
         case Line(Point(int x1, int y1), Point(int x2, int y2))
             when x1 == x2 && y1 == y2 -> "degenerate (single point)";
-        case Line(Point(int x1, var _), Point(int x2, var _))
+        case Line(Point(int x1, var y1), Point(int x2, var y2))
             when x1 == x2 -> "vertical at x=" + x1;
-        case Line(Point(var _, int y1), Point(var _, int y2))
+        case Line(Point(var x1, int y1), Point(var x2, int y2))
             when y1 == y2 -> "horizontal at y=" + y1;
         case Line(Point(int x1, int y1), Point(int x2, int y2)) ->
             "from (%d,%d) to (%d,%d)".formatted(x1, y1, x2, y2);

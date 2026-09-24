@@ -22,7 +22,7 @@ public class Java21Features {
     public static String formatValue(Object obj) {
         return switch (obj) {
             case Integer i when i < 0 -> "Negative integer: " + i;
-            case Integer i -> "Positive integer: " + i;
+            case Integer i -> "Non-negative integer: " + i;
             case String s when s.isEmpty() -> "Empty string";
             case String s -> "String: " + s;
             case Double d -> "Double: " + String.format("%.2f", d);
@@ -246,7 +246,9 @@ public class Java21Features {
     }
 
     /**
-     * Demonstrates the structured concurrency pattern: run tasks together, fail together.
+     * Demonstrates the structured concurrency pattern: run tasks together and wait for all of them
+     * before returning. Unlike StructuredTaskScope.ShutdownOnFailure, it does not cancel the
+     * other tasks when one fails; each failure is reported in its TaskResult.
      */
     public static <T> List<TaskResult<T>> runStructuredTasks(List<Callable<T>> tasks) {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {

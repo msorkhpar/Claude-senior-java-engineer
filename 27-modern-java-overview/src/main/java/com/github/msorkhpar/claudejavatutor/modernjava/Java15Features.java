@@ -182,7 +182,7 @@ no indent
 
     /**
      * Demonstrates a proxy-like pattern that hidden classes are used for.
-     * Frameworks like Spring use hidden classes for dynamic proxies.
+     * Frameworks that generate classes at run time can define them as hidden classes.
      */
     @FunctionalInterface
     public interface DynamicAction {
@@ -190,7 +190,7 @@ no indent
     }
 
     public static DynamicAction createDynamicAction(String prefix) {
-        // In real frameworks, this would use hidden classes for the lambda implementation
+        // The JVM already implements this lambda with a hidden class (Java 15+)
         return input -> prefix + ": " + input;
     }
 

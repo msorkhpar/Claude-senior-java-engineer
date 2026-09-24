@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-Java 17, released in September 2021, is a Long-Term Support (LTS) release and one of the most significant Java releases for enterprise adoption. It finalized many features previewed in earlier releases (sealed classes, pattern matching for instanceof) and introduced the enhanced pseudo-random number generator (PRNG) API while deprecating the Security Manager for removal.
+Java 17, released in September 2021, is a Long-Term Support (LTS) release and one of the most significant Java releases for enterprise adoption. It finalized sealed classes (previewed in 15 and 16), is the first LTS to include features finalized in Java 16 (records, pattern matching for instanceof), and introduced the enhanced pseudo-random number generator (PRNG) API while deprecating the Security Manager for removal.
 
 **Real-world analogy**: Java 17 is like a city's infrastructure upgrade — the experimental elevated train line (sealed classes, pattern matching) becomes an official permanent route, the outdated toll booths (Security Manager) are marked for demolition, and the random number dispatch center (PRNG API) gets a modern, pluggable architecture that can accommodate new algorithms without rebuilding the entire system.
 
@@ -10,7 +10,7 @@ The key features of Java 17 are:
 1. **Enhanced Pseudo-Random Number Generators (JEP 356)** — a unified, pluggable API for random number generation
 2. **Deprecation of the Security Manager (JEP 411)** — signaling the end of an era
 3. **Sealed Classes (JEP 409, finalized)** — restricting class hierarchies
-4. **Pattern Matching for instanceof (JEP 394, finalized)** — type-safe casting
+4. **Pattern Matching for instanceof (JEP 394, finalized in Java 16)** — type-safe casting, first in an LTS release
 5. **Strong encapsulation of JDK internals (JEP 403)** — `--illegal-access` no longer available
 
 ## Key Points to Remember
@@ -28,10 +28,11 @@ The key features of Java 17 are:
 
 ## Relevant Java 21 Features
 
-- **RandomGenerator** is the foundation for random number usage in virtual thread contexts (Java 21).
+- **RandomGenerator** remains the common interface in Java 21: `Random`, `SecureRandom`, `ThreadLocalRandom` and `SplittableRandom` all implement it.
 - **Sealed classes** are essential for exhaustive pattern matching in Java 21 switch expressions — the compiler verifies all subtypes are covered.
 - **Pattern matching for instanceof** is used ubiquitously in Java 21 code, especially combined with record patterns and switch.
-- Security Manager removal continues — Java 21 further restricts its use. Container-based isolation is the standard.
+- Security Manager removal continues — since Java 18, installing one at run time fails unless the JVM is started with
+  `-Djava.security.manager=allow`, and Java 24 disabled it permanently (JEP 486). Container-based isolation is the standard.
 - Strong encapsulation is tightened further; Java 21 applications must use `--add-opens` for any reflective access to internal APIs.
 
 ## Common Pitfalls and How to Avoid Them
@@ -45,7 +46,8 @@ The key features of Java 17 are:
    // RIGHT: use ThreadLocalRandom or a splittable generator
    int value = ThreadLocalRandom.current().nextInt(100);
 
-   // Or use the new API with a thread-safe algorithm:
+   // Or give each thread its own generator from the new API
+   // (L64X128MixRandom and the other new algorithms are NOT thread-safe):
    RandomGenerator gen = RandomGeneratorFactory.of("L64X128MixRandom").create();
    ```
 
@@ -62,8 +64,12 @@ The key features of Java 17 are:
 3. **Using Security Manager in new code**:
    ```java
    // WRONG: Security Manager is deprecated for removal
-   @SuppressWarnings("removal")
-   System.setSecurityManager(new SecurityManager());
+   @SuppressWarnings("removal") // annotations go on declarations, not on statements
+   void installSecurityManager() {
+       // Since Java 18 this throws UnsupportedOperationException
+       // unless the JVM was started with -Djava.security.manager=allow
+       System.setSecurityManager(new SecurityManager());
+   }
 
    // RIGHT: use container-level or OS-level security
    // Docker, Kubernetes, SELinux, AppArmor, or JPMS modules
@@ -71,8 +77,9 @@ The key features of Java 17 are:
 
 4. **Not making sealed hierarchies exhaustive**:
    ```java
-   // WRONG: sealed class with missing permits clause
-   // public sealed class Shape { } // compile error — must specify permits
+   // WRONG: sealed class with no permitted subclasses
+   // public sealed class Shape { } // compile error: "sealed class must have subclasses"
+   // (permits may be omitted only when the subclasses are declared in the same source file)
 
    // RIGHT: explicitly declare permitted subtypes
    public sealed class Shape permits Circle, Rectangle, Triangle { }
@@ -106,7 +113,7 @@ The key features of Java 17 are:
 
 - **Empty algorithm name**: `RandomGeneratorFactory.of("")` throws `IllegalArgumentException`.
 - **Seeded generators with seed 0**: Works fine — 0 is a valid seed for most algorithms.
-- **Sealed class with no subtypes**: Legal but unusual — `sealed class Empty permits {}` is a compile error; you need at least one permitted subtype.
+- **Sealed class with no subtypes**: Not allowed — a sealed class must have at least one permitted subclass (`sealed class Empty permits {}` does not even parse).
 - **Sealed interface with records**: Records can be permitted subtypes of sealed interfaces — commonly used for algebraic data types.
 - **RandomGenerator.ints(0, 0, 100)**: Returns an empty IntStream (count = 0) — no exception.
 - **Negative count in stream methods**: `generator.ints(-1, 0, 100)` throws `IllegalArgumentException`.
@@ -185,8 +192,9 @@ The Security Manager was deprecated for removal (JEP 411) for several reasons:
 6. Better alternatives exist: Container isolation (Docker), OS security (SELinux),
    JPMS modules, and process sandboxing are more effective.
 
-Timeline: Deprecated in Java 17, further restricted in later versions, targeted for
-removal in a future Java release.
+Timeline: Deprecated for removal in Java 17; since Java 18 it cannot be installed at
+run time unless -Djava.security.manager=allow is set; permanently disabled in Java 24
+(JEP 486).
 ```
 
 ```java
@@ -271,23 +279,27 @@ History:
 - Java 17: removed --illegal-access entirely
 
 Impact:
-- Reflection on JDK internal classes (sun.misc.*, com.sun.*, jdk.internal.*) is
-  denied by default.
-- Libraries using Unsafe, internal sun.* classes, or reflective access to JDK
-  internals must use --add-opens on the command line.
+- Deep reflection on JDK internal packages (e.g. jdk.internal.*, sun.nio.ch, private
+  members of java.lang classes) is denied by default.
+- sun.misc.Unsafe is the deliberate exception: it lives in the jdk.unsupported module,
+  which stays open, so libraries can still reach it (JEP 260's "critical internal APIs").
+- Other libraries relying on reflective access to JDK internals must use --add-opens.
 - This affects many frameworks: Spring (older versions), Hibernate, serialization
   libraries, testing frameworks.
 
 Migration strategy:
 1. Identify illegal access: run with --illegal-access=warn on Java 16
 2. Replace internal APIs with public alternatives (e.g., VarHandle instead of Unsafe)
-3. If no public alternative exists, use --add-opens in module-info.java or command line
+3. If no public alternative exists, use --add-opens on the command line (or the
+   Add-Opens attribute in an executable JAR's manifest); module-info.java cannot open
+   another module's packages
 4. Update frameworks to versions that support Java 17+
 ```
 
 ```java
-// Before Java 17: accessing internal API (worked with warnings)
-// sun.misc.Unsafe unsafe = sun.misc.Unsafe.getUnsafe(); // IllegalAccessError in 17
+// Internal API: sun.misc.Unsafe.getUnsafe() throws SecurityException for application code
+// (in every recent release, not only 17); libraries read the "theUnsafe" field reflectively.
+// Prefer the public alternatives:
 
 // After Java 17: use public alternatives
 import java.lang.invoke.VarHandle;
@@ -311,8 +323,8 @@ public class SafeAccess {
     }
 }
 
-// If you MUST use internal APIs, add JVM flags:
-// java --add-opens java.base/sun.misc=ALL-UNNAMED -jar app.jar
+// If you MUST reflect into JDK internals, open the package on the command line, e.g.:
+// java --add-opens java.base/java.lang=ALL-UNNAMED -jar app.jar
 ```
 
 ### Q5: Compare ThreadLocalRandom with the new RandomGenerator API for concurrent applications.
@@ -322,7 +334,7 @@ ThreadLocalRandom (Java 7):
 - Thread-confined: each thread has its own instance via ThreadLocalRandom.current()
 - No contention: no synchronization needed
 - Cannot be seeded (not reproducible)
-- Limited to one algorithm (similar to java.util.Random internals)
+- Limited to one algorithm (a SplitMix64-style generator, as in SplittableRandom)
 - Cannot create independent subsequences for parallel streams
 
 New RandomGenerator API (Java 17):

@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-Java 15, released in September 2020, was a non-LTS release that standardized text blocks and continued refining pattern matching and sealed classes. While not a long-term support release, Java 15 delivered features that fundamentally improved code readability and set the stage for the pattern-matching revolution in later versions.
+Java 15, released in September 2020, was a non-LTS release that standardized text blocks, continued refining pattern matching, and first previewed sealed classes (JEP 360). While not a long-term support release, Java 15 delivered features that fundamentally improved code readability and set the stage for the pattern-matching revolution in later versions.
 
 **Real-world analogy**: Think of Java 15 as the "fit and finish" release — like a car manufacturer standardizing the premium features (text blocks) that were tested in earlier models (Java 13-14 previews) and starting road-testing the next generation of features (pattern matching, sealed classes). The features aren't all production-ready yet, but the direction is clear and exciting.
 
@@ -21,16 +21,16 @@ The three pillars of Java 15 are:
 - Pattern matching for `instanceof` (JEP 375) eliminates the need for explicit casts after type checks.
 - The pattern variable's scope extends only where the pattern is guaranteed to have matched.
 - Hidden classes (JEP 371) cannot be discovered by name and are designed for frameworks generating classes at runtime.
-- Lambda expressions in Java 15+ internally use hidden classes instead of anonymous inner classes.
+- Lambda expressions in Java 15+ internally use hidden classes instead of VM-anonymous classes (`Unsafe.defineAnonymousClass`).
 - Hidden classes can be unloaded independently of their defining class loader.
 
 ## Relevant Java 21 Features
 
 Java 21 builds extensively on Java 15's foundations:
 
-- **Text blocks** remain the standard for multi-line strings. Java 21 does not add string templates as a standard feature (still preview), but text blocks combined with `formatted()` remain the recommended approach.
+- **Text blocks** remain the standard for multi-line strings. String Templates were only a preview in Java 21 (JEP 430) and were withdrawn in JDK 23, so text blocks combined with `formatted()` remain the recommended approach.
 - **Pattern matching for instanceof** was standardized in Java 16 and is now used everywhere in Java 21 code, including with sealed classes and record patterns.
-- **Hidden classes** underpin virtual threads (Project Loom) and the lambda metafactory in Java 21; they are used transparently by the JVM.
+- **Hidden classes** underpin the lambda metafactory and the method-handle infrastructure in Java 21; they are used transparently by the JVM.
 - **Sealed classes**, previewed alongside these features, became standard in Java 17 and are essential for exhaustive pattern matching in Java 21 switch expressions.
 
 ## Common Pitfalls and How to Avoid Them
@@ -216,7 +216,8 @@ Scope rules:
 - With && (short-circuit AND): available after the && because both sides must be true.
 - With || (short-circuit OR): NOT available because the match might not have occurred.
 - In negated conditions: available in the else branch (if !(obj instanceof Type t)).
-- The variable must be effectively final (can't reassign it).
+- Since Java 16 the pattern variable is not implicitly final: it can be reassigned
+  unless you declare it final (the Java 14-15 previews made it final).
 ```
 
 ```java
@@ -259,8 +260,8 @@ Why introduced:
   lambda implementations, and bytecode manipulation.
 - Before hidden classes, these generated classes polluted the class loader namespace,
   could not be efficiently garbage collected, and had naming conflicts.
-- Since Java 15, lambda expressions use hidden classes internally (previously they used
-  anonymous classes via LambdaMetafactory).
+- Since Java 15, lambda expressions use hidden classes internally (previously LambdaMetafactory
+  defined VM-anonymous classes via Unsafe.defineAnonymousClass).
 
 Created via: MethodHandles.Lookup.defineHiddenClass(byte[], boolean, options...)
 ```
