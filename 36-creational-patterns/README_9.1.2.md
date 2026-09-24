@@ -120,7 +120,8 @@ Interviewers often focus on:
 
 - The difference between Simple Factory, Factory Method, and Abstract Factory
 - How Factory Method follows the Open/Closed Principle
-- Real-world examples in the JDK (`Collection.iterator()`, `URLStreamHandlerFactory`, `LoggerFactory`)
+- Real-world examples in the JDK (`Collection.iterator()`, `URLStreamHandlerFactory`, `ThreadFactory`), and in
+  libraries (SLF4J's `LoggerFactory`, which is not part of the JDK)
 - When to use Factory Method vs. direct instantiation
 - How to combine Factory Method with modern Java features (sealed types, records, lambdas)
 
@@ -210,7 +211,9 @@ Example: A notification system originally supports Email. When SMS is needed:
 // Adding a new product type without modifying existing code
 
 // Existing code (never modified):
-public sealed interface Notification permits EmailNotification, SmsNotification, PushNotification {
+// Not sealed: a sealed interface would have to list PushNotification in its permits clause,
+// so adding a product would mean modifying this existing code.
+public interface Notification {
     String send(String message);
 }
 
@@ -249,19 +252,21 @@ A3: The JDK contains many examples of the Factory Method pattern:
 
 2. URLStreamHandlerFactory.createURLStreamHandler(): Returns protocol-specific handlers (HTTP, FTP, etc.).
 
-3. javax.xml.parsers.DocumentBuilderFactory.newInstance(): Returns a platform-specific DocumentBuilderFactory.
+3. javax.xml.parsers.DocumentBuilderFactory.newDocumentBuilder(): An abstract method; each parser implementation's
+   factory subclass returns its own DocumentBuilder.
 
 4. java.nio.charset.Charset.newDecoder(): Each Charset subclass returns its own CharsetDecoder.
 
-5. java.util.ResourceBundle.getBundle(): Returns a locale-specific ResourceBundle subclass.
-
-6. java.text.NumberFormat.getInstance(): Returns a locale-specific NumberFormat implementation.
+5. java.util.concurrent.ThreadFactory.newThread(Runnable): Each implementation decides how the Thread is created
+   (name, daemon status, priority).
 
 Static factory methods (a simpler related concept):
 - List.of(), Set.of(), Map.of()
 - Optional.of(), Optional.empty()
 - Integer.valueOf()
 - EnumSet.of()
+- DocumentBuilderFactory.newInstance(), ResourceBundle.getBundle(), NumberFormat.getInstance() -- each returns an
+  implementation chosen at runtime, but through a static method, not a subclass override
 
 These are technically Simple Factory (static methods), not the full Factory Method pattern, but they demonstrate
 the principle of abstracting object creation.

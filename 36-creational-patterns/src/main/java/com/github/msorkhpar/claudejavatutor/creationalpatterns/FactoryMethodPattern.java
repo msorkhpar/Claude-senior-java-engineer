@@ -3,6 +3,7 @@ package com.github.msorkhpar.claudejavatutor.creationalpatterns;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Demonstrates the Factory Method pattern with multiple approaches:
@@ -200,7 +201,9 @@ public class FactoryMethodPattern {
         private final Map<String, Supplier<Notification>> registry;
 
         public NotificationRegistry(Map<String, Supplier<Notification>> registry) {
-            this.registry = Map.copyOf(registry);
+            // Keys are stored upper-cased because lookups upper-case the requested type
+            this.registry = registry.entrySet().stream()
+                    .collect(Collectors.toUnmodifiableMap(e -> e.getKey().toUpperCase(), Map.Entry::getValue));
         }
 
         public Notification create(String type) {

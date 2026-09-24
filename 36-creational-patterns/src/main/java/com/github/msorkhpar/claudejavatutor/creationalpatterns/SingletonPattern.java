@@ -12,8 +12,8 @@ public class SingletonPattern {
 
     /**
      * Eager initialization Singleton.
-     * The instance is created when the class is loaded.
-     * Thread-safe due to class loading guarantees.
+     * The instance is created when the class is initialized.
+     * Thread-safe due to class initialization guarantees (JLS 12.4.2).
      */
     public static final class EagerSingleton {
         private static final EagerSingleton INSTANCE = new EagerSingleton();
@@ -49,7 +49,8 @@ public class SingletonPattern {
      */
     public static final class DoubleCheckedSingleton {
         private static volatile DoubleCheckedSingleton instance;
-        private String configuration;
+        // volatile: the one instance is shared by all threads, so a write through the setter must be visible to readers
+        private volatile String configuration;
 
         private DoubleCheckedSingleton() {
             this.configuration = "default";
@@ -114,7 +115,8 @@ public class SingletonPattern {
     public enum EnumSingleton {
         INSTANCE;
 
-        private int value;
+        // volatile: the enum guarantees one instance, not safe publication of later writes to its state
+        private volatile int value;
 
         public int getValue() {
             return value;
