@@ -383,6 +383,19 @@ class ProxyPatternTest {
         }
 
         @Test
+        @DisplayName("Should rethrow the target's exception unchanged")
+        void testTargetExceptionPropagates() {
+            var realService = new ProxyPattern.RealDataLookupService();
+            var handler = new ProxyPattern.LoggingInvocationHandler(realService);
+            var proxy = ProxyPattern.createLoggingProxy(realService,
+                    ProxyPattern.DataLookupService.class, handler);
+
+            assertThatNullPointerException()
+                    .isThrownBy(() -> proxy.lookup(null))
+                    .withMessage("Key must not be null");
+        }
+
+        @Test
         @DisplayName("Should return unmodifiable invocation log")
         void testUnmodifiableInvocationLog() {
             var handler = new ProxyPattern.LoggingInvocationHandler(new ProxyPattern.RealDataLookupService());

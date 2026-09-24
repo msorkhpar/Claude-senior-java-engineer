@@ -245,6 +245,8 @@ public class DecoratorPattern {
 
     /**
      * Decorator that adds compression (simple run-length encoding for demonstration).
+     * A run of n > 1 equal characters is written as the character followed by n in decimal,
+     * so the encoding cannot represent data that itself contains digits; such data is rejected.
      */
     public static class CompressionDecorator implements DataSource {
 
@@ -268,6 +270,9 @@ public class DecoratorPattern {
 
         String compress(String data) {
             if (data.isEmpty()) return data;
+            if (data.chars().anyMatch(Character::isDigit)) {
+                throw new IllegalArgumentException("Run-length encoding here cannot compress data containing digits");
+            }
             StringBuilder sb = new StringBuilder();
             int count = 1;
             for (int i = 1; i <= data.length(); i++) {
@@ -285,16 +290,16 @@ public class DecoratorPattern {
         String decompress(String data) {
             if (data.isEmpty()) return data;
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < data.length(); i++) {
-                char c = data.charAt(i);
-                if (Character.isDigit(c)) {
-                    // repeat the previous character
-                    int repeatCount = Character.getNumericValue(c) - 1; // already added once
-                    char prev = sb.charAt(sb.length() - 1);
-                    sb.append(String.valueOf(prev).repeat(repeatCount));
-                } else {
-                    sb.append(c);
+            int i = 0;
+            while (i < data.length()) {
+                char c = data.charAt(i++);
+                int start = i;
+                while (i < data.length() && Character.isDigit(data.charAt(i))) {
+                    i++;
                 }
+                // a run length may have several digits, e.g. "a12"
+                int count = start == i ? 1 : Integer.parseInt(data.substring(start, i));
+                sb.append(String.valueOf(c).repeat(count));
             }
             return sb.toString();
         }

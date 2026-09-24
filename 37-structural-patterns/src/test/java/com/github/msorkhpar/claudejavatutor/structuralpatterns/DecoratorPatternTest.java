@@ -289,6 +289,27 @@ class DecoratorPatternTest {
         }
 
         @Test
+        @DisplayName("Should round-trip runs longer than nine characters")
+        void testCompressionLongRun() {
+            var source = new DecoratorPattern.InMemoryDataSource();
+            var compressed = new DecoratorPattern.CompressionDecorator(source);
+
+            compressed.write("aaaaaaaaaaaab");
+
+            assertThat(source.read()).isEqualTo("a12b");
+            assertThat(compressed.read()).isEqualTo("aaaaaaaaaaaab");
+        }
+
+        @Test
+        @DisplayName("Should reject data containing digits, which the encoding cannot represent")
+        void testCompressionRejectsDigits() {
+            var compressed = new DecoratorPattern.CompressionDecorator(new DecoratorPattern.InMemoryDataSource());
+
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> compressed.write("a1"));
+        }
+
+        @Test
         @DisplayName("Should handle empty string in compression")
         void testCompressionEmpty() {
             var source = new DecoratorPattern.InMemoryDataSource();

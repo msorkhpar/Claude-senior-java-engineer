@@ -252,7 +252,10 @@ Limitations:
    - You must handle them explicitly
 4. No constructor parameters: The proxy is created without parameters
 5. Return type boxing: Primitive return types are auto-boxed/unboxed
-6. Checked exceptions: The handler can only throw exceptions declared by the interface method
+6. Checked exceptions: If the handler throws a checked exception that the interface method does not
+   declare, the caller receives an UndeclaredThrowableException wrapping it. Method.invoke() wraps
+   whatever the target throws in an InvocationTargetException (a checked exception), so a handler
+   should unwrap it with getCause() and rethrow the cause
 ```
 
 ```java
@@ -275,7 +278,12 @@ class LoggingInvocationHandler implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         System.out.println("Calling: " + method.getName());
-        Object result = method.invoke(target, args); // delegate via reflection
+        Object result;
+        try {
+            result = method.invoke(target, args); // delegate via reflection
+        } catch (InvocationTargetException e) {
+            throw e.getCause(); // rethrow the target's own exception, not the reflective wrapper
+        }
         System.out.println("Returned: " + result);
         return result;
     }
@@ -403,9 +411,12 @@ public class DCLVirtualProxy implements ImageService {
 public class AtomicVirtualProxy implements ImageService {
     private final AtomicReference<RealImageService> ref = new AtomicReference<>();
     public String display() {
-        ref.compareAndSet(null, new RealImageService(filename));
+        if (ref.get() == null) {
+            // Without this check, every call would construct a new RealImageService
+            ref.compareAndSet(null, new RealImageService(filename));
+        }
         return ref.get().display();
-        // Note: may create extra instances that get discarded
+        // Note: threads racing on the first call may each create an instance; only one is kept
     }
 }
 ```

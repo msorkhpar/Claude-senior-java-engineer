@@ -161,7 +161,7 @@ notifier = new SlackDecorator(notifier, "#alerts");
 A2: Java I/O streams are the classic textbook example of the Decorator pattern.
 
 The hierarchy:
-- InputStream (Component interface)
+- InputStream (Component — an abstract class, not an interface)
 - FileInputStream, ByteArrayInputStream (Concrete Components)
 - FilterInputStream (Base Decorator — holds a reference to another InputStream)
 - BufferedInputStream, DataInputStream, etc. (Concrete Decorators)
@@ -310,16 +310,18 @@ executes first on the way in and last on the way out.
 // Order matters: Compression + Encryption
 DataSource source = new InMemoryDataSource();
 
+// The outermost decorator's write() runs first, so the outer one is applied first on write.
+
 // Option 1: Compress then Encrypt (preferred)
-DataSource compressThenEncrypt = new EncryptionDecorator(
-    new CompressionDecorator(source), key
+DataSource compressThenEncrypt = new CompressionDecorator(
+    new EncryptionDecorator(source, key)
 );
 // Write: data -> compress -> encrypt -> store
 // Read: store -> decrypt -> decompress -> data
 
 // Option 2: Encrypt then Compress (wasteful)
-DataSource encryptThenCompress = new CompressionDecorator(
-    new EncryptionDecorator(source, key)
+DataSource encryptThenCompress = new EncryptionDecorator(
+    new CompressionDecorator(source), key
 );
 // Write: data -> encrypt -> compress -> store
 // Encrypted data is random and compresses poorly!
