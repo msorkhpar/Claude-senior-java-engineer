@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-The KISS principle -- "Keep It Simple, Stupid" -- is a design philosophy that states most systems work best when they are kept simple rather than made complex. The principle originated in the U.S. Navy in 1960 and has since become a cornerstone of software engineering. The core idea is that unnecessary complexity is the enemy of reliability, readability, and maintainability.
+The KISS principle -- "Keep It Simple, Stupid" -- is a design philosophy that states most systems work best when they are kept simple rather than made complex. The phrase is usually credited to Lockheed engineer Kelly Johnson and was in use in the U.S. Navy by 1960; it has since become a cornerstone of software engineering. The core idea is that unnecessary complexity is the enemy of reliability, readability, and maintainability.
 
 In software development, KISS means choosing the simplest solution that adequately solves the problem. It does not mean writing naive or simplistic code; rather, it means avoiding over-engineering, premature abstraction, and unnecessary design patterns when a straightforward approach is sufficient.
 
@@ -28,7 +28,7 @@ In Java, KISS violations commonly manifest as:
 
 Java's evolution has consistently moved toward simplifying common patterns:
 
-- **Records (Java 16+)**: Eliminate boilerplate for data-carrying classes. Instead of writing 50 lines of getters, setters, equals, hashCode, and toString, a record accomplishes this in one line.
+- **Records (Java 16+)**: Eliminate boilerplate for data-carrying classes. Instead of writing 50 lines of constructor, accessors, equals, hashCode, and toString, a record accomplishes this in one line (records are immutable, so there are no setters).
 - **Sealed classes (Java 17+)**: Simplify type hierarchies by explicitly declaring permitted subtypes, making exhaustive pattern matching possible.
 - **Pattern matching for switch (Java 21)**: Replaces verbose instanceof chains with concise, readable switch expressions.
 - **Text blocks (Java 15+)**: Simplify multi-line string literals, eliminating escape character clutter.
@@ -189,7 +189,7 @@ public List<String> parseCsvLine(String line) {
     if (line == null || line.isBlank()) {
         return Collections.emptyList();
     }
-    return Arrays.asList(line.split(","));
+    return Arrays.asList(line.split(",", -1)); // -1 keeps trailing empty fields
 }
 
 // Over-engineered approach (violates KISS):

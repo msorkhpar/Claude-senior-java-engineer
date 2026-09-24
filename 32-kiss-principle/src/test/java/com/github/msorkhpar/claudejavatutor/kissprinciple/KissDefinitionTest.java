@@ -140,6 +140,18 @@ class KissDefinitionTest {
         }
 
         @Test
+        @DisplayName("Leading and trailing whitespace should not produce an empty word")
+        void testUniqueWordsSurroundingWhitespace() {
+            var simple = new KissDefinition.SimpleDataTransformer();
+            var complex = new KissDefinition.OverEngineeredDataTransformer();
+
+            assertThat(simple.getUniqueSortedWords("  banana apple  "))
+                    .containsExactly("apple", "banana");
+            assertThat(complex.getUniqueSortedWords("  banana apple  "))
+                    .containsExactly("apple", "banana");
+        }
+
+        @Test
         @DisplayName("Over-engineered approach should produce same results")
         void testOverEngineeredProducesSameResults() {
             var simple = new KissDefinition.SimpleDataTransformer();

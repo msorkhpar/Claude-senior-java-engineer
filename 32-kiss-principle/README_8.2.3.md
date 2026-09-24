@@ -102,7 +102,7 @@ Java 21 provides features that make simple concurrent code both correct and perf
 
    Problem: Forgetting to shut down an executor, causing resource leaks.
 
-   Fix: In Java 21, `ExecutorService` implements `AutoCloseable`.
+   Fix: Since Java 19, `ExecutorService` implements `AutoCloseable`.
    ```java
    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
        // submit tasks

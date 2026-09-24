@@ -98,7 +98,7 @@ public class KissDefinition {
             if (input == null || input.isBlank()) {
                 return Collections.emptyList();
             }
-            return Arrays.stream(input.split("\\s+"))
+            return Arrays.stream(input.strip().split("\\s+"))
                     .distinct()
                     .sorted()
                     .collect(Collectors.toList());
@@ -118,7 +118,7 @@ public class KissDefinition {
         static class SplitStage implements TransformationStage<String, List<String>> {
             @Override
             public List<String> transform(String input) {
-                return Arrays.asList(input.split("\\s+"));
+                return Arrays.asList(input.strip().split("\\s+"));
             }
         }
 
