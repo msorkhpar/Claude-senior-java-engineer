@@ -29,9 +29,13 @@ The core mechanics are:
 |---|---|---|---|
 | Pre-Java 5 | Eager initialization | Yes | Simple but wastes memory if never used |
 | Pre-Java 5 | Synchronized method | Yes | Correct but slow due to lock contention |
-| Java 5+ | Double-checked locking with volatile | Yes | Efficient and lazy |
-| Java 5+ | Enum-based singleton | Yes | Serialization-safe, reflection-safe |
-| Java 5+ | Holder idiom (Bill Pugh) | Yes | Lazy, no synchronization overhead |
+| Java 5+ | Double-checked locking with volatile | Yes | Efficient and lazy; safe only since Java 5's memory model (JSR-133) |
+| Java 5+ | Enum-based singleton | Yes | Serialization-safe, reflection-safe (enums arrived in Java 5) |
+| Any Java version | Holder idiom (Bill Pugh) | Yes | Lazy, no synchronization overhead |
+
+The Holder idiom relies only on the JVM's thread-safe class initialization, which every Java version guarantees, so it
+works on any Java version. What Java 5's revised memory model (JSR-133) changed is `volatile`: it is what made
+double-checked locking safe, and it has nothing to do with the Holder idiom.
 
 ## Key Points to Remember
 
@@ -156,7 +160,9 @@ Use it when:
 1. Exactly one instance of a class is needed to coordinate actions across the system (e.g., a configuration manager,
    logging service, or connection pool).
 2. The single instance should be extensible by subclassing, and clients should be able to use an extended instance
-   without modifying their code.
+   without modifying their code. (This is the intent the GoF book states. It conflicts with the `final` singletons
+   and private constructors shown in this lesson, which forbid subclassing; a subclassable singleton needs a
+   non-final class with a protected constructor and some registry that decides which subclass is the instance.)
 3. Controlled access to a shared resource is required (e.g., a file system or printer spooler).
 
 Avoid it when:
