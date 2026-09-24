@@ -214,11 +214,13 @@ java -Djdk.tracePinnedThreads=short MyApp
 
 ## Edge Cases and Their Handling
 
-1. **Virtual thread joining itself**: Calling `join()` on the current virtual thread throws
-   `IllegalStateException` (deadlock detection), same as platform threads.
+1. **Virtual thread joining itself**: Calling `join()` on the current thread is not detected: without a timeout it
+   waits forever, and `join(millis)` simply returns after the timeout — the same as for platform threads.
 
-2. **Exhausting carrier threads due to pinning**: If all carrier threads are pinned inside `synchronized` blocks, the
-   JVM may add temporary carrier threads (up to `jdk.virtualThreadScheduler.maxPoolSize`) to maintain progress.
+2. **Exhausting carrier threads due to pinning**: The scheduler does not compensate for pinning inside `synchronized`
+   (for example `sleep()` or socket I/O while holding a monitor): if every carrier is pinned, other virtual threads
+   wait. It does temporarily add carrier threads (up to `jdk.virtualThreadScheduler.maxPoolSize`) for operations that
+   capture the carrier, such as `Object.wait()` and most file I/O.
 
 3. **Thread.sleep(0)**: On virtual threads, `Thread.sleep(0)` yields the virtual thread, potentially allowing other
    virtual threads to run on the carrier. On platform threads, it may or may not yield.
@@ -299,8 +301,9 @@ System.out.println(platform.isDaemon());  // false
 // Virtual thread: cheap, massive scalability
 Thread virtual = Thread.ofVirtual()
         .name("virtual-worker")
-        // .daemon(false) would throw IllegalArgumentException
-        // .priority(MAX) would be silently ignored
+        // OfVirtual has no daemon() or priority() methods (they would not compile);
+        // on the thread, setDaemon(false) throws IllegalArgumentException and
+        // setPriority() is silently ignored
         .start(() -> doWork());
 System.out.println(virtual.isVirtual()); // true
 System.out.println(virtual.isDaemon());  // always true
@@ -480,20 +483,34 @@ latch.await();
 // 2. Semaphore to limit resource access
 Semaphore sem = new Semaphore(10);
 Thread.startVirtualThread(() -> {
-    sem.acquire();
     try {
-        accessLimitedResource();
-    } finally {
-        sem.release();
+        sem.acquire(); // a Runnable must handle InterruptedException itself
+        try {
+            accessLimitedResource();
+        } finally {
+            sem.release();
+        }
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
     }
 });
 
 // 3. BlockingQueue for producer-consumer
 BlockingQueue<String> queue = new LinkedBlockingQueue<>();
-Thread.startVirtualThread(() -> queue.put("item"));
 Thread.startVirtualThread(() -> {
-    String item = queue.take(); // Unmounts while waiting
-    process(item);
+    try {
+        queue.put("item");
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+    }
+});
+Thread.startVirtualThread(() -> {
+    try {
+        String item = queue.take(); // Unmounts while waiting
+        process(item);
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+    }
 });
 
 // 4. CompletableFuture with virtual thread executor
@@ -552,10 +569,11 @@ try (var executor = Executors.newThreadPerTaskExecutor(factory)) {
 
 // Detecting pinning during development
 // Run with: java -Djdk.tracePinnedThreads=full MyApp
-// Output when pinning occurs:
-// Thread[#23,VirtualThread-unparker,5,main]
-//     java.base/java.lang.VirtualThread$VThreadContinuation.onPinned(...)
-//     at MyClass.synchronizedMethod(MyClass.java:42) <== monitor held
+// Output when pinning occurs (Java 21):
+// VirtualThread[#28]/runnable@ForkJoinPool-1-worker-1 reason:MONITOR
+//     java.base/java.lang.VirtualThread$VThreadContinuation.onPinned(VirtualThread.java:199)
+//     ...
+//     MyClass.synchronizedMethod(MyClass.java:42) <== monitors:1
 
 // JFR recording for production monitoring
 // java -XX:StartFlightRecording=filename=vt.jfr,duration=60s,
@@ -686,7 +704,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
     for (int i = 0; i < 50; i++) {
         final int id = i;
         executor.submit(() -> {
-            // toString() shows carrier: VirtualThread[#N]/ForkJoinPool-1-worker-M
+            // toString() shows carrier: VirtualThread[#N]/runnable@ForkJoinPool-1-worker-M
             System.out.printf("Task %d on: %s%n", id, Thread.currentThread());
 
             try {
