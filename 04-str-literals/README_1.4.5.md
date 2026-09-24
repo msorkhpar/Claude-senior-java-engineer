@@ -30,8 +30,9 @@ modifications of character sequences without creating new objects for each opera
 
 ## Relevant Java 21 Features
 
-As of Java 21, there are no significant changes to StringBuilder or StringBuffer. However, for string concatenation
-, the Java compiler often uses StringBuilder behind the scenes automatically.
+As of Java 21, there are no significant changes to StringBuilder or StringBuffer. Note that since Java 9 (JEP 280) the
+compiler no longer turns `+` concatenation into StringBuilder calls; it emits an `invokedynamic` call to
+`StringConcatFactory` instead (see 1.4.2). A loop that repeats `+=` still creates a new String per iteration.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -62,8 +63,8 @@ As of Java 21, there are no significant changes to StringBuilder or StringBuffer
 
 ## References to Source Code and Test Files
 
-- [StringBuilderBufferDemo.java](StringBuilderBufferDemo.java)
-- [StringBuilderBufferDemoTest.java](StringBuilderBufferDemoTest.java)
+- [StringBuilderBuffer.java](src/main/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBuffer.java)
+- [StringBuilderBufferTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/literals/StringBuilderBufferTest.java)
 
 ## Interview Q&A Section
 
@@ -108,13 +109,17 @@ sb.append("Hello")
 ```
 
 Q4: What happens if you append null to a StringBuilder?
-A4: If you append null to a StringBuilder, it will append the string "null" to the sequence.
+A4: If you append a null reference to a StringBuilder, it will append the string "null" to the sequence.
 
 ```java
 StringBuilder sb = new StringBuilder();
-sb.append(null);
-System.out.println(sb.toString()); // Outputs: "null"
+String missing = null;
+sb.append(missing);
+System.out.println(sb.toString()); // Outputs: null
 ```
+
+Note that the bare literal `sb.append(null)` does not compile: `append` is overloaded for `String`, `StringBuffer`,
+`CharSequence`, `char[]` and `Object`, and the call is ambiguous. A typed null variable (or a cast) picks one.
 
 Q5: How does the capacity of StringBuilder work?
 A5: StringBuilder has an initial capacity (default is 16 characters). When this capacity is exceeded, it automatically

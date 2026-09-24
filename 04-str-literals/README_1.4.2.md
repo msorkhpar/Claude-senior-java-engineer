@@ -22,7 +22,8 @@ modifying existing ones.
 ## Common Pitfalls and How to Avoid Them
 
 1. **Excessive Concatenation**: Avoid concatenating strings in loops. Use StringBuilder instead.
-2. **Null Values**: Be cautious when concatenating with potential null values to avoid NullPointerException.
+2. **Null Values**: Be cautious when concatenating potential null values: `+` silently inserts the text "null", while
+   `concat(null)` throws NullPointerException.
 3. **Performance Overhead**: Be aware of the performance impact when concatenating many strings.
 
 ## Best Practices and Optimization Techniques
@@ -46,30 +47,40 @@ modifying existing ones.
 
 ## References to Source Code and Test Files
 
-- Refer to `StringConcatenationDemo.java` for implementation examples.
-- See `StringConcatenationDemoTest.java` for unit tests covering various scenarios.
+- Refer to `StringConcatenation.java` for implementation examples.
+- See `StringConcatenationTest.java` for unit tests covering various scenarios.
 
 ## Interview Q&A Section
 
 Q1: What happens internally when you use the `+` operator for string concatenation?
-A1: When you use the `+` operator for string concatenation, the Java compiler internally translates it into
-StringBuilder operations. For example:
+A1: It depends on the operands and the Java version.
+
+If every operand is a compile-time constant, the compiler joins them itself, and no concatenation happens at run
+time:
 
 ```java
-String result = "Hello" + " " + "World";
+String result = "Hello" + " " + "World"; // compiled as the single literal "Hello World"
 ```
 
-is roughly equivalent to:
+When a variable is involved, up to Java 8 `javac` translated the expression into StringBuilder operations. For example:
+
+```java
+String result = greeting + " " + name;
+```
+
+was roughly equivalent to:
 
 ```java
 StringBuilder sb = new StringBuilder();
-sb.append("Hello");
+sb.append(greeting);
 sb.append(" ");
-sb.append("World");
+sb.append(name);
 String result = sb.toString();
 ```
 
-This optimization was introduced to improve performance, especially for multiple concatenations in a single statement.
+Since Java 9 (JEP 280), `javac` instead emits one `invokedynamic` call to `StringConcatFactory`, and the JVM picks the
+concatenation strategy at run time. Either way, one expression with several `+` is handled as a single operation; the
+cost appears when `+=` is repeated in a loop, because each iteration builds a new String.
 
 Q2: How would you efficiently concatenate strings in a loop?
 A2: To efficiently concatenate strings in a loop, it's best to use StringBuilder. Here's an example:

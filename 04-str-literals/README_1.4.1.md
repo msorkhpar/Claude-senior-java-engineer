@@ -126,7 +126,7 @@ A3:
 
 - Without `new` (string literal): `String s = "Hello";`
   This checks the String pool and returns a reference to an existing String if one exists, or creates a new String in
-- the pool if it doesn't.
+  the pool if it doesn't.
 - With `new`: `String s = new String("Hello");`
   This always creates a new String object in heap memory, separate from the String pool.
 
@@ -178,7 +178,7 @@ if (emptyString == null || emptyString.isEmpty()) {
     System.out.println("String is null or empty");
 }
 
-// Using Java 11+ isBlank() method (checks for null, empty, or only whitespace)
+// Using Java 11+ isBlank() method (true for empty or whitespace-only; it does NOT check null, hence the null test)
 if (emptyString == null || emptyString.isBlank()) {
     System.out.println("String is null, empty, or blank");
 }
