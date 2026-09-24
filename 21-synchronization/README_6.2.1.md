@@ -75,7 +75,12 @@ preferred. For example, a thread that holds a lock for a long time, or an unfair
 threads, can keep a waiting thread from making progress.
 
 **Livelock** is a related concept where threads are not blocked but keep responding to each other without making
-progress (like two people in a hallway continually stepping to the same side to let each other pass).
+progress (like two people in a hallway continually stepping to the same side to let each other pass). It needs the two
+threads to keep reacting in step, so in real code it comes and goes with timing. The fix is to break the symmetry:
+randomized backoff (wait a random time before retrying), or a rule that decides who goes first (an ordering or a
+priority). `DeadlockPrevention.LivelockDemo` shows both sides: `runPolite` makes two polite threads move in lock step, so
+they give way to each other every round and neither gets through until the round limit stops them; `runWithRandomBackoff`
+adds randomized backoff, and both threads get through within a few rounds.
 
 ### Avoiding Deadlocks
 

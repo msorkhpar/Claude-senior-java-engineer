@@ -9,7 +9,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -254,52 +253,39 @@ class DeadlockPreventionTest {
     class LivelockTests {
 
         @Test
-        @DisplayName("Should demonstrate livelock where workers keep yielding without progress")
-        @Timeout(5)
-        void testLivelockBehavior() throws InterruptedException {
-            int maxRetries = 100;
-            var demo = new DeadlockPrevention.LivelockDemo(maxRetries);
+        @DisplayName("Polite walkers livelock: the round limit is hit and neither gets through")
+        @Timeout(10)
+        void testPoliteWalkersLivelock() throws InterruptedException {
+            int maxRounds = 1_000;
 
-            AtomicBoolean worker1Result = new AtomicBoolean(true);
-            AtomicBoolean worker2Result = new AtomicBoolean(true);
-            CountDownLatch latch = new CountDownLatch(2);
+            var outcome = DeadlockPrevention.LivelockDemo.runPolite(maxRounds);
 
-            Thread.ofPlatform().start(() -> {
-                worker1Result.set(demo.worker1Work());
-                latch.countDown();
-            });
-
-            Thread.ofPlatform().start(() -> {
-                worker2Result.set(demo.worker2Work());
-                latch.countDown();
-            });
-
-            latch.await(5, TimeUnit.SECONDS);
-
-            // Both workers should fail to complete (livelock)
-            assertThat(worker1Result.get())
-                .as("Worker1 should fail to complete due to livelock")
+            // Deterministic: in lock step, each walker always sees the other stepping forward.
+            assertThat(outcome.anyProgress())
+                .as("no walker may get through in a livelock")
                 .isFalse();
-            assertThat(worker2Result.get())
-                .as("Worker2 should fail to complete due to livelock")
-                .isFalse();
-
-            // Both workers should have attempted retries
-            assertThat(demo.getRetryCountWorker1()).isGreaterThan(0);
-            assertThat(demo.getRetryCountWorker2()).isGreaterThan(0);
+            assertThat(outcome.walker1Rounds())
+                .as("both walkers stayed busy until the round limit")
+                .isEqualTo(maxRounds);
+            assertThat(outcome.walker2Rounds()).isEqualTo(maxRounds);
         }
 
         @Test
-        @DisplayName("Should exhaust max retries in livelock scenario")
-        void testLivelockExhaustsRetries() {
-            int maxRetries = 10;
-            var demo = new DeadlockPrevention.LivelockDemo(maxRetries);
+        @DisplayName("Randomized backoff breaks the livelock: both walkers get through")
+        @Timeout(10)
+        void testRandomBackoffCompletes() throws InterruptedException {
+            int maxRounds = 1_000;
 
-            // Single-threaded livelock: worker1 keeps giving up
-            boolean result = demo.worker1Work();
+            var outcome = DeadlockPrevention.LivelockDemo.runWithRandomBackoff(maxRounds);
 
-            assertThat(result).isFalse();
-            assertThat(demo.getRetryCountWorker1()).isEqualTo(maxRetries);
+            // Every round after a conflict breaks the symmetry with probability 1/2, so failing
+            // to finish within 1,000 rounds has a probability far below 2^-400.
+            assertThat(outcome.walker1Done()).as("walker 1 got through").isTrue();
+            assertThat(outcome.walker2Done()).as("walker 2 got through").isTrue();
+            assertThat(Math.max(outcome.walker1Rounds(), outcome.walker2Rounds()))
+                .as("the first round is always a conflict, so nobody finishes in round 1")
+                .isGreaterThan(1)
+                .isLessThan(maxRounds);
         }
     }
 }
