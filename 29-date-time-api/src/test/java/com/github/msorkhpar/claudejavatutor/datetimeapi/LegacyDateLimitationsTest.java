@@ -3,6 +3,7 @@ package com.github.msorkhpar.claudejavatutor.datetimeapi;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -84,15 +85,31 @@ class LegacyDateLimitationsTest {
     class ThreadSafetyTests {
 
         @Test
-        @DisplayName("Should demonstrate SimpleDateFormat thread unsafety potential")
-        void testSimpleDateFormatThreadUnsafe() throws InterruptedException {
+        @DisplayName("A SimpleDateFormat used by one thread gives correct results")
+        void testSimpleDateFormatSingleThread() {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-            Date date = new Date();
-            String expected = sdf.format(date);
+            sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
+            Date date = new Date(1_710_460_800_000L); // 2024-03-15T00:00:00Z
 
-            // Single-threaded usage should work fine
-            String result = LegacyDateLimitations.formatDateUnsafe(date, sdf);
-            assertThat(result).isEqualTo(expected);
+            assertThat(LegacyDateLimitations.formatDateUnsafe(date, sdf)).isEqualTo("2024-03-15");
+        }
+
+        @Test
+        @Timeout(value = 60, unit = TimeUnit.SECONDS)
+        @DisplayName("One SimpleDateFormat shared by 8 threads produces corrupted parses")
+        void testSharedSimpleDateFormatCorrupts() {
+            int wrong = LegacyDateLimitations.wrongParsesWithSharedSimpleDateFormat(8, 5_000, 200);
+
+            assertThat(wrong).isPositive();
+        }
+
+        @Test
+        @Timeout(value = 60, unit = TimeUnit.SECONDS)
+        @DisplayName("One DateTimeFormatter shared by 8 threads never produces a wrong parse")
+        void testSharedDateTimeFormatterIsSafe() {
+            int wrong = LegacyDateLimitations.wrongParsesWithSharedDateTimeFormatter(8, 5_000, 5);
+
+            assertThat(wrong).isZero();
         }
     }
 
@@ -133,10 +150,35 @@ class LegacyDateLimitationsTest {
     class DateIncludesTimeTests {
 
         @Test
-        @DisplayName("Should demonstrate that Date carries time information")
-        void testDateIncludesTime() {
-            boolean result = LegacyDateLimitations.dateIncludesTime();
-            assertThat(result).isTrue();
+        @DisplayName("A Date is one instant: the day and time you see depend on the zone")
+        void testDateIsAnInstant() {
+            Date date = new Date(1_710_460_800_000L); // 2024-03-15T00:00:00Z
+
+            assertThat(date.getTime()).isEqualTo(1_710_460_800_000L);
+            assertThat(LegacyDateLimitations.dateAndTimeIn(date, TimeZone.getTimeZone("UTC")))
+                    .isEqualTo("2024-03-15 00:00");
+            assertThat(LegacyDateLimitations.dateAndTimeIn(date, TimeZone.getTimeZone("America/New_York")))
+                    .isEqualTo("2024-03-14 20:00"); // a different calendar day
+            assertThat(LegacyDateLimitations.dateAndTimeIn(date, TimeZone.getTimeZone("Asia/Tokyo")))
+                    .isEqualTo("2024-03-15 09:00");
+        }
+
+        @Test
+        @SuppressWarnings("deprecation")
+        @DisplayName("Even a 'date-only' Date carries a time: midnight in the JVM default zone")
+        void testDateOnlyConstructorStillCarriesTime() {
+            TimeZone original = TimeZone.getDefault();
+            try {
+                TimeZone.setDefault(TimeZone.getTimeZone("Asia/Tokyo"));
+                Date dateOnly = new Date(124, Calendar.MARCH, 15); // "2024-03-15"
+
+                assertThat(LegacyDateLimitations.dateAndTimeIn(dateOnly, TimeZone.getTimeZone("Asia/Tokyo")))
+                        .isEqualTo("2024-03-15 00:00");
+                assertThat(LegacyDateLimitations.dateAndTimeIn(dateOnly, TimeZone.getTimeZone("UTC")))
+                        .isEqualTo("2024-03-14 15:00");
+            } finally {
+                TimeZone.setDefault(original);
+            }
         }
     }
 

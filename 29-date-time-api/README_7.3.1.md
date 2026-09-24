@@ -165,7 +165,10 @@ without any synchronization.
 ```java
 // UNSAFE: Shared SimpleDateFormat
 private static final SimpleDateFormat UNSAFE = new SimpleDateFormat("yyyy-MM-dd");
-// Multiple threads calling UNSAFE.format(date) will produce corrupt results
+// Multiple threads calling UNSAFE.format(date) or UNSAFE.parse(text) will produce corrupt results
+// (LegacyDateLimitations.wrongParsesWithSharedSimpleDateFormat measures this: with 8 threads
+// sharing one instance, some of the 40,000 parses per round come back wrong or throw;
+// how many depends on the machine)
 
 // SAFE: Shared DateTimeFormatter
 private static final DateTimeFormatter SAFE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
