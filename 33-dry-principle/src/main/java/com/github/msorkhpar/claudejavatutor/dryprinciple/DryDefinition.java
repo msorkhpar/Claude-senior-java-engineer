@@ -45,11 +45,11 @@ public class DryDefinition {
          * VIOLATION: Duplicated formatting logic.
          */
         public String formatUserForDisplay(String name, int age) {
-            return name.toUpperCase() + " (Age: " + age + ")";
+            return name.toUpperCase(Locale.ROOT) + " (Age: " + age + ")";
         }
 
         public String formatUserForReport(String name, int age) {
-            return name.toUpperCase() + " (Age: " + age + ")";
+            return name.toUpperCase(Locale.ROOT) + " (Age: " + age + ")";
         }
     }
 
@@ -80,7 +80,7 @@ public class DryDefinition {
         }
 
         public String formatUser(String name, int age) {
-            return name.toUpperCase() + " (Age: " + age + ")";
+            return name.toUpperCase(Locale.ROOT) + " (Age: " + age + ")";
         }
 
         public String formatUserForDisplay(String name, int age) {
@@ -163,7 +163,7 @@ public class DryDefinition {
 
         @Override
         protected String transform(String item) {
-            return item.toUpperCase();
+            return item.toUpperCase(Locale.ROOT); // ROOT: same result on every machine (e.g. no Turkish dotted I)
         }
     }
 

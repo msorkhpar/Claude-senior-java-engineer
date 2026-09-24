@@ -202,7 +202,7 @@ public abstract class DataProcessor<T, R> {
 // Concrete implementation -- only defines the varying parts
 public class StringUpperCaseProcessor extends DataProcessor<String, String> {
     @Override protected boolean isValid(String item) { return item != null && !item.isBlank(); }
-    @Override protected String transform(String item) { return item.toUpperCase(); }
+    @Override protected String transform(String item) { return item.toUpperCase(Locale.ROOT); }
 }
 ```
 

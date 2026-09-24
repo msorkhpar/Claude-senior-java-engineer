@@ -13,6 +13,29 @@ import static org.assertj.core.api.Assertions.*;
 class DryDefinitionTest {
 
     @Nested
+    @DisplayName("Locale independence")
+    class LocaleIndependenceTest {
+
+        @Test
+        @DisplayName("Uppercasing gives the same result under a Turkish default locale")
+        void testTurkishDefaultLocale() {
+            Locale original = Locale.getDefault();
+            try {
+                Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+
+                var dry = new DryDefinition.DryRefactored();
+                assertThat(dry.formatUser("mike", 30)).isEqualTo("MIKE (Age: 30)");
+                assertThat(new DryDefinition.ViolationExample().formatUserForDisplay("mike", 30))
+                        .isEqualTo("MIKE (Age: 30)");
+                assertThat(new DryDefinition.StringUpperCaseProcessor().process(List.of("list", "item")))
+                        .containsExactly("LIST", "ITEM");
+            } finally {
+                Locale.setDefault(original);
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("Violation Example - Duplicated Validation")
     class ViolationExampleTest {
 
