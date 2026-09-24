@@ -84,9 +84,9 @@ Joshua Bloch, in *Effective Java*, dedicates Item 18 to this principle: "Favor c
 
 3. **Forgetting to delegate all methods in a wrapper**
 
-   When creating a forwarding class, missing a method means the default Object behavior is used, leading to subtle bugs.
+   When creating a forwarding class, the compiler makes you implement the interface's abstract methods, but not `equals`, `hashCode` and `toString`. Forgetting those leaves `Object`'s identity-based versions, so the wrapper breaks the `Set` contract (`wrapper.equals(sameSet)` is `false` while `sameSet.equals(wrapper)` is `true`).
 
-   **Fix**: Create a complete forwarding class that delegates all interface methods, as shown in the `ForwardingSet` pattern.
+   **Fix**: Create a complete forwarding class that delegates all interface methods and the `Object` methods `equals`, `hashCode` and `toString`, as shown in the `ForwardingSet` pattern.
 
 4. **Breaking the Liskov Substitution Principle with inheritance**
 
@@ -255,7 +255,9 @@ public class ForwardingSet<E> implements Set<E> {
     @Override public boolean add(E e) { return delegate.add(e); }
     @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }
     @Override public int size() { return delegate.size(); }
-    // ... all other Set methods delegated
+    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }
+    @Override public int hashCode() { return delegate.hashCode(); }
+    // ... all other Set methods (and toString) delegated
 }
 
 // Step 2: Wrapper adds behavior

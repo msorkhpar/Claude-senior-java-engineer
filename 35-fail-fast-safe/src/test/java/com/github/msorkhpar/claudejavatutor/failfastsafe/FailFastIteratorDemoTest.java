@@ -52,6 +52,17 @@ class FailFastIteratorDemoTest {
         }
 
         @Test
+        @DisplayName("Best effort: removing the second-to-last element ends the loop silently")
+        void testRemovingSecondToLastDoesNotThrow() {
+            List<String> list = new ArrayList<>(List.of("a", "b", "c"));
+
+            assertThatCode(() -> FailFastIteratorDemo.modifyListDuringForEach(list, "b"))
+                    .doesNotThrowAnyException();
+            // "c" was never visited; the list is still modified
+            assertThat(list).containsExactly("a", "c");
+        }
+
+        @Test
         @DisplayName("Should not throw when element to remove is not found in the list")
         void testNoModificationNoException() {
             List<String> list = new ArrayList<>(List.of("a", "b", "c"));

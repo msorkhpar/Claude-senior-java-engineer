@@ -13,7 +13,7 @@ public class TextBlockIndentation {
      */
     public static String incidentalWhitespaceRemoval() {
         // The closing delimiter is at the same indentation as the content,
-        // so all leading whitespace (8 spaces of indentation) is removed.
+        // so all leading whitespace (16 spaces of indentation) is removed.
         return """
                 Line A
                 Line B
@@ -59,10 +59,10 @@ public class TextBlockIndentation {
      * By default, trailing whitespace on each line is stripped.
      */
     public static String trailingWhitespaceStripped() {
-        // Trailing spaces after "Hello" are stripped by the compiler
+        // The trailing spaces after "Hello" and "World" are stripped by the compiler
         return """
-                Hello\s
-                World\s""";
+                Hello   
+                World   """;
     }
 
     /**

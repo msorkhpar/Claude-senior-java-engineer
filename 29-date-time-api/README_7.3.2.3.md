@@ -23,7 +23,7 @@
 
 ## Relevant Java 21 Features
 
-- Duration and Period have been stable since Java 8 with no changes through Java 21.
+- Duration and Period have kept the same semantics since Java 8; Java 9 added convenience methods such as `Duration.dividedBy(Duration)`, `Duration.truncatedTo()` and the `toXxxPart()` family.
 - `Duration.toXxxPart()` methods (Java 9+) extract individual components: `toHoursPart()`, `toMinutesPart()`, `toSecondsPart()`.
 - Streams and functional patterns work naturally with Duration for aggregation (e.g., summing durations).
 
@@ -190,12 +190,12 @@ int daysComponent = period.getDays(); // 3
 // CORRECT: Calculate from actual dates
 LocalDate start = LocalDate.of(2024, 1, 1);
 LocalDate end = start.plus(period);
-long totalDays = ChronoUnit.DAYS.between(start, end); // 429
+long totalDays = ChronoUnit.DAYS.between(start, end); // 428 (end = 2025-03-04)
 
 // Different start date gives different total days
 LocalDate start2 = LocalDate.of(2024, 3, 1);
 LocalDate end2 = start2.plus(period);
-long totalDays2 = ChronoUnit.DAYS.between(start2, end2); // 430 (different!)
+long totalDays2 = ChronoUnit.DAYS.between(start2, end2); // 429 (different!)
 ```
 
 **Q4: How do you parse and format Duration and Period from strings?**
@@ -246,13 +246,14 @@ Period.ofDays(1) adds one calendar day (same wall-clock time next day).
 
 Across a DST boundary, these give different results:
 
-On spring-forward day (US Eastern, March 10, 2024):
-- Duration.ofDays(1): 24 hours later = same instant + 24h, but local time shifts
-- Period.ofDays(1): same local time next day = 23 actual hours elapsed
+On spring-forward day (US Eastern, March 10, 2024), starting at midnight:
+- Duration.ofDays(1): 24 hours later, but the wall clock shows 01:00 the next day
+- Period.ofDays(1): same local time next day (00:00) = 23 actual hours elapsed
 
-On fall-back day:
-- Duration.ofDays(1): 24 hours later (wall clock shows +25 hours due to repeated hour)
-- Period.ofDays(1): same local time (25 actual hours elapsed)
+On fall-back day (November 3, 2024), starting at midnight:
+- Duration.ofDays(1): 24 hours later, but the wall clock shows 23:00 the same day
+  (one hour short, because 01:00-01:59 was lived twice)
+- Period.ofDays(1): same local time next day (00:00) = 25 actual hours elapsed
 
 This is why choosing between Duration and Period matters for scheduling.
 ```

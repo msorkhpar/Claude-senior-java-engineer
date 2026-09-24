@@ -107,6 +107,14 @@ class TextBlockIndentationTest {
     class TrailingWhitespaceTest {
 
         @Test
+        @DisplayName("Trailing spaces in the source should be stripped")
+        void testTrailingWhitespaceStripped() {
+            String result = TextBlockIndentation.trailingWhitespaceStripped();
+
+            assertThat(result).isEqualTo("Hello\nWorld");
+        }
+
+        @Test
         @DisplayName("\\s escape should preserve trailing space")
         void testPreserveTrailingWithEscapeS() {
             String result = TextBlockIndentation.preserveTrailingWithEscapeS();

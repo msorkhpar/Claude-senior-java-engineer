@@ -200,6 +200,8 @@ public class DryBalancing {
     /**
      * Demonstrates the "Rule of Three" heuristic:
      * Don't abstract until you see duplication three times.
+     * The formatters pass Locale.ROOT so a "$" amount keeps its "." decimal
+     * separator whatever the machine's default locale is.
      */
     public static class RuleOfThree {
 
@@ -207,28 +209,28 @@ public class DryBalancing {
          * First occurrence: specific to orders. Keep as is.
          */
         public String formatOrderSummary(String id, String description, double total) {
-            return String.format("[%s] %s - $%.2f", id, description, total);
+            return String.format(Locale.ROOT, "[%s] %s - $%.2f", id, description, total);
         }
 
         /**
          * Second occurrence: specific to invoices. Looks similar but keep separate for now.
          */
         public String formatInvoiceSummary(String invoiceNumber, String client, double amount) {
-            return String.format("[%s] %s - $%.2f", invoiceNumber, client, amount);
+            return String.format(Locale.ROOT, "[%s] %s - $%.2f", invoiceNumber, client, amount);
         }
 
         /**
          * Third occurrence: now we have a pattern! Time to extract.
          */
         public String formatReceiptSummary(String receiptId, String store, double amount) {
-            return String.format("[%s] %s - $%.2f", receiptId, store, amount);
+            return String.format(Locale.ROOT, "[%s] %s - $%.2f", receiptId, store, amount);
         }
 
         /**
          * DRY: Extracted common formatter after seeing the pattern three times.
          */
         public String formatSummary(String identifier, String description, double amount) {
-            return String.format("[%s] %s - $%.2f", identifier, description, amount);
+            return String.format(Locale.ROOT, "[%s] %s - $%.2f", identifier, description, amount);
         }
     }
 }

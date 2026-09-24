@@ -182,16 +182,17 @@ Why it matters:
 
 ```java
 // First: order summary
+// (Locale.ROOT keeps "." as the decimal separator of a "$" amount on any machine)
 String formatOrderSummary(String id, String desc, double total) {
-    return String.format("[%s] %s - $%.2f", id, desc, total);
+    return String.format(Locale.ROOT, "[%s] %s - $%.2f", id, desc, total);
 }
 // Second: invoice summary -- looks similar, keep separate for now
 String formatInvoiceSummary(String num, String client, double amount) {
-    return String.format("[%s] %s - $%.2f", num, client, amount);
+    return String.format(Locale.ROOT, "[%s] %s - $%.2f", num, client, amount);
 }
 // Third: receipt summary -- NOW extract!
 String formatSummary(String identifier, String description, double amount) {
-    return String.format("[%s] %s - $%.2f", identifier, description, amount);
+    return String.format(Locale.ROOT, "[%s] %s - $%.2f", identifier, description, amount);
 }
 ```
 

@@ -32,7 +32,7 @@ In concurrent code, readability is a safety feature. If a reviewer cannot easily
 
 1. **Use `java.util.concurrent` before writing custom synchronization.** The JDK's concurrent utilities are battle-tested, optimized, and well-documented.
 2. **Prefer `AtomicInteger`/`AtomicReference` over `synchronized` for simple atomic operations.** They are lock-free and perform better under contention.
-3. **Use `ConcurrentHashMap` instead of `Collections.synchronizedMap()`.** It provides better concurrent performance through lock striping.
+3. **Use `ConcurrentHashMap` instead of `Collections.synchronizedMap()`.** It provides better concurrent performance through lock-free reads and fine-grained, per-bin locking for writes (the Java 7 version used lock striping over segments).
 4. **Use `BlockingQueue` for producer-consumer patterns.** It eliminates the need for manual wait/notify logic.
 5. **Virtual threads (Java 21) simplify concurrency dramatically.** They allow a simple thread-per-task model without the overhead of platform thread management.
 6. **Immutable objects are the simplest thread-safe objects.** Use records and `final` fields to make objects inherently safe.
@@ -51,9 +51,9 @@ In concurrent code, readability is a safety feature. If a reviewer cannot easily
   }
   ```
 
-- **Structured concurrency (JEP 462, preview)**: Simplifies multi-task coordination by tying the lifecycle of concurrent tasks to a scope, making error handling and cancellation straightforward.
+- **Structured concurrency (JEP 453, preview in Java 21)**: Simplifies multi-task coordination by tying the lifecycle of concurrent tasks to a scope, making error handling and cancellation straightforward.
 
-- **Scoped values (JEP 464, preview)**: A simpler alternative to `ThreadLocal` for sharing immutable data across threads.
+- **Scoped values (JEP 446, preview in Java 21)**: A simpler alternative to `ThreadLocal` for sharing immutable data across threads.
 
 - **`ConcurrentHashMap.computeIfAbsent()`**: Atomic compute-if-absent eliminates the need for double-checked locking patterns in caching scenarios.
 
@@ -260,7 +260,7 @@ Why BlockingQueue is the KISS choice:
 - Thread-safe by design
 
 Choose LinkedBlockingQueue for unbounded or large-capacity queues,
-ArrayBlockingQueue for fixed-capacity with fairness guarantees.
+ArrayBlockingQueue for fixed capacity (with an optional fairness policy).
 ```
 
 ```java
@@ -399,7 +399,7 @@ Why ConcurrentHashMap.computeIfAbsent is the KISS choice:
 - No explicit locking needed
 - No risk of race conditions in the check-then-act pattern
 - No risk of computing the value twice
-- Built-in lock striping for high concurrent performance
+- Fine-grained internal locking (per bin) for high concurrent performance
 
 The only caveat: the mapping function should be short and non-blocking.
 For expensive computations, consider using a Future as the value type.

@@ -34,7 +34,7 @@ The alternative is to use the decorator pattern: start with a base implementatio
 ## Relevant Java 21 Features
 
 - **Virtual threads (JEP 444)**: Composition pairs well with virtual threads. Composed task runners can be executed on virtual threads without concern about blocking platform threads. Each decorator in a composition chain runs on the same virtual thread, keeping the execution model simple.
-- **Structured concurrency (JEP 453, incubator)**: Encourages scoped, composable concurrency patterns rather than deep thread hierarchies.
+- **Structured concurrency (JEP 453, preview in Java 21)**: Encourages scoped, composable concurrency patterns rather than deep thread hierarchies.
 - **Records as strategy objects**: Immutable records can serve as lightweight strategy implementations that are inherently thread-safe.
 - **Sealed interfaces for strategy types**: Sealed interfaces can define a closed set of strategy implementations, combining the benefits of restricted inheritance with composition-based usage.
 
@@ -139,7 +139,7 @@ The alternative is to use the decorator pattern: start with a base implementatio
 1. **Null strategies/delegates**: Always validate composed objects with `Objects.requireNonNull()` in constructors.
 2. **Exception propagation through decorators**: Each decorator must decide whether to catch, wrap, or propagate exceptions. Document this behavior clearly.
 3. **Decorator ordering**: The order of decorator application matters (e.g., logging before synchronization vs. after). Make ordering explicit in factory methods.
-4. **Thread-local state in decorators**: Decorators that maintain thread-local state must ensure proper cleanup, especially with virtual threads that may be reused.
+4. **Thread-local state in decorators**: Decorators that maintain thread-local state must ensure proper cleanup, especially on pooled platform threads, which are reused across tasks. Virtual threads are not pooled (one per task), but a `ThreadLocal` copy per virtual thread can cost a lot of memory when there are millions of them.
 5. **Shutdown and resource cleanup**: Composed components that hold resources (executors, connections) need explicit lifecycle management. Consider implementing `AutoCloseable`.
 
 ## Interview-specific Insights
@@ -241,7 +241,9 @@ class FixedRetryStrategy implements RetryStrategy {
 class ExponentialBackoffStrategy implements RetryStrategy {
     private final int maxRetries;
     private final long initialDelayMs;
-    // ... implementation with exponential delay calculation
+    private final long maxDelayMs;
+    // ... delay = initialDelayMs * 2^(attempt - 1), capped at maxDelayMs; compute the
+    // doubling as a shift that is checked first, or large attempts overflow to 0 or negative
 }
 
 // Executor composes the strategy
@@ -388,13 +390,16 @@ class ThreadSafeStack<E> {
     public synchronized int size() { return items.size(); }
 }
 
-// Subclass forgets synchronized -- BREAKS thread safety
+// Subclass drops synchronized from the override
 class LoggingStack<E> extends ThreadSafeStack<E> {
     @Override
     public void push(E item) {  // NOT synchronized!
         System.out.println("Pushing: " + item);
         super.push(item);  // super IS synchronized, but the println is not
     }
+    // This override still only calls super, so the stack stays safe -- but the log
+    // order can now differ from the push order, and nothing stops the next override
+    // from touching inherited state without the lock (see ExtendedCounter above)
 }
 
 // SOLUTION: Composition
@@ -404,7 +409,8 @@ class LoggingStackWrapper<E> implements Stack<E> {
     @Override
     public void push(E item) {
         System.out.println("Pushing: " + item);
-        delegate.push(item);  // Thread safety is delegate's responsibility
+        delegate.push(item);  // Thread safety is delegate's responsibility; the wrapper
+                              // can only reach the stack through its synchronized methods
     }
 }
 ```
@@ -431,9 +437,10 @@ A5: Virtual threads and composition are natural partners because:
    as a group. Each subtask is a composed pipeline that runs on its own
    virtual thread.
 
-5. Composition avoids synchronized blocks (which pin virtual threads to
-   platform threads). Instead, use ReentrantLock in decorators, which
-   virtual threads handle efficiently.
+5. In Java 21, blocking inside a synchronized block pins the virtual thread
+   to its carrier platform thread, so prefer ReentrantLock in decorators,
+   which virtual threads handle efficiently. (JDK 24, JEP 491, removed this
+   pinning for synchronized.)
 ```
 
 ```java

@@ -100,6 +100,32 @@ class CompositionInConcurrencyTest {
         }
 
         @Test
+        @DisplayName("Large attempt numbers should return the cap, never overflow")
+        void testLargeAttemptNumbers() {
+            var strategy = new CompositionInConcurrency.ExponentialBackoffStrategy(Integer.MAX_VALUE, 100, 10_000);
+
+            assertThat(strategy.delayMillis(60)).isEqualTo(10_000);
+            assertThat(strategy.delayMillis(63)).isEqualTo(10_000);
+            assertThat(strategy.delayMillis(64)).isEqualTo(10_000);
+            assertThat(strategy.delayMillis(100)).isEqualTo(10_000);
+            assertThat(strategy.delayMillis(Integer.MAX_VALUE)).isEqualTo(10_000);
+        }
+
+        @Test
+        @DisplayName("Delays should never decrease as attempts grow")
+        void testDelaysMonotonic() {
+            var strategy = new CompositionInConcurrency.ExponentialBackoffStrategy(Integer.MAX_VALUE, 3, Long.MAX_VALUE);
+
+            long previous = 0;
+            for (int attempt = 1; attempt <= 200; attempt++) {
+                long delay = strategy.delayMillis(attempt);
+                assertThat(delay).isGreaterThanOrEqualTo(previous);
+                previous = delay;
+            }
+            assertThat(previous).isEqualTo(Long.MAX_VALUE);
+        }
+
+        @Test
         @DisplayName("Should respect max retries")
         void testMaxRetries() {
             var strategy = new CompositionInConcurrency.ExponentialBackoffStrategy(2, 100, 10000);

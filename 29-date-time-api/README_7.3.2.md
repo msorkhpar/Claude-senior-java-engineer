@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-The `java.time` package was introduced in Java 8 (JSR 310) as a complete replacement for the legacy `java.util.Date` and `java.util.Calendar` classes. Designed by Stephen Colebourne (the creator of Joda-Time), it provides a comprehensive, immutable, and thread-safe API for date and time operations.
+The `java.time` package was introduced in Java 8 (JSR 310) as a complete replacement for the legacy `java.util.Date` and `java.util.Calendar` classes. The JSR was led by Stephen Colebourne (the creator of Joda-Time) together with Michael Nascimento Santos, and the result provides a comprehensive, immutable, and thread-safe API for date and time operations.
 
 **Real-world analogy**: Think of the old Date/Calendar API as a Swiss Army knife that tries to do everything but does nothing well -- it tells dates, times, timestamps, and timezones all in one mutable object. The `java.time` package is like a professional toolbox where each tool has a specific purpose: a calendar for dates, a clock for times, a stopwatch for durations, and a world clock for timezones.
 
@@ -25,10 +25,10 @@ The package is organized around several key concepts:
 ## Relevant Java 21 Features
 
 - The `java.time` API is fully mature and stable in Java 21 with no breaking changes since Java 8.
-- Pattern matching for `switch` and `instanceof` work well with the sealed hierarchy of temporal types.
+- Pattern matching for `switch` and `instanceof` can dispatch on the concrete temporal types (for example `case LocalDate d ->`); note that the temporal interfaces are not sealed, so such a switch needs a `default` branch.
 - Virtual threads benefit from the inherently thread-safe nature of all `java.time` classes.
 - Records pair naturally with `java.time` types for data transfer objects.
-- `SequencedCollection` and `Stream` integration allows elegant date range operations via `LocalDate.datesUntil()`.
+- `LocalDate.datesUntil()` (added in Java 9) returns a `Stream<LocalDate>`, which allows elegant date range operations.
 
 ## Common Pitfalls and How to Avoid Them
 

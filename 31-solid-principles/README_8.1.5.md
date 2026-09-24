@@ -49,7 +49,7 @@ DIP makes concurrent code testable by allowing injection of controlled implement
 
 - **Virtual threads**: A new `ExecutionStrategy` implementation using `Executors.newVirtualThreadPerTaskExecutor()` can be swapped in without changing the scheduler
 - **Sealed interfaces**: Can define bounded abstraction hierarchies where each implementation is a known detail
-- **Records**: Ideal for implementing value-object abstractions (`InMemoryRepository` backed by a `ConcurrentHashMap`)
+- **Records**: Ideal for the immutable values passed across an abstraction (for example a `Job` or `Message` record); a stateful implementation such as `InMemoryRepository` stays a class
 - **Pattern matching**: Works with DIP abstractions to handle different implementation types cleanly
 
 ## Common Pitfalls and How to Avoid Them
@@ -258,14 +258,16 @@ A3: DIP makes thread model switching transparent to business logic:
 4. At startup, choose the strategy based on configuration or environment
 
 Benefits:
-- Business logic doesn't import java.util.concurrent directly
+- Business logic doesn't create or configure a particular ExecutorService
 - Switching from platform to virtual threads is a one-line configuration change
 - Testing can use a single-threaded strategy for determinism
 - Performance tuning doesn't require changing business code
 
-This is exactly how modern frameworks handle thread models:
+Modern frameworks apply the same idea to their thread models:
 - Spring WebFlux abstracts the event loop
-- Quarkus allows switching between platform and virtual threads via config
+- Spring Boot 3.2+ runs request handling on virtual threads when
+  spring.threads.virtual.enabled=true is set
+- Quarkus moves a method to a virtual thread with @RunOnVirtualThread
 - Vert.x uses an event loop abstraction
 ```
 
@@ -378,7 +380,7 @@ A5: Common DIP anti-patterns:
    Creating concrete dependencies inline (new MySqlDatabase()) instead of 
    accepting an abstraction via constructor.
 
-2. Static utility classes:
+2. Static access (singletons and static utility classes):
    UserService.getInstance() or DatabaseUtils.query() -- hidden dependencies 
    that cannot be swapped or mocked.
 

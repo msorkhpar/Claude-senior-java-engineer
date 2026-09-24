@@ -65,7 +65,8 @@ class DateTimeFormatterExamplesTest {
         @DisplayName("Should format with day of week pattern")
         void testFormatWithDayOfWeek() {
             LocalDate date = LocalDate.of(2024, 3, 15); // Friday
-            String result = DateTimeFormatterExamples.formatWithPattern(date, "EEEE, MMMM dd, yyyy");
+            // Day and month names are locale-sensitive, so pin the locale
+            String result = DateTimeFormatterExamples.formatWithLocale(date, "EEEE, MMMM dd, yyyy", Locale.US);
             assertThat(result).contains("Friday");
             assertThat(result).contains("March");
         }

@@ -104,7 +104,8 @@ public class KissBenefits {
 
     /**
      * KISS approach: Use Semaphore to manage a fixed number of resources.
-     * The Semaphore handles all the waiting, signaling, and fairness concerns.
+     * The Semaphore handles all the waiting and signaling (fairness is opt-in via
+     * {@code new Semaphore(n, true)}; this non-fair one lets tryAcquire() barge).
      * No need for custom wait/notify logic.
      */
     public static class SimpleResourceManager {

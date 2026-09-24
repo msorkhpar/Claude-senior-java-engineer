@@ -30,7 +30,10 @@ public class OpenClosed {
     // ========== CORRECT EXAMPLE: OCP Applied ==========
 
     /**
-     * Open for extension: new shapes implement this interface without modifying existing code.
+     * Open for extension: new shapes implement this interface without modifying the
+     * calculator or the other shapes. Because the interface is sealed, adding a shape
+     * also means adding it to the permits clause -- the one controlled edit that sealing
+     * asks for in exchange for exhaustive pattern matching.
      */
     public sealed interface Shape permits Circle, Rectangle, Triangle, Parallelogram {
         double area();
@@ -86,7 +89,8 @@ public class OpenClosed {
     }
 
     /**
-     * Extension: adding Parallelogram without modifying any existing shape or calculator.
+     * Extension: adding Parallelogram without modifying any existing shape or the calculator
+     * (only Shape's permits clause names it).
      */
     public record Parallelogram(double base, double height) implements Shape {
         public Parallelogram {

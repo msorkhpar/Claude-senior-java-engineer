@@ -250,7 +250,8 @@ are several ways to calculate it:
 
 1. Simple arithmetic: (month - 1) / 3 + 1
 2. Using IsoFields: date.get(IsoFields.QUARTER_OF_YEAR)
-3. Using the Month enum: date.getMonth().firstMonthOfQuarter()
+3. Related, but not the quarter number: date.getMonth().firstMonthOfQuarter()
+   returns the first Month of the quarter (e.g., JULY for August)
 
 The IsoFields approach is the most "official" and handles edge cases correctly.
 ```

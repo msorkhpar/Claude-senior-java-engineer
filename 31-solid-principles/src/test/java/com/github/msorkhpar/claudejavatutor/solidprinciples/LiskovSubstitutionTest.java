@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -209,6 +211,42 @@ class LiskovSubstitutionTest {
                 assertThat(queue.offer("item-" + i)).isTrue();
             }
             assertThat(queue.size()).isEqualTo(100);
+        }
+
+        @Test
+        @DisplayName("UnboundedTaskQueue size() never goes negative under concurrent offer/poll")
+        void testUnboundedQueueSizeNeverNegative() throws InterruptedException {
+            var queue = new LiskovSubstitution.UnboundedTaskQueue<Integer>();
+            var done = new AtomicBoolean(false);
+            var negativeReadings = new AtomicLong();
+
+            Thread producer = new Thread(() -> {
+                for (int i = 0; i < 500_000; i++) {
+                    queue.offer(i);
+                }
+                done.set(true);
+            });
+            Thread consumer = new Thread(() -> {
+                while (!done.get() || !queue.isEmpty()) {
+                    queue.poll();
+                }
+            });
+            Thread monitor = new Thread(() -> {
+                while (!done.get()) {
+                    if (queue.size() < 0) {
+                        negativeReadings.incrementAndGet();
+                    }
+                }
+            });
+            producer.start();
+            consumer.start();
+            monitor.start();
+            producer.join();
+            consumer.join();
+            monitor.join();
+
+            assertThat(negativeReadings.get()).isZero();
+            assertThat(queue.size()).isZero();
         }
 
         @Test

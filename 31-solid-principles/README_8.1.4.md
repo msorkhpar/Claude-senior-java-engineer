@@ -331,7 +331,9 @@ ISP violations:
 Modern improvements:
 - List.of(), Set.of(), Map.of() create unmodifiable collections, but they still 
   implement the full List/Set/Map interface
-- SequencedCollection (Java 21) adds new methods but to existing interfaces
+- SequencedCollection, SequencedSet and SequencedMap (Java 21) are new interfaces 
+  retrofitted into the hierarchy -- and they again mix read methods (getFirst) 
+  with write methods (addFirst, removeFirst) that unmodifiable collections reject
 
 If Java were redesigned today, you might see:
 - ReadableList, WritableList, MutableList

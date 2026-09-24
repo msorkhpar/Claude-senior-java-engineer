@@ -220,6 +220,11 @@ public class CompositionBasics {
         @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }
         @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }
         @Override public void clear() { delegate.clear(); }
+        // Object methods are forwarded too, so a ForwardingSet obeys the Set contract
+        // for equals/hashCode (equal to any Set with the same elements)
+        @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }
+        @Override public int hashCode() { return delegate.hashCode(); }
+        @Override public String toString() { return delegate.toString(); }
     }
 
     /**

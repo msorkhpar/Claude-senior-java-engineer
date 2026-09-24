@@ -202,7 +202,7 @@ public abstract class DataProcessor<T, R> {
 // Concrete implementation -- only defines the varying parts
 public class StringUpperCaseProcessor extends DataProcessor<String, String> {
     @Override protected boolean isValid(String item) { return item != null && !item.isBlank(); }
-    @Override protected String transform(String item) { return item.toUpperCase(); }
+    @Override protected String transform(String item) { return item.toUpperCase(Locale.ROOT); }
 }
 ```
 
@@ -228,16 +228,17 @@ The Rule of Three balances DRY with KISS (Keep It Simple, Stupid) and YAGNI
 
 ```java
 // First time -- order summary
+// (Locale.ROOT keeps "." as the decimal separator of a "$" amount on any machine)
 String formatOrderSummary(String id, String desc, double total) {
-    return String.format("[%s] %s - $%.2f", id, desc, total);
+    return String.format(Locale.ROOT, "[%s] %s - $%.2f", id, desc, total);
 }
 // Second time -- invoice summary (looks similar, keep separate for now)
 String formatInvoiceSummary(String num, String client, double amount) {
-    return String.format("[%s] %s - $%.2f", num, client, amount);
+    return String.format(Locale.ROOT, "[%s] %s - $%.2f", num, client, amount);
 }
 // Third time -- NOW extract!
 String formatSummary(String identifier, String description, double amount) {
-    return String.format("[%s] %s - $%.2f", identifier, description, amount);
+    return String.format(Locale.ROOT, "[%s] %s - $%.2f", identifier, description, amount);
 }
 ```
 

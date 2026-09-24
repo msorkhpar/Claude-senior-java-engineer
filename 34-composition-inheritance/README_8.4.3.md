@@ -12,7 +12,7 @@ When components are composed rather than inherited, each component has a clear, 
 
 This separation makes it straightforward to answer critical concurrent programming questions:
 - "Where is synchronization applied?" -- In the ThreadSafeCache wrapper, nowhere else.
-- "Can this operation deadlock?" -- Each component has at most one lock; composition does not create nested locking.
+- "Can this operation deadlock?" -- Each component has at most one lock, and when only one layer synchronizes (see Q4), a call never holds two locks at once.
 - "Is this data structure thread-safe?" -- Check if it is wrapped in a thread-safe decorator.
 
 ### 8.4.3.2 Improved Modularity and Testability
@@ -113,8 +113,9 @@ several mechanisms:
    ONLY job is storage. You can audit thread safety by looking at one class.
 
 2. Single lock scope: With composition, each wrapper has at most one lock.
-   There are no hidden inherited locks that might cause deadlocks. The lock
-   graph is flat, not hierarchical.
+   There are no hidden inherited locks that might cause deadlocks. As long as
+   only one layer synchronizes, the lock graph is flat, not hierarchical
+   (stacking two synchronizing wrappers would nest their locks again).
 
 3. Visible synchronization: You can see exactly which operations are
    synchronized by examining the wrapper. With inheritance, you must read

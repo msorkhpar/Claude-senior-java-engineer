@@ -8,7 +8,7 @@ The Liskov Substitution Principle states that **objects of a superclass should b
 
 ### 8.1.3.1. Definition and Purpose of LSP
 
-Barbara Liskov formalized this in 1987. The formal definition includes:
+Barbara Liskov introduced the idea in her 1987 keynote "Data Abstraction and Hierarchy"; she and Jeannette Wing formalized it in 1994 ("A Behavioral Notion of Subtyping"). The formal definition includes:
 - **Preconditions cannot be strengthened**: A subtype cannot require more than the base type
 - **Postconditions cannot be weakened**: A subtype must deliver at least what the base type promises
 - **Invariants must be preserved**: Properties guaranteed by the base type must hold in the subtype
@@ -342,11 +342,14 @@ Arguments that it does NOT violate LSP:
 Java's approach is pragmatic:
 - The "optional operations" pattern is documented in the Collection interface
 - Real-world code handles this via convention (defensive programming)
-- Newer Java avoids this with List.of() and List.copyOf(), which return 
-  truly unmodifiable implementations that are clearly documented as such
+- Newer Java adds List.of() and List.copyOf(), which return truly unmodifiable 
+  lists (not views of a mutable list) and are clearly documented as such -- 
+  but they are still List implementations whose add()/remove() throw 
+  UnsupportedOperationException
 
-Best practice: Use List.of() / List.copyOf() for unmodifiable lists, and 
-reserve List for mutable contexts. This avoids the LSP ambiguity entirely.
+Best practice: Use List.of() / List.copyOf() for unmodifiable lists, so the 
+intent is visible where the list is created. This reduces the LSP ambiguity; 
+it cannot remove it, because the static type is still List.
 ```
 
 ```java
@@ -364,7 +367,7 @@ try {
     // Expected if you know it's unmodifiable, but surprising if you only see List<String>
 }
 
-// Better approach in modern Java -- clear intent, no ambiguity
+// Better approach in modern Java -- clearer intent at the creation site
 List<String> immutable = List.of("a", "b", "c");
 // immutable.add("d"); // Also throws, but List.of() is documented as unmodifiable
 

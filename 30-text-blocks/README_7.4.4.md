@@ -36,7 +36,8 @@ The two new escape sequences specific to text blocks are:
   JEP 378 (Java 15).
 - In Java 21, these escapes are fully standard and widely used.
 - `String.translateEscapes()` (Java 15) can process escape sequences at runtime.
-- The escape sequences work identically in both text blocks and traditional string literals (since Java 15).
+- `\s` also works in traditional string and char literals (since Java 15); `\<line-terminator>` is only meaningful in
+  text blocks, because a traditional literal cannot contain a line terminator.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -78,8 +79,8 @@ The two new escape sequences specific to text blocks are:
 
 4. **Line continuation producing unexpected results with indentation**:
    ```java
-   // The continuation joins lines BEFORE whitespace removal
-   // Actually, escapes are processed AFTER whitespace removal
+   // Escapes are processed AFTER whitespace removal, so the next line's
+   // incidental indentation is already gone when the lines are joined
    String block = """
            Hello \
            World""";
@@ -98,7 +99,7 @@ The two new escape sequences specific to text blocks are:
    String literal = """
            Hello \\
            World""";
-   // Result: "Hello \\\nWorld" -- actually "Hello \\" followed by newline then "World"
+   // Result: "Hello \\\nWorld" -- a literal backslash, then a newline, then "World"
    ```
 
 ## Best Practices and Optimization Techniques
@@ -150,8 +151,9 @@ The two new escape sequences specific to text blocks are:
 3. **Line continuation on the last content line**: Joins with the closing delimiter, which is unusual.
 4. **Multiple `\s` on the same line**: Each `\s` adds one space; they can be chained.
 5. **`\s` followed by other whitespace**: The `\s` prevents stripping of the whitespace before it.
-6. **Unicode escapes in text blocks**: Processed by the lexer before text block processing, so `\u000A` (newline) would
-   break the text block syntax.
+6. **Unicode escapes in text blocks**: Processed before the text block is parsed, so `\u000A` becomes a real line
+   break in the source: the text after it starts a new content line at column 0, which changes the incidental
+   whitespace calculation.
 
 ## Interview-specific Insights
 
@@ -270,15 +272,17 @@ public class QuoteEscaping {
 
     // Alternative escaping for triple quotes
     String alt1 = """
-            Delimiter: "\\"\\"\\" """;  // Each quote escaped individually
+            Delimiter: \"\"\" """;  // Each quote escaped individually
+    // Result: Delimiter: """
 
-    // JSON example - quotes never need escaping
+    // JSON example - Java needs no quote escaping, but JSON itself still
+    // requires \" for a quote inside a JSON string, written \\" in Java
     String json = """
             {
                 "name": "Alice",
-                "greeting": "She said, "Hello!""
+                "greeting": "She said, \\"Hello!\\""
             }""";
-    // Note: "Hello!" with surrounding quotes works fine
+    // Result: "greeting": "She said, \"Hello!\"" -- valid JSON
 
     // Contrast with traditional string
     String traditional = "{\"name\": \"Alice\", \"greeting\": \"She said, \\\"Hello!\\\"\"}";
@@ -301,20 +305,21 @@ Step 2: Incidental whitespace removal
 - Happens second
 - Removes common leading whitespace
 - Strips trailing whitespace from each line
-- The \s escape is still a literal backslash-s at this point
-- Trailing whitespace before \s IS stripped (but \s prevents further stripping)
+- The \s escape is still the two characters backslash and s at this point
+- Those are not whitespace, so any spaces before \s are not "trailing" and are kept
 
 Step 3: Escape sequence interpretation
 - Happens last
-- \s becomes a space character (preventing the already-stripped trailing whitespace issue
-  is because the compiler actually handles \s specially during step 2)
+- \s becomes a space character (it was never at risk in step 2, because it was
+  not whitespace yet)
 - \<newline> suppresses the newline (line continuation)
 - \n, \t, \\, \" etc. are all processed
 - Invalid escape sequences cause a compilation error
 
 Important detail about \s and step 2:
-- The compiler actually recognizes \s during trailing whitespace stripping
-- It treats \s as a "fence" that stops the stripping
+- The compiler needs no special rule for \s during trailing whitespace stripping
+- Because backslash and s are ordinary characters in step 2, \s acts as a
+  "fence" that stops the stripping
 - Characters before \s on the same line are preserved
 - Then in step 3, \s is translated to a space
 
@@ -357,12 +362,12 @@ Common scenarios:
 
 1. File paths (Windows):
    - Traditional: "C:\\Users\\admin"
-   - Text block: same - """C:\\Users\\admin"""
+   - Text block: the same C:\\Users\\admin on a text block content line
    - Text blocks do NOT help with backslash escaping
 
 2. Regular expressions:
    - Regex \d+ in traditional: "\\d+"
-   - Regex \d+ in text block: """\\d+"""
+   - Regex \d+ in text block: \\d+ on a text block content line
    - Same double-escaping is required
 
 3. JSON with backslashes:
@@ -430,10 +435,11 @@ Processing timeline:
 5. Step 3: Regular escape sequence processing
 
 Implications:
-- \u000A (newline) would create an actual newline in the SOURCE CODE
-  before the text block is even identified, potentially breaking the syntax
-- \u0022 (double quote) would create an actual quote character in the source,
-  potentially terminating the text block prematurely
+- \u000A (newline) creates an actual line break in the SOURCE CODE before the
+  text block is even identified: the text after it becomes a new content line
+  at column 0, which silently changes the incidental whitespace removal
+- \u0022 (double quote) creates an actual quote character in the source; next
+  to other quotes it can form """ and terminate the text block prematurely
 - Other unicode escapes (like \u0041 for 'A') work fine because they don't
   affect the text block structure
 
@@ -454,16 +460,19 @@ public class UnicodeEscapes {
             Copyright: \u00A9""";
     // Result: "Smiley: ☺\nHeart: ♥\nCopyright: ©"
 
-    // DANGEROUS: \u000A is a newline - processed by lexer!
-    // String broken = """
-    //         Hello\u000AWorld""";
-    // This would break because the lexer creates a newline BEFORE
-    // the text block is parsed, splitting the line
+    /* DANGEROUS: \u000A is a newline - processed before parsing!
+       (In a // line comment it would even end the comment early, which is
+       why this example sits in a block comment.)
+       String surprising = """
+               Hello\u000AWorld""";
+       This compiles, but "World" becomes a separate line at column 0, so the
+       minimum indentation is 0 and "Hello" keeps its source indentation:
+       "            Hello\nWorld" */
 
     // DANGEROUS: \u0022 is a double quote - processed by lexer!
     // String alsobroken = """
     //         Quote: \u0022""";
-    // This would break because the lexer creates a quote
+    // This fails to compile: the \u0022 plus the closing """ form four quotes
 
     // Safe alternative: use regular escape sequences
     String safeNewline = """

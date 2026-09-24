@@ -21,6 +21,7 @@ public class CompositionBenefits {
     public interface Cache<K, V> {
         V get(K key);
         void put(K key, V value);
+        V remove(K key);
         int size();
         void clear();
         boolean containsKey(K key);
@@ -42,6 +43,11 @@ public class CompositionBenefits {
         public void put(K key, V value) {
             Objects.requireNonNull(key, "Key must not be null");
             store.put(key, value);
+        }
+
+        @Override
+        public V remove(K key) {
+            return store.remove(key);
         }
 
         @Override
@@ -84,6 +90,13 @@ public class CompositionBenefits {
         public void put(K key, V value) {
             synchronized (lock) {
                 delegate.put(key, value);
+            }
+        }
+
+        @Override
+        public V remove(K key) {
+            synchronized (lock) {
+                return delegate.remove(key);
             }
         }
 
@@ -141,22 +154,20 @@ public class CompositionBenefits {
             if (delegate.containsKey(key)) {
                 accessOrder.remove(key);
             } else if (delegate.size() >= maxSize) {
+                // Evict the least recently used key
                 K oldest = accessOrder.pollFirst();
                 if (oldest != null) {
-                    // Remove from delegate by putting null is not ideal,
-                    // so we use a direct approach
-                    delegate.put(oldest, null);
-                    // Actually we need a remove method, but to keep interface simple
-                    // we track eviction through the access order
+                    delegate.remove(oldest);
                 }
-                evictOldest();
             }
             delegate.put(key, value);
             accessOrder.addLast(key);
         }
 
-        private void evictOldest() {
-            // The oldest was already polled in the put method above
+        @Override
+        public V remove(K key) {
+            accessOrder.remove(key);
+            return delegate.remove(key);
         }
 
         @Override

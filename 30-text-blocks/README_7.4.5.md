@@ -240,7 +240,7 @@ public class RealWorldUseCases {
     //         Q1 Report
     //         ---------
     //         Revenue: $1M
-    //         Growth: 15%%""");
+    //         Growth: 15%""");
 
     // 5. Code generation
     String generateRecord(String name, String field1, String type1) {
@@ -433,15 +433,15 @@ Code review improvements:
 3. JSON structure is clear at a glance
 4. HTML markup is readable
 
-Metrics (typical improvements):
-- ~40-60% reduction in character count for JSON/SQL content
-- Significantly fewer string-related bugs in code reviews
+Typical effects (qualitative; the size of the gain depends on the content):
+- Fewer characters for JSON/SQL content (no \", \n or + noise)
+- Fewer string-related bugs in code reviews
 - Faster content updates (no escape sequence management)
 ```
 
 ```java
 public class ReadabilityComparison {
-    // BEFORE text blocks: 6 lines, 12 escape sequences, 5 concatenation operators
+    // BEFORE text blocks: 6 lines, 23 escape sequences, 5 concatenation operators
     String jsonBefore = "{\n" +
             "    \"users\": [\n" +
             "        {\"name\": \"Alice\", \"role\": \"admin\"},\n" +

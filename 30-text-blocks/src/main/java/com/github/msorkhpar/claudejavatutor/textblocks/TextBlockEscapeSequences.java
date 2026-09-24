@@ -41,7 +41,7 @@ public class TextBlockEscapeSequences {
     }
 
     /**
-     * Demonstrates the \s escape sequence (space) introduced in Java 15.
+     * Demonstrates the \s escape sequence (space), added by JEP 368 (Java 14 preview, standard in Java 15).
      * \s translates to a single space and prevents trailing whitespace stripping.
      */
     public static String spaceEscapeSequence() {
@@ -51,7 +51,7 @@ public class TextBlockEscapeSequences {
     }
 
     /**
-     * Demonstrates the line continuation escape (\ at end of line) introduced in Java 15.
+     * Demonstrates the line continuation escape (\ at end of line), added by JEP 368 (Java 14 preview, standard in Java 15).
      * This suppresses the newline character at the end of the line.
      */
     public static String lineContinuation() {
@@ -110,7 +110,9 @@ public class TextBlockEscapeSequences {
 
     /**
      * Demonstrates the carriage return escape in text blocks.
-     * Note: text blocks normalize line endings to \n (LF).
+     * Note: text blocks normalize the source's line endings to \n (LF), but an explicit
+     * \r escape is kept, because escapes are processed after that normalization.
+     * The result is "Line 1\r\nLine 2".
      */
     public static String carriageReturnHandling() {
         return """
