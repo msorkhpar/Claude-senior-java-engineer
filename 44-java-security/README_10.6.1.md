@@ -466,8 +466,10 @@ only access what that component was permitted to access.
 
 ```java
 // Applying least privilege through access modifiers and sealed types
+// (amounts are java.math.BigDecimal: money must not be a double, which cannot hold most
+// decimal amounts exactly)
 public sealed interface PaymentProcessor permits CreditCardProcessor, BankTransferProcessor {
-    void processPayment(double amount);
+    void processPayment(BigDecimal amount);
 }
 
 // Only these two classes can implement PaymentProcessor
@@ -479,14 +481,14 @@ public final class CreditCardProcessor implements PaymentProcessor {
     }
 
     @Override
-    public void processPayment(double amount) {
+    public void processPayment(BigDecimal amount) {
         // Only has access to credit card processing logic
     }
 }
 
 public final class BankTransferProcessor implements PaymentProcessor {
     @Override
-    public void processPayment(double amount) {
+    public void processPayment(BigDecimal amount) {
         // Only has access to bank transfer logic
     }
 }
