@@ -16,7 +16,8 @@ the checkout (terminal operation). The checkout produces the final result — a 
 - `reduce(identity, BinaryOperator<T>)` — combines all elements using an accumulator; returns T
 - `reduce(BinaryOperator<T>)` — no identity; returns `Optional<T>` (handles empty streams)
 - `count()` — number of elements
-- `sum()`, `average()`, `min()`, `max()`, `summaryStatistics()` — only on primitive streams
+- `min(Comparator)`, `max(Comparator)` — return `Optional<T>`
+- `sum()`, `average()`, `summaryStatistics()`, and `min()`/`max()` without a comparator — only on primitive streams
 
 **Collecting operations** — gather elements into a container:
 - `collect(Collector<T, A, R>)` — flexible collection with Collectors utility
@@ -46,7 +47,7 @@ the checkout (terminal operation). The checkout produces the final result — a 
 1. **Terminal operations trigger execution** of all preceding lazy intermediate operations.
 2. **`collect()`** is the most versatile terminal operation — use `Collectors` for many common patterns.
 3. **`reduce(identity, op)`** returns `T` (works on empty streams using identity); **`reduce(op)`** returns `Optional<T>`.
-4. **`allMatch()`** on empty stream returns `true` (vacuous truth); **`anyMatch()`` returns `false`; **`noneMatch()`** returns `true`.
+4. **`allMatch()`** on empty stream returns `true` (vacuous truth); **`anyMatch()`** returns `false`; **`noneMatch()`** returns `true`.
 5. **`findFirst()`** vs **`findAny()`**: `findFirst()` is deterministic (first in encounter order); `findAny()` may return any element (useful in parallel for performance).
 6. **`forEach()` does not guarantee order in parallel streams**; use `forEachOrdered()` when order matters.
 7. **`Collectors.groupingBy()`** groups elements into a `Map<K, List<V>>` by default; downstream collectors can further transform the values.
@@ -56,7 +57,8 @@ the checkout (terminal operation). The checkout produces the final result — a 
 
 ## Relevant Java 21 Features
 
-- **`Stream.toList()` (Java 16+)**: Shorthand for `collect(Collectors.toUnmodifiableList())`.
+- **`Stream.toList()` (Java 16+)**: Returns an unmodifiable list, like `collect(Collectors.toUnmodifiableList())`, but
+  it accepts null elements, where `toUnmodifiableList()` throws `NullPointerException`.
 - **`Collectors.toUnmodifiableList/Set/Map()` (Java 10+)**: Explicitly unmodifiable collectors.
 - **`Collectors.teeing()` (Java 12+)**: Applies two collectors in parallel and merges results with a merger function.
 - **`mapMulti()` (Java 16)**: Flexible element expansion before collection.
@@ -113,7 +115,7 @@ the checkout (terminal operation). The checkout produces the final result — a 
 5. **Using `allMatch()` on empty streams without understanding vacuous truth**:
    ```java
    // This returns true — empty stream vacuously satisfies any predicate
-   boolean result = Stream.empty().allMatch(s -> s.length() > 100); // true!
+   boolean result = Stream.<String>empty().allMatch(s -> s.length() > 100); // true!
    ```
 
 ## Best Practices and Optimization Techniques
@@ -124,7 +126,7 @@ the checkout (terminal operation). The checkout produces the final result — a 
 4. **Use `Collectors.teeing()` (Java 12+)** when you need two different views of the same data in one pass.
 5. **Use `IntStream.sum()`, `average()`, `summaryStatistics()`** directly on primitive streams — more efficient than `collect()`.
 6. **Prefer `findFirst()` over `min(Comparator)`** when you only need the first element in encounter order.
-7. **Use `anyMatch()` instead of `filter().findFirst().isPresent()`** — it short-circuits sooner and is more readable.
+7. **Use `anyMatch()` instead of `filter().findFirst().isPresent()`** — both stop at the first match, but `anyMatch()` states the intent directly and needs no `Optional`.
 
 ## Edge Cases and Their Handling
 
@@ -174,8 +176,9 @@ Without identity (BinaryOperator<T> accumulator):
 - Safer for cases where you don't know what the identity should be, or where no identity makes sense.
 - Example: Stream.empty().reduce(Integer::sum) returns Optional.empty().
 
-The three-argument form reduce(identity, BiFunction<U,T,U>, BinaryOperator<U>) is used for type-transforming
-reductions and is required for parallel correctness when the accumulator type differs from the stream element type.
+The three-argument form reduce(identity, BiFunction<U,T,U>, BinaryOperator<U>) is the only reduce form whose result
+type U can differ from the element type T; its combiner merges the partial results of a parallel stream, and must
+be compatible with the accumulator.
 ```
 
 ```java
@@ -372,7 +375,7 @@ patterns like String.join() when you also need to filter/map elements.
 List<String> names = List.of("Alice", "Bob", "Charlie", "David");
 
 // Simple concatenation
-String simple = names.stream().collect(Collectors.joining()); // "AliceBobCharlieDAVID"
+String simple = names.stream().collect(Collectors.joining()); // "AliceBobCharlieDavid"
 
 // With delimiter
 String csv = names.stream().collect(Collectors.joining(", ")); // "Alice, Bob, Charlie, David"
@@ -382,6 +385,7 @@ String formatted = names.stream()
     .collect(Collectors.joining(", ", "[", "]")); // "[Alice, Bob, Charlie, David]"
 
 // Common pattern: filter, transform, then join
+// (assumes an Employee type with isActive() and email(), not the record from Q2)
 String emailList = employees.stream()
     .filter(Employee::isActive)
     .map(Employee::email)
@@ -430,8 +434,8 @@ System.out.println(stats); // Stats[count=10, average=3.9]
 record MinMax(int min, int max) {}
 MinMax minMax = numbers.stream().collect(
     Collectors.teeing(
-        Collectors.minBy(Comparator.naturalOrder()),
-        Collectors.maxBy(Comparator.naturalOrder()),
+        Collectors.minBy(Comparator.<Integer>naturalOrder()), // explicit type: inference fails without it
+        Collectors.maxBy(Comparator.<Integer>naturalOrder()),
         (min, max) -> new MinMax(min.orElseThrow(), max.orElseThrow())
     )
 );

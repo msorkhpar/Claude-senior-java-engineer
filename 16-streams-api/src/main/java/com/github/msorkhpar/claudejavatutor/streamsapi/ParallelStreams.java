@@ -45,8 +45,9 @@ public class ParallelStreams {
     // -----------------------------------------------------------------------
 
     /**
-     * Demonstrates UNSAFE pattern: forEach with shared ArrayList (race condition).
-     * Returns the list but results may be incorrect due to unsynchronized writes.
+     * Demonstrates UNSAFE pattern: forEach with shared ArrayList (a data race).
+     * Concurrent unsynchronized add() calls can lose elements, leave null slots, or throw
+     * ArrayIndexOutOfBoundsException; the JMM gives no guarantee about the result.
      * THIS IS INTENTIONALLY UNSAFE — shown for educational purposes only.
      */
     public List<Integer> unsafeForEachCollect(List<Integer> list) {
@@ -56,13 +57,13 @@ public class ParallelStreams {
     }
 
     /**
-     * Demonstrates SAFE pattern: use collect() with thread-safe collector.
-     * This is the correct way to collect in parallel.
+     * Demonstrates SAFE pattern: use collect(). Each subtask fills its own list and the
+     * lists are merged, so no container is shared between threads.
      */
     public List<Integer> safeCollect(List<Integer> list) {
         return list.parallelStream()
                 .filter(n -> n % 2 == 0)
-                .collect(Collectors.toList()); // Thread-safe
+                .collect(Collectors.toList()); // safe: per-subtask containers, merged
     }
 
     /**
@@ -93,6 +94,8 @@ public class ParallelStreams {
     /**
      * Collects elements in parallel using forEachOrdered — order IS guaranteed.
      * More expensive than forEach in parallel, but preserves encounter order.
+     * A plain ArrayList is safe here: forEachOrdered guarantees that the action for one
+     * element happens-before the action for the next, even if they run on different threads.
      */
     public List<Integer> parallelForEachOrdered(List<Integer> list) {
         List<Integer> result = new ArrayList<>();
@@ -157,7 +160,8 @@ public class ParallelStreams {
 
     /**
      * Runs a parallel stream in a custom ForkJoinPool with specified parallelism.
-     * This isolates the parallel work from the common pool.
+     * This isolates the parallel work from the common pool: a parallel stream started inside a
+     * ForkJoinPool task runs in that pool. That is JDK behavior, not specified by the Stream API.
      */
     public List<Integer> runInCustomPool(List<Integer> list, int parallelism) throws Exception {
         ForkJoinPool customPool = new ForkJoinPool(parallelism);

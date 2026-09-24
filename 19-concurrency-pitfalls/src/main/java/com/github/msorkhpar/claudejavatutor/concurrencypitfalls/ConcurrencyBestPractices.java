@@ -133,7 +133,8 @@ public class ConcurrencyBestPractices {
         }
 
         /**
-         * Returns all registered service names as an unmodifiable set.
+         * Returns all registered service names as an unmodifiable live view: it cannot be
+         * modified through the view, but it reflects later registrations and removals.
          */
         public Set<String> getServiceNames() {
             return Collections.unmodifiableSet(services.keySet());
@@ -340,7 +341,8 @@ public class ConcurrencyBestPractices {
         }
 
         /**
-         * Notifies all listeners. Safe to iterate even while other threads add/remove listeners.
+         * Returns a snapshot copy of the listeners. Iterating the CopyOnWriteArrayList itself is
+         * also safe while other threads add/remove listeners (its iterator uses a snapshot).
          */
         public List<String> getListeners() {
             return new ArrayList<>(listeners);

@@ -3,7 +3,8 @@
 ## Concept Explanation
 
 The **happens-before** relationship is the cornerstone of the Java Memory Model (JMM), formally defined in the Java
-Language Specification (JLS §17.4). It is a partial order over memory operations (reads and writes) that guarantees
+Language Specification (JLS §17.4). It is a partial order over actions (reads, writes, locks, unlocks, thread starts
+and joins, …) that guarantees
 **memory visibility**: if action A happens-before action B, then all memory writes performed by A (and all actions
 before A) are visible to B and all subsequent actions.
 
@@ -13,7 +14,8 @@ happens-before. Without such a contract, Bob cannot be sure he will see Alice's 
 cached somewhere Bob cannot see. Happens-before is the JVM's "contract" that forces visibility.
 
 The JMM does NOT guarantee that threads execute in real-time order — the processor, compiler, and JVM are all free to
-reorder operations for performance. Happens-before is the ONLY mechanism that constrains this reordering.
+reorder operations for performance. Happens-before is the main mechanism that constrains this reordering (the
+final-field guarantee of JLS §17.5 is a separate, narrower one).
 
 ### The Six Core Happens-before Rules
 
@@ -24,8 +26,8 @@ The JMM defines happens-before through a specific set of rules (JLS §17.4.5):
    single-thread semantics are preserved).
 
 2. **Monitor Lock Rule** — An unlock of a monitor happens-before every subsequent lock of that same monitor.
-   When thread T1 releases a `synchronized` lock and thread T2 acquires the same lock, T2 is guaranteed to see
-   all writes T1 performed while holding the lock.
+   When thread T1 releases a `synchronized` lock and thread T2 then acquires the same lock, T2 is guaranteed to see
+   all writes T1 performed before releasing it (inside the block or earlier).
 
 3. **Volatile Variable Rule** — A write to a `volatile` variable happens-before every subsequent read of that
    same variable. This provides visibility but NOT atomicity for compound operations like `i++`.
@@ -47,12 +49,16 @@ Without happens-before, the JVM can:
 - Use stale values from CPU caches
 
 This results in **data races**: two threads accessing the same variable where at least one access is a write, and
-there is no happens-before ordering between them. A program with a data race has undefined behavior in the JMM.
+there is no happens-before ordering between them. Unlike C/C++, a Java data race is not "undefined behavior": the JMM
+still defines what a racy read may return (a value some write actually wrote, with no out-of-thin-air values —
+though a non-volatile `long`/`double` may tear), but it allows stale and surprising results, so the program is
+almost certainly wrong.
 
 ### The Difference Between Happens-before and Wall-clock Time
 
 Happens-before is about **visibility**, not real-time ordering. If write W happens-before read R, it means R is
-guaranteed to see the value written by W. It does NOT mean W physically occurred before R on the clock. Two
+guaranteed to see the value written by W (or a later write). It does NOT mean W physically occurred before R on the
+clock. Two
 operations without happens-before between them are **unordered** — the outcome is non-deterministic.
 
 ## Key Points to Remember
@@ -126,7 +132,8 @@ operations without happens-before between them are **unordered** — the outcome
    // Fix: use synchronization to create cross-thread happens-before
    volatile int x = 0;
    // T1: x = 1;  (volatile write)
-   // T2: System.out.println(x);  (volatile read sees volatile write)
+   // T2: System.out.println(x);  (a volatile read that comes after the write sees 1;
+   //                              volatile does not make T1 run first — T2 may still print 0)
    ```
 
 3. **Forgetting transitivity when chaining guarantees** — A write before a `volatile` write IS visible after the
@@ -192,8 +199,9 @@ Interviewers at senior level will probe:
 **Common tricky questions**:
 - "If T1 writes x and then T2 reads x, is T2 guaranteed to see T1's write?" (No, only if there is a happens-before.)
 - "Does the program order rule create happens-before between threads?" (No, only within a single thread.)
-- "Can you have data races on volatile variables?" (No — a volatile write always happens-before a volatile read of
-  the same variable, so volatile accesses are always ordered.)
+- "Can you have data races on volatile variables?" (Not in the JMM's sense — volatile accesses are synchronization
+  actions in one total order, and each volatile read sees the last volatile write before it. Race *conditions* in the
+  logic, such as `volatileCount++`, are still possible.)
 
 ## Interview Q&A Section
 
@@ -209,7 +217,8 @@ It exists because modern hardware and compilers aggressively reorder memory oper
 - Compilers reorder instructions within optimization passes.
 - The JIT compiler in the JVM reorders bytecode to native instructions.
 
-Without happens-before, two threads accessing shared state would have undefined behavior. The happens-before
+Without happens-before, two threads accessing shared state would have a data race, with stale and surprising
+results allowed. The happens-before
 relationship is the contract that says "at this point, thread B is guaranteed to see what thread A wrote."
 
 This is fundamentally different from wall-clock time. Happens-before is about visibility guarantees, not about
@@ -302,9 +311,10 @@ A3: A data race occurs when:
   2. At least one of those accesses is a write.
   3. There is NO happens-before relationship between the conflicting accesses.
 
-A program with a data race has undefined behavior in the JMM — the reading thread may see
-any value, including stale values, zero, or even values that were never written. This is not a
-JVM bug; it is explicitly permitted behavior under the JMM.
+In a program with a data race the reading thread may see a stale value, the default zero, or
+a newer value — any value that some write to the variable actually wrote (never a value out of
+thin air, although a non-volatile long/double may tear). This is not a JVM bug; it is
+explicitly permitted behavior under the JMM.
 
 Happens-before eliminates data races by imposing an order between conflicting accesses.
 If write W happens-before read R, R is guaranteed to see the value written by W (or a later write).
@@ -314,7 +324,7 @@ not atomic). Without synchronization, concurrent threads racing on ++ produce in
 ```
 
 ```java
-// DATA RACE — undefined behavior
+// DATA RACE — lost updates and stale reads are allowed
 class DataRaceExample {
     int counter = 0; // no synchronization
 
@@ -398,8 +408,9 @@ This is one of the most common misconceptions. Programmers who have only written
 code assume that "the code runs in order" — but in multi-threaded code, each thread has its own
 program order, and these orders are independent.
 
-The only happens-before between threads comes from the other five rules (monitor lock, volatile,
-thread start, thread join, and transitivity of those four).
+Happens-before between threads comes from the other rules (monitor lock, volatile, thread start,
+thread join, and transitivity of those four — plus the JLS rules for interrupts and default values,
+and the guarantees java.util.concurrent documents for its classes).
 ```
 
 ```java
@@ -411,7 +422,7 @@ class NoHappensBeforeAcrossThreads {
         Thread writer = new Thread(() -> { shared = 42; });
         Thread reader = new Thread(() -> {
             // Does NOT have happens-before from writer!
-            // May see 0 or 42 — undefined behavior (data race)
+            // May see 0 or 42 — a data race: either value is allowed
             System.out.println(shared);
         });
 
@@ -446,12 +457,12 @@ class CorrectOrdering {
 ```text
 A6: The JMM guarantees that a class's static initializer (the <clinit> method) happens-before
 the first access to any static field or method of that class by any thread. The JVM ensures
-this using internal locking during class loading (the "initialization lock").
+this using internal locking during class initialization (the "initialization lock", JLS 12.4.2).
 
 The Initialization-on-Demand Holder (IODH) idiom exploits this guarantee to create a
 thread-safe, lazily initialized singleton without any synchronized blocks in the getInstance()
-method. The Holder inner class is not loaded until getInstance() is called, at which point the
-JVM's class loading lock ensures that the static initializer of Holder happens-before any
+method. The Holder inner class is not initialized until getInstance() is called, at which point the
+JVM's class initialization lock ensures that the static initializer of Holder happens-before any
 thread reads the INSTANCE field.
 
 This is more efficient than double-checked locking and works correctly on all Java versions.
@@ -464,9 +475,9 @@ public class SingletonIODH {
         // initialization...
     }
 
-    // Inner class is loaded only when getInstance() is first called
+    // Inner class is initialized only when getInstance() is first called
     private static final class Holder {
-        // Static initializer runs under JVM class-loading lock
+        // Static initializer runs under the JVM class-initialization lock
         // JMM guarantees: static init hb any subsequent access to INSTANCE
         static final SingletonIODH INSTANCE = new SingletonIODH();
     }

@@ -209,8 +209,9 @@ public class StreamCreation {
     // -----------------------------------------------------------------------
 
     /**
-     * Creates an IntStream of char values from a String.
-     * Each int represents a char's Unicode code point.
+     * Counts vowels using String.chars(), an IntStream of the string's char values.
+     * Each int is a UTF-16 code unit, not a code point: a supplementary character
+     * (e.g. an emoji) appears as two surrogate values. Use codePoints() for code points.
      */
     public long countVowels(String text) {
         return text.chars()
@@ -220,6 +221,7 @@ public class StreamCreation {
 
     /**
      * Splits a string by a delimiter and streams the parts.
+     * The delimiter is a regular expression (String.split), so "." or "|" must be escaped.
      */
     public List<String> splitAndStream(String text, String delimiter) {
         return Arrays.stream(text.split(delimiter))

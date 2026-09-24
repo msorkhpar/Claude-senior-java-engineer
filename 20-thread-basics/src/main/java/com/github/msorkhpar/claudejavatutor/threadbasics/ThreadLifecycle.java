@@ -72,9 +72,8 @@ public class ThreadLifecycle {
 
         thread.start();
         started.await();
-        // Give thread time to enter sleep
-        Thread.sleep(100);
-        Thread.State state = thread.getState();
+        // Poll until the thread has entered sleep (a fixed sleep here would be a race)
+        Thread.State state = awaitState(thread, Thread.State.TIMED_WAITING);
         thread.interrupt();
         thread.join();
         return state;
@@ -101,8 +100,7 @@ public class ThreadLifecycle {
 
         thread.start();
         started.await();
-        Thread.sleep(100); // give thread time to enter wait
-        Thread.State state = thread.getState();
+        Thread.State state = awaitState(thread, Thread.State.WAITING); // until it is inside wait()
 
         // Clean up: notify so thread can finish
         synchronized (lock) {
@@ -146,15 +144,28 @@ public class ThreadLifecycle {
         holderReady.await(); // holder has the lock
 
         blocker.start();
-        blockerStarted.countDown(); // blocker is started
-        Thread.sleep(100); // give blocker time to become BLOCKED
-
-        Thread.State state = blocker.getState();
+        blockerStarted.await(); // blocker is running
+        Thread.State state = awaitState(blocker, Thread.State.BLOCKED); // until it blocks on the monitor
 
         // Cleanup
         canRelease.countDown();
         holder.join();
         blocker.join();
+        return state;
+    }
+
+    /**
+     * Polls {@code thread.getState()} until it equals {@code expected} or five seconds pass,
+     * and returns the last state observed. A fixed sleep cannot guarantee that the other thread
+     * has reached the blocking call; polling the state can.
+     */
+    private static Thread.State awaitState(Thread thread, Thread.State expected) throws InterruptedException {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        Thread.State state = thread.getState();
+        while (state != expected && System.nanoTime() < deadline) {
+            Thread.sleep(1);
+            state = thread.getState();
+        }
         return state;
     }
 

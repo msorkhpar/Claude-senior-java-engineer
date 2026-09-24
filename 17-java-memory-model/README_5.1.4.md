@@ -16,8 +16,9 @@ using ingredients the other hasn't finished preparing yet.
 
 ### Three Levels of Reordering
 
-**1. Compiler reordering**: The Java compiler (javac) and JIT compiler (HotSpot C1/C2) may reorder instructions
-within a method to:
+**1. Compiler reordering**: The JMM allows both the Java compiler (javac) and the JIT compiler (HotSpot C1/C2) to
+reorder instructions within a method. In practice javac does almost no optimization (it folds compile-time constants),
+so nearly all compiler reordering comes from the JIT, which does it to:
 - Better utilize CPU pipelines
 - Reduce register pressure
 - Enable constant folding, loop unrolling, inlining
@@ -55,11 +56,13 @@ The JMM's volatile semantics act as **memory barriers**:
 
 ## Key Points to Remember
 
-1. **Three sources of reordering**: Java compiler (javac), JIT compiler (HotSpot), and CPU hardware.
+1. **Three sources of reordering**: Java compiler (javac — permitted, but it hardly optimizes), JIT compiler (HotSpot),
+   and CPU hardware.
 2. **Reordering is legal** within single-threaded code — the JMM only constrains cross-thread visibility.
 3. **volatile** creates memory barriers that prevent certain reorderings; it is the primary tool for
    controlling reordering without full mutual exclusion.
-4. **synchronized** prevents all reorderings from crossing the block boundaries (acts as full barrier).
+4. **synchronized** prevents operations inside the block from moving out of it; operations outside may still be moved
+   into the block ("roach motel" ordering), so it is not a full barrier in both directions.
 5. **Hoisting reads out of loops** is a common JIT optimization that causes the "infinite loop" bug
    with non-volatile flags.
 6. **x86 is strongly ordered** (TSO) — bugs caused by reordering on ARM or POWER may not appear on x86,
@@ -73,14 +76,15 @@ The JMM's volatile semantics act as **memory barriers**:
 
 - **VarHandle memory access modes (Java 9+)**: Fine-grained reordering control:
   - `plain`: No ordering — compiler is free to reorder
-  - `opaque`: No reordering within the same thread, but no cross-thread guarantee
+  - `opaque`: Atomic and coherent per variable and eventually visible to other threads, but no ordering with
+    other variables
   - `release/acquire`: Establish directed happens-before (like unlock/lock)
   - `volatile`: Full two-directional ordering (strongest)
   - This allows using the minimum barrier strength needed, improving performance in critical paths.
-- **jdk.internal.vm.annotation.Contended**: Available as `@jdk.internal.vm.annotation.Contended`
-  (JDK internal) or via JVM flags (`-XX:-RestrictContended`). Pads fields to prevent false sharing
-  in high-performance concurrent code.
-- **JEP 352 — Non-Volatile Mapped Byte Buffers**: Exposes NVM (non-volatile memory) access with explicit
+- **jdk.internal.vm.annotation.Contended**: JDK-internal; outside the JDK it needs
+  `--add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED` to compile and `-XX:-RestrictContended` at run
+  time, or the annotation is ignored. Pads fields to prevent false sharing in high-performance concurrent code.
+- **JEP 352 (Java 14) — Non-Volatile Mapped Byte Buffers**: Exposes NVM (non-volatile memory) access with explicit
   store ordering, relevant for persistence layers.
 
 ## Common Pitfalls and How to Avoid Them
@@ -109,9 +113,9 @@ The JMM's volatile semantics act as **memory barriers**:
    static int[] data;
    static void init() {
        data = new int[10]; // (1) reference stored
-       data[0] = 42;       // (2) element set — may be reordered BEFORE (1)?
-       // Actually: (2) cannot appear to other threads until after (1) with reordering
-       // BUT: (2) may be reordered with OTHER prior operations
+       data[0] = 42;       // (2) element set
+       // (2) comes after (1) even in program order, so another thread can read data[0] == 0
+       // without any reordering — a plain race, not a reordering example
    }
    ```
 
@@ -126,13 +130,14 @@ The JMM's volatile semantics act as **memory barriers**:
    }
    ```
 
-   **Fix**: Use volatile for `config`, or make `Config.value` final.
+   **Fix**: Use volatile for `config`, or make `Config.value` final and set it in the `Config` constructor.
 
 3. **Assuming x86 test results mean no JMM bug**
 
    ```java
    // "Works on my machine" (x86) but broken on ARM
-   // x86's TSO model prevents most store-load reorderings that ARM permits
+   // x86's TSO model allows only store-load reordering (a later load passing an earlier store);
+   // ARM also permits load-load, store-store and load-store reordering
    // Always write code that is correct per the JMM spec, not per x86 behavior
    ```
 
@@ -147,10 +152,11 @@ The JMM's volatile semantics act as **memory barriers**:
    }
    ```
 
-   **Fix**: Pad fields or use separate objects:
+   **Fix**: Pad the fields so each hot field has its own cache line (manually, or with `@Contended` — see Q3).
    ```java
-   // Using separate objects prevents false sharing
-   AtomicLong counter1 = new AtomicLong();
+   // Separate objects are NOT enough: two small objects allocated one after the other
+   // usually sit next to each other on the heap, often in the same cache line
+   AtomicLong counter1 = new AtomicLong(); // may still share a line with counter2
    AtomicLong counter2 = new AtomicLong();
    ```
 
@@ -166,8 +172,9 @@ The JMM's volatile semantics act as **memory barriers**:
 4. **Profile before optimizing barriers**: Removing volatile or relaxing synchronization for performance is
    only justified if profiling shows it is a bottleneck. Premature optimization of synchronization is a
    major source of bugs.
-5. **Use `LockSupport.fullFence()` for explicit barriers in library code**: `VarHandle.fullFence()` or
-   `Unsafe.fullFence()` insert full memory barriers for cases where higher-level primitives don't fit.
+5. **Use `VarHandle.fullFence()` for explicit barriers in library code**: `VarHandle.fullFence()` (Java 9+; also
+   `acquireFence()`, `releaseFence()`) inserts a full memory barrier for cases where higher-level primitives don't
+   fit. (`LockSupport` has no fence method.)
 6. **Consider cache line alignment for high-frequency counters**: In performance-critical code (e.g., Disruptor
    pattern), aligning frequently-written fields to separate cache lines prevents false sharing.
 
@@ -183,7 +190,7 @@ The JMM's volatile semantics act as **memory barriers**:
 
 3. **Processor write buffers**: Writes may sit in a CPU write buffer before reaching the cache/memory. A
    `StoreLoad` barrier (the most expensive barrier) forces the write buffer to drain. This is what volatile
-   writes on x86 translate to — a `mfence` or `lock xchg` instruction.
+   writes on x86 translate to — a `lock`-prefixed instruction (HotSpot uses `lock addl`) or `mfence`.
 
 4. **False sharing in arrays**: Adjacent array elements may share a cache line. If multiple threads write
    to adjacent elements, they will contend on the same cache line even though they're writing different
@@ -200,8 +207,8 @@ Interviewers focus on:
 
 Common tricky questions:
 - "Write a correct, lazily initialized singleton without using volatile" (Initialization-on-Demand Holder)
-- "Can a correctly synchronized program still experience performance degradation from reordering?" (Yes —
-  false sharing causes cache line bouncing even without correctness issues)
+- "Can a correctly synchronized program still suffer performance problems at the memory level?" (Yes — false
+  sharing causes cache line bouncing without any correctness issue; it is a cache effect, not a reordering one)
 - "What is the cost of a volatile write on x86?" (A store with `lock` prefix or `mfence` — significantly
   more expensive than a regular store)
 
@@ -214,7 +221,7 @@ A1: Instruction reordering is the act of executing operations in a different ord
 
 WHY IT'S PERMITTED:
 Modern computing systems have multiple levels of optimization:
-1. The Java compiler (javac) may reorder bytecode instructions.
+1. The Java compiler (javac) is allowed to reorder bytecode instructions (in practice it barely optimizes).
 2. The JIT compiler (HotSpot) applies aggressive optimizations: inlining, loop unrolling, register allocation,
    common subexpression elimination — all of which may change the execution order.
 3. The CPU hardware has out-of-order execution engines, write buffers, and store-load reordering capabilities
@@ -264,13 +271,15 @@ A2: volatile establishes two categories of reordering restrictions (memory barri
 
 WRITE BARRIER (before volatile write):
 - No write that appears BEFORE the volatile write in program order can be reordered to appear AFTER it.
-- Called a "release" fence or "StoreStore + StoreLoad" barrier.
-- Effect: All prior stores are flushed and visible before the volatile store.
+- Called a "release" fence: StoreStore + LoadStore barriers before the volatile store (a StoreLoad barrier
+  follows it, so that a later volatile read cannot pass it).
+- Effect: All prior stores are visible before the volatile store.
 
 READ BARRIER (after volatile read):
 - No read that appears AFTER the volatile read in program order can be reordered to appear BEFORE it.
 - Called an "acquire" fence or "LoadLoad + LoadStore" barrier.
-- Effect: All subsequent loads read from the latest values in main memory.
+- Effect: Subsequent loads cannot be satisfied before the volatile read, so once the read sees a volatile
+  write, they see at least the writes made before that volatile write.
 
 COMBINED EFFECT (happens-before):
 - A volatile write X happens-before a subsequent volatile read Y of the same variable.
@@ -290,7 +299,7 @@ public class VolatileReorderingDemo {
         result = 42;     // (1) non-volatile write
         ready = true;    // (2) VOLATILE WRITE — creates StoreStore barrier before here
                          // (1) is guaranteed to happen-before (2)
-                         // (2) is flushed to main memory before the volatile store completes
+                         // (1) cannot be moved after (2)
     }
 
     // Thread B
@@ -320,14 +329,15 @@ This constant invalidation and re-fetching is the "false sharing" — the thread
 data, but are forced to share at the cache line level due to physical proximity.
 
 IMPACT:
-- Can reduce multi-threaded performance by 10-100x compared to the sequential version
+- Can make the multi-threaded version several times slower — sometimes slower than running on one thread
 - Shows up as high cache miss rates in profiling tools (like Linux perf or JFR)
 - Classic example: multiple counters in an array, one per thread
 
 SOLUTIONS:
 1. Padding: Add enough padding fields around hot variables to push them to separate cache lines.
 2. @Contended: JDK-internal annotation that pads the annotated field to its own cache line.
-3. Separate objects: Each thread works with its own object, rather than adjacent fields/array elements.
+3. Separate objects: Each thread works with its own object, rather than adjacent fields/array elements — but
+   small objects allocated together often end up adjacent in memory, so this helps only with padding.
 4. LongAdder: Uses cell-based padding internally to avoid false sharing across concurrent increments.
 ```
 
@@ -340,11 +350,13 @@ public class FalseSharingDemo {
         volatile long counter2 = 0; // Thread B writes here — shares cache line!
     }
 
-    // GOOD: LongAdder handles padding internally
-    java.util.concurrent.atomic.LongAdder adder1 = new java.util.concurrent.atomic.LongAdder();
-    java.util.concurrent.atomic.LongAdder adder2 = new java.util.concurrent.atomic.LongAdder();
+    // GOOD for ONE counter updated by many threads: LongAdder spreads contended updates over
+    // padded cells (an uncontended LongAdder updates a single unpadded 'base' field)
+    java.util.concurrent.atomic.LongAdder hits = new java.util.concurrent.atomic.LongAdder();
 
-    // GOOD: padding via separate fields (manual, 64-byte cache line)
+    // GOOD (usually): padding via separate fields (manual, 64-byte cache line)
+    // The JVM chooses the field layout, so manual padding is not guaranteed to work;
+    // LongAdder and @Contended are the reliable options
     static class PaddedCounter {
         long p1, p2, p3, p4, p5, p6, p7;  // 7 * 8 = 56 bytes padding before
         volatile long counter = 0;          // 8 bytes — own cache line
@@ -352,7 +364,7 @@ public class FalseSharingDemo {
     }
 
     // GOOD in JDK: @jdk.internal.vm.annotation.Contended
-    // (requires --add-opens and -XX:-RestrictContended JVM flags)
+    // (requires --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED and -XX:-RestrictContended)
     static class ContendedCounter {
         // @jdk.internal.vm.annotation.Contended
         volatile long counter = 0; // would be padded to own cache line with annotation
@@ -363,7 +375,8 @@ public class FalseSharingDemo {
 **Q4: Describe a concrete scenario where instruction reordering caused a real bug.**
 
 ```text
-A4: The most famous real-world JMM reordering bug is the broken double-checked locking pattern (pre-Java 5):
+A4: The most famous real-world JMM reordering bug is the broken double-checked locking pattern (without volatile it is
+broken in every Java version; before Java 5 not even volatile could fix it):
 
     static Singleton instance;
     static Singleton getInstance() {
@@ -458,9 +471,10 @@ ON ENTRY (monitor acquire):
 
 ON EXIT (monitor release):
 - A StoreStore barrier prevents any writes inside the block from being reordered AFTER the lock release.
-- A StoreLoad barrier prevents any loads inside the block from being reordered AFTER the lock release.
-- Combined effect: All writes made inside the block are flushed to main memory and visible to the next
-  thread that acquires the same monitor.
+- A LoadStore barrier prevents any loads inside the block from being reordered AFTER the lock release.
+- (A StoreLoad barrier may follow the release, so that a later lock acquire cannot pass it.)
+- Combined effect: All writes made before the release are visible to the next thread that acquires the
+  same monitor.
 
 This is the "synchronization order" guarantee: there is a total order over all lock/unlock operations in
 a program, and each unlock happens-before the next lock of the same monitor in this total order.
@@ -481,7 +495,7 @@ public class SynchronizedBarrierDemo {
         synchronized (monitor) {        // ENTRY: LoadLoad + LoadStore barrier
             shared1 = local;            // (1) cannot move before entry
             shared2 = local * 2;        // (2) cannot move before entry
-        }                               // EXIT: StoreStore + StoreLoad barrier
+        }                               // EXIT: StoreStore + LoadStore barrier (then StoreLoad)
         // (1) and (2) are flushed to main memory on exit
         // They cannot be moved after exit
     }

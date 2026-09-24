@@ -24,7 +24,7 @@ class MemoryConsistencyTest {
             MemoryConsistency.SynchronizedWriter writer = new MemoryConsistency.SynchronizedWriter();
             CountDownLatch writerDone = new CountDownLatch(1);
             CountDownLatch readerDone = new CountDownLatch(1);
-            final int[] observed = {-1, null == null ? -1 : 0}; // [value, nameHash]
+            final int[] observed = {-1};
             final String[] observedName = {null};
 
             Thread writerThread = new Thread(() -> {
@@ -48,10 +48,12 @@ class MemoryConsistencyTest {
             readerThread.start();
 
             assertThat(readerDone.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(observed[0]).isEqualTo(42)
-                .as("Value written under lock must be visible after lock acquired by reader");
-            assertThat(observedName[0]).isEqualTo("Alice")
-                .as("Name written under lock must be visible after lock acquired by reader");
+            assertThat(observed[0])
+                .as("Value written under lock must be visible after lock acquired by reader")
+                .isEqualTo(42);
+            assertThat(observedName[0])
+                .as("Name written under lock must be visible after lock acquired by reader")
+                .isEqualTo("Alice");
         }
 
         @Test
@@ -73,8 +75,9 @@ class MemoryConsistencyTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.get()).isEqualTo(numThreads * opsPerThread)
-                .as("All increments must be visible — no lost updates");
+            assertThat(counter.get())
+                .as("All increments must be visible — no lost updates")
+                .isEqualTo(numThreads * opsPerThread);
         }
     }
 
@@ -125,8 +128,9 @@ class MemoryConsistencyTest {
 
             MemoryConsistency.DCLSingleton expected = instances[0];
             for (MemoryConsistency.DCLSingleton inst : instances) {
-                assertThat(inst).isSameAs(expected)
-                    .as("All threads must get the same DCL singleton instance");
+                assertThat(inst)
+                    .as("All threads must get the same DCL singleton instance")
+                    .isSameAs(expected);
             }
         }
 
@@ -134,8 +138,9 @@ class MemoryConsistencyTest {
         @DisplayName("DCL singleton should be fully initialized")
         void testDclSingletonFullyInitialized() {
             MemoryConsistency.DCLSingleton instance = MemoryConsistency.DCLSingleton.getInstance();
-            assertThat(instance.getValue()).isEqualTo(MemoryConsistency.DCLSingleton.EXPECTED_VALUE)
-                .as("DCL singleton must be fully initialized before reference is published");
+            assertThat(instance.getValue())
+                .as("DCL singleton must be fully initialized before reference is published")
+                .isEqualTo(MemoryConsistency.DCLSingleton.EXPECTED_VALUE);
         }
     }
 
@@ -160,10 +165,12 @@ class MemoryConsistencyTest {
             // After writer releases the lock, this thread acquires it
             // and must see the written values
             MemoryConsistency.SynchronizedState.Snapshot snap = state.snapshot();
-            assertThat(snap.count()).isEqualTo(100)
-                .as("Synchronized read must see latest count");
-            assertThat(snap.label()).isEqualTo("update100")
-                .as("Synchronized read must see latest label");
+            assertThat(snap.count())
+                .as("Synchronized read must see latest count")
+                .isEqualTo(100);
+            assertThat(snap.label())
+                .as("Synchronized read must see latest label")
+                .isEqualTo("update100");
         }
 
         @Test
@@ -190,8 +197,9 @@ class MemoryConsistencyTest {
             // Each thread adds its val (1..10) opsPerThread times
             // Total = opsPerThread * sum(1..10) = 100 * 55 = 5500
             long expectedTotal = (long) opsPerThread * (numThreads * (numThreads + 1) / 2);
-            assertThat(acc.getTotal()).isEqualTo(expectedTotal)
-                .as("All additions must be visible in accumulator");
+            assertThat(acc.getTotal())
+                .as("All additions must be visible in accumulator")
+                .isEqualTo(expectedTotal);
         }
     }
 
@@ -205,8 +213,9 @@ class MemoryConsistencyTest {
             MemoryConsistency.ReentrantExample re = new MemoryConsistency.ReentrantExample();
             // If synchronized were not reentrant, outer() calling inner() would deadlock
             int result = re.outer();
-            assertThat(result).isEqualTo(MemoryConsistency.ReentrantExample.EXPECTED_RESULT)
-                .as("Reentrant synchronized must not deadlock and produce correct result");
+            assertThat(result)
+                .as("Reentrant synchronized must not deadlock and produce correct result")
+                .isEqualTo(MemoryConsistency.ReentrantExample.EXPECTED_RESULT);
         }
 
         @Test
@@ -228,8 +237,9 @@ class MemoryConsistencyTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.get()).isEqualTo(numThreads * opsPerThread)
-                .as("ReentrantLock-based counter should have no lost updates");
+            assertThat(counter.get())
+                .as("ReentrantLock-based counter should have no lost updates")
+                .isEqualTo(numThreads * opsPerThread);
         }
     }
 
@@ -272,8 +282,9 @@ class MemoryConsistencyTest {
             });
             producer.start();
 
-            assertThat(done.await(15, TimeUnit.SECONDS)).isTrue()
-                .as("Consumer should receive all produced items");
+            assertThat(done.await(15, TimeUnit.SECONDS))
+                .as("Consumer should receive all produced items")
+                .isTrue();
             assertThat(consumed.get()).isEqualTo(numItems);
         }
     }

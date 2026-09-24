@@ -165,6 +165,11 @@ public class SynchronizedBlocks {
             log.add("base");
         }
 
+        /** Appends an entry; synchronized on {@code this}, so a subclass calling it re-enters the lock. */
+        protected synchronized void record(String entry) {
+            log.add(entry);
+        }
+
         public List<String> getLog() {
             return new ArrayList<>(log);
         }
@@ -174,22 +179,12 @@ public class SynchronizedBlocks {
         @Override
         public synchronized void doWork() {
             super.doWork(); // re-acquires lock on 'this' — works due to reentrancy
-            getLog(); // access the parent's log reference
-            // add derived entry through parent's log
-            super.getLog(); // just to show we can call another synchronized method
+            record("derived"); // and again, one level deeper
         }
 
-        /** A public method to add to log for testing purposes. */
+        /** Runs {@link #doWork()}; the log then holds "base" then "derived". */
         public synchronized void doWorkAndLog() {
-            super.doWork();
-            // We need to add "derived" to the log; use a separate method
-            addDerivedEntry();
-        }
-
-        private synchronized void addDerivedEntry() {
-            // Access parent's log through getter - also reentrant
-            var log = super.getLog();
-            // Since getLog returns a copy, we need a direct way
+            doWork(); // lock on 'this' is now held twice, then three times inside
         }
     }
 

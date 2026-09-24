@@ -32,19 +32,20 @@ class VolatileKeywordTest {
                 workerExited.set(true);
             });
 
-            // Let worker start spinning
+            // Let worker start spinning (nothing below depends on it having started)
             Thread.sleep(50);
             assertThat(flag.isRunning()).isTrue();
 
-            // Stop the worker — volatile write should be immediately visible
+            // Stop the worker — the JMM guarantees the worker's later reads of the volatile
+            // flag see this write, so the loop must end (it does not say how soon)
             flag.stop();
 
             await().atMost(2, TimeUnit.SECONDS)
                 .untilAsserted(() -> assertThat(workerExited.get()).isTrue());
 
             assertThat(flag.isRunning()).isFalse();
-            assertThat(flag.getWorkCount()).isGreaterThan(0)
-                .as("Worker should have done some work before being stopped");
+            // No assertion on getWorkCount() > 0: if the worker is scheduled only after stop(),
+            // it never enters the loop, and a count of 0 is a correct outcome.
         }
 
         @Test
@@ -140,8 +141,9 @@ class VolatileKeywordTest {
             demo.publish(7, "test");
 
             assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(successCount.get()).isEqualTo(numReaders)
-                .as("All readers should see the published data via happens-before");
+            assertThat(successCount.get())
+                .as("All readers should see the published data via happens-before")
+                .isEqualTo(numReaders);
         }
     }
 
@@ -150,7 +152,7 @@ class VolatileKeywordTest {
     class VolatileAtomicityTests {
 
         @Test
-        @DisplayName("Volatile counter should lose increments under concurrent access (demonstrating race condition)")
+        @DisplayName("Volatile counter may lose increments under concurrent access (race condition)")
         @Timeout(10)
         void testVolatileCounterRaceCondition() throws InterruptedException {
             var counter = new VolatileKeyword.VolatileCounter();
@@ -170,12 +172,12 @@ class VolatileKeywordTest {
             latch.await(10, TimeUnit.SECONDS);
             int expected = numThreads * incrementsPerThread;
 
-            // Volatile counter WILL almost certainly lose increments due to race conditions
-            // We assert that the count is less than expected (race condition occurred)
-            // Note: In rare cases on single-core systems, this might pass. We use enough
-            // threads and iterations to make the race condition very likely.
-            assertThat(counter.getCount()).isLessThanOrEqualTo(expected)
-                .as("Volatile counter may lose increments due to race condition");
+            // The volatile counter usually loses increments, but the JMM does not promise it:
+            // an interleaving with no lost update is legal, so asserting "less than expected"
+            // would make a flaky test. We assert only what is guaranteed.
+            assertThat(counter.getCount())
+                .as("Volatile counter may lose increments due to race condition")
+                .isLessThanOrEqualTo(expected);
 
             // We can't guarantee the exact count, but we can verify it's positive
             assertThat(counter.getCount()).isGreaterThan(0);
@@ -200,8 +202,9 @@ class VolatileKeywordTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.getCount()).isEqualTo(numThreads * incrementsPerThread)
-                .as("AtomicInteger should not lose any increments");
+            assertThat(counter.getCount())
+                .as("AtomicInteger should not lose any increments")
+                .isEqualTo(numThreads * incrementsPerThread);
         }
 
         @Test
@@ -223,8 +226,9 @@ class VolatileKeywordTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.getCount()).isEqualTo(numThreads * incrementsPerThread)
-                .as("Synchronized counter should not lose any increments");
+            assertThat(counter.getCount())
+                .as("Synchronized counter should not lose any increments")
+                .isEqualTo(numThreads * incrementsPerThread);
         }
 
         @Test
@@ -234,8 +238,9 @@ class VolatileKeywordTest {
             for (int i = 0; i < 100; i++) {
                 counter.increment();
             }
-            assertThat(counter.getCount()).isEqualTo(100)
-                .as("Single-threaded access should be correct even with volatile");
+            assertThat(counter.getCount())
+                .as("Single-threaded access should be correct even with volatile")
+                .isEqualTo(100);
         }
     }
 
@@ -304,14 +309,16 @@ class VolatileKeywordTest {
             startGate.countDown(); // release all threads simultaneously
             doneLatch.await(10, TimeUnit.SECONDS);
 
-            assertThat(callCount.get()).isEqualTo(1)
-                .as("Supplier should be called exactly once despite concurrent access");
+            assertThat(callCount.get())
+                .as("Supplier should be called exactly once despite concurrent access")
+                .isEqualTo(1);
 
             // All threads should see the same instance
             String expected = results[0];
             for (int i = 1; i < numThreads; i++) {
-                assertThat(results[i]).isSameAs(expected)
-                    .as("All threads should see the same lazily-initialized instance");
+                assertThat(results[i])
+                    .as("All threads should see the same lazily-initialized instance")
+                    .isSameAs(expected);
             }
         }
 
@@ -331,8 +338,9 @@ class VolatileKeywordTest {
 
             // Call again - will invoke supplier again since instance is still null
             lazy.getInstance();
-            assertThat(callCount.get()).isEqualTo(2)
-                .as("Supplier returning null should not cache, allowing retry");
+            assertThat(callCount.get())
+                .as("Supplier returning null should not cache, allowing retry")
+                .isEqualTo(2);
         }
     }
 
@@ -405,8 +413,8 @@ class VolatileKeywordTest {
         @Test
         @DisplayName("Non-volatile flag visibility is not guaranteed across threads")
         void testNonVolatileFlagCreation() {
-            // We can't reliably test the visibility bug because it depends on JIT compilation
-            // and CPU caching behavior. Instead, we verify the API works and document the risk.
+            // We can't reliably test the visibility bug: the JMM permits the worker never to see
+            // the write, but does not require it (it depends on whether the JIT hoists the read). Instead, we verify the API works and document the risk.
             var flag = new VolatileKeyword.NonVolatileFlag();
             assertThat(flag.getWorkCount()).isEqualTo(0);
             assertThat(flag.isRunning()).isTrue();

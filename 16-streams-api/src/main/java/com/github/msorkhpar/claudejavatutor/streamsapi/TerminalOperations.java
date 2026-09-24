@@ -19,7 +19,10 @@ public class TerminalOperations {
     // forEach / forEachOrdered
     // -----------------------------------------------------------------------
 
-    /** Collects elements into a list using forEach. */
+    /**
+     * Collects elements into a list using forEach — the anti-pattern the lesson warns about,
+     * shown for contrast. It works only because this stream is sequential; prefer collect().
+     */
     public List<String> collectViaForEach(List<String> list) {
         List<String> result = new ArrayList<>();
         list.stream()
@@ -53,13 +56,16 @@ public class TerminalOperations {
                 .collect(Collectors.toMap(Function.identity(), String::length));
     }
 
-    /** Collects to a Map with duplicate key merge (keep longest). */
+    /**
+     * Collects to a Map keyed by length, merging duplicate keys by keeping the first word seen.
+     * (Words that collide share a key, so they always have the same length.)
+     */
     public Map<Integer, String> toLengthToWordMap(List<String> words) {
         return words.stream()
                 .collect(Collectors.toMap(
                         String::length,
                         Function.identity(),
-                        (existing, newVal) -> existing.length() >= newVal.length() ? existing : newVal
+                        (existing, newVal) -> existing
                 ));
     }
 

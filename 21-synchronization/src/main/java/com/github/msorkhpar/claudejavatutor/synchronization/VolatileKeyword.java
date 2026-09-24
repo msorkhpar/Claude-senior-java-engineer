@@ -31,7 +31,7 @@ public class VolatileKeyword {
         private volatile boolean running = true;
         private int workCount = 0;
 
-        /** Signal the worker to stop. Volatile write is immediately visible. */
+        /** Signal the worker to stop. Every later read of the volatile flag sees this write. */
         public void stop() {
             running = false;
         }
@@ -68,7 +68,7 @@ public class VolatileKeyword {
      *
      * <p>Note: This bug is non-deterministic. It may or may not manifest
      * depending on JIT compilation, CPU architecture, and runtime conditions.
-     * It's most likely to appear with server JIT (-server) and long-running loops.
+     * It is most likely once the C2 JIT compiles the loop and hoists the read out of it.
      */
     public static class NonVolatileFlag {
         private boolean running = true; // NOT volatile — visibility not guaranteed
@@ -83,8 +83,8 @@ public class VolatileKeyword {
         }
 
         /**
-         * May run indefinitely because the JVM is allowed to cache {@code running}
-         * and never re-read it from main memory.
+         * May run indefinitely because the JVM is allowed to read {@code running}
+         * once (e.g. hoist the read out of the loop) and never read it again.
          */
         public void doWork() {
             while (running) {
@@ -234,7 +234,8 @@ public class VolatileKeyword {
          * <ol>
          *   <li>First check without lock — fast path if already initialized</li>
          *   <li>Acquire lock and check again — ensures only one thread initializes</li>
-         *   <li>Volatile write ensures full construction is visible to all threads</li>
+         *   <li>The volatile write happens-before every later read of {@code instance}, so a thread
+         *       that sees the reference also sees the fully constructed object</li>
          * </ol>
          */
         public T getInstance() {
@@ -264,7 +265,8 @@ public class VolatileKeyword {
     /**
      * Demonstrates that volatile guarantees atomic reads/writes for 64-bit types.
      * Without volatile, reads and writes to {@code long} and {@code double}
-     * may be non-atomic on 32-bit JVMs (word tearing: two separate 32-bit operations).
+     * may be non-atomic (JLS 17.7: two separate 32-bit writes; seen in practice on 32-bit JVMs),
+     * so a reader can see the high half of one write and the low half of another.
      */
     public static class Volatile64Bit {
         private volatile long volatileTimestamp = 0L;

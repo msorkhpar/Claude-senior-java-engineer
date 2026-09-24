@@ -9,7 +9,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,8 +84,9 @@ class DeadlockPreventionTest {
             });
 
             boolean completed = latch.await(10, TimeUnit.SECONDS);
-            assertThat(completed).isTrue()
-                .as("Both threads should complete without deadlock due to lock ordering");
+            assertThat(completed)
+                .as("Both threads should complete without deadlock due to lock ordering")
+                .isTrue();
 
             // Total money in the system should be conserved
             assertThat(account1.getBalance() + account2.getBalance()).isEqualTo(200_000);
@@ -118,14 +118,15 @@ class DeadlockPreventionTest {
                 });
             }
 
-            latch.await(10, TimeUnit.SECONDS);
+            assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue(); // all transfers done before we sum
 
             int totalBalance = 0;
             for (var account : accounts) {
                 totalBalance += account.getBalance();
             }
-            assertThat(totalBalance).isEqualTo(accounts.length * initialBalance)
-                .as("Total money must be conserved across all transfers");
+            assertThat(totalBalance)
+                .as("Total money must be conserved across all transfers")
+                .isEqualTo(accounts.length * initialBalance);
         }
     }
 
@@ -204,8 +205,9 @@ class DeadlockPreventionTest {
             });
 
             boolean completed = latch.await(15, TimeUnit.SECONDS);
-            assertThat(completed).isTrue()
-                .as("Both threads should complete without deadlock");
+            assertThat(completed)
+                .as("Both threads should complete without deadlock")
+                .isTrue();
 
             // Money is conserved
             assertThat(account1.getBalance() + account2.getBalance()).isEqualTo(200_000);
@@ -222,29 +224,27 @@ class DeadlockPreventionTest {
         void testDeadlockDetection() throws InterruptedException {
             var demo = new DeadlockPrevention.DeadlockDemo();
 
-            Thread t1 = Thread.ofPlatform().name("deadlock-thread-1").start(demo::methodA);
-            Thread t2 = Thread.ofPlatform().name("deadlock-thread-2").start(demo::methodB);
+            // Daemon threads: a real deadlock never ends, and must not keep the JVM alive
+            Thread t1 = Thread.ofPlatform().name("deadlock-thread-1").daemon(true).start(demo::methodA);
+            Thread t2 = Thread.ofPlatform().name("deadlock-thread-2").daemon(true).start(demo::methodB);
 
             // Wait for both threads to start and acquire their first locks
             await().atMost(2, TimeUnit.SECONDS)
                 .until(() -> demo.isThread1Started() && demo.isThread2Started());
 
-            // Give threads time to reach deadlock state
-            Thread.sleep(200);
-
-            // Use ThreadMXBean to detect deadlock
+            // Poll until both threads are blocked on each other's monitor (a fixed sleep would race)
             ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
+            await().atMost(3, TimeUnit.SECONDS)
+                .until(() -> threadMXBean.findDeadlockedThreads() != null);
             long[] deadlockedThreads = threadMXBean.findDeadlockedThreads();
 
-            assertThat(deadlockedThreads).isNotNull()
-                .as("ThreadMXBean should detect the deadlocked threads");
+            assertThat(deadlockedThreads)
+                .as("ThreadMXBean should detect the deadlocked threads")
+                .isNotNull();
             assertThat(deadlockedThreads.length).isGreaterThanOrEqualTo(2);
 
-            // Clean up: interrupt the deadlocked threads
-            t1.interrupt();
-            t2.interrupt();
-            // The threads won't respond to interrupt while in synchronized blocks,
-            // but we try to be good citizens. They'll be cleaned up by the JVM.
+            // No clean-up is possible: a thread BLOCKED on a monitor does not respond to interrupt(),
+            // so these two threads stay deadlocked until the test JVM exits (they are daemons).
         }
     }
 
@@ -253,50 +253,39 @@ class DeadlockPreventionTest {
     class LivelockTests {
 
         @Test
-        @DisplayName("Should demonstrate livelock where workers keep yielding without progress")
-        @Timeout(5)
-        void testLivelockBehavior() throws InterruptedException {
-            int maxRetries = 100;
-            var demo = new DeadlockPrevention.LivelockDemo(maxRetries);
+        @DisplayName("Polite walkers livelock: the round limit is hit and neither gets through")
+        @Timeout(10)
+        void testPoliteWalkersLivelock() throws InterruptedException {
+            int maxRounds = 1_000;
 
-            AtomicBoolean worker1Result = new AtomicBoolean(true);
-            AtomicBoolean worker2Result = new AtomicBoolean(true);
-            CountDownLatch latch = new CountDownLatch(2);
+            var outcome = DeadlockPrevention.LivelockDemo.runPolite(maxRounds);
 
-            Thread.ofPlatform().start(() -> {
-                worker1Result.set(demo.worker1Work());
-                latch.countDown();
-            });
-
-            Thread.ofPlatform().start(() -> {
-                worker2Result.set(demo.worker2Work());
-                latch.countDown();
-            });
-
-            latch.await(5, TimeUnit.SECONDS);
-
-            // Both workers should fail to complete (livelock)
-            assertThat(worker1Result.get()).isFalse()
-                .as("Worker1 should fail to complete due to livelock");
-            assertThat(worker2Result.get()).isFalse()
-                .as("Worker2 should fail to complete due to livelock");
-
-            // Both workers should have attempted retries
-            assertThat(demo.getRetryCountWorker1()).isGreaterThan(0);
-            assertThat(demo.getRetryCountWorker2()).isGreaterThan(0);
+            // Deterministic: in lock step, each walker always sees the other stepping forward.
+            assertThat(outcome.anyProgress())
+                .as("no walker may get through in a livelock")
+                .isFalse();
+            assertThat(outcome.walker1Rounds())
+                .as("both walkers stayed busy until the round limit")
+                .isEqualTo(maxRounds);
+            assertThat(outcome.walker2Rounds()).isEqualTo(maxRounds);
         }
 
         @Test
-        @DisplayName("Should exhaust max retries in livelock scenario")
-        void testLivelockExhaustsRetries() {
-            int maxRetries = 10;
-            var demo = new DeadlockPrevention.LivelockDemo(maxRetries);
+        @DisplayName("Randomized backoff breaks the livelock: both walkers get through")
+        @Timeout(10)
+        void testRandomBackoffCompletes() throws InterruptedException {
+            int maxRounds = 1_000;
 
-            // Single-threaded livelock: worker1 keeps giving up
-            boolean result = demo.worker1Work();
+            var outcome = DeadlockPrevention.LivelockDemo.runWithRandomBackoff(maxRounds);
 
-            assertThat(result).isFalse();
-            assertThat(demo.getRetryCountWorker1()).isEqualTo(maxRetries);
+            // Every round after a conflict breaks the symmetry with probability 1/2, so failing
+            // to finish within 1,000 rounds has a probability far below 2^-400.
+            assertThat(outcome.walker1Done()).as("walker 1 got through").isTrue();
+            assertThat(outcome.walker2Done()).as("walker 2 got through").isTrue();
+            assertThat(Math.max(outcome.walker1Rounds(), outcome.walker2Rounds()))
+                .as("the first round is always a conflict, so nobody finishes in round 1")
+                .isGreaterThan(1)
+                .isLessThan(maxRounds);
         }
     }
 }

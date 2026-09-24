@@ -44,8 +44,9 @@ class SharedMemoryTest {
             flag.stop();       // volatile write — immediately visible to reader
 
             reader.join(3000);
-            assertThat(reader.isAlive()).isFalse()
-                .as("Reader thread should have exited after volatile flag set");
+            assertThat(reader.isAlive())
+                .as("Reader thread should have exited after volatile flag set")
+                .isFalse();
             assertThat(readerSawStop.get()).isTrue();
         }
 
@@ -54,8 +55,9 @@ class SharedMemoryTest {
         void testVolatilePiggybacking() throws InterruptedException {
             SharedMemory.VolatilePiggybacking demo = new SharedMemory.VolatilePiggybacking();
             boolean result = demo.run();
-            assertThat(result).isTrue()
-                .as("Writes before volatile write must be visible after volatile read");
+            assertThat(result)
+                .as("Writes before volatile write must be visible after volatile read")
+                .isTrue();
         }
 
         @Test
@@ -108,8 +110,9 @@ class SharedMemoryTest {
 
             // Each thread should have read back its own value, not another thread's
             for (int i = 0; i < numThreads; i++) {
-                assertThat(results[i]).isEqualTo(i)
-                    .as("Thread %d should see its own ThreadLocal value", i);
+                assertThat(results[i])
+                    .as("Thread %d should see its own ThreadLocal value", i)
+                    .isEqualTo(i);
             }
         }
 
@@ -129,8 +132,9 @@ class SharedMemoryTest {
             demo.setId(99);
             assertThat(demo.getId()).isEqualTo(99);
             demo.cleanup();
-            assertThat(demo.getId()).isEqualTo(-1)
-                .as("After cleanup, initial value should be returned");
+            assertThat(demo.getId())
+                .as("After cleanup, initial value should be returned")
+                .isEqualTo(-1);
         }
     }
 
@@ -157,8 +161,9 @@ class SharedMemoryTest {
             }
 
             latch.await(15, TimeUnit.SECONDS);
-            assertThat(demo.getCount()).isEqualTo(expected)
-                .as("Synchronized volatile long increments should be exact");
+            assertThat(demo.getCount())
+                .as("Synchronized volatile long increments should be exact")
+                .isEqualTo(expected);
         }
 
         @Test
@@ -180,8 +185,9 @@ class SharedMemoryTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.get()).isEqualTo((long) numThreads * opsPerThread)
-                .as("AtomicLong must produce correct result");
+            assertThat(counter.get())
+                .as("AtomicLong must produce correct result")
+                .isEqualTo((long) numThreads * opsPerThread);
         }
     }
 
@@ -210,8 +216,9 @@ class SharedMemoryTest {
             publisher.publish(new SharedMemory.SafePublisher.Config("localhost", 8080));
 
             assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(observed[0]).isEqualTo(8080)
-                .as("Port from safely published config should be 8080");
+            assertThat(observed[0])
+                .as("Port from safely published config should be 8080")
+                .isEqualTo(8080);
         }
 
         @Test
@@ -240,8 +247,9 @@ class SharedMemoryTest {
 
             assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
             for (int port : ports) {
-                assertThat(port).isEqualTo(9090)
-                    .as("All readers should see same safely published port");
+                assertThat(port)
+                    .as("All readers should see same safely published port")
+                    .isEqualTo(9090);
             }
         }
     }
@@ -272,16 +280,18 @@ class SharedMemoryTest {
             // Each element should have been incremented by 1+2+3+4+5 = 15 for each thread
             int expectedSum = (1 + 2 + 3 + 4 + 5); // 5 threads, adding tid+1
             for (int i = 0; i < 10; i++) {
-                assertThat(sharedArray.getElement(i)).isEqualTo(expectedSum)
-                    .as("Element[%d] should equal sum of all thread increments", i);
+                assertThat(sharedArray.getElement(i))
+                    .as("Element[%d] should equal sum of all thread increments", i)
+                    .isEqualTo(expectedSum);
             }
         }
 
         @Test
-        @DisplayName("Volatile array reference does not make elements volatile")
+        @DisplayName("SharedArray add and get round-trip in a single thread")
         void testVolatileArrayReference() {
-            // A volatile array reference only makes the REFERENCE volatile,
-            // not the individual elements. This is a known pitfall.
+            // A volatile array reference only makes the REFERENCE volatile, not the elements —
+            // a test cannot show that; SharedArray avoids the pitfall by locking every access.
+            // This test only checks the single-threaded round trip.
             SharedMemory.SharedArray arr = new SharedMemory.SharedArray(3);
             arr.addToElement(0, 5);
             assertThat(arr.getElement(0)).isEqualTo(5);

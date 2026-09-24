@@ -165,7 +165,8 @@ class ConcurrentModificationProblem {
 
     public void addAndClean(String item) {
         list.add(item);
-        list.removeIf(s -> s.length() > 10); // ConcurrentModificationException if another thread adds!
+        list.removeIf(s -> s.length() > 10); // Another thread adding at the same time may cause a
+                                             // ConcurrentModificationException or corrupt the list
     }
 }
 
@@ -214,16 +215,18 @@ class ABAProblemDemo {
 
     public boolean safeCompareAndSet(String expected, String update) {
         int[] stamp = new int[1];
-        String current = stampedRef.get(stamp);
-        return stampedRef.compareAndSet(current, update, stamp[0], stamp[0] + 1);
+        stampedRef.get(stamp); // read the current stamp
+        // Succeeds only if the reference is still 'expected' AND the stamp is unchanged
+        return stampedRef.compareAndSet(expected, update, stamp[0], stamp[0] + 1);
     }
 }
 ```
 
-### 2. Spurious failures in compareAndSet
+### 2. Failed compareAndSet and retry loops
 
-CAS can fail spuriously (return false even when the expected value matches) on some architectures. Always use CAS in a
-retry loop:
+`compareAndSet` fails whenever another thread changed the value between your read and your CAS, so a CAS-based update
+must run in a retry loop. (`compareAndSet` itself never fails spuriously; the `weakCompareAndSet*` variants may, which
+is one more reason to loop.)
 
 ```java
 class CASRetryLoop {
@@ -239,7 +242,7 @@ class CASRetryLoop {
 }
 ```
 
-### 3. Overflow-safe atomic accumulation
+### 3. Atomic maximum with LongAccumulator
 
 ```java
 class OverflowSafeAccumulator {
@@ -285,8 +288,8 @@ a bank transfer (debit + credit) must be atomic — no thread should ever see th
 corresponding credit.
 
 Visibility means that when one thread writes a value, that write becomes visible to other threads.
-Without proper visibility guarantees, a thread may read a stale value from its CPU cache even
-though another thread has written a new value to main memory.
+Without proper visibility guarantees, a thread may keep reading a stale value (for example one the
+JIT keeps in a register) even though another thread has written a new value.
 
 Relationship:
 - synchronized provides BOTH atomicity (mutual exclusion) AND visibility (memory flush/reload).
@@ -352,7 +355,8 @@ Advantages over locks:
 
 Disadvantages:
 - ABA problem (resolved by AtomicStampedReference)
-- Live-lock: threads can spin indefinitely under very high contention
+- Starvation: under very high contention an individual thread can keep losing the CAS race and
+  retrying (the system as a whole still makes progress — some thread always succeeds)
 - Complex to implement correctly for non-trivial data structures
 ```
 
@@ -427,7 +431,7 @@ class LongAdderVsAtomicLong {
 
     // LongAdder: use for high-contention increment-only scenarios
     public void incrementAdder() {
-        adderCounter.increment(); // Very low contention — each thread uses its own cell
+        adderCounter.increment(); // Low contention — contending threads are spread over several cells
     }
 
     public long getTotalAdder() {
@@ -534,8 +538,8 @@ A5: When multiple variables must satisfy a shared invariant, you have several op
 4. StampedLock (Java 8+): A more advanced lock supporting optimistic reads — check if a write
    occurred after a read and retry if so. Very efficient for read-heavy workloads.
 
-5. Software transactional memory (STM): Not natively in Java, but frameworks like Akka provide
-   transactional memory semantics.
+5. Software transactional memory (STM): Not in the JDK; third-party libraries (e.g. ScalaSTM,
+   Multiverse) provide transactional memory semantics.
 
 The choice depends on contention, read/write ratio, and whether you can afford object creation
 for the immutable snapshot approach.
@@ -556,26 +560,22 @@ class MultiVariableAtomicity {
         return new int[]{balance, transactionCount};
     }
 
-    // Approach 2: Immutable snapshot + volatile reference
+    // (Each approach is meant to be used on its own: approaches 1 and 3 guard the same fields with
+    // DIFFERENT locks here, which would be broken if both were used — see 5.2.2 pitfall 1.)
+
+    // Approach 2: Immutable snapshot in an AtomicReference (read and CAS the SAME reference)
     private record AccountState(int balance, int transactionCount) {}
-    private volatile AccountState state = new AccountState(0, 0);
+    private final java.util.concurrent.atomic.AtomicReference<AccountState> stateRef =
+        new java.util.concurrent.atomic.AtomicReference<>(new AccountState(0, 0));
 
     public void depositLockFree(int amount) {
         AccountState current;
         AccountState next;
         do {
-            current = state;
+            current = stateRef.get();
             next = new AccountState(current.balance() + amount, current.transactionCount() + 1);
-        } while (!compareAndSetState(current, next));
+        } while (!stateRef.compareAndSet(current, next));
     }
-
-    private boolean compareAndSetState(AccountState expected, AccountState next) {
-        // Using AtomicReference for the snapshot
-        return stateRef.compareAndSet(expected, next);
-    }
-
-    private final java.util.concurrent.atomic.AtomicReference<AccountState> stateRef =
-        new java.util.concurrent.atomic.AtomicReference<>(new AccountState(0, 0));
 
     // Approach 3: ReadWriteLock for read-heavy
     private final java.util.concurrent.locks.ReadWriteLock rwLock =

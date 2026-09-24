@@ -20,29 +20,21 @@ A Java thread transitions through exactly **six states** during its lifetime:
 ### The State Transition Diagram
 
 ```
-                   start()
-        NEW ──────────────────→ RUNNABLE ←─────────────────────┐
-                                  │   ↑                         │
-                                  │   │ lock acquired /         │
-                                  │   │ notified /              │
-                                  │   │ timeout expired         │
-                                  │   │                         │
-                  ┌───────────────┼───┤                         │
-                  │               │   │                         │
-                  ▼               │   │                         │
-              BLOCKED             │   │                    TIMED_WAITING
-          (waiting for            │   │               (sleep, join(ms),
-           monitor lock)          │   │                wait(ms), parkNanos)
-                                  │   │
-                                  ▼   │
-                              WAITING
-                          (wait(), join(),
-                           LockSupport.park())
-                                  │
-                                  │ (run() completes
-                                  │  or uncaught exception)
-                                  ▼
-                             TERMINATED
+                 start()
+      NEW ───────────────────→ RUNNABLE ──────────────────────→ TERMINATED
+                              │  ↑  ↑  │      (run() completes
+          tries to enter a    │  │  │  │       or uncaught exception)
+          synchronized block  │  │  │  │ wait(), join(), park(),
+          held by another     │  │  │  │ sleep(ms), wait(ms), join(ms),
+          thread              │  │  │  │ parkNanos()
+                              ▼  │  │  ▼
+                       BLOCKED ──┘  └── WAITING / TIMED_WAITING
+                    (waiting for       (notified, unparked, joined
+                     monitor lock)      thread ended, timeout expired)
+                          ↑                     │
+                          └─────────────────────┘
+                 after Object.wait() returns, the thread must
+                 re-acquire the monitor: if it is held, BLOCKED
 ```
 
 ### What Triggers Each State Transition
@@ -56,6 +48,7 @@ A Java thread transitions through exactly **six states** during its lifetime:
 | `WAITING` | `RUNNABLE` | `Object.notify()` / `notifyAll()`, joined thread terminates, `LockSupport.unpark()` |
 | `RUNNABLE` | `TIMED_WAITING` | `Thread.sleep(ms)`, `Object.wait(ms)`, `Thread.join(ms)`, `LockSupport.parkNanos()` |
 | `TIMED_WAITING` | `RUNNABLE` | Timeout expires, or `notify()` / `notifyAll()` / `unpark()` / joined thread terminates |
+| `WAITING` / `TIMED_WAITING` | `BLOCKED` | After `Object.wait()` is notified (or times out), the thread must re-enter the monitor; if another thread holds it, the thread is `BLOCKED` (per the `Thread.State.BLOCKED` javadoc) |
 | `RUNNABLE` | `TERMINATED` | `run()` completes normally or throws an uncaught exception |
 
 ### Observing Thread State Programmatically
@@ -94,7 +87,7 @@ System.out.println(thread.getState()); // TERMINATED
 
 - **`Thread.State` for virtual threads on pinned monitors**: When a virtual thread is blocked on a `synchronized` block (pinning the carrier thread), its state appears as `BLOCKED` just like a platform thread. However, in Java 21, this pinning prevents the carrier thread from being reused, which can reduce scalability. Best practice: prefer `ReentrantLock` over `synchronized` in virtual-thread-heavy code.
 
-- **Thread dump improvements**: Java 21's `jcmd <pid> Thread.dump_to_file -format=json` produces structured JSON thread dumps that include virtual thread states, making lifecycle debugging easier in high-concurrency applications.
+- **Thread dump improvements**: Java 21's `jcmd <pid> Thread.dump_to_file -format=json <file>` produces structured JSON thread dumps that include virtual threads (which `jstack` and `Thread.print` omit), making lifecycle debugging easier in high-concurrency applications.
 
 - **Evolution across Java versions**:
   - Java 1.0: Threads with `suspend()`, `resume()`, `stop()` — all later deprecated due to safety issues.
@@ -268,7 +261,9 @@ A1: The six thread states defined in Thread.State are:
 ```
 
 ```java
-// Demonstrating all six states
+// Demonstrating four of the six states (BLOCKED and WAITING are shown in Q2 and Q4)
+import java.util.concurrent.CountDownLatch;
+
 public class AllStatesDemo {
     public static void main(String[] args) throws InterruptedException {
         // NEW
@@ -405,9 +400,9 @@ Thread yielder = new Thread(() -> {
 cpuBound.start();
 yielder.start();
 
-// Both are RUNNABLE
-System.out.println(cpuBound.getState()); // RUNNABLE
-System.out.println(yielder.getState());  // RUNNABLE
+// Both are usually RUNNABLE here (not guaranteed: either may not be scheduled yet or may already be done)
+System.out.println(cpuBound.getState()); // RUNNABLE (typically)
+System.out.println(yielder.getState());  // RUNNABLE (typically)
 
 // To see actual CPU usage, use ThreadMXBean
 ThreadMXBean bean = ManagementFactory.getThreadMXBean();
@@ -508,7 +503,7 @@ A5: Thread dumps are the primary tool for diagnosing deadlocks and other concurr
 HOW TO TAKE A THREAD DUMP:
 - jstack <pid>
 - jcmd <pid> Thread.print
-- jcmd <pid> Thread.dump_to_file -format=json (Java 21)
+- jcmd <pid> Thread.dump_to_file -format=json <file> (Java 21; the only one of these that includes virtual threads)
 - kill -3 <pid> (SIGQUIT on Unix/macOS)
 - ThreadMXBean.dumpAllThreads() programmatically
 ```
@@ -545,7 +540,10 @@ for (ThreadInfo info : allThreads) {
 **Q6: Can a thread transition directly from `BLOCKED` to `WAITING` or from `WAITING` to `BLOCKED`?**
 
 ```text
-A6: No direct transitions exist between BLOCKED and WAITING. Every transition must pass through RUNNABLE.
+A6: BLOCKED -> WAITING: no. A thread must be running (RUNNABLE) to call wait()/join()/park().
+WAITING -> BLOCKED: yes. The Thread.State.BLOCKED javadoc names it: a thread is BLOCKED while waiting
+"to reenter a synchronized block/method after calling Object.wait". The same holds for TIMED_WAITING
+after wait(ms).
 
 The full set of valid transitions:
 - NEW -> RUNNABLE (start())
@@ -555,12 +553,12 @@ The full set of valid transitions:
 - WAITING -> RUNNABLE (notified, joined thread terminates, unparked)
 - RUNNABLE -> TIMED_WAITING (sleep(ms), wait(ms), join(ms), parkNanos())
 - TIMED_WAITING -> RUNNABLE (timeout, notified, unparked)
+- WAITING / TIMED_WAITING -> BLOCKED (after Object.wait() returns, the monitor is held by another thread)
 - RUNNABLE -> TERMINATED (run() completes or uncaught exception)
 
-However, there is a subtle case that appears like a direct WAITING -> BLOCKED transition:
-When a thread is in WAITING (via Object.wait()) and is notified, it must re-acquire the monitor before proceeding. If another thread holds the monitor at that point, the notified thread transitions to BLOCKED (waiting for the monitor). But logically, it first transitions to RUNNABLE (eligible to run) and then immediately to BLOCKED. In practice, this happens so quickly that thread dumps may show the thread as BLOCKED right after being notified.
+The WAITING -> BLOCKED case: a thread in Object.wait() that is notified must re-acquire the monitor before wait() can return. If the notifier (or anyone else) still holds the monitor, getState() reports BLOCKED, without an observable RUNNABLE in between. The code below shows it.
 
-This subtlety is an advanced interview topic that tests deep understanding of the Java Memory Model and monitor mechanics.
+This subtlety is an advanced interview topic that tests understanding of monitor mechanics.
 ```
 
 ```java
@@ -620,8 +618,8 @@ VIRTUAL THREADS:
 
 State observation:
 - thread.getState() returns the same Thread.State values for virtual threads.
-- Thread dumps via jcmd show virtual thread states in the same format.
-- ThreadMXBean may not list virtual threads by default; use jcmd for comprehensive dumps.
+- jstack and jcmd Thread.print list platform threads only; virtual threads appear in `jcmd <pid> Thread.dump_to_file [-format=json] <file>`.
+- ThreadMXBean covers platform threads only; it does not report virtual threads.
 
 Best practices:
 - Use virtual threads for I/O-bound workloads where threads spend most time in WAITING/TIMED_WAITING.

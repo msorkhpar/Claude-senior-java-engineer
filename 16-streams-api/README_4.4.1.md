@@ -28,7 +28,8 @@ One of the most important characteristics of streams is **lazy evaluation**. Int
 until a terminal operation is invoked. This enables two key optimizations:
 
 - **Short-circuiting**: Operations like `findFirst()` or `limit()` can terminate early without processing all elements.
-- **Pipeline fusion**: The JVM can merge multiple operations into a single pass over the data.
+- **Pipeline fusion**: The stream implementation pushes each element through all the stages in a single pass over
+  the data, instead of building an intermediate collection after every operation.
 
 ```java
 // Nothing executes until the terminal operation collect() is called
@@ -64,11 +65,13 @@ List<String> result = stream.collect(Collectors.toList()); // NOW everything run
 ## Relevant Java 21 Features
 
 - **Sequenced collections** (Java 21, JEP 431): `SequencedCollection`, `SequencedSet`, and `SequencedMap` provide
-  ordered access, and their streams preserve encounter order more predictably.
+  uniform ordered access (`getFirst()`, `getLast()`, `reversed()`); `coll.reversed().stream()` streams a sequenced
+  collection in reverse encounter order.
 - **Pattern matching in switch** (Java 21): Can be combined with stream operations for powerful data processing.
-- **Virtual threads** (Java 21, JEP 444): Parallel streams can leverage virtual threads for I/O-bound work.
-- **Gatherers** (Java 22 preview, JEP 461): A new mechanism for custom intermediate stream operations, extending what
-  the built-in operations can do.
+- **Virtual threads** (Java 21, JEP 444): Not used by parallel streams, which run on the platform threads of the
+  common `ForkJoinPool`; for I/O-bound work, use virtual threads (e.g. an executor) instead of a parallel stream.
+- **Gatherers** (preview in Java 22, JEP 461, and Java 23, JEP 473; final in Java 24, JEP 485 — not available in
+  Java 21): A new mechanism for custom intermediate stream operations, extending what the built-in operations can do.
 - Stream API has been continuously enhanced since Java 8:
   - Java 9: `takeWhile`, `dropWhile`, `Stream.iterate` with predicate, `Stream.ofNullable`
   - Java 10: `Collectors.toUnmodifiableList/Set/Map`
@@ -112,8 +115,8 @@ List<String> result = stream.collect(Collectors.toList()); // NOW everything run
    ```
    **Fix**: Collect to a new list; never modify the source inside a stream operation.
 
-4. **Using stateful lambdas with parallel streams**: Stateful intermediate operations in parallel streams can produce
-   wrong results.
+4. **Using stateful lambdas with parallel streams**: Lambdas that read or write shared mutable state produce wrong
+   results in parallel streams.
    ```java
    // BROKEN with parallel streams
    List<Integer> seen = new ArrayList<>(); // shared mutable state
@@ -217,8 +220,8 @@ deferred until needed.
 Why it matters:
 1. Short-circuiting: Operations like findFirst(), anyMatch(), and limit() can terminate early without
    processing all elements, potentially improving performance significantly for large datasets.
-2. Pipeline fusion: The JVM can merge multiple intermediate operations into a single pass over the data,
-   reducing overhead compared to chaining eager operations.
+2. Pipeline fusion: The stream implementation pushes each element through all intermediate operations in a
+   single pass over the data, reducing overhead compared to chaining eager operations.
 3. Infinite streams: Lazy evaluation makes it possible to work with infinite sequences (Stream.generate(),
    Stream.iterate()) as long as a short-circuiting terminal operation is used.
 
@@ -307,12 +310,13 @@ Stream.toList() (Java 16+):
 - Returns an unmodifiable List (attempting add/remove throws UnsupportedOperationException)
 - More concise syntax
 - Preserves encounter order
+- Accepts null elements (unlike Collectors.toUnmodifiableList(), which throws NullPointerException on a null)
 
 Collectors.toList():
-- Returns a mutable List (usually ArrayList)
-- Guaranteed to accept null elements
-- Elements can be added or removed after collection
-- The exact type is not specified by the API contract (implementation may vary)
+- In practice returns a mutable ArrayList, so elements can be added or removed after collection
+- But the API contract guarantees neither the type nor the mutability (implementation may vary); if you
+  need a mutable list, use Collectors.toCollection(ArrayList::new)
+- Accepts null elements
 
 In most interview scenarios, prefer Stream.toList() for read-only results and Collectors.toList() when
 you need to modify the resulting list.
@@ -325,7 +329,7 @@ List<String> immutable = Stream.of("a", "b", "c").toList();
 
 // Mutable list
 List<String> mutable = Stream.of("a", "b", "c").collect(Collectors.toList());
-mutable.add("d"); // OK — mutable.size() is now 4
+mutable.add("d"); // OK in the JDK (an ArrayList) — mutable.size() is now 4; the contract does not promise mutability
 
 // Explicitly unmodifiable with Collectors (Java 10+)
 List<String> unmodifiableViaCollectors = Stream.of("a", "b", "c")

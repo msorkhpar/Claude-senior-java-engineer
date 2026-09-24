@@ -130,18 +130,15 @@ public class JmmOverview {
          * observed the correct value of {@code data}.
          */
         public boolean demonstrateHappensBefore() throws InterruptedException {
-            CountDownLatch writerDone = new CountDownLatch(1);
             final boolean[] success = {false};
 
             Thread writer = new Thread(() -> {
                 data = WRITTEN_VALUE;  // (1) non-volatile write
-                ready = true;           // (2) volatile write — flushes (1)
-                writerDone.countDown();
+                ready = true;           // (2) volatile write — publishes (1)
             });
 
             Thread reader = new Thread(() -> {
-                writerDone.countDown(); // signal we started, but wait for writer
-                while (!ready) {        // (3) volatile read — acquires (2)'s barrier
+                while (!ready) {        // (3) volatile read — once it sees (2), (2) hb (3)
                     Thread.onSpinWait();
                 }
                 // (1) happens-before (2) (program order)
@@ -156,7 +153,9 @@ public class JmmOverview {
             writer.join(3000);
             reader.join(3000);
 
-            return success[0];
+            // isAlive() returning false means the reader terminated, which happens-before this
+            // point, so success[0] is safely visible; a timed-out join gives no such guarantee.
+            return !reader.isAlive() && success[0];
         }
     }
 
@@ -166,8 +165,9 @@ public class JmmOverview {
 
     /**
      * An immutable point whose coordinates are safely published via final fields.
-     * Final field writes in the constructor happen-before any external read,
-     * so no synchronization is needed to safely read x and y.
+     * The final-field guarantee (JLS 17.5, separate from happens-before) ensures that any
+     * thread that obtains a reference after the constructor finishes sees x and y as the
+     * constructor set them, so no synchronization is needed to read them.
      */
     public static final class ImmutablePoint {
         private final int x;
@@ -204,9 +204,9 @@ public class JmmOverview {
      * singleton initialization without volatile or explicit synchronization.
      *
      * <p>The JVM guarantees that class initialization (static initializers) is thread-safe.
-     * The Holder class is loaded only on the first call to {@link #getInstance()}, providing
-     * lazy initialization. Once loaded, {@code INSTANCE} is safely published via the class
-     * loading happens-before guarantee.
+     * The Holder class is initialized only on the first call to {@link #getInstance()}, providing
+     * lazy initialization. Once initialized, {@code INSTANCE} is safely published via the class
+     * initialization happens-before guarantee.
      */
     public static class LazySingleton {
         private final int value;
@@ -216,7 +216,7 @@ public class JmmOverview {
         }
 
         private static class Holder {
-            // Class initialization lock ensures thread safety — loaded lazily
+            // Class initialization lock ensures thread safety — initialized lazily
             static final LazySingleton INSTANCE = new LazySingleton();
         }
 

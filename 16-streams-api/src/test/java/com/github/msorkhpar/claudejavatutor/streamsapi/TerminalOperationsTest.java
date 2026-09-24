@@ -64,24 +64,27 @@ class TerminalOperationsTest {
         }
 
         @Test
-        @DisplayName("toWordLengthMap with duplicate keys should throw")
+        @DisplayName("toWordLengthMap with duplicate keys should throw; toLengthToWordMap merges them")
         void testToWordLengthMapDuplicates() {
-            // "hello" and "world" both have length 5 — would conflict in toLengthToWordMap
+            // A repeated word is a duplicate key for toMap without a merge function
+            assertThatThrownBy(() -> ops.toWordLengthMap(List.of("java", "java")))
+                    .isInstanceOf(IllegalStateException.class);
+            // "hello" and "world" both have length 5 — merged, not thrown, by toLengthToWordMap
             assertThatNoException().isThrownBy(() ->
                     ops.toLengthToWordMap(List.of("hello", "world", "java"))
             );
         }
 
         @Test
-        @DisplayName("toLengthToWordMap should keep longest word per length")
+        @DisplayName("toLengthToWordMap should keep the first word per length")
         void testToLengthToWordMap() {
             Map<Integer, String> result = ops.toLengthToWordMap(
                     List.of("cat", "dog", "elephant", "frog", "ant")
             );
-            // Length 3: cat, dog, ant — keep longest (all same; keep cat by insertion)
+            // Length 3: cat, dog, ant — keep the first, cat
             // Length 4: frog
             // Length 8: elephant
-            assertThat(result).containsKey(3);
+            assertThat(result).containsEntry(3, "cat");
             assertThat(result).containsEntry(4, "frog");
             assertThat(result).containsEntry(8, "elephant");
         }

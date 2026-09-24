@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>Volatile stop flag prevents JIT hoisting of loop condition</li>
  *   <li>Volatile write barrier ensures preceding writes are visible after volatile read</li>
  *   <li>Final fields prevent reordering of constructor writes</li>
- *   <li>Synchronized blocks prevent any reordering across block boundaries</li>
+ *   <li>Synchronized blocks prevent operations inside them from moving out</li>
  *   <li>IODH singleton — no reordering risk due to class loading guarantee</li>
  * </ul>
  *
@@ -34,7 +34,7 @@ public class InstructionReordering {
      *     if (!stopped) { while (true) { Thread.onSpinWait(); } }
      * </pre>
      * because from a single-threaded perspective, {@code stopped} never changes
-     * inside the loop. With volatile, every loop iteration reads from main memory.
+     * inside the loop. With volatile, every loop iteration re-reads the field.
      */
     public static class VolatileStopFlag {
         private volatile boolean stopped = false; // volatile — prevents hoisting
@@ -118,7 +118,9 @@ public class InstructionReordering {
      *
      * <p>Without volatile on the reference, the JIT may reorder the constructor writes
      * to come AFTER the reference store, so another thread could see the reference
-     * pointing to a partially constructed object.
+     * pointing to a partially constructed object — for non-final fields. PublishedObject's
+     * fields are final, so the final-field guarantee alone would already make it
+     * initialization-safe; here volatile is what guarantees the reader sees the new reference.
      */
     public static class VolatilePublication {
         private volatile PublishedObject obj; // volatile prevents reordering
@@ -174,8 +176,8 @@ public class InstructionReordering {
 
     /**
      * Demonstrates the IODH idiom: class initialization is guaranteed thread-safe by
-     * the JVM's class loading lock. No volatile needed. The Holder class is only
-     * loaded (and INSTANCE initialized) on the first call to {@link #getInstance()}.
+     * the JVM's class initialization lock. No volatile needed. The Holder class is only
+     * initialized (and INSTANCE created) on the first call to {@link #getInstance()}.
      *
      * <p>This avoids the reordering risk of DCL by relying on the well-specified
      * class initialization happens-before guarantee.
@@ -193,7 +195,7 @@ public class InstructionReordering {
         }
 
         public static IodhSingleton getInstance() {
-            return Holder.INSTANCE; // lazily loaded on first access
+            return Holder.INSTANCE; // Holder initialized lazily on first access
         }
 
         public boolean isInitialized() { return initialized; }
@@ -204,10 +206,10 @@ public class InstructionReordering {
     // -----------------------------------------------------------------------
 
     /**
-     * Demonstrates that final fields provide a safe publication guarantee:
-     * writes to final fields in a constructor happen-before any external
-     * read of those fields, provided the reference is not leaked before
-     * the constructor completes.
+     * Demonstrates that final fields provide a safe publication guarantee (JLS 17.5,
+     * separate from happens-before): a thread that obtains a reference after the
+     * constructor completes sees the constructor's values of the final fields,
+     * provided the reference is not leaked before the constructor completes.
      */
     public static final class FinalFieldObject {
         private final int x;       // final — construction barrier guaranteed
@@ -240,13 +242,13 @@ public class InstructionReordering {
     }
 
     // -----------------------------------------------------------------------
-    // Synchronized block — prevents all reorderings across block boundaries
+    // Synchronized block — operations inside cannot move out of it
     // -----------------------------------------------------------------------
 
     /**
      * Demonstrates that operations inside a synchronized block cannot be reordered
-     * to appear outside the block. This provides the strongest ordering guarantee
-     * short of sequential consistency.
+     * to appear outside the block (code outside it may still be moved in), and that
+     * threads using the same lock see the block's writes as a unit.
      */
     public static class SynchronizedOrdering {
         private int value = 0;
@@ -259,9 +261,9 @@ public class InstructionReordering {
          */
         public void atomicUpdate(int v, String l) {
             synchronized (lock) {
-                value = v;  // cannot reorder before monitor entry
-                label = l;  // cannot reorder after monitor exit
-            }               // StoreStore + StoreLoad barrier on exit
+                value = v;  // neither write can move before monitor entry
+                label = l;  // or after monitor exit
+            }               // StoreStore + LoadStore barrier before the release
         }
 
         /**
@@ -276,8 +278,8 @@ public class InstructionReordering {
         }
 
         /**
-         * Runs a consistency test: writer sets data, then volatile signals;
-         * reader waits for signal, then checks consistency under the lock.
+         * Runs a consistency test: the writer updates both fields under the lock;
+         * the reader joins the writer, then reads both fields under the same lock.
          */
         public boolean runConsistencyTest() throws InterruptedException {
             // Reset
@@ -294,15 +296,13 @@ public class InstructionReordering {
             });
 
             Thread reader = new Thread(() -> {
-                writer_done: {
-                    try {
-                        writer.join(3000); // thread join establishes happens-before
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                    Pair pair = atomicRead();
-                    success[0] = (pair.value() == 999 && "written".equals(pair.label()));
+                try {
+                    writer.join(3000); // wait for the writer; its unlock hb our lock below
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
+                Pair pair = atomicRead();
+                success[0] = (pair.value() == 999 && "written".equals(pair.label()));
                 done.countDown();
             });
 

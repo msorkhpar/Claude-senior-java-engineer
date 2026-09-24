@@ -33,7 +33,8 @@ The following strategies are listed in order of preference -- from the safest an
 ## Key Points to Remember
 
 1. **Immutability is the gold standard**: If data cannot be changed after construction, it cannot be corrupted by
-   concurrent access. Java records, `final` fields, and `Collections.unmodifiableXxx()` are your primary tools.
+   concurrent access. Java records, `final` fields, and unmodifiable copies (`List.of`, `List.copyOf`, …) are your
+   primary tools. (`Collections.unmodifiableXxx()` is only a read-only view: the backing collection can still change.)
 2. **Thread confinement eliminates sharing**: `ThreadLocal`, stack-local variables, and task-scoped data ensure no two
    threads ever access the same mutable state.
 3. **High-level abstractions handle synchronization for you**: `ConcurrentHashMap.computeIfAbsent()`,
@@ -437,7 +438,7 @@ Task task = queue.take(); // No shared mutable state between producer and consum
 
 // Strategy 2: Shared immutable state via record + volatile
 record AppConfig(String host, int port) {}
-volatile AppConfig config = new AppConfig("localhost", 8080);
+volatile AppConfig config = new AppConfig("localhost", 8080); // a field of some class (volatile is not allowed on locals)
 
 // Strategy 3: Thread-confined state via ThreadLocal
 ThreadLocal<SimpleDateFormat> formatter =
@@ -473,8 +474,8 @@ For atomic state replacement, combine a record with a volatile reference:
   visible to all threads.
 - Readers always see a consistent, fully constructed snapshot.
 
-This pattern is lock-free, simple, and correct by construction. It's used extensively in
-java.util.concurrent internals (e.g., ConcurrentHashMap uses immutable Node objects).
+This pattern is lock-free, simple, and correct by construction. java.util.concurrent uses the
+same idea (e.g., CopyOnWriteArrayList publishes a new array through a volatile field on every write).
 ```
 
 ```java
@@ -521,7 +522,8 @@ A3: The producer-consumer pattern is ideal when:
 BlockingQueue implementations handle all synchronization internally:
 - put() blocks if the queue is full (backpressure).
 - take() blocks if the queue is empty (wait for work).
-- offer(timeout) and poll(timeout) provide non-blocking alternatives with timeouts.
+- offer(timeout) and poll(timeout) wait at most the given time; offer() and poll() without a timeout
+  never block.
 
 Choosing the right BlockingQueue:
 - ArrayBlockingQueue: Bounded, array-backed. Best for fixed-capacity buffers. Fair ordering
@@ -672,16 +674,15 @@ However, when a virtual thread enters a synchronized block (or a synchronized me
 This reduces the scalability advantage of virtual threads. Under high contention, pinning can
 effectively turn virtual threads into platform threads in terms of resource consumption.
 
-Why does this happen? The JVM uses monitor-based locking for synchronized blocks, which is
-tightly integrated with the OS thread. Unmounting a virtual thread while holding a monitor
-would require complex bookkeeping that is not yet implemented.
+Why does this happen? In Java 21 the JVM's monitor implementation records the owner of a monitor
+as the carrier (OS) thread, so a virtual thread holding a monitor cannot be unmounted. Java 24
+(JEP 491) reworked this so that synchronized no longer pins.
 
 The solution: use ReentrantLock instead of synchronized in code paths that run on virtual
 threads. ReentrantLock uses AbstractQueuedSynchronizer (AQS), which supports parking and
 unparking virtual threads without pinning.
 
-Note: This is a known limitation that the JVM team is working to address in future versions.
-In the meantime, the practical advice is:
+Note: This limitation was removed in Java 24 (JEP 491). On Java 21 the practical advice is:
 1. For new code on virtual threads: use ReentrantLock.
 2. For existing code: monitor for pinning using -Djdk.tracePinnedThreads=short or full.
 3. Short, non-blocking synchronized blocks are usually fine -- pinning is only problematic
@@ -745,7 +746,7 @@ Technique: Compute outside, mutate inside.
 4. Release the lock.
 5. Perform any post-processing after releasing the lock.
 
-This pattern can improve throughput by orders of magnitude under high contention.
+This pattern can improve throughput substantially under high contention.
 ```
 
 ```java

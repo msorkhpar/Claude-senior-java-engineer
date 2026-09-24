@@ -84,8 +84,9 @@ class SynchronizedBlocksTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.getCount()).isEqualTo(0)
-                .as("Equal increments and decrements should result in zero");
+            assertThat(counter.getCount())
+                .as("Equal increments and decrements should result in zero")
+                .isEqualTo(0);
         }
 
         @Test
@@ -216,7 +217,7 @@ class SynchronizedBlocksTest {
             var derived = new SynchronizedBlocks.ReentrantInheritanceDerived();
             derived.doWorkAndLog(); // calls super.doWork() while holding same lock
 
-            assertThat(derived.getLog()).contains("base");
+            assertThat(derived.getLog()).containsExactly("base", "derived");
         }
 
         @Test
@@ -269,8 +270,9 @@ class SynchronizedBlocksTest {
             });
             reader.join(2000);
 
-            assertThat(secondThreadCompleted.get()).isTrue()
-                .as("Second thread should complete, proving lock was released after exception");
+            assertThat(secondThreadCompleted.get())
+                .as("Second thread should complete, proving lock was released after exception")
+                .isTrue();
             assertThat(demo.wasExceptionThrown()).isTrue();
             assertThat(demo.getValue()).isEqualTo(42);
         }
@@ -283,8 +285,9 @@ class SynchronizedBlocksTest {
             assertThatThrownBy(() -> demo.riskyUpdate(99, true))
                 .isInstanceOf(RuntimeException.class);
 
-            assertThat(demo.getValue()).isEqualTo(99)
-                .as("Value should be set before exception is thrown");
+            assertThat(demo.getValue())
+                .as("Value should be set before exception is thrown")
+                .isEqualTo(99);
         }
 
         @Test
@@ -333,8 +336,9 @@ class SynchronizedBlocksTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(account.getBalance()).isEqualTo(0)
-                .as("Equal deposits and withdrawals should result in zero balance");
+            assertThat(account.getBalance())
+                .as("Equal deposits and withdrawals should result in zero balance")
+                .isEqualTo(0);
         }
 
         @Test
@@ -389,8 +393,9 @@ class SynchronizedBlocksTest {
 
             // Give producer time to block
             Thread.sleep(100);
-            assertThat(producerCompleted.get()).isFalse()
-                .as("Producer should be blocked when buffer is full");
+            assertThat(producerCompleted.get())
+                .as("Producer should be blocked when buffer is full")
+                .isFalse();
 
             // Consumer takes an item — unblocks producer
             buffer.take();
@@ -418,8 +423,9 @@ class SynchronizedBlocksTest {
             });
 
             Thread.sleep(100);
-            assertThat(consumerCompleted.get()).isFalse()
-                .as("Consumer should be blocked when buffer is empty");
+            assertThat(consumerCompleted.get())
+                .as("Consumer should be blocked when buffer is empty")
+                .isFalse();
 
             buffer.put("hello");
 
@@ -466,8 +472,9 @@ class SynchronizedBlocksTest {
 
             assertThat(consumerDone.await(10, TimeUnit.SECONDS)).isTrue();
             int expectedSum = itemCount * (itemCount + 1) / 2;
-            assertThat(sum[0]).isEqualTo(expectedSum)
-                .as("Consumer should receive all items from producer");
+            assertThat(sum[0])
+                .as("Consumer should receive all items from producer")
+                .isEqualTo(expectedSum);
         }
 
         @Test

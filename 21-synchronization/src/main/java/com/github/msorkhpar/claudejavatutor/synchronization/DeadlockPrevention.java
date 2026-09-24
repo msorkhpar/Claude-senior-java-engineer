@@ -1,6 +1,9 @@
 package com.github.msorkhpar.claudejavatutor.synchronization;
 
+import java.util.concurrent.Phaser;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -9,7 +12,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *   <li>Classic deadlock with inconsistent lock ordering</li>
  *   <li>Deadlock prevention via consistent lock ordering</li>
  *   <li>Deadlock prevention via tryLock with timeout</li>
- *   <li>Livelock scenario</li>
+ *   <li>Livelock scenario, and its fix with randomized backoff</li>
  * </ul>
  *
  * @see README_6.2.1.md
@@ -222,63 +225,91 @@ public class DeadlockPrevention {
     // -----------------------------------------------------------------------
 
     /**
-     * Demonstrates a livelock scenario where two "polite" workers keep yielding
-     * to each other without making progress.
+     * Two "polite" walkers meet in a narrow hallway. Each round, a walker steps forward; if it sees
+     * the other one also stepping forward, it politely steps back and tries again next round.
      *
-     * <p>Unlike deadlock (threads are blocked), in livelock the threads are active
-     * but keep responding to each other in a way that prevents progress.
+     * <p>{@link #runPolite(int)} is a real livelock: both threads keep running and keep reacting to
+     * each other, and neither ever gets through. A {@link Phaser} makes the two walkers move in lock
+     * step. That is the timing under which livelock happens; with free-running threads it happens
+     * only when their timing lines up, so a demonstration without lock step would be a flaky one.
+     * The round limit is what makes it terminate: the result reports that the limit was hit with no
+     * work done.
+     *
+     * <p>{@link #runWithRandomBackoff(int)} is the fix: after a conflict, each walker waits a random
+     * number of rounds before stepping forward again. As soon as only one of them steps forward, it
+     * gets through, and then the other does. Each round after a conflict breaks the symmetry with
+     * probability 1/2, so both finish within a few rounds.
      */
-    public static class LivelockDemo {
-        private volatile String currentOwner;
-        private volatile int retryCountWorker1 = 0;
-        private volatile int retryCountWorker2 = 0;
-        private final int maxRetries;
-
-        public LivelockDemo(int maxRetries) {
-            this.maxRetries = maxRetries;
-            this.currentOwner = "worker1";
-        }
+    public static final class LivelockDemo {
 
         /**
-         * Worker1 tries to use the resource but yields if worker2 needs it.
-         * Returns true if the worker eventually completed its work.
+         * What happened: whether each walker got through, and how many rounds each one used.
          */
-        public boolean worker1Work() {
-            while (retryCountWorker1 < maxRetries) {
-                if (!"worker1".equals(currentOwner)) {
-                    retryCountWorker1++;
-                    Thread.onSpinWait();
-                    continue;
-                }
-                // "Politely" give up the resource to the other worker
-                currentOwner = "worker2";
-                retryCountWorker1++;
+        public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {
+            /** True if at least one walker got through. */
+            public boolean anyProgress() {
+                return walker1Done || walker2Done;
             }
-            return false; // Never completed real work — livelock
         }
 
-        /**
-         * Worker2 tries to use the resource but yields if worker1 needs it.
-         */
-        public boolean worker2Work() {
-            while (retryCountWorker2 < maxRetries) {
-                if (!"worker2".equals(currentOwner)) {
-                    retryCountWorker2++;
-                    Thread.onSpinWait();
-                    continue;
+        private final AtomicBoolean[] stepsForward = {new AtomicBoolean(), new AtomicBoolean()};
+        private final Phaser lockStep = new Phaser(2);
+        private final boolean randomBackoff;
+        private final int maxRounds;
+
+        private LivelockDemo(boolean randomBackoff, int maxRounds) {
+            this.randomBackoff = randomBackoff;
+            this.maxRounds = maxRounds;
+        }
+
+        /** Runs the livelock: two polite walkers, at most {@code maxRounds} rounds each. */
+        public static Outcome runPolite(int maxRounds) throws InterruptedException {
+            return new LivelockDemo(false, maxRounds).run();
+        }
+
+        /** Runs the fixed version: the same walkers, with randomized backoff after a conflict. */
+        public static Outcome runWithRandomBackoff(int maxRounds) throws InterruptedException {
+            return new LivelockDemo(true, maxRounds).run();
+        }
+
+        private Outcome run() throws InterruptedException {
+            boolean[] done = new boolean[2];
+            int[] rounds = new int[2];
+            Thread w1 = Thread.ofPlatform().name("walker-1").start(() -> walk(0, done, rounds));
+            Thread w2 = Thread.ofPlatform().name("walker-2").start(() -> walk(1, done, rounds));
+            w1.join(); // join makes each walker's writes to done/rounds visible here
+            w2.join();
+            return new Outcome(done[0], done[1], rounds[0], rounds[1]);
+        }
+
+        private void walk(int me, boolean[] done, int[] rounds) {
+            int other = 1 - me;
+            boolean afterConflict = false;
+            for (int round = 1; round <= maxRounds; round++) {
+                rounds[me] = round;
+                // Phase 1: decide whether to step forward this round.
+                boolean stepForward = !afterConflict || !randomBackoff
+                        || ThreadLocalRandom.current().nextBoolean();
+                stepsForward[me].set(stepForward);
+                lockStep.arriveAndAwaitAdvance();
+
+                // Phase 2: look at the other walker (both decisions are now visible).
+                boolean goThrough = stepForward && !stepsForward[other].get();
+                if (stepForward && !goThrough) {
+                    afterConflict = true; // both stepped forward: politely step back
                 }
-                currentOwner = "worker1";
-                retryCountWorker2++;
+                lockStep.arriveAndAwaitAdvance(); // the other walker has looked, too
+
+                if (goThrough) {
+                    done[me] = true; // the "work": getting through the hallway
+                    stepsForward[me].set(false); // out of the way
+                    lockStep.arriveAndDeregister(); // stop taking part in the lock step
+                    return;
+                }
             }
-            return false; // Never completed real work — livelock
-        }
-
-        public int getRetryCountWorker1() {
-            return retryCountWorker1;
-        }
-
-        public int getRetryCountWorker2() {
-            return retryCountWorker2;
+            // Round limit hit without getting through. Leave the lock step, so a walker that is
+            // still registered can never wait for this one.
+            lockStep.arriveAndDeregister();
         }
     }
 }

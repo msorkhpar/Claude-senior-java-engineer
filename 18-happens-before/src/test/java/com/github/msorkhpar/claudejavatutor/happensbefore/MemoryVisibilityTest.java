@@ -65,30 +65,53 @@ class MemoryVisibilityTest {
         @DisplayName("cancel signal from another thread stops processing")
         void cancelFromAnotherThreadStopsProcessing() throws Exception {
             var cc = new MemoryVisibility.CooperativeCancellation();
-            List<Integer> largeList = new ArrayList<>();
-            for (int i = 0; i < 100_000; i++) largeList.add(i);
+            int size = 100_000;
+            int cancelAt = 1_000;
+            CountDownLatch reachedCancelPoint = new CountDownLatch(1);
+            CountDownLatch cancelSent = new CountDownLatch(1);
+            // A list that pauses the worker when it fetches element 'cancelAt' until the
+            // main thread has called cancel(). Without the pause, the worker can finish
+            // all items before a sleep-then-cancel arrives (timing-dependent, flaky).
+            List<Integer> largeList = new AbstractList<>() {
+                @Override
+                public Integer get(int index) {
+                    if (index == cancelAt) {
+                        reachedCancelPoint.countDown();
+                        try {
+                            cancelSent.await();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                    return index;
+                }
 
-            CountDownLatch started = new CountDownLatch(1);
+                @Override
+                public int size() {
+                    return size;
+                }
+            };
+
             CountDownLatch workerDone = new CountDownLatch(1);
             AtomicInteger processedCount = new AtomicInteger(0);
 
             Thread worker = new Thread(() -> {
-                started.countDown();
                 int count = cc.processUntilCancelled(largeList);
                 processedCount.set(count);
                 workerDone.countDown();
             });
 
             worker.start();
-            started.await(2, TimeUnit.SECONDS);
-            Thread.sleep(5); // let worker run briefly
-            cc.cancel(); // volatile write — visible to worker
+            assertThat(reachedCancelPoint.await(2, TimeUnit.SECONDS)).isTrue();
+            cc.cancel(); // volatile write — the worker's next isCancelled() read sees it
+            cancelSent.countDown();
 
             boolean finished = workerDone.await(3, TimeUnit.SECONDS);
             worker.join(3000);
 
             assertThat(finished).isTrue();
-            assertThat(processedCount.get()).isLessThan(100_000);
+            // Items 0..cancelAt-1 were processed; the check before item 'cancelAt' saw the cancel
+            assertThat(processedCount.get()).isEqualTo(cancelAt);
         }
     }
 

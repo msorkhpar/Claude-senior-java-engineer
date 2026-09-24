@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-Java does not provide a safe way to forcibly stop a thread. The `Thread.stop()` method (deprecated since Java 1.2) was removed in Java 21 because it could leave shared data in inconsistent states by releasing all monitors held by the thread. Instead, Java uses a **cooperative cancellation model**.
+Java does not provide a safe way to forcibly stop a thread. The `Thread.stop()` method (deprecated since Java 1.2 because it could leave shared data in inconsistent states by releasing all monitors held by the thread) is deprecated for removal, and since Java 20 it no longer stops anything: it throws `UnsupportedOperationException`. It still exists (and compiles, with a warning) in Java 21. Instead, Java uses a **cooperative cancellation model**.
 
 The cornerstone of this model is the **interrupt mechanism**:
 - `thread.interrupt()` sets the thread's **interrupt flag** to `true`.
@@ -13,7 +13,7 @@ The cornerstone of this model is the **interrupt mechanism**:
 ### The Two Paths of Interruption
 
 **Path 1: Thread is blocked on a blocking operation**
-If a thread is sleeping (`Thread.sleep()`), waiting (`Object.wait()`), or blocked on I/O (`InputStream.read()`), calling `interrupt()` on it immediately throws `InterruptedException`, waking the thread.
+If a thread is sleeping (`Thread.sleep()`), waiting (`Object.wait()`, `join()`), calling `interrupt()` on it wakes it with an `InterruptedException`. A thread blocked on an interruptible NIO channel gets a `ClosedByInterruptException` instead. Classic `java.io` blocking reads such as `InputStream.read()` on a platform thread are NOT woken by `interrupt()` (see Q6).
 
 **Path 2: Thread is running (not blocked)**
 The interrupt flag is set to `true`. The thread must explicitly check `Thread.interrupted()` or `Thread.currentThread().isInterrupted()` to detect the interrupt.
@@ -32,18 +32,18 @@ The interrupt flag is set to `true`. The thread must explicitly check `Thread.in
 2. **`InterruptedException` clears the interrupt flag**: When a blocking method throws `InterruptedException`, the thread's interrupt flag is cleared. You must re-set it or handle it immediately.
 3. **Never swallow `InterruptedException`**: Always either re-throw it, or restore the flag via `Thread.currentThread().interrupt()`.
 4. **`Thread.interrupted()` vs `isInterrupted()`**: `interrupted()` is static and clears the flag; `isInterrupted()` is instance-based and does not clear it.
-5. **`Thread.stop()` is removed in Java 21**: It was deprecated since Java 1.2 and finally removed.
+5. **`Thread.stop()` no longer works**: Deprecated since Java 1.2 and for removal; since Java 20 it throws `UnsupportedOperationException`.
 6. **Check the flag in loops**: Long-running loops should periodically check `Thread.currentThread().isInterrupted()`.
 
 ## Relevant Java 21 Features
 
-- **`Thread.stop()` removed**: Java 21 permanently removes this dangerous method (JEP 421 - Deprecate Finalization for removal).
+- **`Thread.stop()` disabled**: Since Java 20 the method throws `UnsupportedOperationException` (it remains deprecated for removal in Java 21). (JEP 421 is about deprecating finalization, not `Thread.stop()`.)
 - **Virtual threads and interruption**: Virtual threads fully support the interrupt mechanism. Interrupting a virtual thread that is pinned to a carrier thread still works correctly.
-- **`Thread.sleep(Duration)`**: Java 21 adds `Thread.sleep(Duration duration)` — more readable than milliseconds:
+- **`Thread.sleep(Duration)`**: Available since Java 19 (so in Java 21) — more readable than milliseconds:
   ```java
   Thread.sleep(Duration.ofSeconds(2));
   ```
-- **Structured Concurrency (`StructuredTaskScope`)**: Provides a higher-level cancellation model where cancellation of a scope propagates to all forked threads:
+- **Structured Concurrency (`StructuredTaskScope`, preview in Java 21)**: Provides a higher-level cancellation model where cancellation of a scope propagates to all forked threads:
   ```java
   try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
       scope.fork(() -> longRunningTask());
@@ -102,10 +102,10 @@ The interrupt flag is set to `true`. The thread must explicitly check `Thread.in
    }
    ```
 
-4. **Calling `stop()` (now removed in Java 21)**:
+4. **Calling `stop()` (disabled since Java 20)**:
    ```java
-   // ILLEGAL in Java 21
-   thread.stop(); // NoSuchMethodError or removed
+   // Compiles with a removal warning in Java 21, but does nothing useful
+   thread.stop(); // throws UnsupportedOperationException
    ```
 
 5. **Busy-waiting without sleep causes CPU spinning**:
@@ -165,7 +165,7 @@ The interrupt flag is set to `true`. The thread must explicitly check `Thread.in
 
 ## Edge Cases and Their Handling
 
-1. **Interrupting a thread that hasn't started**: Sets the interrupt flag. If the thread eventually starts and calls a blocking method, `InterruptedException` is thrown immediately.
+1. **Interrupting a thread that hasn't started**: The `Thread.interrupt()` javadoc only says that interrupting a thread that is not alive "need not have any effect". In JDK 21 the flag is kept: the thread starts with `isInterrupted()` true, and its first blocking call throws `InterruptedException`. Do not rely on this.
 
 2. **Interrupting a terminated thread**: Silently ignored. No exception is thrown.
 
@@ -191,7 +191,7 @@ Frequently asked tricky questions:
 
 ## Interview Q&A Section
 
-**Q1: Why was `Thread.stop()` deprecated and eventually removed in Java 21?**
+**Q1: Why was `Thread.stop()` deprecated, and what does it do in Java 21?**
 
 ```text
 A1: Thread.stop() was dangerous because of how it worked: it forcibly terminated the thread by throwing a ThreadDeath Error, which caused the thread to unwind its stack and release all held monitors (synchronized locks).
@@ -207,12 +207,12 @@ If stopped between steps 1 and 2, the money is simply gone — deducted from one
 
 The replacement: cooperative cancellation via interrupt(). The interrupted thread has the opportunity to complete its current unit of work, release resources properly, and then stop gracefully.
 
-Thread.stop() was deprecated in Java 1.2 (1998) and finally removed in Java 21 (2023).
+Thread.stop() was deprecated in Java 1.2 (1998), deprecated for removal later, and since Java 20 (2023) it only throws UnsupportedOperationException. In Java 21 the method still exists.
 ```
 
 ```java
-// Java 21: this no longer compiles/runs
-// thread.stop(); // NoSuchMethodError
+// Java 21: this still compiles (with a removal warning) but stops nothing
+// thread.stop(); // throws UnsupportedOperationException
 
 // Correct approach: cooperative cancellation
 class BankTransfer implements Runnable {
@@ -369,7 +369,7 @@ class RobustTask implements Runnable {
 
 ```text
 A5: When you call Future.cancel(true) on a running task submitted to an ExecutorService:
-1. If the task hasn't started yet, it is removed from the queue and will never run.
+1. If the task hasn't started yet, it is marked cancelled and will never run (it may stay in the executor's queue until the pool skips it).
 2. If the task is currently running, the thread executing it is interrupted (interrupt() is called on it).
 3. The boolean parameter 'true' means "interrupt if running". 'false' means "cancel if not started, but don't interrupt if running".
 
@@ -412,6 +412,7 @@ For java.io (legacy I/O):
 - Most blocking operations (InputStream.read(), ServerSocket.accept()) do NOT respond to thread interruption.
 - The thread stays blocked. The interrupt flag is set, but the operation doesn't wake up.
 - Solution: close the underlying stream/socket from another thread, which causes an IOException.
+- Exception: on a virtual thread (Java 21), blocking Socket/ServerSocket operations ARE interruptible — the socket is closed and the operation throws a SocketException.
 
 For java.nio (non-blocking I/O):
 - NIO channels implement InterruptibleChannel.

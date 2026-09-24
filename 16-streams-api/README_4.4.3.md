@@ -3,8 +3,8 @@
 ## Concept Explanation
 
 Intermediate operations transform a stream into another stream. They are **lazy** — they do not execute until a
-terminal operation is invoked. This enables the JVM to optimize the pipeline (e.g., fusion of operations, short-circuit
-evaluation).
+terminal operation is invoked. This lets the stream implementation optimize the pipeline (e.g., fusion of operations into
+a single pass, short-circuit evaluation).
 
 **Real-world analogy**: Intermediate operations are like workstations on an assembly line. Each workstation takes the
 current item, applies its transformation or check, and passes the result to the next workstation. No final product is
@@ -45,7 +45,7 @@ flatMap: [["a","b"], ["c"]] --flatMap--> ["a", "b", "c"]
 2. **`map(Function<T, R>)`** transforms every element; the number of elements stays the same (1:1 mapping).
 3. **`flatMap(Function<T, Stream<R>>)`** transforms each element into a stream, then flattens all those streams into one (1:many).
 4. **`distinct()`** uses `equals()` and `hashCode()`; for custom objects, ensure these are properly overridden.
-5. **`sorted()`** is a stateful operation — it must see all elements before producing output, so it breaks short-circuit optimizations downstream.
+5. **`sorted()`** is a stateful operation — it must see all elements before producing output, so a short-circuiting operation after it (such as `findFirst()` or `limit()`) cannot stop the upstream elements from all being processed.
 6. **`peek(Consumer<T>)`** is intended for debugging (e.g., printing elements mid-pipeline). Avoid relying on side effects.
 7. **`limit(n)`** is a short-circuit intermediate operation — the pipeline upstream does not need to produce more elements than `n`.
 8. **`takeWhile()` / `dropWhile()`** (Java 9) work best on ordered streams; behavior on unordered streams is nondeterministic.
@@ -92,14 +92,16 @@ flatMap: [["a","b"], ["c"]] --flatMap--> ["a", "b", "c"]
 3. **`distinct()` on objects without proper `equals()`/`hashCode()`**:
    ```java
    // BROKEN — all elements kept because Object.equals() uses reference equality
-   class Point { int x, y; } // no equals/hashCode
+   class Point { int x, y; Point(int x, int y) { this.x = x; this.y = y; } } // no equals/hashCode
    List.of(new Point(1,2), new Point(1,2)).stream().distinct().count(); // 2, not 1
    ```
    **Fix**: Override `equals()` and `hashCode()`, or use records.
 
 4. **Expecting `sorted()` to not affect performance in large parallel streams**:
    Sorted is stateful and requires collecting all elements before sorting — this is expensive in parallel.
-   **Fix**: Sort after collecting, or sort in sequential mode before parallelizing.
+   **Fix**: Drop `sorted()` when order is not needed; otherwise filter first so that fewer elements are sorted, or sort
+   the collected result. Note that `parallel()`/`sequential()` set the mode of the whole pipeline (the last call wins),
+   so one stage cannot be sequential while the others are parallel.
 
 5. **Misusing `peek()` for important side effects**:
    ```java
@@ -143,7 +145,8 @@ Interviewers commonly focus on:
 - `takeWhile`/`dropWhile` behavior on unordered streams
 
 Tricky questions:
-- "If you call `limit(5)` and `sorted()`, does `sorted()` process all elements or just 5?" (All elements before `limit`, or just 5 depending on order)
+- "If you call `limit(5)` and `sorted()`, does `sorted()` process all elements or just 5?" (It depends on the order:
+  `sorted().limit(5)` sorts all elements, `limit(5).sorted()` sorts only the first 5)
 - "What is the difference between `filter(x -> !list.contains(x))` and `distinct()`?"
 - "Can `flatMap` produce an empty stream for some elements?" (Yes — return `Stream.empty()`)
 
@@ -211,8 +214,8 @@ triggers the pipeline. This enables important optimizations:
 1. Short-circuiting: If the terminal operation is findFirst() or anyMatch(), the pipeline stops as soon as
    the first element passes the filter, without examining remaining elements.
 
-2. Lazy composition: When filter() and map() are combined, the JVM fuses them into a single pass —
-   the element is filtered, then mapped (or discarded), without creating an intermediate stream.
+2. Lazy composition: When filter() and map() are combined, the stream implementation runs them in a single
+   pass — each element is filtered, then mapped (or discarded), without building an intermediate collection.
 
 3. Order matters: Placing filter() before expensive operations (like map() with expensive transformations)
    reduces the total work because elements are eliminated early.
@@ -323,8 +326,8 @@ List<Integer> smallFibs = sorted.stream()
 
 ```text
 A5: mapMulti() (introduced in Java 16) is an alternative to flatMap() for one-to-many element expansion.
-Instead of returning a Stream<R>, the function accepts a BiConsumer<T, Consumer<R>> — the second argument
-is a "downstream" consumer that you call once for each output element you want to emit.
+Instead of a function that returns a Stream<R>, mapMulti() takes a BiConsumer<T, Consumer<R>> — its second
+argument is a "downstream" consumer that you call once for each output element you want to emit.
 
 When to prefer mapMulti() over flatMap():
 1. When expanding a small or fixed number of elements: avoids creating a Stream object for each input.
