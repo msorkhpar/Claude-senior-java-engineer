@@ -1,4 +1,4 @@
-package com.github.msorkhpar.claudejavatutor.trycatch;
+package com.github.msorkhpar.claudejavatutor.sealedclasses;
 
 public class SealedClassExample {
 

@@ -1,4 +1,4 @@
-package com.github.msorkhpar.claudejavatutor.trycatch;
+package com.github.msorkhpar.claudejavatutor.sealedclasses;
 
 // Sealed class example
 public abstract sealed class Shape permits Circle, Square, Triangle {

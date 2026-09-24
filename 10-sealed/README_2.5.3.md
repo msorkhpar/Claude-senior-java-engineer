@@ -160,5 +160,5 @@ public String describeShape(Shape shape) {
 
 ## Code Examples
 
-- Test: [PersonTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/PersonTest.java)
-- Source: [Person.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/Person.java)
+- Test: [VehicleTypeTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/sealedclasses/VehicleTypeTest.java)
+- Source: [VehicleType.java](src/main/java/com/github/msorkhpar/claudejavatutor/sealedclasses/VehicleType.java)
