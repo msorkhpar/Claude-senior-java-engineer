@@ -55,7 +55,9 @@ Manager in favor of stronger, more targeted security mechanisms.
 | Java 9   | Module system (JPMS) for strong encapsulation           |
 | Java 14  | Records (preview) for immutable data                   |
 | Java 17  | Security Manager deprecated (JEP 411)                  |
-| Java 21  | Virtual threads (thread-per-request simplifies auth)   |
+
+(Java 21's headline feature, virtual threads (JEP 444), is a concurrency feature rather than a security one, so it is
+not listed here.)
 
 ## Common Pitfalls and How to Avoid Them
 

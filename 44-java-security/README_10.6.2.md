@@ -4,7 +4,8 @@
 
 Understanding common vulnerabilities is essential for any senior Java engineer. The OWASP Top 10 provides the industry
 standard catalog of the most critical web application security risks. This section covers the three most relevant
-categories for Java developers: injection flaws, authentication and access control flaws, and sensitive data exposure.
+categories for Java developers: injection flaws, authentication and access control flaws, and sensitive data exposure,
+plus insecure deserialization, which OWASP 2021 files under software and data integrity failures.
 
 **Real-world analogy**: Imagine a fortress with multiple entry points. Each gate (input point) has its own set of
 vulnerabilities: the front gate might be susceptible to battering rams (SQL injection), the side entrance might have a
@@ -39,8 +40,13 @@ information. Data can be exposed through:
 - Insufficient encryption (or no encryption at all)
 - Information leakage in error messages
 - Logging sensitive data
-- Insecure deserialization
 - Timing attacks that reveal information through response times
+
+### Software and Data Integrity Failures (OWASP 2021 A08)
+
+Code and data are trusted without verifying their integrity. For Java the classic case is **insecure
+deserialization**: `ObjectInputStream` rebuilds whatever object graph the bytes describe, so untrusted bytes can
+trigger "gadget chains" in classes on the classpath (see Q5 below).
 
 ## Key Points to Remember
 
