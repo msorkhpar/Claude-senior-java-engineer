@@ -66,8 +66,9 @@ SELECT e.name FROM Employee e WHERE e.department = 'Engineering'
 - **Virtual threads** (Java 21) improve scalability for ORM-heavy applications by making blocking database calls cheap.
 
 ```java
-// Record as a DTO projection (not an entity)
-public record EmployeeDTO(String name, double salary) {}
+// Record as a DTO projection (not an entity).
+// Money is a BigDecimal: a double cannot hold most decimal amounts exactly, so cents drift.
+public record EmployeeDTO(String name, BigDecimal salary) {}
 
 // JPQL with text block (conceptual)
 String jpql = """
@@ -456,7 +457,7 @@ public class Truck extends Vehicle {
 @Inheritance(strategy = InheritanceType.JOINED)
 public abstract class Payment {
     @Id @GeneratedValue private Long id;
-    private double amount;
+    private BigDecimal amount; // money: BigDecimal, mapped to DECIMAL
 }
 
 @Entity
@@ -573,7 +574,7 @@ String jpql = """
     ORDER BY e.salary DESC
     """;
 List<EmployeeDTO> dtos = em.createQuery(jpql, EmployeeDTO.class)
-    .setParameter("minSalary", 80000.0)
+    .setParameter("minSalary", new BigDecimal("80000.00"))
     .getResultList();
 
 // 3. Aggregate with GROUP BY

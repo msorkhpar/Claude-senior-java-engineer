@@ -1,5 +1,6 @@
 package com.github.msorkhpar.claudejavatutor.javapersistence;
 
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,8 +28,11 @@ public class TransactionControl {
 
     /**
      * Record representing a bank account.
+     * Money is a {@link BigDecimal}, never a {@code double}: binary floating point cannot represent
+     * most decimal amounts exactly (0.1 + 0.2 != 0.3), so sums of cents drift. Compare amounts with
+     * {@code compareTo}, because {@code equals} also compares the scale (1.0 vs 1.00).
      */
-    public record Account(int id, String owner, double balance, int version) {
+    public record Account(int id, String owner, BigDecimal balance, int version) {
     }
 
     /**
@@ -62,12 +66,12 @@ public class TransactionControl {
     /**
      * Inserts a new account.
      */
-    public int createAccount(String owner, double initialBalance) throws SQLException {
+    public int createAccount(String owner, BigDecimal initialBalance) throws SQLException {
         String sql = "INSERT INTO accounts (owner, balance, version) VALUES (?, ?, 0)";
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             pstmt.setString(1, owner);
-            pstmt.setDouble(2, initialBalance);
+            pstmt.setBigDecimal(2, initialBalance);
             pstmt.executeUpdate();
             try (ResultSet keys = pstmt.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -105,7 +109,7 @@ public class TransactionControl {
      * @throws IllegalArgumentException if amount is negative (a negative debit would move money
      *                                  from the destination to the source)
      */
-    public boolean transfer(int fromId, int toId, double amount) throws SQLException {
+    public boolean transfer(int fromId, int toId, BigDecimal amount) throws SQLException {
         requireNonNegative(amount);
         Connection conn = null;
         try {
@@ -115,9 +119,9 @@ public class TransactionControl {
             // Debit source
             String debitSql = "UPDATE accounts SET balance = balance - ? WHERE id = ? AND balance >= ?";
             try (PreparedStatement debit = conn.prepareStatement(debitSql)) {
-                debit.setDouble(1, amount);
+                debit.setBigDecimal(1, amount);
                 debit.setInt(2, fromId);
-                debit.setDouble(3, amount);
+                debit.setBigDecimal(3, amount);
                 int rows = debit.executeUpdate();
                 if (rows == 0) {
                     conn.rollback();
@@ -128,7 +132,7 @@ public class TransactionControl {
             // Credit destination
             String creditSql = "UPDATE accounts SET balance = balance + ? WHERE id = ?";
             try (PreparedStatement credit = conn.prepareStatement(creditSql)) {
-                credit.setDouble(1, amount);
+                credit.setBigDecimal(1, amount);
                 credit.setInt(2, toId);
                 int rows = credit.executeUpdate();
                 if (rows == 0) {
@@ -161,7 +165,7 @@ public class TransactionControl {
      *
      * @return list of account IDs that successfully received the bonus
      */
-    public List<Integer> applyBonusWithSavepoints(List<Integer> accountIds, double bonus) throws SQLException {
+    public List<Integer> applyBonusWithSavepoints(List<Integer> accountIds, BigDecimal bonus) throws SQLException {
         List<Integer> successfulIds = new ArrayList<>();
         Connection conn = null;
         try {
@@ -173,7 +177,7 @@ public class TransactionControl {
                 try {
                     String sql = "UPDATE accounts SET balance = balance + ? WHERE id = ?";
                     try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                        pstmt.setDouble(1, bonus);
+                        pstmt.setBigDecimal(1, bonus);
                         pstmt.setInt(2, accountId);
                         int rows = pstmt.executeUpdate();
                         if (rows > 0) {
@@ -263,12 +267,12 @@ public class TransactionControl {
      * increments it atomically. If the version has changed since read, zero rows
      * are updated and an OptimisticLockException is thrown.
      */
-    public Account updateBalanceOptimistic(Account account, double newBalance)
+    public Account updateBalanceOptimistic(Account account, BigDecimal newBalance)
             throws SQLException, OptimisticLockException {
         String sql = "UPDATE accounts SET balance = ?, version = version + 1 WHERE id = ? AND version = ?";
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setDouble(1, newBalance);
+            pstmt.setBigDecimal(1, newBalance);
             pstmt.setInt(2, account.id());
             pstmt.setInt(3, account.version());
             int rows = pstmt.executeUpdate();
@@ -305,7 +309,7 @@ public class TransactionControl {
      * Transfers money using pessimistic locking to prevent concurrent modifications.
      * Acquires FOR UPDATE locks on both accounts, then performs debit/credit.
      */
-    public boolean transferWithPessimisticLock(int fromId, int toId, double amount) throws SQLException {
+    public boolean transferWithPessimisticLock(int fromId, int toId, BigDecimal amount) throws SQLException {
         requireNonNegative(amount);
         Connection conn = null;
         try {
@@ -326,21 +330,21 @@ public class TransactionControl {
 
             Account source = (fromId == firstId) ? firstOpt.get() : secondOpt.get();
 
-            if (source.balance() < amount) {
+            if (source.balance().compareTo(amount) < 0) {
                 conn.rollback();
                 return false;
             }
 
             String debitSql = "UPDATE accounts SET balance = balance - ? WHERE id = ?";
             try (PreparedStatement pstmt = conn.prepareStatement(debitSql)) {
-                pstmt.setDouble(1, amount);
+                pstmt.setBigDecimal(1, amount);
                 pstmt.setInt(2, fromId);
                 pstmt.executeUpdate();
             }
 
             String creditSql = "UPDATE accounts SET balance = balance + ? WHERE id = ?";
             try (PreparedStatement pstmt = conn.prepareStatement(creditSql)) {
-                pstmt.setDouble(1, amount);
+                pstmt.setBigDecimal(1, amount);
                 pstmt.setInt(2, toId);
                 pstmt.executeUpdate();
             }
@@ -360,8 +364,9 @@ public class TransactionControl {
         }
     }
 
-    private static void requireNonNegative(double amount) {
-        if (amount < 0) {
+    private static void requireNonNegative(BigDecimal amount) {
+        java.util.Objects.requireNonNull(amount, "Transfer amount must not be null");
+        if (amount.signum() < 0) {
             throw new IllegalArgumentException("Transfer amount must not be negative: " + amount);
         }
     }
@@ -370,7 +375,7 @@ public class TransactionControl {
         return new Account(
                 rs.getInt("id"),
                 rs.getString("owner"),
-                rs.getDouble("balance"),
+                rs.getBigDecimal("balance"),
                 rs.getInt("version")
         );
     }

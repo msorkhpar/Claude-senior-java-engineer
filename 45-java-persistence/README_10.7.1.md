@@ -206,7 +206,9 @@ try (Statement stmt = conn.createStatement()) {
 try (PreparedStatement pstmt = conn.prepareStatement(
         "SELECT * FROM employees WHERE department = ? AND salary > ?")) {
     pstmt.setString(1, "Engineering");
-    pstmt.setDouble(2, 80000.0);
+    // Money is a BigDecimal (SQL DECIMAL), never a double: binary floating point cannot
+    // represent most decimal amounts exactly, so cents drift (0.1 + 0.2 != 0.3)
+    pstmt.setBigDecimal(2, new BigDecimal("80000.00"));
     ResultSet rs = pstmt.executeQuery();
 }
 
@@ -215,7 +217,7 @@ try (CallableStatement cstmt = conn.prepareCall("{call calculate_bonus(?, ?)}"))
     cstmt.setInt(1, employeeId);
     cstmt.registerOutParameter(2, Types.DECIMAL);
     cstmt.execute();
-    double bonus = cstmt.getDouble(2);
+    BigDecimal bonus = cstmt.getBigDecimal(2);
 }
 ```
 
@@ -299,7 +301,7 @@ public Optional<Employee> findById(int id) throws SQLException {
                 return Optional.of(new Employee(
                     rs.getInt("id"),
                     rs.getString("name"),
-                    rs.getDouble("salary")
+                    rs.getBigDecimal("salary")
                 ));
             }
         }
@@ -333,23 +335,25 @@ With Java records and Optional, you can create null-safe mappings:
 
 ```java
 // Handling NULL for primitive types
-public record Employee(int id, String name, Double salary, String email) {}
+public record Employee(int id, String name, BigDecimal salary, Integer age, String email) {}
 
 public Employee mapRow(ResultSet rs) throws SQLException {
     int id = rs.getInt("id");  // Never null (primary key)
 
     String name = rs.getString("name");  // Returns null if SQL NULL
 
-    // For nullable numeric columns, use wasNull()
-    double salaryValue = rs.getDouble("salary");
-    Double salary = rs.wasNull() ? null : salaryValue;
+    BigDecimal salary = rs.getBigDecimal("salary");  // Money: exact decimal, null if SQL NULL
 
-    // Alternatively, use getObject for nullable primitives
-    Integer age = rs.getObject("age", Integer.class);  // null if SQL NULL (JDBC 4.1+)
+    // For nullable primitive columns, use wasNull()
+    int ageValue = rs.getInt("age");
+    Integer age = rs.wasNull() ? null : ageValue;
+
+    // Alternatively, use getObject with a target type for nullable primitives
+    Integer sameAge = rs.getObject("age", Integer.class);  // null if SQL NULL (JDBC 4.1+)
 
     String email = rs.getString("email");  // null if SQL NULL
 
-    return new Employee(id, name, salary, email);
+    return new Employee(id, name, salary, age, email);
 }
 ```
 
@@ -395,7 +399,7 @@ public void batchInsertEmployees(List<Employee> employees) throws SQLException {
         for (Employee emp : employees) {
             pstmt.setString(1, emp.name());
             pstmt.setString(2, emp.email());
-            pstmt.setDouble(3, emp.salary());
+            pstmt.setBigDecimal(3, emp.salary());
             pstmt.addBatch();
             batchSize++;
 

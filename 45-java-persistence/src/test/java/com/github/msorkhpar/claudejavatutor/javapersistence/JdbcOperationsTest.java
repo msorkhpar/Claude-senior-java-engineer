@@ -3,6 +3,7 @@ package com.github.msorkhpar.claudejavatutor.javapersistence;
 import org.junit.jupiter.api.*;
 
 import java.sql.Connection;
+import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
@@ -65,7 +66,7 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should insert with Statement and return generated key")
         void testInsertWithStatement() throws SQLException {
-            int id = jdbc.insertWithStatement("Alice", "alice@test.com", 75000.0, "Engineering");
+            int id = jdbc.insertWithStatement("Alice", "alice@test.com", new BigDecimal("75000.0"), "Engineering");
             assertThat(id).isGreaterThan(0);
 
             Optional<JdbcOperations.Employee> found = jdbc.findById(id);
@@ -76,30 +77,30 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should insert with PreparedStatement and return generated key")
         void testInsertWithPreparedStatement() throws SQLException {
-            int id = jdbc.insertWithPreparedStatement("Bob", "bob@test.com", 85000.0, "Marketing");
+            int id = jdbc.insertWithPreparedStatement("Bob", "bob@test.com", new BigDecimal("85000.0"), "Marketing");
             assertThat(id).isGreaterThan(0);
 
             Optional<JdbcOperations.Employee> found = jdbc.findById(id);
             assertThat(found).isPresent();
             assertThat(found.get().name()).isEqualTo("Bob");
             assertThat(found.get().email()).isEqualTo("bob@test.com");
-            assertThat(found.get().salary()).isEqualTo(85000.0);
+            assertThat(found.get().salary()).isEqualByComparingTo("85000.0");
             assertThat(found.get().department()).isEqualTo("Marketing");
         }
 
         @Test
         @DisplayName("Should reject duplicate email on insert")
         void testDuplicateEmail() throws SQLException {
-            jdbc.insertWithPreparedStatement("Alice", "dup@test.com", 70000.0, "HR");
+            jdbc.insertWithPreparedStatement("Alice", "dup@test.com", new BigDecimal("70000.0"), "HR");
             assertThatThrownBy(() ->
-                    jdbc.insertWithPreparedStatement("Bob", "dup@test.com", 80000.0, "Sales")
+                    jdbc.insertWithPreparedStatement("Bob", "dup@test.com", new BigDecimal("80000.0"), "Sales")
             ).isInstanceOf(SQLException.class);
         }
 
         @Test
         @DisplayName("Should handle null email on insert")
         void testNullEmailInsert() throws SQLException {
-            int id = jdbc.insertWithPreparedStatement("NoEmail", null, 50000.0, "Support");
+            int id = jdbc.insertWithPreparedStatement("NoEmail", null, new BigDecimal("50000.0"), "Support");
             assertThat(id).isGreaterThan(0);
             Optional<JdbcOperations.Employee> found = jdbc.findById(id);
             assertThat(found).isPresent();
@@ -114,7 +115,7 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should find employee by ID")
         void testFindById() throws SQLException {
-            int id = jdbc.insertWithPreparedStatement("Charlie", "charlie@test.com", 90000.0, "Engineering");
+            int id = jdbc.insertWithPreparedStatement("Charlie", "charlie@test.com", new BigDecimal("90000.0"), "Engineering");
             Optional<JdbcOperations.Employee> result = jdbc.findById(id);
 
             assertThat(result).isPresent();
@@ -131,9 +132,9 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should find employees by department")
         void testFindByDepartment() throws SQLException {
-            jdbc.insertWithPreparedStatement("Alice", "alice@test.com", 70000.0, "Engineering");
-            jdbc.insertWithPreparedStatement("Bob", "bob@test.com", 80000.0, "Engineering");
-            jdbc.insertWithPreparedStatement("Charlie", "charlie@test.com", 60000.0, "Marketing");
+            jdbc.insertWithPreparedStatement("Alice", "alice@test.com", new BigDecimal("70000.0"), "Engineering");
+            jdbc.insertWithPreparedStatement("Bob", "bob@test.com", new BigDecimal("80000.0"), "Engineering");
+            jdbc.insertWithPreparedStatement("Charlie", "charlie@test.com", new BigDecimal("60000.0"), "Marketing");
 
             List<JdbcOperations.Employee> engineers = jdbc.findByDepartment("Engineering");
             assertThat(engineers).hasSize(2);
@@ -151,8 +152,8 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should find all employees")
         void testFindAll() throws SQLException {
-            jdbc.insertWithPreparedStatement("Alice", "alice@test.com", 70000.0, "Engineering");
-            jdbc.insertWithPreparedStatement("Bob", "bob@test.com", 80000.0, "Marketing");
+            jdbc.insertWithPreparedStatement("Alice", "alice@test.com", new BigDecimal("70000.0"), "Engineering");
+            jdbc.insertWithPreparedStatement("Bob", "bob@test.com", new BigDecimal("80000.0"), "Marketing");
 
             List<JdbcOperations.Employee> all = jdbc.findAll();
             assertThat(all).hasSize(2);
@@ -173,19 +174,19 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should update employee salary")
         void testUpdateSalary() throws SQLException {
-            int id = jdbc.insertWithPreparedStatement("Dave", "dave@test.com", 50000.0, "Sales");
-            boolean updated = jdbc.updateSalary(id, 65000.0);
+            int id = jdbc.insertWithPreparedStatement("Dave", "dave@test.com", new BigDecimal("50000.0"), "Sales");
+            boolean updated = jdbc.updateSalary(id, new BigDecimal("65000.0"));
 
             assertThat(updated).isTrue();
             Optional<JdbcOperations.Employee> found = jdbc.findById(id);
             assertThat(found).isPresent();
-            assertThat(found.get().salary()).isEqualTo(65000.0);
+            assertThat(found.get().salary()).isEqualByComparingTo("65000.0");
         }
 
         @Test
         @DisplayName("Should return false for updating non-existent employee")
         void testUpdateNonExistent() throws SQLException {
-            boolean updated = jdbc.updateSalary(9999, 100000.0);
+            boolean updated = jdbc.updateSalary(9999, new BigDecimal("100000.0"));
             assertThat(updated).isFalse();
         }
     }
@@ -197,7 +198,7 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should delete employee by ID")
         void testDeleteById() throws SQLException {
-            int id = jdbc.insertWithPreparedStatement("Eve", "eve@test.com", 55000.0, "HR");
+            int id = jdbc.insertWithPreparedStatement("Eve", "eve@test.com", new BigDecimal("55000.0"), "HR");
             boolean deleted = jdbc.deleteById(id);
 
             assertThat(deleted).isTrue();
@@ -220,9 +221,9 @@ class JdbcOperationsTest {
         @DisplayName("Should batch insert multiple employees")
         void testBatchInsert() throws SQLException {
             List<JdbcOperations.Employee> employees = List.of(
-                    new JdbcOperations.Employee(0, "Frank", "frank@test.com", 60000.0, "Engineering", true),
-                    new JdbcOperations.Employee(0, "Grace", "grace@test.com", 70000.0, "Marketing", true),
-                    new JdbcOperations.Employee(0, "Hank", "hank@test.com", 55000.0, "Sales", false)
+                    new JdbcOperations.Employee(0, "Frank", "frank@test.com", new BigDecimal("60000.0"), "Engineering", true),
+                    new JdbcOperations.Employee(0, "Grace", "grace@test.com", new BigDecimal("70000.0"), "Marketing", true),
+                    new JdbcOperations.Employee(0, "Hank", "hank@test.com", new BigDecimal("55000.0"), "Sales", false)
             );
 
             int[] results = jdbc.batchInsert(employees);
@@ -247,18 +248,43 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should calculate average salary by department")
         void testAverageSalary() throws SQLException {
-            jdbc.insertWithPreparedStatement("Alice", "alice@test.com", 80000.0, "Engineering");
-            jdbc.insertWithPreparedStatement("Bob", "bob@test.com", 100000.0, "Engineering");
+            jdbc.insertWithPreparedStatement("Alice", "alice@test.com", new BigDecimal("80000.0"), "Engineering");
+            jdbc.insertWithPreparedStatement("Bob", "bob@test.com", new BigDecimal("100000.0"), "Engineering");
 
-            Optional<Double> avg = jdbc.getAverageSalaryByDepartment("Engineering");
+            Optional<BigDecimal> avg = jdbc.getAverageSalaryByDepartment("Engineering");
             assertThat(avg).isPresent();
-            assertThat(avg.get()).isEqualTo(90000.0);
+            assertThat(avg.get()).isEqualByComparingTo("90000.0");
+        }
+
+        @Test
+        @DisplayName("Average salary is rounded to cents (scale 2), not a long binary fraction")
+        void testAverageSalaryRoundedToCents() throws SQLException {
+            jdbc.insertWithPreparedStatement("A", "a@test.com", new BigDecimal("100.00"), "Ops");
+            jdbc.insertWithPreparedStatement("B", "b@test.com", new BigDecimal("100.00"), "Ops");
+            jdbc.insertWithPreparedStatement("C", "c@test.com", new BigDecimal("100.01"), "Ops");
+
+            BigDecimal avg = jdbc.getAverageSalaryByDepartment("Ops").orElseThrow();
+
+            // 300.01 / 3 = 100.00333...: a double gives 100.00333333333333
+            assertThat(avg).isEqualByComparingTo("100.00");
+            assertThat(avg.scale()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Average salary uses HALF_EVEN rounding at the half cent")
+        void testAverageSalaryHalfEven() throws SQLException {
+            jdbc.insertWithPreparedStatement("A", "a@test.com", new BigDecimal("0.12"), "Interns");
+            jdbc.insertWithPreparedStatement("B", "b@test.com", new BigDecimal("0.13"), "Interns");
+
+            // 0.25 / 2 = 0.125 exactly; HALF_EVEN rounds to the even cent 0.12
+            assertThat(jdbc.getAverageSalaryByDepartment("Interns").orElseThrow())
+                    .isEqualByComparingTo("0.12");
         }
 
         @Test
         @DisplayName("Should return empty for average salary of non-existent department")
         void testAverageSalaryEmpty() throws SQLException {
-            Optional<Double> avg = jdbc.getAverageSalaryByDepartment("NonExistent");
+            Optional<BigDecimal> avg = jdbc.getAverageSalaryByDepartment("NonExistent");
             // AVG of no rows is NULL
             assertThat(avg).isEmpty();
         }
@@ -280,7 +306,7 @@ class JdbcOperationsTest {
         @Test
         @DisplayName("Should correctly populate Employee record fields")
         void testEmployeeRecordFields() throws SQLException {
-            int id = jdbc.insertWithPreparedStatement("Iris", "iris@test.com", 92500.50, "Research");
+            int id = jdbc.insertWithPreparedStatement("Iris", "iris@test.com", new BigDecimal("92500.50"), "Research");
             Optional<JdbcOperations.Employee> found = jdbc.findById(id);
 
             assertThat(found).isPresent();
@@ -288,7 +314,7 @@ class JdbcOperationsTest {
             assertThat(emp.id()).isEqualTo(id);
             assertThat(emp.name()).isEqualTo("Iris");
             assertThat(emp.email()).isEqualTo("iris@test.com");
-            assertThat(emp.salary()).isEqualTo(92500.50);
+            assertThat(emp.salary()).isEqualByComparingTo("92500.50");
             assertThat(emp.department()).isEqualTo("Research");
             assertThat(emp.active()).isTrue();
         }

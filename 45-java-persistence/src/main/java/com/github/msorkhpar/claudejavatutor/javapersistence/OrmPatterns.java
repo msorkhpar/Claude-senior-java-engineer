@@ -1,5 +1,6 @@
 package com.github.msorkhpar.claudejavatutor.javapersistence;
 
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,13 +21,13 @@ public class OrmPatterns {
     public static class Product {
         private int id;
         private String name;
-        private double price;
+        private BigDecimal price; // money: BigDecimal, never double
         private int categoryId;
 
         public Product() {
         }
 
-        public Product(int id, String name, double price, int categoryId) {
+        public Product(int id, String name, BigDecimal price, int categoryId) {
             this.id = id;
             this.name = name;
             this.price = price;
@@ -37,8 +38,8 @@ public class OrmPatterns {
         public void setId(int id) { this.id = id; }
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
-        public double getPrice() { return price; }
-        public void setPrice(double price) { this.price = price; }
+        public BigDecimal getPrice() { return price; }
+        public void setPrice(BigDecimal price) { this.price = price; }
         public int getCategoryId() { return categoryId; }
         public void setCategoryId(int categoryId) { this.categoryId = categoryId; }
 
@@ -153,7 +154,7 @@ public class OrmPatterns {
             try (Connection conn = getConnection();
                  PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                 pstmt.setString(1, entity.getName());
-                pstmt.setDouble(2, entity.getPrice());
+                pstmt.setBigDecimal(2, entity.getPrice());
                 setCategoryId(pstmt, 3, entity.getCategoryId());
                 pstmt.executeUpdate();
                 try (ResultSet keys = pstmt.getGeneratedKeys()) {
@@ -170,7 +171,7 @@ public class OrmPatterns {
             try (Connection conn = getConnection();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, entity.getName());
-                pstmt.setDouble(2, entity.getPrice());
+                pstmt.setBigDecimal(2, entity.getPrice());
                 setCategoryId(pstmt, 3, entity.getCategoryId());
                 pstmt.setInt(4, entity.getId());
                 pstmt.executeUpdate();
@@ -230,13 +231,13 @@ public class OrmPatterns {
         /**
          * Named query simulating JPQL: SELECT p FROM Product p WHERE p.price BETWEEN :min AND :max
          */
-        public List<Product> findByPriceRange(double minPrice, double maxPrice) throws SQLException {
+        public List<Product> findByPriceRange(BigDecimal minPrice, BigDecimal maxPrice) throws SQLException {
             String sql = "SELECT id, name, price, category_id FROM products WHERE price BETWEEN ? AND ?";
             List<Product> products = new ArrayList<>();
             try (Connection conn = getConnection();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setDouble(1, minPrice);
-                pstmt.setDouble(2, maxPrice);
+                pstmt.setBigDecimal(1, minPrice);
+                pstmt.setBigDecimal(2, maxPrice);
                 try (ResultSet rs = pstmt.executeQuery()) {
                     while (rs.next()) {
                         products.add(mapProduct(rs));
@@ -362,7 +363,7 @@ public class OrmPatterns {
             return new Product(
                     rs.getInt("id"),
                     rs.getString("name"),
-                    rs.getDouble("price"),
+                    rs.getBigDecimal("price"),
                     rs.getInt("category_id")
             );
         }

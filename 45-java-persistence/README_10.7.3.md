@@ -241,10 +241,12 @@ The database writes to persistent storage (WAL/redo log) before confirming the c
 ```
 
 ```java
-// ACID-compliant transfer in JDBC
-public boolean transfer(Connection conn, int fromId, int toId, double amount)
+// ACID-compliant transfer in JDBC.
+// Money is a BigDecimal (SQL DECIMAL), never a double: a double cannot hold most decimal
+// amounts exactly, so balances would drift by fractions of a cent.
+public boolean transfer(Connection conn, int fromId, int toId, BigDecimal amount)
         throws SQLException {
-    if (amount < 0) {
+    if (amount.signum() < 0) {
         throw new IllegalArgumentException("amount must not be negative"); // else it moves money backwards
     }
     conn.setAutoCommit(false); // Begin transaction (Atomicity boundary)
@@ -253,16 +255,16 @@ public boolean transfer(Connection conn, int fromId, int toId, double amount)
          PreparedStatement credit = conn.prepareStatement(
              "UPDATE accounts SET balance = balance + ? WHERE id = ?")) {
         // Debit source account
-        debit.setDouble(1, amount);
+        debit.setBigDecimal(1, amount);
         debit.setInt(2, fromId);
-        debit.setDouble(3, amount); // Consistency: enforce balance >= 0
+        debit.setBigDecimal(3, amount); // Consistency: enforce balance >= 0
         if (debit.executeUpdate() == 0) {
             conn.rollback(); // Atomicity: undo if constraint violated
             return false;
         }
 
         // Credit destination account
-        credit.setDouble(1, amount);
+        credit.setBigDecimal(1, amount);
         credit.setInt(2, toId);
         if (credit.executeUpdate() == 0) {
             conn.rollback(); // Atomicity: destination missing, so undo the debit too
@@ -362,11 +364,11 @@ Decision matrix:
 
 ```java
 // Optimistic Locking with version column
-public Account updateBalanceOptimistic(Account account, double newBalance)
+public Account updateBalanceOptimistic(Account account, BigDecimal newBalance)
         throws SQLException, OptimisticLockException {
     String sql = "UPDATE accounts SET balance = ?, version = version + 1 WHERE id = ? AND version = ?";
     try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-        pstmt.setDouble(1, newBalance);
+        pstmt.setBigDecimal(1, newBalance);
         pstmt.setInt(2, account.id());
         pstmt.setInt(3, account.version()); // Check version hasn't changed
         int rows = pstmt.executeUpdate();
@@ -378,7 +380,7 @@ public Account updateBalanceOptimistic(Account account, double newBalance)
 }
 
 // Pessimistic Locking with SELECT FOR UPDATE
-public Account lockAndUpdateBalance(Connection conn, int id, double newBalance)
+public Account lockAndUpdateBalance(Connection conn, int id, BigDecimal newBalance)
         throws SQLException {
     conn.setAutoCommit(false);
     try (PreparedStatement lockStmt = conn.prepareStatement(
@@ -399,7 +401,7 @@ public Account lockAndUpdateBalance(Connection conn, int id, double newBalance)
         }
 
         // Now we have exclusive write access to this row
-        updateStmt.setDouble(1, newBalance);
+        updateStmt.setBigDecimal(1, newBalance);
         updateStmt.setInt(2, id);
         updateStmt.executeUpdate();
         conn.commit(); // Release the lock
@@ -588,7 +590,7 @@ PostgreSQL: log_lock_waits = on (logs long lock waits)
 
 ```java
 // Strategy 1: Consistent lock ordering to prevent deadlocks
-public boolean transfer(int fromId, int toId, double amount) throws SQLException {
+public boolean transfer(int fromId, int toId, BigDecimal amount) throws SQLException {
     try (Connection conn = dataSource.getConnection()) { // returned to the pool at the end
         conn.setAutoCommit(false);
         try {
