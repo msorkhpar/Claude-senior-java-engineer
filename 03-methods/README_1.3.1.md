@@ -10,7 +10,8 @@ while invocation is the process of calling or executing the method.
 
 A method declaration consists of six components:
 
-1. Access Modifier: Determines the visibility of the method (e.g., public, private, protected, default).
+1. Access Modifier: Determines the visibility of the method (public, protected, private, or none, which means
+   package-private; `default` is not an access modifier on a class method).
 2. Return Type: Specifies the type of value the method returns (or void if it doesn't return anything).
 3. Method Name: The identifier used to refer to the method.
 4. Parameter List: Input parameters that the method accepts (can be empty).
@@ -54,7 +55,8 @@ Method invocation is the process of calling a method to execute its code. There 
 1. Forgetting to specify a return type: Always declare a return type, even if it's `void`.
 2. Incorrect access modifiers: Be mindful of the intended visibility of your methods.
 3. Not handling exceptions properly: Use try-catch blocks or declare throws in the method signature.
-4. Naming conflicts: Avoid using the same name for local variables and method parameters.
+4. Naming conflicts: A parameter or local variable with the same name as a field shadows the field; use `this.name`
+   to reach the field. (Declaring a local variable with the same name as a parameter does not compile.)
 
 ## Best Practices and Optimization Techniques
 
@@ -85,7 +87,7 @@ Key differences:
 1. Invocation: Static methods are called on the class, while instance methods are called on objects.
 2. Access to instance members: Static methods cannot directly access instance variables or call instance methods, while instance methods can access both static and instance members.
 3. 'this' keyword: Static methods cannot use the 'this' keyword, as they don't have an instance context.
-4. Memory: Static methods are loaded into memory when the class is loaded, while instance methods are loaded when an object is created.
+4. Memory: The code of both static and instance methods is loaded once, with the class; creating an object does not load or copy any method. Only instance fields are allocated per object.
 
 Example:
 ```

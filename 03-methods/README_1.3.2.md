@@ -41,12 +41,12 @@ Key points:
 
 ## Relevant Java 21 Features
 
-While method parameters and return types are fundamental concepts that haven't changed significantly, Java 21 introduces
-some features that can be relevant:
+While method parameters and return types are fundamental concepts that haven't changed significantly, recent Java
+versions add some features that can be relevant:
 
-1. Record Classes: Simplify the creation of data carrier classes, which can be useful when dealing with complex
-2. parameter or return types.
-2. Pattern Matching for switch: Can be useful when working with different parameter types.
+1. Record Classes (standard since Java 16): Simplify the creation of data carrier classes, which can be useful when
+   dealing with complex parameter or return types.
+2. Pattern Matching for switch (standard since Java 21): Can be useful when working with different parameter types.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -56,8 +56,9 @@ some features that can be relevant:
 2. Returning the wrong type.
     - Ensure the returned value matches the declared return type.
 
-3. Modifying parameters thinking it will affect the original argument.
-    - Remember that Java is pass-by-value, so modifying parameters doesn't affect the original values.
+3. Reassigning parameters thinking it will affect the original argument.
+    - Remember that Java is pass-by-value, so assigning a new value to a parameter doesn't affect the caller's
+      variable (mutating the object a reference parameter points to, however, is visible to the caller).
 
 4. Not handling potential null returns.
     - Always check for null when a method can return null.
@@ -120,7 +121,7 @@ For object references:
 - The value of the reference (memory address) is copied and passed to the method.
 - The method receives a copy of the reference, pointing to the same object.
 - Changes to the object's state are reflected outside the method, but reassigning the reference inside the method
-- doesn't affect the original reference.
+  doesn't affect the original reference.
 
 Example:
 
