@@ -219,8 +219,10 @@ public class LiskovSubstitution {
         @Override
         public boolean offer(T item) {
             if (item == null) throw new NullPointerException("Item cannot be null");
-            queue.offer(item);
+            // Count first, then publish: a consumer can only poll (and decrement for)
+            // an item whose increment already happened, so size() never goes negative.
             count.incrementAndGet();
+            queue.offer(item);
             return true; // Always succeeds -- consistent with contract
         }
 

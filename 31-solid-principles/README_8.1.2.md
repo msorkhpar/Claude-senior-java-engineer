@@ -51,7 +51,7 @@ When OCP is applied correctly, thread-safety code is written once in the base fr
 
 - **Sealed classes and interfaces**: Provide controlled extension -- you define which classes can implement an interface, enabling exhaustive pattern matching while still being open for new permitted types
 - **Records**: Ideal for creating new data-carrying implementations of interfaces
-- **Pattern matching for switch**: Works well with sealed hierarchies to handle all subtypes without modifying existing switch logic (when new types are added, the compiler warns about missing cases)
+- **Pattern matching for switch**: Works well with sealed hierarchies to handle all subtypes without a `default` branch; when a new permitted type is added, every switch that is no longer exhaustive becomes a compile error, so the compiler points at each place that must be updated
 - **Virtual threads**: Enable creating lightweight concurrent pipelines that are open for extension
 
 ## Common Pitfalls and How to Avoid Them
@@ -98,7 +98,7 @@ When OCP is applied correctly, thread-safety code is written once in the base fr
 2. **Empty collections**: `totalArea` of zero shapes should return `0.0`, not throw
 3. **Zero-dimension shapes**: A circle with radius 0 is valid and has area 0
 4. **Negative dimensions**: Validate in constructors; reject invalid shapes at creation time
-5. **New shape types**: If using sealed classes, adding a new permitted type will cause compiler warnings in pattern matches -- this is a feature, not a bug
+5. **New shape types**: If using sealed classes, adding a new permitted type will cause compile errors in pattern-matching switches that no longer cover every case (and have no `default`) -- this is a feature, not a bug
 
 ## Interview-specific Insights
 
@@ -177,8 +177,8 @@ Benefits for OCP:
 4. Each decorator is independently testable
 5. New validation rules, logging, caching, etc., are added as new decorators
 
-This is how java.io works: BufferedInputStream wraps FileInputStream wraps 
-InputStream -- each adds behavior without modifying the others.
+This is how java.io works: a BufferedInputStream wraps a FileInputStream (both are 
+InputStreams) -- the wrapper adds buffering without modifying the wrapped stream.
 ```
 
 ```java
