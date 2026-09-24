@@ -29,7 +29,7 @@ public interface Function<T, R> {
 - `f.compose(g)` — `g` runs first, then `f` on the result: equivalent to `f(g(x))`
 - `Function.identity()` — returns a function that always returns its input unchanged
 
-**Related types that extend Function:**
+**Related types:**
 - `BiFunction<T, U, R>` — accepts two arguments of types `T` and `U`, returns `R`. Has `andThen()` but not `compose()`.
 - `UnaryOperator<T>` — extends `Function<T, T>` where input and output are the same type. Has a static `identity()`.
 - `BinaryOperator<T>` — extends `BiFunction<T, T, T>` where both inputs and output are the same type. Adds `maxBy(Comparator)` and `minBy(Comparator)`.
@@ -63,8 +63,8 @@ public interface Function<T, R> {
 
 - **Java 8**: `Function<T,R>`, `BiFunction<T,U,R>`, `UnaryOperator<T>`, `BinaryOperator<T>`, and all primitive specializations introduced.
 - **Java 8**: `Map.computeIfAbsent(K, Function<K,V>)` is one of the most-used Function application sites.
-- **Java 9**: `Map.getOrDefault`, `Map.compute`, and `Map.merge` all accept functions.
-- **Java 16**: `Stream.toList()` terminal operation (shorthand for `Collectors.toList()`) often follows a `map(Function)`.
+- **Java 8**: `Map.compute`, `Map.computeIfPresent`, and `Map.merge` also accept functions (`Map.getOrDefault`, added at the same time, takes a plain default value).
+- **Java 16**: `Stream.toList()` terminal operation often follows a `map(Function)`; unlike `collect(Collectors.toList())` it returns an unmodifiable list.
 - **Java 16+**: Records as data carriers work seamlessly with Function — a `Function<PersonRecord, String>` can extract a field.
 - **Java 21**: Pattern matching in switch expressions can be used inside a Function lambda to dispatch transformations based on type.
 - **Java 21**: Sequenced collections API (`getFirst()`, `getLast()`) can be used inside Function pipelines.
@@ -82,9 +82,10 @@ public interface Function<T, R> {
    // Broken expectation: "I want upper first, then trim"
    Function<String, String> wrong = trim.andThen(upper); // actually: trim first, then upper
 
-   // Fix: use compose to run the argument first
-   Function<String, String> correct = upper.compose(trim); // trim first, then upper
-   // Both produce the same result here, but the order of operations differs for non-commutative transforms
+   // Fix: put the step you want first on the left of andThen, or pass it to compose
+   Function<String, String> correct = upper.andThen(trim);   // upper first, then trim
+   Function<String, String> same    = trim.compose(upper);   // also upper first, then trim
+   // For these two steps the results happen to be equal; for non-commutative transforms the order matters
    ```
 
 2. **Using `BiFunction` and expecting `compose()`** — `BiFunction` does not have a `compose()` method. Only unary `Function` does.
@@ -101,7 +102,8 @@ public interface Function<T, R> {
 
    ```java
    // Broken: toUpperCase() on null throws NPE
-   Function<String, String> pipeline = (s -> null).andThen(String::toUpperCase);
+   Function<String, String> toNull = s -> null;
+   Function<String, String> pipeline = toNull.andThen(String::toUpperCase);
    pipeline.apply("hello"); // NPE in andThen step
    ```
 
@@ -122,7 +124,7 @@ public interface Function<T, R> {
    result.add("c"); // mutates the original too!
    ```
 
-5. **Overloading ambiguity** — when a method accepts both `Function<T,T>` and `UnaryOperator<T>`, the compiler may be ambiguous. Prefer explicit casts or dedicated method signatures.
+5. **Overloading ambiguity** — when a method is overloaded for two unrelated functional interfaces of the same shape (for example `Function<String,String>` and a custom `StringMapper { String map(String s); }`), a lambda argument is ambiguous. Prefer explicit casts or distinct method names. (Overloads for `Function<T,T>` and `UnaryOperator<T>` are not ambiguous: `UnaryOperator` is a subtype, so that more specific overload is chosen.)
 
 ## Best Practices and Optimization Techniques
 
@@ -143,7 +145,7 @@ public interface Function<T, R> {
 
 5. **Prefer primitive specializations** (`ToIntFunction`, `IntFunction`, `IntUnaryOperator`) in hot numeric processing paths to eliminate boxing overhead.
 
-6. **Use `Map.computeIfAbsent(key, Function)` as a single atomic "get or compute" operation** rather than get-check-put patterns.
+6. **Use `Map.computeIfAbsent(key, Function)` as a single "get or compute" operation** rather than get-check-put patterns (it is atomic in `ConcurrentHashMap`; in a plain `HashMap` it is simply one call instead of three).
 
    ```java
    // Verbose get-check-put
@@ -277,7 +279,7 @@ System.out.println(longest.orElse("")); // "hello"
 **Q3: How does `Map.computeIfAbsent()` use `Function`, and why is it better than get-check-put?**
 
 ```text
-A3: Map.computeIfAbsent(K key, Function<K,V> mappingFunction) atomically:
+A3: Map.computeIfAbsent(K key, Function<K,V> mappingFunction), in a single call (atomically in ConcurrentHashMap):
 1. Checks if the key is absent (or mapped to null)
 2. If absent, calls mappingFunction.apply(key) to compute the value
 3. Stores the computed value in the map

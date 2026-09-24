@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -55,8 +56,16 @@ class SupplierDemoTest {
         @Test
         @DisplayName("Should not evaluate until get() is called")
         void testLazyEvaluation() {
-            // If the supplier was evaluated eagerly, this would throw
-            // We just verify the supplier is created without issue
+            // Creating a Supplier runs nothing; only get() runs the wrapped code
+            int[] calls = {0};
+            Supplier<String> counting = () -> {
+                calls[0]++;
+                return "value";
+            };
+            assertThat(calls[0]).isZero();
+            assertThat(counting.get()).isEqualTo("value");
+            assertThat(calls[0]).isEqualTo(1);
+
             assertThatCode(() -> demo.createExpensiveSupplier())
                     .doesNotThrowAnyException();
         }

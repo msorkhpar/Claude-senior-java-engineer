@@ -62,7 +62,7 @@ class ConsumerDemoTest {
         void testAndThenChaining() {
             List<String> log = new ArrayList<>();
             demo.consumeWithLogging(List.of("item1", "item2"), log);
-            // log should contain both the original and uppercase versions
+            // the logger (first in the chain) records each item; the printer then writes it to stdout
             assertThat(log).containsExactly("Processing: item1", "Processing: item2");
         }
 

@@ -46,7 +46,7 @@ is the natural fit for iterating `Map` entries (key + value) or any operation th
 4. `BiConsumer<T, U>` is used by `Map.forEach(BiConsumer)` to process key-value pairs.
 5. For performance-critical code with primitives, use `IntConsumer`, `LongConsumer`, or `DoubleConsumer` to avoid boxing.
 6. Variables captured inside a Consumer lambda must be **effectively final**. Use an `int[]` array trick for mutable counters.
-7. `Consumer.andThen()` guarantees **left-to-right** order of execution; the second consumer always runs even if the first throws.
+7. `Consumer.andThen()` guarantees **left-to-right** order of execution; if the first consumer throws, the exception propagates and the second consumer does not run.
 8. Consumers cannot be used where a return value is needed — use `Function` instead.
 
 ## Relevant Java 21 Features
