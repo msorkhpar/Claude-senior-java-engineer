@@ -68,19 +68,20 @@ Logical operators perform boolean logic operations.
 | &&       | Logical AND | a && b   |
 | \|\|     | Logical OR  | a \|\| b |
 | !        | Logical NOT | !a       |
-| &        | Bitwise AND | a & b    |
-| \|       | Bitwise OR  | a \| b   |
-| ^        | Bitwise XOR | a ^ b    |
+| &        | Bitwise AND (on booleans: logical AND, no short-circuit) | a & b    |
+| \|       | Bitwise OR (on booleans: logical OR, no short-circuit)  | a \| b   |
+| ^        | Bitwise XOR (on booleans: logical XOR)                  | a ^ b    |
 
 ### Key Points:
 
 - `&&` and `||` use short-circuit evaluation.
 - `&` and `|` evaluate both operands regardless of the first operand's value.
-- The `^` operator returns `true` if the operands are different.
+- On boolean operands, the `^` operator returns `true` if the operands are different.
 
 ## Key Points to Remember
 
-1. Operator precedence: Arithmetic > Relational > Logical
+1. Operator precedence: Arithmetic > Relational > binary Logical (`&&`, `||`); the unary `!` binds tighter than all of
+   them, so `!a == b` means `(!a) == b`.
 2. Use parentheses to clarify complex expressions.
 3. Be aware of integer overflow and underflow.
 4. Short-circuit evaluation can improve performance and prevent errors.
@@ -90,7 +91,8 @@ Logical operators perform boolean logic operations.
 
 1. Use `Math.floorDiv()` and `Math.floorMod()` for consistent behavior with negative numbers.
 2. Consider using `java.util.concurrent.atomic` classes for thread-safe increment/decrement operations.
-3. Use `Double.compare()` or `Float.compare()` for comparing floating-point numbers.
+3. Use `Double.compare()` or `Float.compare()` when you need a consistent total order (they treat NaN as equal to
+   itself and -0.0 as less than 0.0); they do not remove rounding error, so compare with a tolerance for that.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -101,7 +103,8 @@ Logical operators perform boolean logic operations.
 
 ## Best Practices and Optimization Techniques
 
-1. Use compound assignment operators (`+=`, `-=`, `*=`, `/=`) for readability and slight performance improvement.
+1. Use compound assignment operators (`+=`, `-=`, `*=`, `/=`) for readability; they are not faster. Note that they
+   contain an implicit narrowing cast: `byte b = 10; b += 300;` compiles and leaves `b == 54`.
 2. Prefer `&&` and `||` over `&` and `|` for boolean operations to leverage short-circuit evaluation.
 3. Use bitwise operators for performance-critical low-level operations.
 4. Consider using `BigDecimal` for precise decimal calculations, especially in financial applications.

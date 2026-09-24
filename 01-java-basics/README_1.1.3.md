@@ -7,7 +7,8 @@ This process is crucial for manipulating data and ensuring type safety in variou
 
 1. Implicit Casting (Widening):
     - Automatic conversion of a smaller data type to a larger data type.
-    - No data loss occurs.
+    - The magnitude is never lost, but int or long to float, and long to double, can lose precision:
+      `float f = 123456789;` stores 1.23456792E8.
     - Example: int to long, float to double.
 
 2. Explicit Casting (Narrowing):
@@ -60,7 +61,7 @@ which can sometimes reduce the need for explicit casting.
    int myInt = 100;
    long myLong = myInt; // Implicit casting from int to long
    ```
-   This is safe because there's no risk of data loss.
+   This is safe because every int value fits exactly in a long (int to float would not be: it can round).
    Explicit casting, or narrowing conversion, is used when converting a larger data type to a smaller one.
    It requires manual intervention:
 
@@ -151,7 +152,7 @@ which can sometimes reduce the need for explicit casting.
 
     - Use primitive types instead of wrapper classes in performance-critical loops.
     - Be cautious when using compound assignment operators with wrapper classes.
-    - When working with collections, consider using specialized collections like IntStream for better performance.
+    - Consider primitive arrays or primitive streams such as IntStream (which are not collections) to avoid boxing.
     - Profile your application to identify auto-boxing/unboxing hotspots.
 
 ## Code Examples:

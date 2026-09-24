@@ -27,12 +27,12 @@ class PrimitiveTypesTest {
         assertThat(primitiveTypes.getLongRange()).containsExactly(-9223372036854775808L, 9223372036854775807L);
 
         // Float
-        assertThat(primitiveTypes.getFloatRange()).containsExactly(1.4E-45f, 3.4028235E38f);
-
+        assertThat(primitiveTypes.getFloatRange()).containsExactly(-3.4028235E38f, 3.4028235E38f);
+        assertThat(primitiveTypes.getSmallestPositiveFloat()).isEqualTo(1.4E-45f).isPositive();
 
         // Double
-        double[] expectedDoubleRange = primitiveTypes.getDoubleRange();
-        assertThat(primitiveTypes.getDoubleRange()).containsExactly(4.9E-324, 1.7976931348623157E308);
+        assertThat(primitiveTypes.getDoubleRange()).containsExactly(-1.7976931348623157E308, 1.7976931348623157E308);
+        assertThat(primitiveTypes.getSmallestPositiveDouble()).isEqualTo(4.9E-324).isPositive();
 
         // Boolean
         assertThat(primitiveTypes.getBooleanValues()).containsExactly(false, true);
