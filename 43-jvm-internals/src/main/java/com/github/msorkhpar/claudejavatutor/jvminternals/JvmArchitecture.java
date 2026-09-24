@@ -49,15 +49,18 @@ public class JvmArchitecture {
         }
 
         /**
-         * Demonstrates that classes loaded by different class loaders are different,
-         * even if they have the same name.
+         * Returns whether two classes were defined by the same class loader.
+         * (A class's runtime identity is its name plus its defining loader, so the
+         * same name loaded by two different loaders gives two different classes.)
          */
         public boolean areSameClassLoader(Class<?> clazz1, Class<?> clazz2) {
             return clazz1.getClassLoader() == clazz2.getClassLoader();
         }
 
         /**
-         * Attempts to load a class by name using the current thread's context class loader.
+         * Attempts to load a class by name using the caller's class loader
+         * ({@code Class.forName(String)} uses the loader of the calling class, not the
+         * thread's context class loader).
          * Returns the loaded class or null if not found.
          */
         public Class<?> tryLoadClass(String className) {
@@ -269,7 +272,7 @@ public class JvmArchitecture {
         }
 
         /**
-         * Gets the Java specification version.
+         * Gets the Java runtime version ({@code java.version}, e.g. "21.0.2").
          */
         public String getJavaVersion() {
             return System.getProperty("java.version");

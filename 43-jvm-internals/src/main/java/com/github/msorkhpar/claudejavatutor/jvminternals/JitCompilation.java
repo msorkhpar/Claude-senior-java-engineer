@@ -74,7 +74,8 @@ public class JitCompilation {
 
     /**
      * Demonstrates escape analysis concepts.
-     * Objects that don't escape a method can be stack-allocated or eliminated.
+     * Allocations of objects that don't escape a method can be eliminated
+     * (HotSpot uses scalar replacement; it does not stack-allocate objects).
      */
     public static class EscapeAnalysisDemo {
 

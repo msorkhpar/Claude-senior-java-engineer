@@ -138,8 +138,16 @@ class BytecodeExecutionTest {
                     .containsEntry("virtual", "invokevirtual")
                     .containsEntry("static", "invokestatic")
                     .containsEntry("special", "invokespecial")
+                    .containsEntry("private", "invokevirtual (private)")
                     .containsEntry("interface", "invokeinterface")
                     .containsEntry("dynamic", "INVOKEDYNAMIC");
+        }
+
+        @Test
+        @DisplayName("super call should reach the superclass method, not the override")
+        void testSuperCallBypassesOverride() {
+            assertThat(demo.describe()).isEqualTo("overridden");
+            assertThat(demo.demonstrateAllInvocations()).containsEntry("special", "invokespecial");
         }
 
         @Test
