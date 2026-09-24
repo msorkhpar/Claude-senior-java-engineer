@@ -106,7 +106,8 @@ public class RecursiveTaskExamples {
     /**
      * RecursiveTask for Fibonacci computation.
      * Demonstrates a case where fork/join is NOT ideal for small inputs
-     * due to overhead, but works well for large inputs with memoization threshold.
+     * due to overhead; below the sequential threshold it computes iteratively.
+     * (There is no memoization: above the threshold the task tree grows exponentially.)
      */
     public static class FibonacciTask extends RecursiveTask<BigInteger> {
         private static final int SEQUENTIAL_THRESHOLD = 20;

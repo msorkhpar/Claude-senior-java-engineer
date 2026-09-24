@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 /**
  * Demonstrates key features introduced in Java 11 (LTS).
  * Covers: Local-Variable Syntax for Lambda Parameters, HTTP Client API,
- * String API Enhancements, Nested Based Access Control, Running Java Files Directly.
+ * String API Enhancements, Nest-Based Access Control, Running Java Files Directly.
  */
 public class Java11Features {
 
@@ -137,12 +137,12 @@ public class Java11Features {
         return !stripped.equals(trimmed);
     }
 
-    // ========== Nested Based Access Control ==========
+    // ========== Nest-Based Access Control ==========
 
     /**
      * Demonstrates nested classes accessing private members of enclosing class.
      * In Java 11, the JVM recognizes nest-based access control natively,
-     * eliminating the need for synthetic bridge methods.
+     * eliminating the need for synthetic accessor methods.
      */
     public static class Outer {
         private String secret = "outer-secret";
@@ -153,7 +153,7 @@ public class Java11Features {
         }
 
         /**
-         * Inner class accessing private members of Outer - no bridge methods needed in Java 11+.
+         * Inner class accessing private members of Outer - no accessor methods needed in Java 11+.
          */
         public class Inner {
             private String innerSecret = "inner-secret";
@@ -202,7 +202,8 @@ public class Java11Features {
     /**
      * Demonstrates the concept of single-file source-code programs.
      * In Java 11, you can run: java MyProgram.java (without explicit compilation).
-     * This method simulates the behavior by writing and reading a temp file.
+     * This method does not run anything: it only writes the source to a temp .java file
+     * and reads it back with the Java 11 Files.writeString()/readString() methods.
      */
     public static String simulateSingleFileExecution(String javaCode) throws IOException {
         Path tempFile = Files.createTempFile("JavaProgram", ".java");

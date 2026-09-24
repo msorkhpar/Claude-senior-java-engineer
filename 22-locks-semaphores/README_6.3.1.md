@@ -100,8 +100,8 @@ A thread calling `condition.await()` atomically releases the lock and suspends. 
   like platform threads. The JVM ensures that a virtual thread blocked on a lock does not block its carrier
   (platform) thread. This makes `ReentrantLock` a better choice than `synchronized` for high-concurrency virtual
   thread scenarios in Java 21 (though from Java 24 `synchronized` is also non-pinning).
-- **Structured Concurrency (JEP 453)**: While structured concurrency uses `StructuredTaskScope`, locks can still be
-  used inside scoped tasks to protect shared resources.
+- **Structured Concurrency (JEP 453, a preview API in Java 21)**: While structured concurrency uses
+  `StructuredTaskScope`, locks can still be used inside scoped tasks to protect shared resources.
 - **`LockSupport.park`/`unpark`**: The underlying primitive that `ReentrantLock` and `Condition` use internally;
   understanding it helps with debugging thread dumps.
 
@@ -194,7 +194,8 @@ A thread calling `condition.await()` atomically releases the lock and suspends. 
 ## Best Practices and Optimization Techniques
 
 1. **Prefer `synchronized` for simple, uncontended, short critical sections**: Simpler to read and the JVM can
-   optimize it (lock elision, biased locking).
+   optimize it (lock elision, lock coarsening). Biased locking no longer applies: it was disabled by default in
+   JDK 15 and removed in JDK 18.
 2. **Choose `ReentrantLock` when you need**: timed or interruptible locking, `tryLock()`, multiple conditions, or
    fair ordering.
 3. **Keep critical sections short**: Holding a lock for long increases contention.
@@ -207,8 +208,9 @@ A thread calling `condition.await()` atomically releases the lock and suspends. 
 
 ## Edge Cases and Their Handling
 
-1. **Reentrant lock count overflow**: The hold count is stored in an `int`; if a thread enters more than
-   `Integer.MAX_VALUE` times (pathologically recursive code), it overflows. This is an error in design.
+1. **Reentrant lock count overflow**: The hold count is stored in an `int`; if a thread tries to enter more than
+   `Integer.MAX_VALUE` times (pathologically recursive code), `lock()` throws `java.lang.Error("Maximum lock count
+   exceeded")` instead of silently overflowing. This is an error in design.
 2. **Thread interruption during `lockInterruptibly()`**: The interrupted thread receives `InterruptedException` and
    does not acquire the lock — the lock state is clean.
 3. **Condition `await()` with timeout**: Returns `false` if the timeout elapsed without signal; always check the
@@ -254,7 +256,7 @@ Feature Comparison:
 When to choose synchronized:
 - Simple short critical sections
 - Readability is paramount
-- Java 21+ virtual threads (synchronized no longer pins carrier threads in Java 24)
+- Virtual threads on Java 24+ (JEP 491: synchronized no longer pins carrier threads there; on Java 21 it can pin)
 - No need for Condition variables or timeouts
 
 When to choose ReentrantLock:
@@ -452,7 +454,7 @@ lock():
 
 tryLock():
 - Returns immediately — true if acquired, false if not.
-- Non-blocking variant: tryLock(time, unit) waits up to the specified time, then returns false.
+- Timed variant: tryLock(time, unit) waits up to the specified time, then returns false.
 - Can respond to interruption if using timed form.
 - Use when: you want to avoid blocking, or need to implement lock-ordering to prevent deadlocks.
 
@@ -598,5 +600,9 @@ whether to retry, log, or fail gracefully — a design choice impossible with sy
 
 ## Code Examples
 
-- Source: [ReentrantLocks.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReentrantLocks.java)
-- Test: [ReentrantLocksTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReentrantLocksTest.java)
+- Source: [ReentrantLockBasics.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReentrantLockBasics.java)
+- Source: [ConditionUsage.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ConditionUsage.java)
+- Source: [ReadWriteLockUsage.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReadWriteLockUsage.java)
+- Test: [ReentrantLockBasicsTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReentrantLockBasicsTest.java)
+- Test: [ConditionUsageTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ConditionUsageTest.java)
+- Test: [ReadWriteLockUsageTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReadWriteLockUsageTest.java)

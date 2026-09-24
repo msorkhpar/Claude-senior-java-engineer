@@ -1,5 +1,10 @@
 # 7.2. Enhanced Enums
 
+Java enums cannot be generic. JEP 301 ("Enhanced Enums") proposed generic enums and sharper typing of enum constants,
+but it was withdrawn and never shipped, so `enum Setting<T>` does not compile in Java 21. This module teaches the
+workarounds Java actually supports: enums with constructor parameters and constant-specific bodies, generic methods on
+enums, `Class<T>` tokens, and sealed interfaces with records.
+
 ## Contents
 
 1. [7.2.1. Limitations of Traditional Enums](README_7.2.1.md)

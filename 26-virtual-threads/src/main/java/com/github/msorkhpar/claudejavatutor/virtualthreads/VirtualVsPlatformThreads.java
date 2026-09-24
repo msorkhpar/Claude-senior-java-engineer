@@ -335,7 +335,7 @@ public class VirtualVsPlatformThreads {
 
         /**
          * Virtual threads have fixed priority (Thread.NORM_PRIORITY).
-         * Calling setPriority with a different value throws IllegalArgumentException.
+         * Calling setPriority with a different value is silently ignored.
          */
         public static int virtualThreadFixedPriority() {
             Thread vt = Thread.ofVirtual().unstarted(() -> {});

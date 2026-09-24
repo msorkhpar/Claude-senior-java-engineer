@@ -66,7 +66,7 @@ Concurrent collections provide **weakly consistent** iterators:
    // BAD: Throws ConcurrentModificationException
    List<String> list = new ArrayList<>(List.of("a", "b", "c"));
    for (String s : list) {
-       if (s.equals("b")) {
+       if (s.equals("a")) {
            list.remove(s); // Structural modification during iteration!
        }
    }
@@ -132,8 +132,9 @@ Concurrent collections provide **weakly consistent** iterators:
 
 ## Edge Cases and Their Handling
 
-1. **Modifying the last element**: Even removing the last element during iteration can throw
-   `ConcurrentModificationException` (though it sometimes appears to work -- this is unreliable).
+1. **Removing near the end**: With an `ArrayList`, removing the **second-to-last** element inside a for-each loop
+   does NOT throw: `hasNext()` then returns false and the last element is silently skipped. Removing the **last**
+   element does throw `ConcurrentModificationException`. Neither behaviour is something to rely on.
 2. **Concurrent modification from another thread**: Fail-fast detection may not fire immediately in multi-threaded
    contexts; the collection might become corrupted before the exception is thrown.
 3. **Nested iteration**: Modifying a collection while iterating it in a nested loop is doubly dangerous -- use copies
@@ -212,7 +213,7 @@ A2: There are several safe approaches, from most to least preferred:
 
 1. removeIf() (Java 8+) - BEST approach:
    - Clean, functional, single method call
-   - Internally uses Iterator.remove() efficiently
+   - The default Collection.removeIf() uses Iterator.remove(); ArrayList overrides it with a single O(n) pass
    - Works on all Collection types
 
 2. Iterator.remove():
@@ -224,8 +225,8 @@ A2: There are several safe approaches, from most to least preferred:
    - Creates a new collection, does not modify the original
    - Ideal when you want to produce a filtered copy
 
-4. Copy-then-modify:
-   - Iterate a copy, modify the original
+4. Collect-then-remove:
+   - Iterate, collecting the elements to remove into a separate list, then call removeAll() after the loop
    - Higher memory usage but simple to understand
 
 5. Indexed reverse iteration:
@@ -255,7 +256,7 @@ List<String> filtered = list.stream()
     .filter(s -> !s.equals("b"))
     .toList();
 
-// 4. Copy-then-modify
+// 4. Collect-then-remove
 List<String> toRemove = new ArrayList<>();
 for (String s : list) {
     if (s.equals("b")) toRemove.add(s);

@@ -56,9 +56,9 @@ public interface Callable<V> {
 
 ## Relevant Java 21 Features
 
-- **CompletableFuture**: While `Future` is the basic building block, `CompletableFuture` (Java 8+) extends `Future` with a rich API for chaining, combining, and composing asynchronous operations without blocking. `Future.get()` is blocking; `CompletableFuture.thenApply()` is non-blocking.
+- **CompletableFuture**: While `Future` is the basic building block, `CompletableFuture` (Java 8+) implements `Future` (and `CompletionStage`) with a rich API for chaining, combining, and composing asynchronous operations without blocking. `Future.get()` is blocking; `CompletableFuture.thenApply()` is non-blocking.
 - **Virtual Threads**: With virtual threads (Java 21), blocking on `Future.get()` is much less costly because virtual threads are cheap to park and resume. This reduces the need for complex non-blocking patterns in many cases.
-- **Structured Concurrency (Preview, JEP 462)**: `StructuredTaskScope` provides a structured way to fork multiple tasks and join them, with built-in cancellation and error propagation, serving as a modern alternative to manual `invokeAll()` patterns.
+- **Structured Concurrency (Preview in Java 21, JEP 453)**: `StructuredTaskScope` provides a structured way to fork multiple tasks and join them, with built-in cancellation and error propagation, serving as a modern alternative to manual `invokeAll()` patterns.
 
 ```java
 // CompletableFuture (non-blocking chain)
@@ -67,7 +67,7 @@ CompletableFuture.supplyAsync(() -> fetchData())
     .thenAccept(result -> saveResult(result))
     .exceptionally(ex -> { log.error("Failed", ex); return null; });
 
-// Structured Concurrency (Java 21 preview)
+// Structured Concurrency (Java 21 preview: compile and run with --enable-preview)
 try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
     Subtask<String> user = scope.fork(() -> fetchUser());
     Subtask<Integer> order = scope.fork(() -> fetchOrder());
@@ -211,7 +211,7 @@ but they differ in two key ways:
 
 3. Usage with ExecutorService:
    - Runnable can be used with both execute() and submit()
-   - Callable can only be used with submit() (returns Future<V>)
+   - Callable cannot be passed to execute(); use submit() (returns Future<V>), invokeAll() or invokeAny()
 
 When Callable was introduced in Java 5, it solved the long-standing problem
 of getting results back from asynchronous tasks without resorting to shared
@@ -246,7 +246,7 @@ it is captured by the Future and rethrown when get() is called:
 2. Checked Exception thrown in task -> wrapped in ExecutionException -> thrown by get()
 3. Error thrown in task -> wrapped in ExecutionException -> thrown by get()
 
-Future.get() can throw three types of exceptions:
+Future.get() can throw four types of exceptions:
 - ExecutionException: The task failed. Use getCause() to get the original exception.
 - InterruptedException: The waiting thread was interrupted.
 - CancellationException: The task was cancelled before or during execution.
@@ -547,11 +547,12 @@ public <T> T executeWithRetry(ExecutorService executor, Callable<T> task,
     Exception lastException = null;
 
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
+        Future<T> future = executor.submit(task);
         try {
-            Future<T> future = executor.submit(task);
             return future.get(5, TimeUnit.SECONDS);
         } catch (ExecutionException e) {
-            lastException = (Exception) e.getCause();
+            // the cause may be an Error, which is not an Exception
+            lastException = e.getCause() instanceof Exception cause ? cause : e;
             System.out.printf("Attempt %d failed: %s%n", attempt + 1, lastException.getMessage());
 
             if (attempt < maxRetries) {
@@ -561,6 +562,7 @@ public <T> T executeWithRetry(ExecutorService executor, Callable<T> task,
                 Thread.sleep(backoff + jitter);
             }
         } catch (TimeoutException e) {
+            future.cancel(true); // do not leave the timed-out attempt running
             lastException = e;
             System.out.printf("Attempt %d timed out%n", attempt + 1);
         }

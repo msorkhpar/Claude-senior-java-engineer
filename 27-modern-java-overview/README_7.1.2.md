@@ -3,7 +3,7 @@
 ## Concept Explanation
 
 Java 11, released in September 2018, was the first Long-Term Support (LTS) release under Oracle's new six-month release
-cadence. It consolidated features previewed in Java 9 and 10, removed deprecated modules, and introduced several
+cadence. It standardized features incubated in Java 9 and 10 (the HTTP Client), removed deprecated modules, and introduced several
 productivity improvements that made Java more concise and developer-friendly.
 
 **Real-world analogy**: If Java 8 was adding power tools to a workshop, Java 11 was the renovation that streamlined the
@@ -14,7 +14,7 @@ Key areas of improvement:
 1. **Local-Variable Syntax for Lambda Parameters** -- using `var` in lambda formal parameters for annotation support
 2. **HTTP Client API** -- a modern, non-blocking HTTP client replacing `HttpURLConnection`
 3. **String API Enhancements** -- utility methods like `isBlank()`, `strip()`, `lines()`, `repeat()`
-4. **Nested Based Access Control** -- JVM-level support for private member access between nest members
+4. **Nest-Based Access Control** -- JVM-level support for private member access between nest members
 5. **Running Java Files Directly** -- `java MyProgram.java` without explicit `javac` compilation
 
 ## Key Points to Remember
@@ -25,17 +25,19 @@ Key areas of improvement:
 - `String.strip()` is Unicode-aware; `String.trim()` only handles ASCII whitespace (chars <= U+0020).
 - `String.lines()` returns a `Stream<String>` and handles `\n`, `\r\n`, and `\r`.
 - `String.isBlank()` returns true for empty strings and strings containing only whitespace.
-- Nest-based access control eliminates compiler-generated bridge methods for inner class access.
+- Nest-based access control eliminates compiler-generated synthetic accessor methods for inner class access.
 - `Files.writeString()` and `Files.readString()` simplify file I/O dramatically.
 - `Optional.isEmpty()` is the complement of `isPresent()` -- reads more naturally in conditions.
-- Java EE and CORBA modules were removed: `java.xml.ws`, `java.xml.bind`, `javax.activation`, etc.
+- Java EE and CORBA modules were removed (JEP 320): `java.xml.ws`, `java.xml.bind`, `java.activation`, `java.corba`,
+  `java.transaction`, `java.xml.ws.annotation`.
 
 ## Relevant Java 21 Features
 
 Java 21 extends Java 11's foundations:
 
 - **`var`**: Originally introduced in Java 10 for local variables, extended in 11 for lambdas, now used widely with pattern matching in Java 21.
-- **HTTP Client**: Remains the standard; virtual threads (Java 21) make asynchronous HTTP particularly powerful.
+- **HTTP Client**: Remains the standard; with virtual threads (Java 21) the simple blocking `send()` scales, which often
+  removes the need for `sendAsync()` chains.
 - **String enhancements**: Java 21 continues the trend with additional methods and text block improvements.
 - **Nest access**: Hidden classes (Java 15+) build on the nest concept for dynamic class generation.
 - **Single-file execution**: The `java` launcher continues to be enhanced, supporting shebang scripts on Unix.
@@ -63,9 +65,13 @@ Java 21 extends Java 11's foundations:
    // WRONG: no timeout -- can hang indefinitely
    HttpClient client = HttpClient.newHttpClient();
 
-   // FIX: always set connection timeout
+   // FIX: always set a connection timeout...
    HttpClient client = HttpClient.newBuilder()
        .connectTimeout(Duration.ofSeconds(10))
+       .build();
+   // ...and a per-request timeout, since connectTimeout does not cover waiting for the response
+   HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.example.com/data"))
+       .timeout(Duration.ofSeconds(30))
        .build();
    ```
 
@@ -204,7 +210,8 @@ HttpURLConnection with major improvements:
    - SSL/TLS configuration
 
 HttpURLConnection issues that are resolved:
-- Clunky, confusing API (e.g., must call getInputStream() before getResponseCode())
+- Clunky, confusing API (e.g., getInputStream() throws an IOException for 4xx/5xx
+  responses, so error bodies must be read from getErrorStream() instead)
 - No HTTP/2 support
 - Blocking-only design
 - Inconsistent error handling
@@ -212,7 +219,7 @@ HttpURLConnection issues that are resolved:
 
 ```java
 // Old way: HttpURLConnection
-URL url = new URL("https://api.example.com/data");
+URL url = new URL("https://api.example.com/data"); // deprecated since Java 20; use URI.create(...).toURL()
 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 conn.setRequestMethod("GET");
 conn.setConnectTimeout(5000);
@@ -300,17 +307,17 @@ s.strip();   // "Hello" - strip handles Unicode whitespace
 "x".repeat(0);    // ""
 ```
 
-**Q4: What is nested-based access control and why does it matter?**
+**Q4: What is nest-based access control and why does it matter?**
 
 ```text
-A4: Nested-based access control (JEP 181) is a JVM-level improvement that allows
+A4: Nest-based access control (JEP 181) is a JVM-level improvement that allows
 classes in the same nest (e.g., an outer class and its inner classes) to access
-each other's private members directly, without compiler-generated bridge methods.
+each other's private members directly, without compiler-generated accessor methods.
 
 Before Java 11:
 - Inner classes accessing outer private members (and vice versa) required the
-  compiler to generate synthetic "bridge" or "accessor" methods.
-- These bridge methods were:
+  compiler to generate synthetic "accessor" methods (named like access$000).
+- These accessor methods were:
   - Invisible in source code but present in bytecode
   - Package-private access, creating potential security issues
   - Extra method calls that the JIT compiler had to optimize away
@@ -319,7 +326,7 @@ Before Java 11:
 After Java 11:
 - The JVM natively understands the concept of "nests" (groups of related classes).
 - Private members can be accessed directly between nestmates.
-- No bridge methods needed.
+- No accessor methods needed.
 - Reflection works correctly: Class.getNestHost(), Class.getNestMembers(),
   Class.isNestmateOf().
 
@@ -341,7 +348,7 @@ public class Outer {
     public class Inner {
         private String innerSecret = "inner";
 
-        // Before Java 11: compiler generated a bridge method for this access
+        // Before Java 11: compiler generated a synthetic accessor method for this access
         // After Java 11: direct access at JVM level
         public String getOuterSecret() {
             return secret;
@@ -349,7 +356,7 @@ public class Outer {
     }
 
     public String getInnerSecret() {
-        return new Inner().innerSecret; // Direct access, no bridge method
+        return new Inner().innerSecret; // Direct access, no accessor method
     }
 
     // Reflection API for nest inspection

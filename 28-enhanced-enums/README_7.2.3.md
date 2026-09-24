@@ -59,7 +59,7 @@ Key patterns for parameterized enum constants:
        public abstract int apply(int a, int b);
    }
    // Op.ADD.getClass() != Op.class — it's an anonymous subclass!
-   // Op.ADD.getClass().isEnum() is still true
+   // Op.ADD.getClass().isEnum() is FALSE: the anonymous body class is not declared as an enum
    // But Op.ADD.getDeclaringClass() == Op.class — use this for the actual enum type
    ```
 
@@ -79,17 +79,19 @@ Key patterns for parameterized enum constants:
 
 4. **Static map initialization ordering**:
    ```java
-   // WRONG: static field initialized before constants exist
    public enum Color {
        RED, GREEN, BLUE;
-       // private static final Map<String, Color> MAP = new HashMap<>();
-       // static { for (Color c : values()) MAP.put(c.name(), c); }
-       // This actually works because static init runs AFTER constants,
-       // but be careful with forward references in constructors!
 
-       // RIGHT: use a static holder pattern or lazy initialization
+       // FINE: static fields are initialized AFTER all constants exist,
+       // so building a lookup map from values() here works
        private static final Map<String, Color> MAP =
            Arrays.stream(values()).collect(Collectors.toUnmodifiableMap(Color::name, c -> c));
+
+       // WRONG: using a static field from the constructor. Referring to MAP directly
+       // there is a compile error ("illegal reference to static field from initializer");
+       // reaching it indirectly (e.g., through a static method) throws
+       // NullPointerException, because MAP is still null while the constants are created.
+       // Color() { register(this); }  static void register(Color c) { MAP.put(c.name(), c); }
    }
    ```
 
@@ -125,7 +127,7 @@ Key patterns for parameterized enum constants:
 - **Empty enum**: Legal but unusual — an enum with no constants (`enum Empty {}`) compiles fine.
 - **Single-constant enum**: Common pattern for singletons — `enum Singleton { INSTANCE; }`.
 - **Enum with no methods or fields**: Acts as a simple set of named constants — the simplest enum usage.
-- **Serialization**: Enum constants are serialized by name only. Fields, even transient ones, are reconstructed via the `values()` mechanism. Custom `readObject`/`writeObject` are ignored.
+- **Serialization**: Enum constants are serialized by name only. Fields, even transient ones, are not written; deserialization returns the existing constant via `Enum.valueOf`. Custom `readObject`/`writeObject` are ignored.
 - **Enum constants with identical parameters**: Legal — two constants can have the same field values but are still distinct by identity.
 
 ## Interview-specific Insights

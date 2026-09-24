@@ -4,7 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.*;
@@ -165,8 +167,19 @@ class ForkJoinPoolBasicsTest {
         @DisplayName("Should complete within timeout")
         void testCompletesInTime() {
             long[] array = {1, 2, 3, 4, 5};
+            long start = System.nanoTime();
             long result = ForkJoinPoolBasics.sumWithTimeout(array, 5000);
             assertThat(result).isEqualTo(15);
+            // returns as soon as the sum is ready, not after the whole timeout
+            assertThat(System.nanoTime() - start).isLessThan(TimeUnit.SECONDS.toNanos(4));
+        }
+
+        @Test
+        @DisplayName("Should return -1 when the timeout expires first")
+        void testTimesOut() {
+            long[] array = new long[5_000_000];
+            Arrays.fill(array, 1L);
+            assertThat(ForkJoinPoolBasics.sumWithTimeout(array, 0)).isEqualTo(-1);
         }
 
         @Test

@@ -127,34 +127,38 @@ class ReadWriteLockUsageTest {
         cache.put("shared", "data");
 
         int readerCount = 10;
-        CyclicBarrier barrier = new CyclicBarrier(readerCount);
-        AtomicInteger concurrentReaders = new AtomicInteger(0);
-        AtomicInteger maxConcurrent = new AtomicInteger(0);
+        // The barrier can only trip once all readers hold the read lock at the same time,
+        // which proves that readers do not block each other.
+        CyclicBarrier allHolding = new CyclicBarrier(readerCount + 1);
+        CountDownLatch release = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(readerCount);
+        List<String> seen = Collections.synchronizedList(new ArrayList<>());
 
         for (int i = 0; i < readerCount; i++) {
             Thread.ofVirtual().start(() -> {
+                cache.getLock().readLock().lock();
                 try {
-                    barrier.await(5, TimeUnit.SECONDS);
-                    // All readers start at once
-                    String val = cache.get("shared");
-                    int current = concurrentReaders.incrementAndGet();
-                    maxConcurrent.updateAndGet(max -> Math.max(max, current));
-                    Thread.sleep(50); // hold read lock briefly
-                    concurrentReaders.decrementAndGet();
-                    assertThat(val).isEqualTo("data");
+                    seen.add(cache.get("shared")); // reentrant read under the held read lock
+                    allHolding.await(5, TimeUnit.SECONDS);
+                    release.await(5, TimeUnit.SECONDS);
                 } catch (Exception e) {
                     Thread.currentThread().interrupt();
                 } finally {
+                    cache.getLock().readLock().unlock();
                     done.countDown();
                 }
             });
         }
 
-        done.await(10, TimeUnit.SECONDS);
-        // With concurrent reads, multiple readers should have been active simultaneously
-        // (exact number depends on scheduling, but at least some concurrency should occur)
-        assertThat(maxConcurrent.get()).isGreaterThanOrEqualTo(1);
+        allHolding.await(5, TimeUnit.SECONDS); // throws TimeoutException if readers blocked each other
+        assertThat(cache.getReadLockCount()).isEqualTo(readerCount);
+        assertThat(cache.get("shared")).isEqualTo("data"); // another reader still gets in
+        assertThat(cache.isWriteLocked()).isFalse();
+
+        release.countDown();
+        assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(seen).hasSize(readerCount).containsOnly("data");
+        assertThat(cache.getReadLockCount()).isZero();
     }
 
     // -----------------------------------------------------------------------

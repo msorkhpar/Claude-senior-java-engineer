@@ -1,9 +1,11 @@
 package com.github.msorkhpar.claudejavatutor.forkjoin;
 
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.IntStream;
 
 /**
@@ -82,16 +84,19 @@ public class ForkJoinPoolBasics {
         ForkJoinPool pool = new ForkJoinPool();
         try {
             var future = pool.submit(new ArraySumTask(array, 0, array.length));
-            pool.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS);
-            if (future.isDone()) {
-                return future.join();
+            try {
+                return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                return -1;
+            } catch (ExecutionException e) {
+                throw new IllegalStateException("Parallel sum failed", e.getCause());
             }
-            return future.join(); // will block until done
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return -1;
         } finally {
-            pool.shutdown();
+            pool.shutdownNow(); // also discards subtasks still queued after a timeout
         }
     }
 

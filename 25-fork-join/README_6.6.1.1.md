@@ -47,7 +47,8 @@ Its default parallelism is `Runtime.getRuntime().availableProcessors() - 1`.
   `ForkJoinPool`. Fork/Join remains ideal for CPU-bound decomposition.
 - **Structured Concurrency (preview)**: `StructuredTaskScope` provides fork/join semantics for task lifecycle
   management, but targets a different use case than data-parallel decomposition.
-- The common pool parallelism default was refined in JDK 19+ for containers with CPU limits.
+- `availableProcessors()` has respected container CPU limits since JDK 10, so the common pool's default parallelism
+  follows the container's limit.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -166,8 +167,9 @@ A2: All three submit tasks to the pool, but differ in blocking behavior and retu
 - execute(task): Returns void immediately, like submit() but with no way to get
   the result. Best for fire-and-forget RecursiveAction tasks.
 
-All three methods will throw if the task encounters an exception, but invoke()
-throws immediately while submit()/execute() defer the exception to join()/get().
+Only invoke() throws the task's exception to the caller. After submit(), the exception
+surfaces from join()/get(); after execute(), only if you keep the task object and call
+join()/get() on it.
 ```
 
 ```java

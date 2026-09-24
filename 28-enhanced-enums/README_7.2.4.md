@@ -21,7 +21,8 @@ Key patterns for generic methods in enums:
 - Generic methods in enums enable the Template Method, Strategy, and Factory patterns with type safety.
 - Use `Class<T>` parameters for type tokens when the generic type must be known at runtime (e.g., for casting).
 - Bounded type parameters (`<T extends Number>`) constrain what types can be used with the method.
-- The `@SafeVarargs` annotation is needed on `final` enum methods that use varargs with generics.
+- The `@SafeVarargs` annotation (to suppress heap-pollution warnings) can only go on `static`, `final` or (Java 9+)
+  `private` methods and on constructors, so a generic varargs instance method in an enum must be declared `final`.
 - Enum generic methods can return `Optional<T>` for safe error handling.
 
 ## Relevant Java 21 Features
@@ -65,9 +66,9 @@ Key patterns for generic methods in enums:
    ```java
    // WARNING: potential heap pollution
    public <T> Collection<T> of(T... elements) { /* ... */ }
-   // Needs @SafeVarargs (only valid on final or static methods)
+   // Needs @SafeVarargs (only valid on static, final or private methods, and constructors)
 
-   // In enums, methods are effectively final, so use:
+   // Enum methods are NOT implicitly final (constant bodies can override them), so declare it final:
    @SafeVarargs
    public final <T> Collection<T> of(T... elements) { /* ... */ }
    ```
@@ -109,7 +110,7 @@ Key patterns for generic methods in enums:
 
 ## Interview-specific Insights
 
-- **"Why can't enums be generic but their methods can?"** — Enums are implicitly `final` classes that extend `Enum<E>` which is already generic. Adding another type parameter would create `Enum<E, T>` which breaks the core enum machinery. But methods can have independent type parameters because they're resolved at each call site.
+- **"Why can't enums be generic but their methods can?"** — The JLS does not allow type parameters on an enum declaration (see 7.2.2, Q1; JEP 301 proposed generic enums and was withdrawn). Methods can have their own type parameters because they are resolved at each call site.
 - **"How do generic enum methods compare to generic interface implementations?"** — Enums provide singleton constants + generic methods; interfaces provide polymorphic implementations. Enums are better when the set of operations is fixed.
 - **"What's the difference between `<T>` and `<T extends Comparable<T>>` on an enum method?"** — Unbounded allows any type but limits what you can do (no ordering, no arithmetic). Bounded constrains the type but enables more operations.
 
@@ -118,14 +119,10 @@ Key patterns for generic methods in enums:
 ### Q1: Why can't Java enums have type parameters, and how do generic methods work around this?
 
 ```text
-Java enums cannot be generic because they implicitly extend java.lang.Enum<E>,
-where E is the enum type itself. Adding another type parameter would require
-Enum<E, T>, which would break:
-1. The values() method — it returns E[], but with generics, what's T?
-2. The valueOf() method — needs to know the exact type at compile time
-3. Serialization — enum constants are serialized by name, not by parameterized type
-4. Singleton guarantee — MyEnum<String>.VALUE and MyEnum<Integer>.VALUE would be
-   the same constant but with different types, which is contradictory
+Java enums cannot be generic because the JLS does not allow type parameters on an
+enum declaration. 7.2.2, Q1 has the detail: it is a language-design decision rather
+than a consequence of erasure, and JEP 301 ("Enhanced Enums"), which proposed generic
+enums, was withdrawn.
 
 Generic methods work around this by declaring type parameters at the method level.
 The type is resolved at each call site, so the enum constant remains a singleton
@@ -348,8 +345,8 @@ Limitations:
 2. Type information is erased at runtime — need Class<T> tokens for runtime safety
 3. Cannot create generic arrays directly — use collections instead
 4. Wildcard capture can be tricky with abstract enum methods
-5. @SafeVarargs only works on final or static methods (enum methods are implicitly
-   final in some contexts, but constant-specific methods are not)
+5. @SafeVarargs only works on static, final or private methods (and constructors);
+   enum methods are not implicitly final, so a generic varargs method must be declared final
 6. No generic constant fields — fields must use raw or specific types
 
 Workarounds:
@@ -376,23 +373,20 @@ public enum TypeSafe {
 // Workaround 2: Generic interface implementation
 interface Transformer<T, R> { R transform(T input); }
 
-// Each constant can implement for specific types
-public enum StringTransformer {
+// The enum implements the generic interface, but with ONE parameterization for all constants
+public enum StringTransformer implements Transformer<String, Object> {
     TO_INT {
-        public Integer apply(String s) { return Integer.parseInt(s); }
+        public Object transform(String s) { return Integer.parseInt(s); }
     },
     TO_UPPER {
-        public String apply(String s) { return s.toUpperCase(); }
+        public Object transform(String s) { return s.toUpperCase(); }
     };
-    // Note: can't make the return type generic at enum level
+    // Note: can't make the return type differ per constant at the enum level
 
     // But CAN have a generic utility method
     public <T> Optional<T> safeApply(String s, Class<T> type) {
         try {
-            Object result = switch (this) {
-                case TO_INT -> Integer.parseInt(s);
-                case TO_UPPER -> s.toUpperCase();
-            };
+            Object result = transform(s);
             return Optional.of(type.cast(result));
         } catch (Exception e) {
             return Optional.empty();

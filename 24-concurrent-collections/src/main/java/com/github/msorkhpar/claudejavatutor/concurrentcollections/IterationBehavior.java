@@ -27,7 +27,7 @@ public class IterationBehavior {
                         list.remove(s); // Structural modification during iteration
                     }
                 }
-                return false; // No exception thrown (unlikely but possible if last element)
+                return false; // No exception: happens only if the removed element is the second-to-last
             } catch (ConcurrentModificationException e) {
                 return true;
             }
@@ -190,7 +190,8 @@ public class IterationBehavior {
     public static class SafeModificationPatterns {
 
         /**
-         * Copy-then-modify pattern: iterate a copy, modify the original.
+         * Collect-then-remove pattern: collect the elements to remove while iterating,
+         * then remove them after the loop.
          */
         public List<String> copyThenModify(List<String> original, String toRemove) {
             List<String> list = new ArrayList<>(original);

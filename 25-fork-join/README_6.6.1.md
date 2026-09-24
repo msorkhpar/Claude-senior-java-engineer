@@ -40,10 +40,11 @@ The Fork/Join Framework underpins Java's parallel streams (`parallelStream()`) a
 
 - **Virtual threads (JEP 444)**: Virtual threads are better suited for I/O-bound tasks, while Fork/Join remains the
   tool of choice for CPU-bound parallel decomposition. They are complementary.
-- **Structured Concurrency (JEP 462, preview)**: Provides a higher-level API for forking concurrent tasks and joining
+- **Structured Concurrency (JEP 453, preview in Java 21)**: Provides a higher-level API for forking concurrent tasks and joining
   them, but targets a different use case (task lifecycle management vs. data parallelism).
-- **`ForkJoinPool` improvements**: Java 19+ added `ForkJoinPool.ManagedBlocker` enhancements and better diagnostics.
-  The common pool's parallelism defaults to `Runtime.getRuntime().availableProcessors() - 1`.
+- **`ForkJoinPool` additions**: Java 19 added `setParallelism()`, `lazySubmit()` and `close()` (so a pool works in
+  try-with-resources); Java 20 added `externalSubmit()`. The common pool's parallelism defaults to
+  `Runtime.getRuntime().availableProcessors() - 1`.
 - **Parallel streams**: Internally use the common `ForkJoinPool`, making the framework relevant even if you never use it
   directly.
 
@@ -52,7 +53,7 @@ The Fork/Join Framework underpins Java's parallel streams (`parallelStream()`) a
 1. **Forking both subtasks instead of computing one inline**
 
    ```java
-   // Anti-pattern: wastes the current thread
+   // Anti-pattern: an extra fork, and the current thread only gets work back through join()
    left.fork();
    right.fork();
    return left.join() + right.join();
@@ -76,8 +77,10 @@ The Fork/Join Framework underpins Java's parallel streams (`parallelStream()`) a
 4. **Shared mutable state**: Concurrent modification of shared structures causes data races.
    **Fix**: Use thread-local accumulators, atomic variables, or merge results at join time.
 
-5. **Joining before forking**: Calling `join()` before `fork()` forces sequential execution.
-   **Fix**: Always fork before joining.
+5. **Joining too early**: Calling `left.join()` right after `left.fork()`, before computing the other half, forces
+   sequential execution. (And calling `join()` on a task that was never forked or invoked blocks forever: nothing
+   will ever run it.)
+   **Fix**: Fork, compute the other subtask, then join.
 
 ## Best Practices and Optimization Techniques
 
@@ -87,7 +90,8 @@ The Fork/Join Framework underpins Java's parallel streams (`parallelStream()`) a
 4. Prefer `invokeAll()` for `RecursiveAction` tasks with symmetric subtask structure.
 5. Make tasks **stateless** or use **thread-safe accumulators** (e.g., `AtomicLong`).
 6. Use `ForkJoinPool` for CPU-bound decomposition; use virtual threads for I/O-bound concurrency.
-7. Profile with JMH or `PerformanceTestUtil` to verify that parallelism actually improves throughput.
+7. Profile with JMH or the course's `PerformanceTestUtil` (module `00-base`) to verify that parallelism actually
+   improves throughput.
 
 ## Edge Cases and Their Handling
 
@@ -215,10 +219,11 @@ A4: Forking both subtasks wastes the current thread:
 Anti-pattern:
   left.fork();   // push left to deque
   right.fork();  // push right to deque
-  return left.join() + right.join();  // current thread is idle!
+  return left.join() + right.join();  // current thread just waits in join()
 
-The current thread forks two tasks and then blocks waiting. It does no useful work itself.
-Another thread must steal one of the tasks, effectively wasting one thread.
+The current thread forks two tasks and then waits in join(). While waiting, a ForkJoinPool
+worker usually runs or helps with the queued tasks itself, so no extra thread is needed, but
+every split pays for an extra push/pop through the deque and the work is no longer done directly.
 
 Correct pattern:
   left.fork();                        // push left to deque
@@ -226,8 +231,8 @@ Correct pattern:
   long leftResult = left.join();      // join left
   return leftResult + rightResult;
 
-The current thread computes the right subtask directly, staying productive while a
-stolen thread processes the left subtask. This maximizes CPU utilization.
+The current thread computes the right subtask directly, staying productive while another
+worker may steal and process the left subtask. This maximizes CPU utilization.
 
 Additionally, always join the LAST-forked task first (or call compute on the right
 after forking the left) to minimize task queue depth.

@@ -37,7 +37,7 @@ Key concepts:
 - **Virtual thread**: A lightweight thread managed by the JVM, not the OS. It has its own call stack and can be
   suspended and resumed cheaply.
 - **Carrier thread**: A platform (OS) thread that actually executes virtual thread code. The JVM maintains a pool of
-  carrier threads (typically backed by `ForkJoinPool.commonPool()`).
+  carrier threads in a dedicated `ForkJoinPool` (not `ForkJoinPool.commonPool()`; see Q6).
 - **Mounting/Unmounting**: The process of attaching/detaching a virtual thread to/from a carrier thread. Unmounting
   happens automatically at blocking points.
 - **Continuation**: The internal mechanism that allows a virtual thread's stack to be saved and restored. This is what
@@ -201,12 +201,13 @@ Java 21 provides several APIs for creating virtual threads:
    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
        for (var request : requests) {
            executor.submit(() -> {
-               dbPool.acquire();
+               dbPool.acquire(); // may throw InterruptedException: fine in a Callable
                try {
                    queryDatabase(request);
                } finally {
                    dbPool.release();
                }
+               return null;      // returning a value makes the lambda a Callable
            });
        }
    }
@@ -436,8 +437,12 @@ scenarios where timely cancellation is critical.
 
 How it works:
 1. Call thread.interrupt() to set the interrupt flag
-2. If the thread is in a blocking operation (sleep, I/O, wait), it throws
-   InterruptedException immediately
+2. If the thread is in a blocking operation such as sleep(), wait(), join(),
+   BlockingQueue.take() or Lock.lockInterruptibly(), it throws InterruptedException
+   immediately. Blocking I/O reports interruption differently: an interruptible
+   NIO channel is closed and ClosedByInterruptException is thrown, and in a
+   virtual thread a blocking java.net socket operation is also interruptible (the
+   socket is closed and a SocketException is thrown)
 3. If the thread is running, it must check Thread.interrupted() or
    isInterrupted() periodically
 
@@ -450,7 +455,7 @@ Best practices:
 
 Virtual threads respond to interrupt at all standard blocking points:
 Thread.sleep(), Object.wait(), BlockingQueue.take(), Lock.lockInterruptibly(),
-I/O operations via java.nio channels, etc.
+and (with the exceptions above) java.nio channel and java.net socket I/O.
 ```
 
 ```java
@@ -535,7 +540,7 @@ consuming only 200 KB.
 
 Java 21 introduces ScopedValue (preview) as a more efficient alternative:
 - ScopedValues are immutable and automatically cleaned up
-- They are inherited by child threads efficiently
+- They are inherited by subtasks forked in a StructuredTaskScope (not by arbitrary new threads)
 - No need for explicit remove() calls
 - Better memory efficiency with virtual threads
 

@@ -17,8 +17,8 @@ readers always see a consistent snapshot while the writer works on the original.
 | Implementation         | Random Access | Insertion (middle) | Thread-Safe | Null Elements | Iterator Behavior     |
 |------------------------|---------------|--------------------|-------------|---------------|-----------------------|
 | ArrayList              | O(1)          | O(n)               | No          | Yes           | Fail-fast             |
-| LinkedList             | O(n)          | O(1) at position   | No          | Yes           | Fail-fast             |
-| CopyOnWriteArrayList   | O(1)          | O(n) (full copy)   | Yes         | Yes           | Snapshot (weakly consistent) |
+| LinkedList             | O(n)          | O(1) once positioned (O(n) to walk there) | No          | Yes           | Fail-fast             |
+| CopyOnWriteArrayList   | O(1)          | O(n) (full copy)   | Yes         | Yes           | Snapshot (never throws CME) |
 
 ### 6.5.1.2. Set Implementations
 
@@ -46,8 +46,8 @@ readers always see a consistent snapshot while the writer works on the original.
    that).
 5. **ConcurrentSkipListSet** is a thread-safe, sorted set backed by a skip list; it does **not** allow null elements.
 6. **HashMap** offers O(1) average lookup but degrades to O(log n) when many keys collide (Java 8+ tree bins).
-7. **ConcurrentHashMap** uses fine-grained locking (lock striping) for high-throughput concurrent access; it does
-   **not** allow null keys or values.
+7. **ConcurrentHashMap** uses fine-grained locking (per-bin locks plus CAS since Java 8; the Java 7 version used lock
+   striping over segments) for high-throughput concurrent access; it does **not** allow null keys or values.
 8. All non-concurrent collections are **not** thread-safe by default.
 
 ## Relevant Java 21 Features
@@ -116,8 +116,8 @@ readers always see a consistent snapshot while the writer works on the original.
 
 ## Edge Cases and Their Handling
 
-1. **Null elements**: ArrayList, LinkedList, HashSet, HashMap all accept null. ConcurrentHashMap,
-   ConcurrentSkipListSet, and CopyOnWriteArrayList (for `addIfAbsent`) reject null.
+1. **Null elements**: ArrayList, LinkedList, HashSet, HashMap and CopyOnWriteArrayList (including `addIfAbsent(null)`)
+   all accept null. ConcurrentHashMap and ConcurrentSkipListSet reject null.
 2. **Empty collections**: All collections handle empty state gracefully; check with `isEmpty()` before calling
    `get(0)` on lists.
 3. **Single-element collections**: Use `Collections.singletonList()` or `List.of(element)` for immutable
@@ -144,8 +144,9 @@ A1: In almost all cases, ArrayList is preferred over LinkedList because:
 1. Cache locality: ArrayList's contiguous memory layout is CPU-cache-friendly, making sequential access 
    significantly faster in practice.
 2. Random access: ArrayList provides O(1) access by index; LinkedList is O(n).
-3. Memory overhead: Each LinkedList node carries two extra pointers (prev/next), roughly 3x the memory 
-   overhead per element compared to ArrayList.
+3. Memory overhead: Each LinkedList element needs its own node object (header plus item/prev/next
+   references, about 24 bytes with compressed oops) versus one 4-byte array slot in ArrayList —
+   several times the memory per element.
 
 LinkedList is better ONLY when:
 - You need constant-time insertions/removals at both ends (use as Deque)
@@ -306,7 +307,7 @@ Collision handling (Java 8+):
 - When multiple keys hash to the same bucket, they form a linked list.
 - If a bucket's linked list exceeds 8 nodes AND the table has >= 64 buckets, the list is converted to 
   a balanced red-black tree (O(log n) lookup instead of O(n)).
-- If the tree shrinks below 6 nodes, it converts back to a linked list.
+- If a tree bin shrinks to 6 or fewer nodes (checked when the table is resized), it converts back to a linked list.
 
 Hash computation:
 - HashMap applies a supplementary hash function that XORs the upper and lower 16 bits of hashCode():
@@ -339,8 +340,9 @@ Integer nullValue = map.get(null); // Returns 0
 A6: ConcurrentHashMap uses several techniques for fine-grained concurrency:
 
 Java 8+ implementation (current):
-1. Lock striping: Instead of locking the entire table, it locks individual buckets (segments) using 
-   synchronized blocks on the first node of each bucket.
+1. Per-bin locking: Instead of locking the entire table, it locks individual buckets (bins) using 
+   synchronized blocks on the first node of each bin. (The Java 7 version locked "segments" —
+   lock striping; Java 8 removed segments.)
 2. CAS operations: Many operations (like adding to an empty bucket) use Compare-And-Swap (CAS) 
    atomic operations, avoiding locks entirely.
 3. Volatile reads: The table array and node values use volatile semantics, ensuring visibility across 

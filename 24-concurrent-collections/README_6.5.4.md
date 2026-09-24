@@ -25,7 +25,8 @@ rent a 100-person office from the start (pre-sizing) rather than moving 3-4 time
 When a HashMap exceeds its threshold:
 1. A new array of **double** the current capacity is allocated.
 2. Every entry is **rehashed** and placed in its new position (`hash & (newCapacity - 1)`).
-3. This is an O(n) operation that temporarily doubles memory usage.
+3. This is an O(n) operation; the old and the new bucket arrays exist at the same time (the entries themselves are
+   relinked, not copied).
 4. In Java 8+, tree bins (red-black trees used for collision buckets) may be split during rehashing.
 
 ### 6.5.4.3. Capacity Considerations in Other Collections
@@ -46,7 +47,7 @@ When a HashMap exceeds its threshold:
 4. **Resizing is O(n)**: Every element must be rehashed and repositioned.
 5. **ArrayList grows by ~50%**: Each resize copies the entire array. Pre-sizing with the constructor avoids this.
 6. **`trimToSize()`** reduces ArrayList's internal array to match its current size, freeing unused memory.
-7. **ConcurrentHashMap** adjusts internal sizing based on the concurrency level parameter.
+7. **ConcurrentHashMap** uses the concurrency level only as a sizing hint (initial capacity is raised to at least it).
 
 ## Relevant Java 21 Features
 
@@ -79,7 +80,7 @@ Set<String> set = HashSet.newHashSet(50);           // Sized to hold 50 elements
 
 2. **Confusing initial capacity with number of elements for HashMap**
    ```java
-   // BAD: capacity 100 with load factor 0.75 resizes at 75 elements!
+   // BAD: capacity 100 is rounded up to 128 (threshold 96): it resizes on the 97th element!
    Map<String, Integer> map = new HashMap<>(100);
    // To hold 100 elements without resizing, you need capacity >= 134
 
@@ -113,7 +114,8 @@ Set<String> set = HashSet.newHashSet(50);           // Sized to hold 50 elements
 3. **Profile before optimizing**: Collection resizing is rarely the bottleneck in production applications.
 4. **Consider `Map.of()` / `List.of()`** for small, fixed-size collections -- they use optimized internal
    representations.
-5. **For very large maps**, consider setting concurrency level in ConcurrentHashMap to match expected thread count.
+5. **For ConcurrentHashMap, pre-size with `initialCapacity`**: since Java 8 the concurrency level only raises the
+   initial capacity to at least that value; it no longer controls any internal partitioning.
 6. **Use `Collections.emptyList()` / `Collections.emptyMap()`** instead of creating new empty collections.
 
 ## Edge Cases and Their Handling
@@ -350,7 +352,7 @@ Resizing behavior:
 
 Best practice:
 - Pre-size for the expected number of entries: new ConcurrentHashMap<>(expectedSize)
-- Set concurrencyLevel to the expected number of writer threads
+- concurrencyLevel is optional: in Java 8+ it only raises the initial capacity to at least that value
 ```
 
 ```java

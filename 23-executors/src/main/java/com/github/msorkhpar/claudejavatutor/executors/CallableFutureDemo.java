@@ -338,12 +338,14 @@ public class CallableFutureDemo {
                 throws Exception {
             Exception lastException = null;
             for (int attempt = 0; attempt <= maxRetries; attempt++) {
+                Future<T> future = executor.submit(task);
                 try {
-                    Future<T> future = executor.submit(task);
                     return future.get(5, TimeUnit.SECONDS);
                 } catch (ExecutionException e) {
-                    lastException = (Exception) e.getCause();
+                    // the cause may be an Error, which is not an Exception
+                    lastException = e.getCause() instanceof Exception cause ? cause : e;
                 } catch (TimeoutException e) {
+                    future.cancel(true); // do not leave the timed-out attempt running
                     lastException = e;
                 }
             }

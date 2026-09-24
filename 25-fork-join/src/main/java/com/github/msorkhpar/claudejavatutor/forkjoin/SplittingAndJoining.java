@@ -224,7 +224,8 @@ public class SplittingAndJoining {
 
         /**
          * Anti-pattern: fork both, join both.
-         * The current thread does no computation work itself, wasting a thread.
+         * The current thread no longer computes a half directly; it only gets work back
+         * through join(), and every split pays for an extra fork.
          */
         public static long antiPatternForkBoth(int[] array) {
             if (array == null || array.length == 0) return 0;
@@ -285,7 +286,7 @@ public class SplittingAndJoining {
                 ForkBothTask left = new ForkBothTask(array, start, mid);
                 ForkBothTask right = new ForkBothTask(array, mid, end);
                 left.fork();   // fork left
-                right.fork();  // fork right (anti-pattern: current thread is idle)
+                right.fork();  // fork right (anti-pattern: nothing left to compute directly)
                 return left.join() + right.join();
             }
         }
@@ -306,21 +307,21 @@ public class SplittingAndJoining {
             List<String> threads = java.util.Collections.synchronizedList(new ArrayList<>());
             ForkJoinPool pool = new ForkJoinPool(4);
             try {
-                pool.invoke(new ThreadRecordingAction(array, 0, array.length, threads));
+                pool.invoke(new ThreadRecordingTask(array, 0, array.length, threads));
             } finally {
                 pool.shutdown();
             }
             return threads.stream().distinct().toList();
         }
 
-        private static class ThreadRecordingAction extends RecursiveTask<Long> {
+        private static class ThreadRecordingTask extends RecursiveTask<Long> {
             private static final int THRESHOLD = 50;
             private final int[] array;
             private final int start;
             private final int end;
             private final List<String> threads;
 
-            ThreadRecordingAction(int[] array, int start, int end, List<String> threads) {
+            ThreadRecordingTask(int[] array, int start, int end, List<String> threads) {
                 this.array = array;
                 this.start = start;
                 this.end = end;
@@ -337,8 +338,8 @@ public class SplittingAndJoining {
                     return sum;
                 }
                 int mid = start + length / 2;
-                ThreadRecordingAction left = new ThreadRecordingAction(array, start, mid, threads);
-                ThreadRecordingAction right = new ThreadRecordingAction(array, mid, end, threads);
+                ThreadRecordingTask left = new ThreadRecordingTask(array, start, mid, threads);
+                ThreadRecordingTask right = new ThreadRecordingTask(array, mid, end, threads);
                 left.fork();
                 long rightResult = right.compute();
                 long leftResult = left.join();

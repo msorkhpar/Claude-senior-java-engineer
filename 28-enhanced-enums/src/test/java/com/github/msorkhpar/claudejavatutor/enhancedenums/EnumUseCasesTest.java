@@ -311,6 +311,35 @@ class EnumUseCasesTest {
 
             assertThat(EnumUseCases.CacheType.LRU.size()).isZero();
         }
+
+        @Test
+        @DisplayName("Singleton caches should stay consistent under concurrent use")
+        void testConcurrentPuts() throws InterruptedException {
+            for (EnumUseCases.CacheType cache : EnumUseCases.CacheType.values()) {
+                cache.clear();
+                List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
+                List<Thread> threads = new ArrayList<>();
+                for (int t = 0; t < 8; t++) {
+                    final int id = t;
+                    threads.add(Thread.ofPlatform().start(() -> {
+                        try {
+                            for (int i = 0; i < 2_000; i++) {
+                                cache.put(id + "-" + i, i);
+                                cache.get(id + "-" + (i / 2));
+                            }
+                        } catch (Throwable e) {
+                            errors.add(e);
+                        }
+                    }));
+                }
+                for (Thread thread : threads) {
+                    thread.join();
+                }
+                assertThat(errors).as(cache + " errors").isEmpty();
+                assertThat(cache.size()).as(cache + " size").isEqualTo(100);
+                cache.clear();
+            }
+        }
     }
 
     @Nested

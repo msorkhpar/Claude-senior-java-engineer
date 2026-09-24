@@ -73,7 +73,7 @@ ThreadPoolExecutor(
 
 - **Virtual Threads (JEP 444)**: `Executors.newVirtualThreadPerTaskExecutor()` creates a new virtual thread for every submitted task. Virtual threads are lightweight (managed by the JVM, not the OS) and are ideal for I/O-bound workloads where thousands of concurrent tasks are common. Unlike platform threads, virtual threads have negligible creation cost.
 - **AutoCloseable ExecutorService**: Since Java 19, `ExecutorService` extends `AutoCloseable`, enabling try-with-resources patterns that automatically call `shutdown()` and `awaitTermination()`.
-- **Structured Concurrency (Preview, JEP 462)**: Introduces `StructuredTaskScope` for managing groups of related tasks as a unit, simplifying error handling and cancellation in concurrent code.
+- **Structured Concurrency (Preview in Java 21, JEP 453)**: Introduces `StructuredTaskScope` for managing groups of related tasks as a unit, simplifying error handling and cancellation in concurrent code.
 
 ```java
 // Java 21 - try-with-resources with ExecutorService
@@ -101,7 +101,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
        executor.awaitTermination(30, TimeUnit.SECONDS);
    }
    
-   // BEST (Java 21+): Use try-with-resources
+   // BEST (Java 19+, so any Java 21 code): Use try-with-resources
    try (var executor = Executors.newFixedThreadPool(4)) {
        executor.submit(() -> doWork());
    }
@@ -199,7 +199,7 @@ Interviewers commonly focus on:
 - The difference between `execute()` and `submit()` and when to use each.
 - How `ThreadPoolExecutor` decides whether to create a new thread or queue a task.
 - The four built-in rejection policies and their trade-offs.
-- Why `Executors.newFixedThreadPool()` and `newCachedThreadPool()` are discouraged in production (Alibaba coding guidelines, SonarQube rules).
+- Why `Executors.newFixedThreadPool()` and `newCachedThreadPool()` are discouraged in production (static-analysis rule sets such as Alibaba p3c flag the Executors factory methods).
 - Proper shutdown patterns and what happens to pending tasks.
 - How virtual threads change the concurrency landscape.
 - Thread safety of shared state accessed by tasks.
@@ -366,8 +366,8 @@ The recommended approach is to create ThreadPoolExecutor directly with:
 - An appropriate rejection policy
 - A custom ThreadFactory for naming
 
-Many companies (e.g., Alibaba) and static analysis tools (SonarQube) flag direct
-use of Executors factory methods as a code smell.
+Static-analysis rule sets such as Alibaba p3c flag the Executors factory methods
+as a code smell.
 ```
 
 ```java
@@ -431,7 +431,7 @@ try {
     }
 }
 
-// Java 21+ - simpler with try-with-resources
+// Java 19+ (so Java 21) - simpler with try-with-resources
 try (var executor = Executors.newFixedThreadPool(4)) {
     executor.submit(() -> processRequest());
 } // shutdown() + awaitTermination() called automatically
@@ -460,7 +460,9 @@ Key implications for ExecutorService:
 - No thread pool needed -- each task gets its own lightweight thread
 - Ideal for I/O-bound workloads (HTTP requests, database queries, file I/O)
 - NOT beneficial for CPU-bound workloads (virtual threads share carrier threads)
-- ThreadLocal should be avoided with virtual threads (use ScopedValue instead)
+- Use ThreadLocal sparingly with virtual threads (it works, but per-thread caches of
+  expensive objects no longer pay off with one thread per task); ScopedValue is the
+  intended replacement, a preview API in Java 21 (JEP 446)
 
 Virtual threads do NOT make your code faster -- they make it more scalable by
 allowing many more concurrent tasks without exhausting OS resources.

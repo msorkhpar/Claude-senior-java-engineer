@@ -2,9 +2,9 @@
 
 ## Concept Explanation
 
-Java enums cannot have type parameters -- `enum Setting<T> { ... }` is a compile-time error. This is a fundamental
-language constraint because the JVM creates enum constants at class loading time, and generic type information is erased
-at that point. However, senior Java engineers frequently need "enum-like" constructs where each constant carries its own
+Java enums cannot have type parameters -- `enum Setting<T> { ... }` is a compile-time error. This is a language rule: the
+grammar for enum declarations (JLS 8.9) has no type-parameter section. (JEP 301, "Enhanced Enums", proposed generic
+enums with per-constant type arguments, but it was withdrawn, so the rule still holds in Java 21.) However, senior Java engineers frequently need "enum-like" constructs where each constant carries its own
 type parameter (e.g., a configuration key where `MAX_RETRIES` is typed as `Integer` while `APP_NAME` is typed
 as `String`).
 
@@ -24,8 +24,9 @@ cannot carry the value type generically. The patterns described here let you bui
 ## Key Points to Remember
 
 1. **`enum Foo<T>` is illegal** -- the Java language specification forbids generic enum types.
-2. **Type erasure** is the root cause -- generics are compile-time only; enums are instantiated by the JVM at class
-   load.
+2. **It is a language-design decision, not a consequence of erasure** -- a generic class can already have
+   `static final` constants with different type arguments (see Q4's `TypedKey`); JEP 301 proposed the same for enums and
+   was withdrawn.
 3. **Sealed interfaces + records** is the preferred modern pattern (Java 17+) for type-safe "generic enum" behavior.
 4. **Class tokens** (`Class<T>`) provide runtime type checking but lack compile-time type parameter linkage between
    constants.
@@ -64,6 +65,7 @@ cannot carry the value type generically. The patterns described here let you bui
    enum ConfigKey {
        PORT(Integer.class, 8080);
        private final Object defaultValue;
+       ConfigKey(Class<?> type, Object defaultValue) { this.defaultValue = defaultValue; }
        @SuppressWarnings("unchecked")
        public <T> T getDefault() { return (T) defaultValue; }
    }
@@ -130,7 +132,7 @@ This topic is a favorite in senior-level interviews because it tests:
 
 Expect follow-up questions about:
 
-- "Why can't enums be generic?" (type erasure + JVM instantiation model)
+- "Why can't enums be generic?" (the JLS does not allow it; JEP 301 tried to and was withdrawn)
 - "How would you design a type-safe configuration system?" (sealed interface + type-safe heterogeneous container)
 - "What are the trade-offs of each pattern?"
 
@@ -139,24 +141,23 @@ Expect follow-up questions about:
 **Q1: Why can't Java enums have type parameters?**
 
 ```text
-A1: Java enums cannot have type parameters for several interconnected reasons:
+A1: Java enums cannot have type parameters because the language does not allow it:
 
-1. Type Erasure: Generic type information is erased at runtime. But enum constants
-   are concrete instances that exist at runtime. If you wrote `enum Setting<T>`,
-   each constant would need a concrete T, but there is no mechanism in the JVM
-   to maintain different type parameters for different constants of the same enum class.
+1. Language rule: the grammar for enum declarations (JLS 8.9) has no type-parameter
+   section, so `enum Setting<T>` does not compile. This is a deliberate simplification.
 
-2. JVM Instantiation: Enum constants are created by the JVM during class loading.
-   The JVM creates exactly one instance per constant using reflection-like mechanisms.
-   Generic types would require reification (runtime type information), which Java
-   does not support.
+2. Every constant has the enum's own type: Setting.MAX_RETRIES and Setting.APP_NAME are
+   both typed as plain Setting. Giving each constant its own type argument
+   (Setting<Integer>, Setting<String>) would need per-constant typing that the
+   language does not have.
 
-3. Shared Class: All enum constants share the same Class object. There is no way to
-   have Setting.MAX_RETRIES be a Setting<Integer> while Setting.APP_NAME is a
-   Setting<String> because both are instances of the same Setting class.
+3. It was proposed and withdrawn: JEP 301 ("Enhanced Enums") proposed generic enums
+   and sharper typing of enum constants, but it was withdrawn, so Java 21 enums are
+   still not generic.
 
-4. Language Design: The enum specification (JLS 8.9) explicitly states that enum
-   declarations cannot have type parameters. This is a deliberate simplification.
+4. Erasure is not the obstacle by itself: a generic class can already declare
+   static final instances with different type arguments (the TypedKey<T> pattern in Q4),
+   even though those type arguments are erased at run time.
 
 The practical impact is that any enum method returning a per-constant typed value
 must use Object and unsafe casts, or you must use workaround patterns.
@@ -165,8 +166,8 @@ must use Object and unsafe casts, or you must use workaround patterns.
 ```java
 // ILLEGAL: enum Setting<T> { MAX_RETRIES(3), APP_NAME("MyApp"); }
 
-// Why? After type erasure, both constants would be Setting<Object>.
-// The compiler cannot enforce that MAX_RETRIES.getValue() returns Integer
+// Why? The declaration cannot take a type parameter, and every constant has the plain
+// type Setting, so the compiler cannot know that MAX_RETRIES.getValue() returns Integer
 // while APP_NAME.getValue() returns String.
 ```
 
@@ -287,7 +288,8 @@ How it works:
 - Define a generic class (e.g., TypedKey<T>)
 - Create public static final instances as "constants"
 - Maintain a static list of all instances for a values() method
-- Override equals/hashCode for value-based identity
+- Keep the constructor private so that no other instances can be created
+- Optionally override equals/hashCode (e.g., by name)
 
 Trade-offs:
 + Full generic type safety per instance
@@ -297,8 +299,9 @@ Trade-offs:
 - No EnumSet or EnumMap support
 - No switch statement support (unless using if-else or pattern matching)
 - No ordinal() or name() (must implement manually)
-- Instances can be created outside the class (not truly a closed set)
-- Value equality, not identity equality
+- Closed only while the constructor stays private: no compiler-checked closed set,
+  no exhaustive switch
+- Value equality only if you override equals (nothing like enum's guaranteed identity)
 - No serialization singleton guarantee
 ```
 
@@ -364,7 +367,8 @@ class TypeSafeConfig {
     
     public <T> T get(TypedSetting<T> setting) {
         Object raw = store.get(setting.key());
-        return setting.cast(raw); // Type-safe cast using the setting's type token
+        // Type-safe cast using the setting's type token (default when absent)
+        return raw == null ? setting.defaultValue() : setting.valueType().cast(raw);
     }
 }
 
