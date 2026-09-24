@@ -32,7 +32,7 @@ The JVM offers several garbage collectors, each with different trade-offs:
 | Parallel GC | Throughput | `-XX:+UseParallelGC` | Moderate STW pauses |
 | G1 GC (default) | Balanced | `-XX:+UseG1GC` | Predictable pauses |
 | ZGC | Low latency | `-XX:+UseZGC` | Sub-millisecond pauses |
-| Shenandoah | Low latency | `-XX:+UseShenandoahGC` | Sub-millisecond pauses |
+| Shenandoah | Low latency | `-XX:+UseShenandoahGC` | Short pauses, independent of heap size |
 
 #### 3. Monitoring Tools
 
@@ -65,9 +65,11 @@ The JVM offers several garbage collectors, each with different trade-offs:
 
 ## Relevant Java 21 Features
 
-- **ZGC Generational mode**: `-XX:+UseZGC -XX:+ZGenerational` (default in Java 21) adds generational collection to
-  ZGC for better throughput alongside low latency.
-- **JFR enhancements**: New event types for virtual threads, structured concurrency, and better native memory tracking.
+- **ZGC Generational mode** (JEP 439): `-XX:+UseZGC -XX:+ZGenerational` adds generational collection to ZGC for better
+  throughput alongside low latency. In Java 21 it is opt-in (plain `-XX:+UseZGC` is still non-generational); it became
+  the default in JDK 23 (JEP 474).
+- **JFR enhancements**: Event types for virtual threads (`jdk.VirtualThreadStart`, `jdk.VirtualThreadEnd`,
+  `jdk.VirtualThreadPinned`, `jdk.VirtualThreadSubmitFailed`) and, since JDK 20, native memory tracking events.
 - **Virtual thread monitoring**: New diagnostic capabilities for virtual threads via `jcmd` and JFR.
 - **Unified logging**: `-Xlog` provides a single, consistent framework for all JVM logging including GC.
 - **Container awareness**: JVM automatically detects container memory and CPU limits (Docker, Kubernetes).
@@ -97,13 +99,14 @@ The JVM offers several garbage collectors, each with different trade-offs:
    # BAD: Forces a Full GC in production
    jmap -histo:live <pid>
 
-   # GOOD: Get histogram without GC
+   # GOOD: Get histogram without GC (counts all objects, including unreachable ones)
    jmap -histo <pid>
 
-   # BETTER: Use jcmd
-   jcmd <pid> GC.class_histogram
+   # BETTER: Use jcmd -- note that it inspects only live objects (full GC) unless you pass -all
+   jcmd <pid> GC.class_histogram -all
    ```
-   **Solution**: Use `jcmd` instead of `jmap` when possible. Be aware that `:live` triggers a full GC.
+   **Solution**: Use `jcmd` instead of `jmap` when possible. Be aware that `jmap -histo:live` and a plain
+   `jcmd <pid> GC.class_histogram` both trigger a full GC.
 
 4. **Setting heap too large**: Larger heaps mean longer GC pauses (especially with G1 and Parallel GC).
    ```bash
@@ -208,6 +211,8 @@ Step 6: Fix and verify
 
 ```java
 // Common memory leak patterns and fixes
+import java.util.*;
+
 public class MemoryLeakPatterns {
     // LEAK: Unbounded cache
     private static final Map<String, byte[]> cache = new HashMap<>();
@@ -265,7 +270,8 @@ A2: Each garbage collector is designed for different workload characteristics:
 
 G1 GC (Garbage-First):
 - Default since Java 9
-- Divides heap into equal-sized regions (1-32MB each)
+- Divides heap into equal-sized regions (1-32MB chosen by default; up to 512MB
+  can be set with -XX:G1HeapRegionSize since JDK 18)
 - Targets configurable pause time: -XX:MaxGCPauseMillis (default 200ms)
 - Mixed collections: collects both young and old regions
 - Best for: General-purpose workloads, heaps 4-16GB, pause times 100-500ms
@@ -273,7 +279,7 @@ G1 GC (Garbage-First):
 
 ZGC (Z Garbage Collector):
 - Production-ready since Java 15
-- Generational mode default in Java 21 (-XX:+ZGenerational)
+- Generational mode added in Java 21 as an opt-in (-XX:+ZGenerational); default since JDK 23
 - Pause times < 1ms regardless of heap size (even multi-TB heaps)
 - Uses colored pointers and load barriers
 - Concurrent almost entirely (marking, relocation, reference processing)
@@ -282,8 +288,9 @@ ZGC (Z Garbage Collector):
 
 Shenandoah:
 - Not available in Oracle JDK (OpenJDK only)
-- Similar goals to ZGC: sub-millisecond pauses
-- Uses Brooks pointers and load/store barriers
+- Similar goals to ZGC: very short pauses that do not grow with heap size
+- Uses load-reference barriers (the Brooks forwarding pointer of the first
+  version was removed in JDK 13)
 - Concurrent compaction
 - Best for: Low-latency needs on OpenJDK, similar use cases to ZGC
 - Limitation: Higher CPU overhead, not in Oracle JDK
@@ -428,13 +435,13 @@ Starting JFR:
         dumponexit=true,filename=app.jfr MyApp
 
 3. Attaching to running JVM:
-   jcmd <pid> JFR.start duration=60s filename=recording.jfr
-   jcmd <pid> JFR.dump filename=snapshot.jfr
-   jcmd <pid> JFR.stop
+   jcmd <pid> JFR.start name=rec duration=60s filename=recording.jfr
+   jcmd <pid> JFR.dump name=rec filename=snapshot.jfr
+   jcmd <pid> JFR.stop name=rec     (JFR.stop needs the recording's name or id)
 
 Key event categories:
 - jdk.CPULoad: CPU utilization
-- jdk.GCPausePhase: GC pause details
+- jdk.GCPhasePause: GC pause details
 - jdk.ObjectAllocationInNewTLAB: Allocation hot spots
 - jdk.JavaMonitorEnter: Lock contention
 - jdk.ThreadPark: Thread parking (waiting)
@@ -448,7 +455,7 @@ Analyzing JFR recordings:
 - JDK Mission Control (JMC): GUI tool for visualizing JFR data
 - jfr tool: CLI for printing/summarizing recordings
   jfr summary recording.jfr
-  jfr print --events jdk.GCPausePhase recording.jfr
+  jfr print --events jdk.GCPhasePause recording.jfr
 - Programmatic API: JFR streaming API (Java 14+) for real-time monitoring
 
 Best practices:

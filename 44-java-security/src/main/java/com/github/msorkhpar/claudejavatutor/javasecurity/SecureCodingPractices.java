@@ -1,6 +1,10 @@
 package com.github.msorkhpar.claudejavatutor.javasecurity;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -77,6 +81,11 @@ public class SecureCodingPractices {
 
     /**
      * Detects potential SQL injection patterns in user input.
+     * <p>
+     * This is a deny-list heuristic, useful only for logging or monitoring suspicious input.
+     * It is NOT a defense: it is easy to bypass and it flags harmless text (an apostrophe in
+     * "O'Brien", the word "update"). The defense against SQL injection is PreparedStatement
+     * parameters (see {@code CommonVulnerabilities.findUserSecure}).
      *
      * @param input the user input to check
      * @return true if suspicious patterns are detected
@@ -90,6 +99,9 @@ public class SecureCodingPractices {
 
     /**
      * Detects potential XSS attack patterns in user input.
+     * <p>
+     * Like {@link #detectSqlInjection(String)}, a deny-list heuristic for monitoring only; the
+     * defense against XSS is encoding output for its context ({@link #sanitizeHtmlInput(String)}).
      *
      * @param input the user input to check
      * @return true if XSS patterns are detected
@@ -136,6 +148,10 @@ public class SecureCodingPractices {
 
     /**
      * Validates a file path to prevent path traversal attacks.
+     * <p>
+     * {@code normalize()} only removes {@code .} and {@code ..} from the path text; it does not
+     * follow symbolic links. So when the target exists, its real path (links resolved) is checked
+     * as well, and a link inside the base directory that points outside it is rejected.
      *
      * @param basePath     the allowed base directory
      * @param userSupplied the user-supplied path component
@@ -146,9 +162,19 @@ public class SecureCodingPractices {
         Objects.requireNonNull(basePath, "Base path must not be null");
         Objects.requireNonNull(userSupplied, "User supplied path must not be null");
 
-        Path resolved = basePath.resolve(userSupplied).normalize();
-        if (!resolved.startsWith(basePath.normalize())) {
+        Path base = basePath.normalize();
+        Path resolved = base.resolve(userSupplied).normalize();
+        if (!resolved.startsWith(base)) {
             throw new SecurityException("Path traversal detected: " + userSupplied);
+        }
+        if (Files.exists(resolved)) {
+            try {
+                if (!resolved.toRealPath().startsWith(base.toRealPath())) {
+                    throw new SecurityException("Path traversal detected (symbolic link): " + userSupplied);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
         return resolved;
     }
@@ -157,12 +183,15 @@ public class SecureCodingPractices {
 
     /**
      * Demonstrates proper resource handling with try-with-resources.
-     * Returns file content safely, limiting maximum bytes read.
+     * Returns the file content (UTF-8), reading at most {@code maxBytes + 1} bytes.
+     * <p>
+     * The {@code Files.size} check rejects large files early, but it is not enough on its own:
+     * the file can grow between the check and the read. The bounded read enforces the limit.
      *
      * @param filePath the path to read
      * @param maxBytes maximum bytes to read
-     * @return the file content as string, truncated if necessary
-     * @throws IOException       if I/O error occurs
+     * @return the file content as string
+     * @throws IOException       if an I/O error occurs or the content is not valid UTF-8
      * @throws SecurityException if file exceeds max size
      */
     public String readFileSafely(Path filePath, long maxBytes) throws IOException {
@@ -176,7 +205,15 @@ public class SecureCodingPractices {
             throw new SecurityException(
                     "File size %d exceeds maximum allowed %d bytes".formatted(fileSize, maxBytes));
         }
-        return Files.readString(filePath);
+        try (InputStream in = Files.newInputStream(filePath)) {
+            byte[] data = in.readNBytes((int) Math.min(maxBytes + 1, Integer.MAX_VALUE - 8));
+            if (data.length > maxBytes) {
+                throw new SecurityException(
+                        "File size exceeds maximum allowed %d bytes".formatted(maxBytes));
+            }
+            // Strict decoding: malformed UTF-8 throws, as Files.readString does
+            return StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(data)).toString();
+        }
     }
 
     // ---- Sensitive Data Protection ----
@@ -201,7 +238,7 @@ public class SecureCodingPractices {
 
     /**
      * Masks an email address for display purposes.
-     * Example: john.doe@example.com -> j*****e@example.com
+     * Example: john.doe@example.com -> j******e@example.com
      *
      * @param email the email to mask
      * @return masked email
@@ -213,6 +250,9 @@ public class SecureCodingPractices {
         String[] parts = email.split("@", 2);
         String localPart = parts[0];
         String domain = parts[1];
+        if (localPart.isEmpty()) {
+            throw new IllegalArgumentException("Invalid email address");
+        }
 
         if (localPart.length() <= 2) {
             return localPart.charAt(0) + "*@" + domain;

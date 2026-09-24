@@ -303,7 +303,9 @@ public class JvmPerformanceTuning {
 
         /**
          * Checks if the JVM is running in a container environment.
-         * This is a heuristic based on cgroup detection.
+         * This is a heuristic based on cgroup detection. It only works with cgroup v1:
+         * under cgroup v2 (current Docker and Kubernetes defaults) /proc/1/cgroup reads
+         * "0::/" and this method returns false even inside a container.
          */
         public boolean isLikelyContainer() {
             // Check for common container indicators
@@ -360,7 +362,10 @@ public class JvmPerformanceTuning {
 
             for (int i = 0; i < iterations; i++) {
                 byte[] data = new byte[objectSize]; // Allocate and immediately discard
-                if (data.length < 0) break; // Prevent dead code elimination
+                // This check does not keep the allocation alive: the JIT knows a length is
+                // never negative. The array survives only because escape analysis does not
+                // eliminate arrays of non-constant length, so the GC count is indicative only.
+                if (data.length < 0) break;
             }
 
             long gcCountAfter = getGcCount();

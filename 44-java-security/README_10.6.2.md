@@ -4,7 +4,8 @@
 
 Understanding common vulnerabilities is essential for any senior Java engineer. The OWASP Top 10 provides the industry
 standard catalog of the most critical web application security risks. This section covers the three most relevant
-categories for Java developers: injection flaws, authentication and access control flaws, and sensitive data exposure.
+categories for Java developers: injection flaws, authentication and access control flaws, and sensitive data exposure,
+plus insecure deserialization, which OWASP 2021 files under software and data integrity failures.
 
 **Real-world analogy**: Imagine a fortress with multiple entry points. Each gate (input point) has its own set of
 vulnerabilities: the front gate might be susceptible to battering rams (SQL injection), the side entrance might have a
@@ -39,12 +40,18 @@ information. Data can be exposed through:
 - Insufficient encryption (or no encryption at all)
 - Information leakage in error messages
 - Logging sensitive data
-- Insecure deserialization
 - Timing attacks that reveal information through response times
+
+### Software and Data Integrity Failures (OWASP 2021 A08)
+
+Code and data are trusted without verifying their integrity. For Java the classic case is **insecure
+deserialization**: `ObjectInputStream` rebuilds whatever object graph the bytes describe, so untrusted bytes can
+trigger "gadget chains" in classes on the classpath (see Q5 below).
 
 ## Key Points to Remember
 
-- SQL injection is the single most dangerous vulnerability; always use parameterized queries (`PreparedStatement`)
+- SQL injection is one of the most damaging vulnerabilities (Injection is A03 in the OWASP Top 10 2021, after Broken
+  Access Control and Cryptographic Failures); always use parameterized queries (`PreparedStatement`)
 - XSS prevention requires **output encoding** -- encode data for the context it is rendered in (HTML, JavaScript, URL)
 - Never reveal whether a username or password was incorrect -- always use a generic message
 - Implement account lockout or rate limiting to prevent brute force attacks
@@ -72,7 +79,7 @@ information. Data can be exposed through:
 |---------------|-------------------------------------|----------------------------------------|
 | Java 1.x      | Applet sandbox escapes             | Applets removed (Java 11)              |
 | Java 5-6      | Serialization gadget chains        | Records, JSON libraries                |
-| Java 7-8      | XML External Entity (XXE)          | Secure parser defaults in Java 17+     |
+| Java 7-8      | XML External Entity (XXE)          | Disable DTDs/external entities explicitly (JDK parsers still allow them by default in Java 21) |
 | Java 9+       | Illegal reflective access          | Module system (JPMS)                   |
 | Java 17+      | Security Manager bypass            | Deprecated; use JPMS instead           |
 
@@ -152,8 +159,9 @@ UserDTO user = objectMapper.readValue(jsonString, UserDTO.class);
 
 ## Best Practices and Optimization Techniques
 
-1. **Use parameterized queries everywhere**: Not just for WHERE clauses, but also for ORDER BY, LIMIT, table names (use
-   allowlists for dynamic table/column names)
+1. **Use parameterized queries everywhere**: Parameters carry values (in WHERE, VALUES, LIMIT, ...), but they cannot
+   carry identifiers or keywords: a dynamic ORDER BY column, sort direction, table or column name must be chosen from
+   an allowlist of known names
 2. **Implement Content Security Policy (CSP)**: HTTP header that restricts which scripts can execute in the browser
 3. **Use HttpOnly and Secure flags on cookies**: Prevents JavaScript access and ensures transmission only over HTTPS
 4. **Implement CSRF tokens**: Prevent cross-site request forgery by validating tokens on state-changing operations
@@ -230,12 +238,13 @@ public boolean loginInsecure(Connection conn, String user, String pass) throws S
     return rs.next();
 }
 
-// SECURE
+// SECURE against SQL injection (password handling simplified -- see the comment below)
 public boolean loginSecure(Connection conn, String user, String pass) throws SQLException {
     String sql = "SELECT * FROM users WHERE username = ? AND password = ?";
     try (PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setString(1, user);
-        stmt.setString(2, pass); // In practice, compare against hashed password
+        stmt.setString(2, pass); // Safe from SQL injection, but never store or compare plain-text passwords:
+                            // load the stored salted hash (bcrypt/scrypt/Argon2) and verify it in code
         try (ResultSet rs = stmt.executeQuery()) {
             return rs.next();
         }
@@ -263,7 +272,9 @@ Prevention in Java:
    HTML entity equivalents (&lt;, &gt;, &amp;, &quot;, &#x27;).
 2. Content Security Policy (CSP): HTTP header that restricts script sources.
 3. HttpOnly cookies: Prevents JavaScript from accessing session cookies.
-4. Use templating engines: Thymeleaf, Freemarker, and JSP with JSTL auto-escape by default.
+4. Use templating engines that escape by default: Thymeleaf (th:text), FreeMarker with the HTML output format
+   (e.g., .ftlh templates), JSP via <c:out> or fn:escapeXml. A plain ${...} expression in a JSP page is NOT
+   escaped.
 5. Validate input: Reject input that contains unexpected HTML/script content.
 
 The key principle: "Encode output, not input." Store the original data and encode it at the point of rendering,
@@ -313,8 +324,8 @@ A3: Brute force prevention requires multiple layers of defense:
 
 5. Multi-factor authentication (MFA): Even if the password is compromised, the attacker needs the second factor.
 
-6. Password complexity requirements: Enforce minimum length, character diversity, and check against known
-   breached passwords (e.g., using the HaveIBeenPwned API).
+6. Password requirements: Enforce a minimum length and check against known breached passwords (e.g., using the
+   HaveIBeenPwned API). NIST SP 800-63B advises against composition rules ("must contain a digit and a symbol").
 
 7. Monitoring and alerting: Log all failed login attempts and alert security teams on anomalous patterns.
 
@@ -339,11 +350,12 @@ public class BruteForceProtection {
 
     public boolean isAllowed(String username) {
         AttemptRecord record = attempts.get(username);
-        if (record == null) return true;
-        if (record.lockoutUntil > 0 && System.currentTimeMillis() < record.lockoutUntil) {
+        if (record == null || record.lockoutUntil() == 0) return true;
+        if (System.currentTimeMillis() < record.lockoutUntil()) {
             return false; // Still locked out
         }
-        return record.count.get() < MAX_ATTEMPTS;
+        attempts.remove(username, record); // Lockout expired: start counting again
+        return true;
     }
 
     public void recordFailure(String username) {
@@ -391,8 +403,10 @@ Java provides:
 - MessageDigest.isEqual(byte[], byte[]): Constant-time byte array comparison
 - Custom implementation: XOR all characters and check the result at the end
 
-Important: Even with constant-time comparison, ensure the comparison always happens (don't short-circuit with
-an early return on different lengths without performing the comparison).
+Important: What must never leak is WHERE the first mismatch is, so never return at the first differing character.
+An early return on different lengths (as in the manual version below) reveals only the secret's length, which is
+acceptable when the length is public anyway (fixed-length tokens, hashes, HMACs). MessageDigest.isEqual's running
+time depends only on the length of its first argument.
 ```
 
 ```java
@@ -440,8 +454,9 @@ attackers. Here is why:
    combined in specific ways during deserialization, allow Remote Code Execution (RCE). The attacker does not
    need to upload code -- they just need to craft the right byte sequence.
 
-3. Widely exploited: Real-world attacks include the 2015 Apache Commons Collections vulnerability and the 2021
-   Log4Shell (which used a similar trust-untrusted-data pattern).
+3. Widely exploited: Real-world attacks include the 2015 Apache Commons Collections gadget chain. (Log4Shell in 2021
+   was a different bug, a JNDI lookup triggered by logged text, but some of its exploits delivered serialized gadget
+   payloads, so the same classpath gadgets mattered again.)
 
 4. Hard to fix: Simply validating the class being deserialized is difficult because the gadget chain may involve
    many intermediate classes.

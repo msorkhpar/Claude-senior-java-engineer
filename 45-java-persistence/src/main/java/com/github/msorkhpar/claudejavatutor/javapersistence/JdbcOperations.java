@@ -1,5 +1,7 @@
 package com.github.msorkhpar.claudejavatutor.javapersistence;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -50,8 +52,10 @@ public class JdbcOperations {
 
     /**
      * Record representing an employee row.
+     * The salary is a {@link BigDecimal} (mapped to SQL DECIMAL): money must not be a
+     * {@code double}, which cannot hold most decimal amounts exactly.
      */
-    public record Employee(int id, String name, String email, double salary,
+    public record Employee(int id, String name, String email, BigDecimal salary,
                            String department, boolean active) {
     }
 
@@ -61,11 +65,11 @@ public class JdbcOperations {
      * Inserts an employee using a plain Statement (NOT recommended for production).
      * Demonstrates the SQL injection vulnerability.
      */
-    public int insertWithStatement(String name, String email, double salary,
+    public int insertWithStatement(String name, String email, BigDecimal salary,
                                    String department) throws SQLException {
         String sql = String.format(
                 "INSERT INTO employees (name, email, salary, department) VALUES ('%s', '%s', %s, '%s')",
-                name, email, salary, department);
+                name, email, salary == null ? "NULL" : salary.toPlainString(), department);
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(sql, Statement.RETURN_GENERATED_KEYS);
@@ -83,14 +87,14 @@ public class JdbcOperations {
     /**
      * Inserts an employee using a PreparedStatement (recommended approach).
      */
-    public int insertWithPreparedStatement(String name, String email, double salary,
+    public int insertWithPreparedStatement(String name, String email, BigDecimal salary,
                                            String department) throws SQLException {
         String sql = "INSERT INTO employees (name, email, salary, department) VALUES (?, ?, ?, ?)";
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             pstmt.setString(1, name);
             pstmt.setString(2, email);
-            pstmt.setDouble(3, salary);
+            pstmt.setBigDecimal(3, salary);
             pstmt.setString(4, department);
             pstmt.executeUpdate();
             try (ResultSet keys = pstmt.getGeneratedKeys()) {
@@ -156,11 +160,11 @@ public class JdbcOperations {
     /**
      * Updates an employee's salary using PreparedStatement.
      */
-    public boolean updateSalary(int id, double newSalary) throws SQLException {
+    public boolean updateSalary(int id, BigDecimal newSalary) throws SQLException {
         String sql = "UPDATE employees SET salary = ? WHERE id = ?";
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setDouble(1, newSalary);
+            pstmt.setBigDecimal(1, newSalary);
             pstmt.setInt(2, id);
             return pstmt.executeUpdate() > 0;
         }
@@ -188,7 +192,7 @@ public class JdbcOperations {
             for (Employee emp : employees) {
                 pstmt.setString(1, emp.name());
                 pstmt.setString(2, emp.email());
-                pstmt.setDouble(3, emp.salary());
+                pstmt.setBigDecimal(3, emp.salary());
                 pstmt.setString(4, emp.department());
                 pstmt.setBoolean(5, emp.active());
                 pstmt.addBatch();
@@ -198,20 +202,22 @@ public class JdbcOperations {
     }
 
     /**
-     * Demonstrates handling NULL values in ResultSet.
+     * Demonstrates handling NULL values in ResultSet: AVG over no rows is SQL NULL.
+     * AVG divides, so the result is rounded explicitly to cents (scale 2, HALF_EVEN)
+     * instead of relying on the database's choice of scale.
      */
-    public Optional<Double> getAverageSalaryByDepartment(String department) throws SQLException {
+    public Optional<BigDecimal> getAverageSalaryByDepartment(String department) throws SQLException {
         String sql = "SELECT AVG(salary) AS avg_salary FROM employees WHERE department = ?";
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, department);
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    double avg = rs.getDouble("avg_salary");
-                    if (rs.wasNull()) {
+                    BigDecimal avg = rs.getBigDecimal("avg_salary"); // null for SQL NULL
+                    if (avg == null) {
                         return Optional.empty();
                     }
-                    return Optional.of(avg);
+                    return Optional.of(avg.setScale(2, RoundingMode.HALF_EVEN));
                 }
             }
         }
@@ -243,7 +249,7 @@ public class JdbcOperations {
                 rs.getInt("id"),
                 rs.getString("name"),
                 rs.getString("email"),
-                rs.getDouble("salary"),
+                rs.getBigDecimal("salary"),
                 rs.getString("department"),
                 rs.getBoolean("active")
         );

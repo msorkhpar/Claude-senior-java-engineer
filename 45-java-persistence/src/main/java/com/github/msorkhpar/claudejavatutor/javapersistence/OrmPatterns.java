@@ -1,5 +1,6 @@
 package com.github.msorkhpar.claudejavatutor.javapersistence;
 
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,13 +21,13 @@ public class OrmPatterns {
     public static class Product {
         private int id;
         private String name;
-        private double price;
+        private BigDecimal price; // money: BigDecimal, never double
         private int categoryId;
 
         public Product() {
         }
 
-        public Product(int id, String name, double price, int categoryId) {
+        public Product(int id, String name, BigDecimal price, int categoryId) {
             this.id = id;
             this.name = name;
             this.price = price;
@@ -37,8 +38,8 @@ public class OrmPatterns {
         public void setId(int id) { this.id = id; }
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
-        public double getPrice() { return price; }
-        public void setPrice(double price) { this.price = price; }
+        public BigDecimal getPrice() { return price; }
+        public void setPrice(BigDecimal price) { this.price = price; }
         public int getCategoryId() { return categoryId; }
         public void setCategoryId(int categoryId) { this.categoryId = categoryId; }
 
@@ -153,8 +154,8 @@ public class OrmPatterns {
             try (Connection conn = getConnection();
                  PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                 pstmt.setString(1, entity.getName());
-                pstmt.setDouble(2, entity.getPrice());
-                pstmt.setInt(3, entity.getCategoryId());
+                pstmt.setBigDecimal(2, entity.getPrice());
+                setCategoryId(pstmt, 3, entity.getCategoryId());
                 pstmt.executeUpdate();
                 try (ResultSet keys = pstmt.getGeneratedKeys()) {
                     if (keys.next()) {
@@ -170,8 +171,8 @@ public class OrmPatterns {
             try (Connection conn = getConnection();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, entity.getName());
-                pstmt.setDouble(2, entity.getPrice());
-                pstmt.setInt(3, entity.getCategoryId());
+                pstmt.setBigDecimal(2, entity.getPrice());
+                setCategoryId(pstmt, 3, entity.getCategoryId());
                 pstmt.setInt(4, entity.getId());
                 pstmt.executeUpdate();
             }
@@ -230,13 +231,13 @@ public class OrmPatterns {
         /**
          * Named query simulating JPQL: SELECT p FROM Product p WHERE p.price BETWEEN :min AND :max
          */
-        public List<Product> findByPriceRange(double minPrice, double maxPrice) throws SQLException {
+        public List<Product> findByPriceRange(BigDecimal minPrice, BigDecimal maxPrice) throws SQLException {
             String sql = "SELECT id, name, price, category_id FROM products WHERE price BETWEEN ? AND ?";
             List<Product> products = new ArrayList<>();
             try (Connection conn = getConnection();
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setDouble(1, minPrice);
-                pstmt.setDouble(2, maxPrice);
+                pstmt.setBigDecimal(1, minPrice);
+                pstmt.setBigDecimal(2, maxPrice);
                 try (ResultSet rs = pstmt.executeQuery()) {
                     while (rs.next()) {
                         products.add(mapProduct(rs));
@@ -247,7 +248,10 @@ public class OrmPatterns {
         }
 
         /**
-         * Simulates JPQL join fetch: SELECT p FROM Product p JOIN FETCH p.category
+         * Simulates the SQL shape of JPQL {@code SELECT p FROM Product p JOIN p.category}:
+         * an inner join, so products without a category are left out. This simplified
+         * Product holds only {@code categoryId}, so no Category object is fetched or mapped
+         * (a real {@code JOIN FETCH} would also populate {@code p.category}).
          */
         public List<Product> findAllWithCategory() throws SQLException {
             String sql = """
@@ -308,7 +312,9 @@ public class OrmPatterns {
         }
 
         /**
-         * Eager loading: fetches a Category with all its Products (simulates JOIN FETCH).
+         * Eager loading: fetches a Category with all its Products up front. It gives the result
+         * of a JOIN FETCH but uses two queries (one for the category, one for its products),
+         * not JOIN FETCH's single joined query.
          */
         public Optional<Category> findCategoryWithProducts(int categoryId) throws SQLException {
             String categorySql = "SELECT id, name FROM categories WHERE id = ?";
@@ -340,11 +346,24 @@ public class OrmPatterns {
             }
         }
 
+        /**
+         * categoryId 0 means "no category" (mapProduct reads SQL NULL as 0), so it is written as
+         * NULL; writing 0 would violate the foreign key, since no category has id 0.
+         */
+        private static void setCategoryId(PreparedStatement pstmt, int index, int categoryId)
+                throws SQLException {
+            if (categoryId == 0) {
+                pstmt.setNull(index, Types.INTEGER);
+            } else {
+                pstmt.setInt(index, categoryId);
+            }
+        }
+
         private Product mapProduct(ResultSet rs) throws SQLException {
             return new Product(
                     rs.getInt("id"),
                     rs.getString("name"),
-                    rs.getDouble("price"),
+                    rs.getBigDecimal("price"),
                     rs.getInt("category_id")
             );
         }

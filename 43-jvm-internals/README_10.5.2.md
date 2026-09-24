@@ -60,12 +60,13 @@ A `.class` file has a well-defined binary structure:
 
 1. Java bytecode is **stack-based**, not register-based. All operations use an operand stack.
 2. The `javap -c` command is the standard tool for disassembling class files to view bytecode.
-3. Each bytecode instruction is **one byte** (hence "bytecode"), giving a maximum of 256 opcodes.
+3. Each **opcode** is **one byte** (hence "bytecode"), giving a maximum of 256 opcodes; an instruction may be followed
+   by operand bytes (for example `bipush 42` is two bytes, `invokevirtual #7` is three).
 4. The **constant pool** is a critical part of the class file, holding all symbolic references.
 5. **invokedynamic** (added in Java 7) is used for lambda expressions and is key to dynamic language support.
 6. Bytecode is **verified** before execution to ensure type safety and structural correctness.
-7. Method dispatch: `invokevirtual` (virtual dispatch), `invokeinterface` (interface dispatch), `invokespecial`
-   (constructors/super/private), `invokestatic` (static methods).
+7. Method dispatch: `invokevirtual` (virtual dispatch; also private methods since Java 11), `invokeinterface`
+   (interface dispatch), `invokespecial` (constructors and `super` calls), `invokestatic` (static methods).
 8. The JVM specification guarantees the semantics of bytecode, but not the implementation details.
 
 ## Relevant Java 21 Features
@@ -74,11 +75,13 @@ A `.class` file has a well-defined binary structure:
   since Java 9), pattern matching, and record patterns.
 - **Constant Dynamic (JEP 309)**: `condy` entries in the constant pool allow lazily computed constants, reducing class
   loading overhead.
-- **Sealed classes verification**: The bytecode verifier enforces sealed class hierarchy constraints at the bytecode
-  level.
+- **Sealed classes enforcement**: The JVM enforces sealed class hierarchies at class-loading time: the sealed class's
+  `PermittedSubclasses` attribute is checked when a subclass is loaded, and a class that is not listed fails with
+  `IncompatibleClassChangeError`.
 - **Pattern matching switch**: Generates complex bytecode using `tableswitch`/`lookupswitch` with type checks and
   guards.
-- **String templates (preview)**: Will introduce new bytecode patterns for template processing.
+- **String templates (preview in Java 21 and 22)**: Were withdrawn in JDK 23 and are not part of Java; do not rely on
+  them.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -104,8 +107,12 @@ A `.class` file has a well-defined binary structure:
    // invokevirtual: runtime polymorphism (most instance methods)
    obj.method();
 
-   // invokespecial: compile-time resolution (constructors, super, private)
+   // invokespecial: no virtual dispatch (constructors, super calls)
    super.method();
+
+   // private instance methods: invokevirtual since Java 11 (invokespecial before);
+   // the JVM still binds a private method directly, without dispatch
+   privateHelper();
 
    // invokestatic: no dispatch needed
    ClassName.staticMethod();
@@ -130,8 +137,9 @@ A `.class` file has a well-defined binary structure:
    understand performance characteristics.
 3. **Leverage invokedynamic**: When creating frameworks or libraries, `invokedynamic` provides flexible, high-performance
    method dispatch (used internally by lambda expressions).
-4. **Monitor bytecode size**: Methods with more than 8,000 bytecode instructions are not inlined by the JIT compiler
-   (HotSpot default). Keep methods focused.
+4. **Monitor bytecode size**: HotSpot does not JIT-compile methods larger than 8,000 bytes of bytecode at all (they stay
+   interpreted), and it only inlines small methods (35 bytes at ordinary call sites, 325 bytes at hot ones, by default).
+   Keep methods focused.
 5. **Use bytecode manipulation carefully**: Libraries like ASM, ByteBuddy, and Javassist are powerful but produce
    bytecode that bypasses compiler checks.
 
@@ -185,9 +193,11 @@ A1: The JVM has five method invocation instructions, each for a different dispat
 3. invokespecial:
    - Used for calls that don't need virtual dispatch:
      a. Constructors (<init> methods)
-     b. Private methods (since Java 11, private interface methods too)
-     c. super.method() calls
-   - Resolved at compile time, not runtime
+     b. super.method() calls
+     c. Private methods, but only in class files compiled for Java 10 or earlier: since
+        Java 11 (nest-based access control, JEP 181) javac calls private methods with
+        invokevirtual (private interface methods with invokeinterface)
+   - No virtual dispatch: the target method is chosen from the symbolic reference
 
 4. invokestatic:
    - Used for static method calls
@@ -205,7 +215,7 @@ A1: The JVM has five method invocation instructions, each for a different dispat
 ```java
 // Each invoke instruction demonstrated
 public class InvokeInstructions {
-    private void privateMethod() { }      // invokespecial
+    private void privateMethod() { }      // invokevirtual (Java 11+)
     public void virtualMethod() { }       // invokevirtual
     public static void staticMethod() { } // invokestatic
 
@@ -219,7 +229,7 @@ public class InvokeInstructions {
         // invokestatic
         Math.max(1, 2);
 
-        // invokespecial - private method
+        // invokevirtual - private method (Java 11+; invokespecial before Java 11)
         privateMethod();
 
         // invokeinterface - method on interface reference
@@ -350,9 +360,10 @@ public class BytecodeVerification {
 ```text
 A4: String concatenation has evolved significantly across Java versions:
 
-Java 1-4 (simple concatenation):
-- Compiler generated multiple String.concat() calls or new String() concatenations
-- Very inefficient for multiple concatenations
+Java 1-4 (StringBuffer approach):
+- Compiler translated "a" + b + "c" into
+  new StringBuffer().append("a").append(b).append("c").toString()
+- StringBuffer is synchronized, so every append paid for locking
 
 Java 5-8 (StringBuilder approach):
 - Compiler translated "a" + b + "c" into:
@@ -364,9 +375,11 @@ Java 5-8 (StringBuilder approach):
 
 Java 9+ (invokedynamic + StringConcatFactory):
 - Uses invokedynamic with java.lang.invoke.StringConcatFactory as bootstrap
-- The JVM can choose the optimal strategy at runtime:
-  - MH_INLINE_SIZED_EXACT: Pre-calculates exact size, single allocation
-  - BC_SB: Falls back to StringBuilder if needed
+- The strategy is chosen by the JDK library when the call site is first linked, not by javac:
+  - JDK 9 shipped several strategies selectable with -Djava.lang.invoke.stringConcat
+    (e.g. BC_SB, MH_INLINE_SIZED_EXACT)
+  - Later JDKs, including 21, removed the alternatives and always use the method-handle
+    strategy that pre-computes the exact size and allocates once
 - Benefits:
   - No StringBuilder allocation in most cases
   - Exact sizing means no wasted memory
@@ -374,7 +387,7 @@ Java 9+ (invokedynamic + StringConcatFactory):
   - Strategy can change across JVM versions without recompilation
 
 The key insight is that invokedynamic defers the concatenation strategy decision
-to runtime, allowing the JVM to pick the best approach based on actual data.
+to link time in the running JDK, so a JDK upgrade can improve it without recompiling.
 ```
 
 ```java
@@ -435,10 +448,11 @@ Key characteristics:
 ```java
 // Demonstrating operand stack operations
 public class OperandStackDemo {
-    // Method: int add(int a, int b) { return a + b; }
-    // Bytecode:
-    //   0: iload_1      // push parameter 'a'
-    //   1: iload_2      // push parameter 'b'
+    // Method: static int add(int a, int b) { return a + b; }
+    // Bytecode (static method, so 'a' is local 0 and 'b' is local 1;
+    // an instance method would have 'this' in local 0):
+    //   0: iload_0      // push parameter 'a'
+    //   1: iload_1      // push parameter 'b'
     //   2: iadd         // pop both, push sum
     //   3: ireturn      // pop sum, return it
 
@@ -446,13 +460,13 @@ public class OperandStackDemo {
         return a + b;
     }
 
-    // More complex: int compute(int x) { return x * x + 2 * x + 1; }
+    // More complex: static int compute(int x) { return x * x + 2 * x + 1; }
     // Bytecode:
-    //   0: iload_1      // push x            Stack: [x]
-    //   1: iload_1      // push x            Stack: [x, x]
+    //   0: iload_0      // push x            Stack: [x]
+    //   1: iload_0      // push x            Stack: [x, x]
     //   2: imul         // pop both, push x*x Stack: [x*x]
     //   3: iconst_2     // push 2            Stack: [x*x, 2]
-    //   4: iload_1      // push x            Stack: [x*x, 2, x]
+    //   4: iload_0      // push x            Stack: [x*x, 2, x]
     //   5: imul         // pop 2 and x       Stack: [x*x, 2*x]
     //   6: iadd         // pop both          Stack: [x*x+2*x]
     //   7: iconst_1     // push 1            Stack: [x*x+2*x, 1]
@@ -526,9 +540,9 @@ public class BridgeMethodDemo {
             System.out.printf("Method: %s, Bridge: %b, Synthetic: %b%n",
                 method, method.isBridge(), method.isSynthetic());
         }
-        // Output:
-        // Method: transform(String), Bridge: false, Synthetic: false
-        // Method: transform(Object), Bridge: true, Synthetic: true
+        // Output (the order of getDeclaredMethods() is not specified):
+        // Method: public java.lang.String BridgeMethodDemo$StringTransformer.transform(java.lang.String), Bridge: false, Synthetic: false
+        // Method: public java.lang.Object BridgeMethodDemo$StringTransformer.transform(java.lang.Object), Bridge: true, Synthetic: true
     }
 }
 ```

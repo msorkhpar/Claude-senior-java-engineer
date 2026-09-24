@@ -35,8 +35,9 @@ The class loading process has three phases:
 
 The JVM defines several memory areas used during program execution:
 
-- **Method Area (Metaspace in Java 8+)**: Stores class metadata, method data, constant pool, and static variables.
-  Shared among all threads.
+- **Method Area (Metaspace in Java 8+)**: Stores class metadata, method data and bytecode, and the runtime constant
+  pool. Shared among all threads. (In HotSpot, static variables are not in Metaspace: since JDK 7 they live in the
+  class's `java.lang.Class` object on the heap.)
 - **Heap**: The runtime data area from which memory for all class instances and arrays is allocated. Shared among all
   threads and managed by the garbage collector.
 - **Java Stack (per thread)**: Each thread has its own stack containing frames. Each frame holds local variables, operand
@@ -60,7 +61,10 @@ The Execution Engine reads bytecode and executes it:
 3. Each thread has its own **stack**, **PC register**, and **native method stack** -- these are not shared.
 4. The **heap** and **method area** are shared across all threads.
 5. The class loading process is **lazy** -- classes are loaded only when first referenced.
-6. **LinkageError** occurs when a class has already been loaded by a different class loader.
+6. **LinkageError** occurs when a class loader tries to define a class it has already defined ("attempted duplicate
+   class definition"), or when two loaders' versions of the same class name meet across a method signature (a loader
+   constraint violation). Loading the same class name in two different class loaders is allowed and gives two distinct
+   classes.
 7. The JVM specification defines the architecture, but implementations (HotSpot, GraalVM, OpenJ9) may differ in
    details.
 8. Stack frames are created for each method invocation and destroyed when the method completes.
@@ -69,12 +73,15 @@ The Execution Engine reads bytecode and executes it:
 
 - **Metaspace improvements**: Better memory management with elastic Metaspace (JEP 387 in Java 16), reducing memory
   footprint by returning unused memory to the OS more eagerly.
-- **CDS (Class Data Sharing)**: Enhanced in Java 21 to speed up startup by sharing class metadata across JVM instances.
+- **CDS (Class Data Sharing)**: Speeds up startup by sharing class metadata across JVM instances. A default CDS archive
+  for JDK classes is used out of the box since JDK 12; application classes can be archived with dynamic archiving
+  (JDK 13) or `-XX:+AutoCreateSharedArchive` (JDK 19).
 - **Virtual threads (JEP 444)**: Virtual threads have lightweight stacks that are stored on the heap rather than
   allocating OS-level thread stacks, fundamentally changing the per-thread memory model.
 - **ZGC and Shenandoah**: Modern garbage collectors with sub-millisecond pause times, available as production-ready in
   Java 21.
-- **String Deduplication**: Available with G1 and ZGC collectors to reduce heap usage for duplicate strings.
+- **String Deduplication** (`-XX:+UseStringDeduplication`, off by default): Supported by all HotSpot collectors
+  (G1, Parallel, Serial, ZGC, Shenandoah) since JDK 18, to reduce heap usage for duplicate strings.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -129,8 +136,9 @@ The Execution Engine reads bytecode and executes it:
 
 ## Edge Cases and Their Handling
 
-1. **Circular class dependencies**: The JVM handles circular references during class loading through a multi-phase
-   linking process, but overly complex circular dependencies can cause `ClassCircularityError`.
+1. **Circular class dependencies**: Classes that refer to each other (A uses B, B uses A) load without problems, because
+   references are resolved lazily during linking. `ClassCircularityError` is thrown only when a class would be its own
+   superclass or superinterface, which normally happens only with inconsistently compiled classes or custom loaders.
 2. **Static initializer failures**: If a class's static initializer throws an exception, the class is marked as
    unusable and subsequent access throws `NoClassDefFoundError` (not the original exception).
 3. **Thread-safety of class initialization**: The JVM guarantees that a class is initialized by exactly one thread; other
@@ -211,15 +219,17 @@ A2: The JVM defines five main memory areas:
 
 1. Method Area (Metaspace since Java 8):
    - Shared across all threads
-   - Stores class metadata, method bytecode, constant pool, static variables
+   - Stores class metadata, method bytecode, runtime constant pool
    - In Java 8+, uses native memory (not heap) as Metaspace
+   - (HotSpot keeps static variables in the java.lang.Class object on the heap since JDK 7)
    - Can be tuned with -XX:MetaspaceSize and -XX:MaxMetaspaceSize
 
 2. Heap:
    - Shared across all threads
    - Where all objects and arrays are allocated
    - Managed by the garbage collector
-   - Divided into Young Generation (Eden + Survivor spaces) and Old Generation
+   - With generational collectors (Serial, Parallel, G1): divided into Young Generation
+     (Eden + Survivor spaces) and Old Generation
    - Tuned with -Xms (initial) and -Xmx (maximum)
 
 3. Java Stack (per thread):
@@ -241,7 +251,8 @@ A2: The JVM defines five main memory areas:
 ```java
 // Demonstrating memory areas through code behavior
 public class MemoryAreas {
-    // Stored in Method Area (Metaspace) - static field
+    // Static field: belongs to the class, not to an instance
+    // (HotSpot stores it in the Class object on the heap, not in Metaspace)
     static int staticCounter = 0;
 
     // Object fields stored in Heap
@@ -260,7 +271,7 @@ public class MemoryAreas {
         // 'obj' reference is on the stack; actual object is on the heap
         MemoryAreas obj = new MemoryAreas();
         obj.name = "example"; // String object on heap, reference in object on heap
-        staticCounter++;       // Modifies value in Method Area
+        staticCounter++;       // Modifies the class's static field (shared by all threads)
     }
 }
 ```
@@ -335,7 +346,7 @@ public class ClassLoadingErrors {
 ```text
 A4: PermGen (Permanent Generation) had several significant problems:
 
-1. Fixed Size: PermGen had a fixed maximum size (default 64MB-256MB depending on platform).
+1. Fixed Size: PermGen had a fixed maximum size (by default only 64MB-82MB depending on platform).
    This made it prone to OutOfMemoryError: PermGen space, especially in applications that
    loaded many classes (e.g., application servers with hot deployment).
 
@@ -357,7 +368,8 @@ Metaspace (Java 8+) improvements:
 5. Simpler GC: Class unloading is more efficient.
 
 Tuning options:
-- -XX:MetaspaceSize: Initial metaspace size (triggers GC when reached)
+- -XX:MetaspaceSize: Initial GC threshold (high-water mark): reaching it triggers a GC that
+  can unload classes; it is not a pre-reserved initial size
 - -XX:MaxMetaspaceSize: Maximum metaspace size (safety limit)
 ```
 

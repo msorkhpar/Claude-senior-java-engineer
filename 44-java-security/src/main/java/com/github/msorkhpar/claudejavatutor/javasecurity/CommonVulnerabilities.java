@@ -102,6 +102,10 @@ public class CommonVulnerabilities {
 
         /**
          * Records a failed login attempt and returns whether the account is now locked.
+         * <p>
+         * The whole read-modify-write runs inside {@code ConcurrentHashMap.compute}, which is atomic
+         * per key, so concurrent failures for the same user cannot overwrite each other's counts.
+         * (A separate {@code get} followed by {@code put} would lose updates under concurrency.)
          *
          * @param username the username that failed login
          * @return true if the account is now locked out
@@ -110,32 +114,27 @@ public class CommonVulnerabilities {
             Objects.requireNonNull(username, "Username must not be null");
             long now = System.currentTimeMillis();
 
-            AttemptInfo info = attempts.get(username);
-            if (info == null) {
-                attempts.put(username, new AttemptInfo(now));
-                return false;
-            }
-
-            if (info.lockoutUntil > 0 && now < info.lockoutUntil) {
-                return true; // still locked
-            }
-
-            if (info.lockoutUntil > 0 && now >= info.lockoutUntil) {
-                // lockout expired, reset
-                attempts.put(username, new AttemptInfo(now));
-                return false;
-            }
-
-            int currentCount = info.count.incrementAndGet();
-            if (currentCount >= MAX_ATTEMPTS) {
-                attempts.put(username, new AttemptInfo(
-                        new AtomicInteger(currentCount),
-                        info.firstAttemptTime,
-                        now + LOCKOUT_DURATION_MS
-                ));
-                return true;
-            }
-            return false;
+            AttemptInfo updated = attempts.compute(username, (user, info) -> {
+                if (info == null) {
+                    return new AttemptInfo(now);
+                }
+                if (info.lockoutUntil > 0 && now < info.lockoutUntil) {
+                    return info; // still locked
+                }
+                if (info.lockoutUntil > 0) {
+                    return new AttemptInfo(now); // lockout expired, reset
+                }
+                int currentCount = info.count.incrementAndGet();
+                if (currentCount >= MAX_ATTEMPTS) {
+                    return new AttemptInfo(
+                            new AtomicInteger(currentCount),
+                            info.firstAttemptTime,
+                            now + LOCKOUT_DURATION_MS
+                    );
+                }
+                return info;
+            });
+            return updated.lockoutUntil > 0 && now < updated.lockoutUntil;
         }
 
         /**
@@ -274,6 +273,8 @@ public class CommonVulnerabilities {
         /**
          * Demonstrates timing-safe string comparison to prevent timing attacks.
          * Uses constant-time comparison regardless of where strings differ.
+         * The early return on different lengths reveals only the length, which is
+         * acceptable when the secret's length is public (fixed-length tokens, hashes).
          */
         public boolean constantTimeEquals(String a, String b) {
             if (a == null || b == null) {

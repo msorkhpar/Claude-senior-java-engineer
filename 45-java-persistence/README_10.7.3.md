@@ -37,7 +37,7 @@ The SQL standard defines four isolation levels that trade off between concurrenc
 
 ### Optimistic vs. Pessimistic Locking
 
-**Pessimistic Locking**: Assumes conflicts are likely. Acquires database locks (SELECT ... FOR UPDATE) before modifying data, blocking other transactions from reading or writing the locked rows. Best for high-contention scenarios.
+**Pessimistic Locking**: Assumes conflicts are likely. Acquires database locks (SELECT ... FOR UPDATE) before modifying data, blocking other transactions from writing or locking the locked rows. (In databases that use MVCC, such as PostgreSQL, Oracle and MySQL/InnoDB, plain non-locking reads are not blocked.) Best for high-contention scenarios.
 
 **Optimistic Locking**: Assumes conflicts are rare. Does not acquire locks during reads. Instead, uses a version number or timestamp. At write time, checks that the version has not changed since the read. If it has, the write fails. Best for low-contention, read-heavy scenarios.
 
@@ -55,8 +55,8 @@ The SQL standard defines four isolation levels that trade off between concurrenc
 
 ## Relevant Java 21 Features
 
-- **Virtual threads** (Java 21) are significant for transaction-heavy applications. Each virtual thread can hold a database connection and transaction without consuming a platform thread, enabling millions of concurrent transactions.
-- **Structured concurrency** (Java 21 preview) helps manage multiple transactional operations that run in parallel, ensuring they all complete or all fail.
+- **Virtual threads** (Java 21) are significant for transaction-heavy applications. A virtual thread can wait on a database call without consuming a platform thread. Each open transaction still needs its own connection, so the number of concurrent transactions stays bounded by the connection pool and the database, not by the thread count.
+- **Structured concurrency** (Java 21 preview) helps manage multiple operations that run in parallel: with `ShutdownOnFailure`, if one fails the others are cancelled. It does not make separate database transactions atomic; each one commits or rolls back on its own.
 - **Records** are ideal for representing immutable snapshots of versioned entities used in optimistic locking comparisons.
 - **Pattern matching for switch** can be used to handle different transaction outcomes elegantly.
 
@@ -69,7 +69,8 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             transactionService.transfer(request.fromId(), request.toId(), request.amount())
         ));
     }
-    // Each virtual thread holds its own connection and transaction
+    // Each running transfer holds its own connection and transaction;
+    // the pool size caps how many run at once, the rest wait for a connection
 }
 ```
 
@@ -240,28 +241,35 @@ The database writes to persistent storage (WAL/redo log) before confirming the c
 ```
 
 ```java
-// ACID-compliant transfer in JDBC
-public boolean transfer(Connection conn, int fromId, int toId, double amount)
+// ACID-compliant transfer in JDBC.
+// Money is a BigDecimal (SQL DECIMAL), never a double: a double cannot hold most decimal
+// amounts exactly, so balances would drift by fractions of a cent.
+public boolean transfer(Connection conn, int fromId, int toId, BigDecimal amount)
         throws SQLException {
+    if (amount.signum() < 0) {
+        throw new IllegalArgumentException("amount must not be negative"); // else it moves money backwards
+    }
     conn.setAutoCommit(false); // Begin transaction (Atomicity boundary)
-    try {
+    try (PreparedStatement debit = conn.prepareStatement(
+             "UPDATE accounts SET balance = balance - ? WHERE id = ? AND balance >= ?");
+         PreparedStatement credit = conn.prepareStatement(
+             "UPDATE accounts SET balance = balance + ? WHERE id = ?")) {
         // Debit source account
-        PreparedStatement debit = conn.prepareStatement(
-            "UPDATE accounts SET balance = balance - ? WHERE id = ? AND balance >= ?");
-        debit.setDouble(1, amount);
+        debit.setBigDecimal(1, amount);
         debit.setInt(2, fromId);
-        debit.setDouble(3, amount); // Consistency: enforce balance >= 0
+        debit.setBigDecimal(3, amount); // Consistency: enforce balance >= 0
         if (debit.executeUpdate() == 0) {
             conn.rollback(); // Atomicity: undo if constraint violated
             return false;
         }
 
         // Credit destination account
-        PreparedStatement credit = conn.prepareStatement(
-            "UPDATE accounts SET balance = balance + ? WHERE id = ?");
-        credit.setDouble(1, amount);
+        credit.setBigDecimal(1, amount);
         credit.setInt(2, toId);
-        credit.executeUpdate();
+        if (credit.executeUpdate() == 0) {
+            conn.rollback(); // Atomicity: destination missing, so undo the debit too
+            return false;
+        }
 
         conn.commit(); // Durability: changes persisted to disk
         return true;
@@ -333,7 +341,8 @@ Optimistic Locking:
 - Best for: Low-contention, read-heavy workloads (web applications, APIs).
 - How it works: Read data with a version number. On update, check that the version hasn't changed.
   If it has, throw an exception and let the application retry.
-- Pros: No locks held during read, high concurrency, no deadlocks.
+- Pros: No locks held during read, high concurrency, far fewer deadlocks (the short version-checked
+  UPDATE still locks its row until commit).
 - Cons: Wasted work on conflict (read + compute + failed update), need retry logic.
 - Implementation: JPA @Version, manual version column check in SQL.
 
@@ -355,11 +364,11 @@ Decision matrix:
 
 ```java
 // Optimistic Locking with version column
-public Account updateBalanceOptimistic(Account account, double newBalance)
+public Account updateBalanceOptimistic(Account account, BigDecimal newBalance)
         throws SQLException, OptimisticLockException {
     String sql = "UPDATE accounts SET balance = ?, version = version + 1 WHERE id = ? AND version = ?";
     try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-        pstmt.setDouble(1, newBalance);
+        pstmt.setBigDecimal(1, newBalance);
         pstmt.setInt(2, account.id());
         pstmt.setInt(3, account.version()); // Check version hasn't changed
         int rows = pstmt.executeUpdate();
@@ -371,24 +380,36 @@ public Account updateBalanceOptimistic(Account account, double newBalance)
 }
 
 // Pessimistic Locking with SELECT FOR UPDATE
-public Account lockAndUpdateBalance(Connection conn, int id, double newBalance)
+public Account lockAndUpdateBalance(Connection conn, int id, BigDecimal newBalance)
         throws SQLException {
     conn.setAutoCommit(false);
-    // Lock the row - other transactions will BLOCK here until we commit
-    PreparedStatement lockStmt = conn.prepareStatement(
-        "SELECT id, owner, balance, version FROM accounts WHERE id = ? FOR UPDATE");
-    lockStmt.setInt(1, id);
-    ResultSet rs = lockStmt.executeQuery();
-    if (!rs.next()) throw new RuntimeException("Account not found");
+    try (PreparedStatement lockStmt = conn.prepareStatement(
+             "SELECT id, owner, balance, version FROM accounts WHERE id = ? FOR UPDATE");
+         PreparedStatement updateStmt = conn.prepareStatement(
+             "UPDATE accounts SET balance = ? WHERE id = ?")) {
+        // Lock the row - other transactions that try to lock or update it BLOCK until we commit
+        lockStmt.setInt(1, id);
+        String owner;
+        int version;
+        try (ResultSet rs = lockStmt.executeQuery()) {
+            if (!rs.next()) {
+                conn.rollback();
+                throw new IllegalStateException("Account not found");
+            }
+            owner = rs.getString("owner"); // read before commit: the ResultSet may not
+            version = rs.getInt("version"); // survive the commit
+        }
 
-    // Now we have exclusive access to this row
-    PreparedStatement updateStmt = conn.prepareStatement(
-        "UPDATE accounts SET balance = ? WHERE id = ?");
-    updateStmt.setDouble(1, newBalance);
-    updateStmt.setInt(2, id);
-    updateStmt.executeUpdate();
-    conn.commit(); // Release the lock
-    return new Account(id, rs.getString("owner"), newBalance, rs.getInt("version"));
+        // Now we have exclusive write access to this row
+        updateStmt.setBigDecimal(1, newBalance);
+        updateStmt.setInt(2, id);
+        updateStmt.executeUpdate();
+        conn.commit(); // Release the lock
+        return new Account(id, owner, newBalance, version);
+    } catch (SQLException e) {
+        conn.rollback(); // Release the lock on failure too
+        throw e;
+    }
 }
 ```
 
@@ -468,7 +489,8 @@ transaction boundaries declaratively. Here's what happens at runtime:
 
 Key attributes:
 - propagation: REQUIRED (default), REQUIRES_NEW, SUPPORTS, etc.
-- isolation: READ_COMMITTED (default), REPEATABLE_READ, etc.
+- isolation: DEFAULT (the default: use the database's own default level), READ_COMMITTED,
+  REPEATABLE_READ, etc.
 - readOnly: Optimization hint (default false).
 - rollbackFor: Which exception types trigger rollback.
 - timeout: Transaction timeout in seconds.
@@ -482,7 +504,7 @@ bypasses the proxy, so the transaction is NOT applied. Use a separate bean or se
 @Service
 public class AccountService {
 
-    @Transactional // Default: REQUIRED propagation, READ_COMMITTED isolation
+    @Transactional // Default: REQUIRED propagation, DEFAULT isolation (the database's default)
     public void transfer(Long fromId, Long toId, BigDecimal amount) {
         Account from = accountRepository.findById(fromId).orElseThrow();
         Account to = accountRepository.findById(toId).orElseThrow();
@@ -503,7 +525,8 @@ public class AccountService {
         // Runs in its own transaction, isolated from the caller's transaction
     }
 
-    @Transactional(readOnly = true) // Optimization: no undo logging needed
+    @Transactional(readOnly = true) // Hint: Spring marks the connection read-only; with JPA,
+                                    // Hibernate also skips dirty checking and flushing
     public List<AccountDTO> getAllAccounts() {
         return accountRepository.findAll().stream()
             .map(this::toDto)
@@ -550,7 +573,9 @@ circular wait. Prevention strategies:
    Use narrow WHERE clauses in SELECT FOR UPDATE.
 
 5. Use optimistic locking:
-   Eliminates deadlocks entirely since no locks are held during reads.
+   Makes deadlocks much rarer, since no locks are held during reads or user think-time.
+   The version-checked UPDATEs still lock rows until commit, so two transactions that
+   update the same rows in opposite orders can still deadlock.
 
 6. Index your WHERE clauses:
    Without an index, some databases lock the entire table instead of specific rows.
@@ -565,25 +590,28 @@ PostgreSQL: log_lock_waits = on (logs long lock waits)
 
 ```java
 // Strategy 1: Consistent lock ordering to prevent deadlocks
-public boolean transfer(int fromId, int toId, double amount) throws SQLException {
-    Connection conn = dataSource.getConnection();
-    conn.setAutoCommit(false);
-    try {
-        // ALWAYS lock lower ID first to prevent deadlock
-        int firstLock = Math.min(fromId, toId);
-        int secondLock = Math.max(fromId, toId);
+public boolean transfer(int fromId, int toId, BigDecimal amount) throws SQLException {
+    try (Connection conn = dataSource.getConnection()) { // returned to the pool at the end
+        conn.setAutoCommit(false);
+        try {
+            // ALWAYS lock lower ID first to prevent deadlock
+            int firstLock = Math.min(fromId, toId);
+            int secondLock = Math.max(fromId, toId);
 
-        lockAccount(conn, firstLock);
-        lockAccount(conn, secondLock);
+            lockAccount(conn, firstLock);
+            lockAccount(conn, secondLock);
 
-        // Now safe to proceed - no deadlock possible
-        debit(conn, fromId, amount);
-        credit(conn, toId, amount);
-        conn.commit();
-        return true;
-    } catch (SQLException e) {
-        conn.rollback();
-        throw e;
+            // Now safe to proceed - these two locks cannot deadlock with another transfer
+            debit(conn, fromId, amount);
+            credit(conn, toId, amount);
+            conn.commit();
+            return true;
+        } catch (SQLException e) {
+            conn.rollback();
+            throw e;
+        } finally {
+            conn.setAutoCommit(true);
+        }
     }
 }
 

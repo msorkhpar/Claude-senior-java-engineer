@@ -21,7 +21,8 @@ public class BytecodeExecution {
     public static class OperandStackDemo {
 
         /**
-         * Simple addition: iload_1, iload_2, iadd, ireturn
+         * Simple addition: iload_0, iload_1, iadd, ireturn
+         * (a static method, so the parameters start at local variable 0)
          */
         public static int add(int a, int b) {
             return a + b;
@@ -29,7 +30,7 @@ public class BytecodeExecution {
 
         /**
          * Compound expression: demonstrates multiple stack operations.
-         * Bytecode: iload_1, iload_1, imul, iconst_2, iload_1, imul, iadd, iconst_1, iadd, ireturn
+         * Bytecode: iload_0, iload_0, imul, iconst_2, iload_0, imul, iadd, iconst_1, iadd, ireturn
          */
         public static int quadratic(int x) {
             return x * x + 2 * x + 1;
@@ -69,9 +70,27 @@ public class BytecodeExecution {
     }
 
     /**
+     * Superclass whose method {@link MethodInvocationDemo} reaches with a {@code super} call.
+     */
+    public static class InvocationBase {
+        public String describe() {
+            return "invokespecial";
+        }
+    }
+
+    /**
      * Demonstrates different method invocation types in bytecode.
      */
-    public static class MethodInvocationDemo {
+    public static class MethodInvocationDemo extends InvocationBase {
+
+        /**
+         * Overrides {@link InvocationBase#describe()}; a {@code super.describe()} call
+         * still reaches the superclass version because invokespecial does no virtual dispatch.
+         */
+        @Override
+        public String describe() {
+            return "overridden";
+        }
 
         /**
          * Instance method -- invoked via invokevirtual
@@ -88,10 +107,12 @@ public class BytecodeExecution {
         }
 
         /**
-         * Private method -- invoked via invokespecial
+         * Private method -- since Java 11 (nest-based access control, JEP 181) javac
+         * invokes it with invokevirtual; before Java 11 it used invokespecial.
+         * The JVM still binds a private method directly, without virtual dispatch.
          */
-        private String specialMethod() {
-            return "invokespecial";
+        private String privateMethod() {
+            return "invokevirtual (private)";
         }
 
         /**
@@ -106,8 +127,11 @@ public class BytecodeExecution {
             // invokestatic: static method call
             results.put("static", MethodInvocationDemo.staticMethod());
 
-            // invokespecial: private method call
-            results.put("special", this.specialMethod());
+            // invokespecial: super.method() call -- bypasses this class's override
+            results.put("special", super.describe());
+
+            // invokevirtual (Java 11+): private method call
+            results.put("private", this.privateMethod());
 
             // invokeinterface: interface method call
             List<String> list = new ArrayList<>();
@@ -258,8 +282,9 @@ public class BytecodeExecution {
         public static final String STRING_CONSTANT = "constant";
 
         /**
-         * Returns the constant. In bytecode, this is loaded directly from the
-         * constant pool (ldc instruction), not via a field access.
+         * Returns the constant. javac inlines the value, so there is no field access:
+         * 42 fits in a byte and is pushed with bipush (larger ints use sipush, or ldc
+         * from the constant pool).
          */
         public int getConstant() {
             return COMPILE_TIME_CONSTANT; // Bytecode: bipush 42

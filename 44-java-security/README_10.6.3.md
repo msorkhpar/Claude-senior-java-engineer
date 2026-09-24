@@ -58,7 +58,8 @@ In practice, **hybrid encryption** is used: RSA encrypts a random AES key, and A
 - **Stronger defaults**: Java 21 includes updated default security algorithms and larger key sizes
 - **EdDSA support** (JEP 339, Java 15+): Ed25519 and Ed448 digital signature algorithms, faster and more secure than
   RSA for signatures
-- **Key encapsulation mechanism (KEM)** (JEP 452, Java 21 preview): API for post-quantum key encapsulation
+- **Key encapsulation mechanism (KEM)** (JEP 452, final in Java 21): the `javax.crypto.KEM` API for key encapsulation.
+  JDK 21 implements DHKEM (X25519, X448, EC curves); post-quantum ML-KEM was added later (JDK 24)
 - **Deprecated weak algorithms**: MD5 and SHA-1 are disabled by default in security-sensitive contexts
 - **Enhanced SecureRandom**: Support for DRBG (Deterministic Random Bit Generator) algorithms
 
@@ -67,13 +68,13 @@ In practice, **hybrid encryption** is used: RSA encrypts a random AES key, and A
 | Version  | Enhancement                                            |
 |----------|--------------------------------------------------------|
 | Java 1.2 | JCE introduced as extension                           |
-| Java 5   | JCE bundled with JDK                                  |
-| Java 7   | AES-GCM support added                                 |
+| Java 1.4 | JCE bundled with JDK                                  |
+| Java 8   | AES-GCM in the default SunJCE provider                |
 | Java 9   | DRBG SecureRandom (JEP 273), SHA-3 support           |
 | Java 11  | ChaCha20-Poly1305 cipher (JEP 329)                   |
 | Java 15  | EdDSA signature algorithm (JEP 339)                   |
 | Java 17  | Stronger default algorithms, deprecated weak ciphers  |
-| Java 21  | Key Encapsulation Mechanism API (JEP 452, preview)    |
+| Java 21  | Key Encapsulation Mechanism API (JEP 452)             |
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -239,9 +240,14 @@ public class HashVsEncrypt {
     // Encryption: two-way, reversible with key
     public byte[] encrypt(String input, SecretKey key) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        return cipher.doFinal(input.getBytes("UTF-8"));
-        // Can decrypt with the same key to get original input
+        cipher.init(Cipher.ENCRYPT_MODE, key); // the provider picks a random 12-byte IV
+        byte[] iv = cipher.getIV();            // not secret, but needed to decrypt
+        byte[] ciphertext = cipher.doFinal(input.getBytes("UTF-8"));
+        byte[] result = new byte[iv.length + ciphertext.length]; // IV + ciphertext
+        System.arraycopy(iv, 0, result, 0, iv.length);
+        System.arraycopy(ciphertext, 0, result, iv.length, ciphertext.length);
+        return result;
+        // Can decrypt with the same key (and the IV stored in front) to get the original input
     }
 }
 ```
@@ -266,7 +272,8 @@ AES-GCM advantages:
    and verify it in the correct order (encrypt-then-MAC), which is error-prone.
 
 GCM requirements:
-- Never reuse an IV (nonce) with the same key. A 12-byte random IV is recommended.
+- Never reuse an IV (nonce) with the same key. A 12-byte random IV is recommended; with random IVs,
+  NIST SP 800-38D limits one key to 2^32 encryptions, so rotate keys well before that.
 - The authentication tag should be 128 bits (full length).
 - GCM is limited to 2^39 - 256 bits (~64 GB) per single encryption. For larger data, use chunking.
 
@@ -331,10 +338,14 @@ A3: Digital signatures provide three security properties:
 
 How they work:
 1. The signer computes a hash of the data (e.g., SHA-256)
-2. The hash is encrypted with the signer's private key, producing the signature
-3. The verifier decrypts the signature with the signer's public key to recover the hash
-4. The verifier independently computes the hash of the data
-5. If both hashes match, the signature is valid
+2. The signer applies the signing algorithm to the hash with the private key, producing the signature
+3. The verifier computes the hash of the data independently
+4. The verifier runs the verification algorithm with the signature, the hash and the signer's public key
+5. If it succeeds, the signature is valid
+
+(With RSA the signing step is the RSA private-key operation on the padded hash, so it is often described as
+"encrypting the hash with the private key". That picture does not fit ECDSA or Ed25519, and even for RSA,
+signing is not encryption: it uses its own padding, PKCS#1 v1.5 or PSS.)
 
 Use cases:
 - Code signing: Ensuring software updates come from the legitimate publisher
