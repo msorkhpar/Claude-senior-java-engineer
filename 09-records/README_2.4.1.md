@@ -7,7 +7,8 @@ syntax for declaring classes that are transparent holders for shallowly immutabl
 
 ## Key Points
 
-- Records are immutable data classes
+- Records are shallowly immutable data classes (the component fields are final, but an object a component refers to,
+  such as a List, can still be mutable)
 - They automatically generate methods like constructor, getters, equals(), hashCode(), and toString()
 - Records can have static fields, methods, and nested classes
 - They can implement interfaces but cannot extend other classes
@@ -89,7 +90,7 @@ public record Person(String name, int age) implements Printable {
 1. Use records for simple data carriers
 2. Prefer records over classes for DTOs (Data Transfer Objects)
 3. Use custom constructors for input validation
-4. Avoid adding mutable fields to records
+4. Avoid mutable component types, or copy them defensively (e.g. `List.copyOf`) in the compact constructor
 
 ## Common Pitfalls
 
@@ -181,9 +182,11 @@ int y = p.y(); // Not p.getY()
 ```
 
 Q8: Can you have mutable fields in a record?
-A8: While the components of a record are implicitly final, you can technically have mutable fields in a record by
-declaring them separately from the record header. However, this goes against the design principles of records and should
-be avoided. Records are intended to be immutable data carriers.
+A8: No. The component fields of a record are implicitly private and final, and a record cannot declare any other
+instance field: `record R(int a) { private int counter; }` fails with "field declaration must be static". Mutable state
+can still sneak in through a component of a mutable type: in `record P(String name, List<String> tags)`,
+`p.tags().add("x")` changes the list the record holds. This is why records are called shallowly immutable; copy such
+components defensively (e.g. `tags = List.copyOf(tags);` in the compact constructor) when real immutability is needed.
 
 Q9: How do records differ from regular classes in terms of inheritance?
 A9: Records differ from regular classes in several ways regarding inheritance:
