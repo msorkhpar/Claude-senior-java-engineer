@@ -118,6 +118,10 @@ A1: While both give you a point in time, Instant offers several advantages:
 
 Use System.currentTimeMillis() only in performance-critical code where even object 
 creation overhead matters (extremely rare).
+
+Note: both Instant.now() and System.currentTimeMillis() read the wall clock, which 
+can jump (NTP corrections, manual changes). For measuring elapsed time precisely, 
+System.nanoTime() is the monotonic clock intended for that job.
 ```
 
 ```java
@@ -181,8 +185,9 @@ Precision is lost when:
 - Interacting with databases that store timestamps with lower precision
 - Using legacy Date (millisecond precision only)
 
-The system clock (Instant.now()) typically provides microsecond-level precision 
-on modern hardware, not true nanosecond precision.
+The resolution of Instant.now() depends on the platform clock: on Linux with 
+Java 15+ it reports nanosecond digits, on other platforms it may be microseconds 
+or coarser. Resolution is not accuracy -- the clock is not truly nanosecond-accurate.
 ```
 
 ```java

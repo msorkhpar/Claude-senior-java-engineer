@@ -16,13 +16,13 @@ The problems were so well-known that the entire `java.time` package (JSR 310) wa
 4. **`SimpleDateFormat` is NOT thread-safe** -- sharing an instance across threads causes corrupt output or exceptions.
 5. **No separation of concerns** -- `Date` represents both a date and a timestamp; there is no "date-only" or "time-only" type.
 6. **Lenient mode by default** -- `Calendar` silently accepts invalid dates like February 30 and rolls them forward.
-7. **Poor timezone support** -- `TimeZone` uses three-letter abbreviations that are ambiguous (e.g., "CST" could be Central Standard Time or China Standard Time).
+7. **Poor timezone support** -- `TimeZone` still accepts three-letter abbreviations that are ambiguous (e.g., "CST" could be Central Standard Time or China Standard Time), and `TimeZone.getTimeZone()` silently returns GMT for an ID it does not recognise.
 8. **`java.sql.Date` extends `java.util.Date`** with different semantics, causing confusion in JDBC code.
 
 ## Relevant Java 21 Features
 
 - The `java.time` API introduced in Java 8 is the standard replacement and has been stable through Java 21.
-- Java 21 continues to deprecate legacy date methods and encourage migration.
+- The `Date` methods deprecated back in JDK 1.1 (such as `getYear()` and `setMonth()`) are still deprecated, but not removed, in Java 21; the classes remain for compatibility.
 - Pattern matching and records work well with immutable `java.time` types for cleaner code.
 - Virtual threads benefit from the thread-safe design of `DateTimeFormatter` over `SimpleDateFormat`.
 
@@ -31,7 +31,7 @@ The problems were so well-known that the entire `java.time` package (JSR 310) wa
 1. **Using deprecated `Date` constructors and methods**:
    ```java
    // Problem: Year is offset from 1900
-   Date date = new Date(2024, 1, 15); // Actually year 3924!
+   Date date = new Date(2024, 1, 15); // Actually February 15, 3924! (year + 1900, 0-based month)
 
    // Fix: Use java.time instead
    LocalDate date = LocalDate.of(2024, 1, 15);

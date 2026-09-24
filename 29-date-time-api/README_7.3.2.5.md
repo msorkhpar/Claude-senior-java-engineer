@@ -2,7 +2,7 @@
 
 ## Concept Explanation
 
-`ZonedDateTime` and `OffsetDateTime` are the timezone-aware temporal types in `java.time`. They extend `LocalDateTime` by adding timezone context, making them suitable for scenarios where the exact point on the global timeline matters.
+`ZonedDateTime` and `OffsetDateTime` are the timezone-aware temporal types in `java.time`. They build on `LocalDateTime` (each one wraps a `LocalDateTime`; there is no inheritance) by adding timezone context, making them suitable for scenarios where the exact point on the global timeline matters.
 
 **Real-world analogy**: Imagine a global conference call. If you say "let's meet at 2:00 PM" (`LocalDateTime`), nobody knows which 2:00 PM you mean. If you say "2:00 PM Eastern Time" (`ZonedDateTime`), everyone can convert to their local time. If you say "2:00 PM UTC-5" (`OffsetDateTime`), the meaning is unambiguous but you lose the semantic connection to "Eastern Time" (which might be -4 during daylight saving).
 
@@ -67,7 +67,9 @@
 4. **Using three-letter timezone abbreviations**:
    ```java
    // Problem: "CST" is ambiguous (Central Standard Time? China Standard Time?)
-   ZoneId.of("CST"); // May throw or resolve unexpectedly
+   ZoneId.of("CST"); // Throws ZoneRulesException: Unknown time-zone ID
+   // Only ZoneId.of("CST", ZoneId.SHORT_IDS) resolves it -- to America/Chicago
+   // (while the legacy TimeZone.getTimeZone("CST") silently accepts it)
 
    // Fix: Use IANA timezone IDs
    ZoneId.of("America/Chicago");  // Central US
@@ -167,10 +169,10 @@ System.out.println(gap); // 2024-03-10T03:30-04:00[America/New_York]
 
 // Overlap: November 3, 2024, 1:00 AM occurs twice
 ZonedDateTime overlap = ZonedDateTime.of(2024, 11, 3, 1, 30, 0, 0, ny);
-System.out.println(overlap); // 2024-11-03T01:30-04:00 (EDT -- earlier offset)
+System.out.println(overlap); // 2024-11-03T01:30-04:00[America/New_York] (EDT -- earlier offset)
 
 ZonedDateTime later = overlap.withLaterOffsetAtOverlap();
-System.out.println(later); // 2024-11-03T01:30-05:00 (EST -- later offset)
+System.out.println(later); // 2024-11-03T01:30-05:00[America/New_York] (EST -- later offset)
 ```
 
 **Q3: What is the difference between `withZoneSameInstant()` and `withZoneSameLocal()`?**
@@ -200,12 +202,12 @@ ZonedDateTime nyNoon = ZonedDateTime.of(2024, 3, 15, 12, 0, 0, 0,
 
 // withZoneSameInstant: SAME moment, different local time
 ZonedDateTime londonSameInstant = nyNoon.withZoneSameInstant(ZoneId.of("Europe/London"));
-// 2024-03-15T16:00+00:00[Europe/London] -- 4 PM London = 12 PM New York
+// 2024-03-15T16:00Z[Europe/London] -- 4 PM London = 12 PM New York
 // Same instant: nyNoon.toInstant().equals(londonSameInstant.toInstant()) == true
 
 // withZoneSameLocal: SAME local time, different moment
 ZonedDateTime londonSameLocal = nyNoon.withZoneSameLocal(ZoneId.of("Europe/London"));
-// 2024-03-15T12:00+00:00[Europe/London] -- 12 PM London (different moment!)
+// 2024-03-15T12:00Z[Europe/London] -- 12 PM London (different moment!)
 // Different instant: nyNoon.toInstant().equals(londonSameLocal.toInstant()) == false
 ```
 
@@ -257,12 +259,15 @@ Use ZoneOffset when:
 - DST is not relevant (e.g., UTC-based timestamps)
 - You need maximum simplicity and predictability
 
-ZoneOffset is a subset of ZoneId (it implements ZoneId). Every ZoneOffset is 
-also a valid ZoneId, but not every ZoneId is a ZoneOffset.
+ZoneOffset is a subclass of ZoneId (ZoneId is an abstract class and ZoneOffset 
+extends it). Every ZoneOffset is also a valid ZoneId, but not every ZoneId is a 
+ZoneOffset.
 
 Special note: ZoneId.of("UTC"), ZoneId.of("Z"), and ZoneOffset.UTC all 
-represent UTC but are different types. Use ZoneOffset.UTC when you specifically 
-need an offset value.
+represent UTC, but not with the same type: ZoneId.of("Z") returns ZoneOffset.UTC 
+itself, while ZoneId.of("UTC") returns a region ID (a ZoneRegion) whose rules 
+have a fixed zero offset, so it is not equal to ZoneOffset.UTC. Use 
+ZoneOffset.UTC when you specifically need an offset value.
 ```
 
 ```java
@@ -278,8 +283,8 @@ OffsetDateTime odt = OffsetDateTime.now(utcPlus5);
 
 // UTC representations
 ZoneOffset utc1 = ZoneOffset.UTC;              // ZoneOffset
-ZoneId utc2 = ZoneId.of("UTC");                // ZoneId wrapping ZoneOffset
-ZoneId utc3 = ZoneId.of("Z");                  // Same as UTC
+ZoneId utc2 = ZoneId.of("UTC");                // Region ID "UTC" (a ZoneRegion), not equal to utc1
+ZoneId utc3 = ZoneId.of("Z");                  // Returns ZoneOffset.UTC itself (utc3 == utc1)
 ```
 
 ## Code Examples

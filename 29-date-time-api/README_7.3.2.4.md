@@ -15,7 +15,7 @@
 3. **Pattern letters**: `y` (year), `M` (month), `d` (day), `H` (hour 0-23), `h` (hour 1-12), `m` (minute), `s` (second), `S` (fraction), `E` (day of week), `a` (AM/PM), `z` (timezone name), `Z` (offset).
 4. **Locale-aware**: `ofLocalizedDate()`, `ofLocalizedTime()`, `ofLocalizedDateTime()` produce locale-specific output.
 5. **`withLocale()`** and **`withZone()`** return new formatter instances (immutable).
-6. **Parsing is strict by default** -- invalid dates throw `DateTimeParseException`.
+6. **Parsing is SMART, not strict, by default** -- a formatter from `ofPattern()` uses `ResolverStyle.SMART`: an out-of-range value such as day 32 throws `DateTimeParseException`, but "2024-02-30" with `yyyy-MM-dd` is silently resolved to 2024-02-29. The predefined ISO formatters are strict. For strict parsing use `ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT)` (with `STRICT`, `yyyy` also needs an era `G`, hence `uuuu`).
 7. **Use `ofPattern()`** for custom patterns; combine with `withLocale()` for localized patterns.
 
 ## Relevant Java 21 Features

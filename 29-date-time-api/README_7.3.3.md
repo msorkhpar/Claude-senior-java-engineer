@@ -44,7 +44,7 @@ The key principle is: **convert at the boundary**. Use `java.time` throughout yo
    ```java
    // Problem: java.sql.Date deliberately zeros out time components
    java.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.now());
-   sqlDate.getHours(); // Always 0 -- time is zeroed
+   sqlDate.getHours(); // Throws IllegalArgumentException -- java.sql.Date has no time part
 
    // Fix: Use Timestamp for date+time, or java.sql.Date only for dates
    ```
