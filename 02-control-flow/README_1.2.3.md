@@ -46,7 +46,8 @@ do {
 1. Infinite Loops: Ensure that the loop condition can eventually become false.
 2. Off-by-one errors: Be careful when using counters in loop conditions.
 3. Forgetting to update the loop control variable: Always update the variable that affects the loop condition.
-4. Using `==` instead of `=` in condition: Double-check your comparison operators.
+4. Using `=` instead of `==` in a condition: Double-check your comparison operators (with a `boolean` variable,
+   `while (done = true)` compiles and loops forever).
 
 ## Best Practices and Optimization Techniques
 

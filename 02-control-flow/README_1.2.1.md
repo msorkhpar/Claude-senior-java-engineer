@@ -41,8 +41,8 @@ depending on whether certain conditions are true or false.
 
 ## Java 21 Features
 
-While `if/else` statements haven't changed significantly, Java 21 introduces pattern matching in `if` statements (
-preview feature), allowing for more concise and expressive code:
+While `if/else` statements haven't changed significantly, pattern matching for `instanceof` (a standard feature since
+Java 16, JEP 394) lets an `if` condition test a type and bind a variable in one step:
 
 ```java
 if (obj instanceof String s && s.length() > 5) {
@@ -81,9 +81,7 @@ if (obj instanceof String s && s.length() > 5) {
 - [Java Language Specification - The if Statement](https://docs.oracle.com/javase/specs/jls/se21/html/jls-14.html#jls-14.9)
 - [Oracle Java Tutorials - The if-then and if-then-else Statements](https://docs.oracle.com/javase/tutorial/java/nutsandbolts/if.html)
 
-```
-
-Now, let's move on to the Interview Q&A section:
+## Interview Q&A
 
 Q1: What is the difference between `if (x == 0)` and `if (0 == x)`? Is there any advantage to either?
 ```java
@@ -116,7 +114,8 @@ public static int abs(int number) {
 
 A2: This implementation uses an `if/else` statement to check if the number is negative. If it is, it returns the
 negation of the number (making it positive). Otherwise, it returns the number as is. This effectively implements the
-absolute value function.
+absolute value function. Like `Math.abs`, it returns `Integer.MIN_VALUE` unchanged for `Integer.MIN_VALUE`, because the
+negation of that value overflows back to itself.
 
 Q3: What's wrong with the following code, and how would you fix it?
 
