@@ -15,6 +15,7 @@ class AbstractionTest {
         Car car = new Car("Toyota");
 
         ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
         System.setOut(new PrintStream(outContent));
 
         car.start();
@@ -36,7 +37,7 @@ class AbstractionTest {
         car.honk();
         assertThat(outContent.toString().trim()).isEqualTo("Honk honk!");
 
-        System.setOut(System.out);
+        System.setOut(originalOut);
     }
 
     @Test

@@ -63,7 +63,7 @@ While both abstract classes and interfaces are used for abstraction, they have s
    Java 8) could only have abstract methods.
 4. **Constructor**: Abstract classes can have constructors, interfaces cannot.
 5. **Access Modifiers**: Abstract class methods can have any access modifier, while interface methods are implicitly
-   public and abstract.
+   public (and abstract, unless they are default, static or, since Java 9, private methods).
 
 Example of an abstract class:
 
@@ -131,14 +131,14 @@ public abstract class Animal {
 
 3. Q: What's the difference between an interface and an abstract class?
    A: The main differences are:
-   ```text`
+   ```text
     1. Multiple Inheritance: A class can implement multiple interfaces but extend only one abstract class.
     2. State: Abstract classes can have instance variables, interfaces cannot (except constants).
     3. Method Implementation: Abstract classes can have both abstract and concrete methods, while interfaces
        (prior to Java 8) could only have abstract methods.
     4. Constructor: Abstract classes can have constructors, interfaces cannot.
     5. Access Modifiers: Abstract class methods can have any access modifier, while interface methods are
-       implicitly public and abstract.
+       implicitly public (and abstract, unless default, static or, since Java 9, private).
    ```
 
 4. Q: Can you provide an example of how abstraction might be used in a real-world application?
