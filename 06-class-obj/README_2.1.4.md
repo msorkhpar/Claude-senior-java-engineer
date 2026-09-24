@@ -39,7 +39,8 @@ class (superclass or parent class) and a more specialized class (subclass or chi
 1. Use inheritance to model "is-a" relationships.
 2. Favor composition over inheritance when appropriate.
 3. Design for inheritance or prohibit it (make the class `final`).
-4. Don't override methods in constructors.
+4. Don't call overridable methods from constructors (the subclass override runs before the subclass's fields are
+   initialized).
 5. Use the `@Override` annotation when overriding methods.
 
 ## Common Pitfalls
@@ -95,8 +96,8 @@ The `super` keyword in Java is used to refer to the superclass (parent class). I
 Q4: Explain the concept of method overriding with an example.
 A:
 
-Method overriding occurs when a subclass defines a method with the same name, return type, and parameters as a method
-in its superclass. The overridden method in the subclass takes precedence over the superclass method.
+Method overriding occurs when a subclass defines an instance method with the same name and parameters as a method in
+its superclass, and the same or a covariant (subtype) return type. The overridden method in the subclass takes precedence over the superclass method.
 
 Example:
 

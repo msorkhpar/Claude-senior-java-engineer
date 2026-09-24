@@ -17,7 +17,7 @@ A typical Java class consists of the following components:
 
 - Classes are declared using the `class` keyword.
 - The name of the class should match the filename (for public classes).
-- Access modifiers (public, protected, default, private) control the visibility of class members.
+- Access modifiers (public, protected, private, or none for package-private) control the visibility of class members.
 - Instance variables represent the state of an object.
 - Methods define the behavior of objects.
 - Constructors have the same name as the class and are used to initialize objects.
@@ -122,6 +122,10 @@ public class Singleton {
     }
 }
 ```
+
+This lazy version is not thread-safe: two threads can both see `instance == null` and create two objects. In
+concurrent code, use an eagerly initialized `private static final Singleton INSTANCE = new Singleton();`, the
+initialization-on-demand holder idiom, or a single-element `enum`.
 
 Q5: What is the purpose of the `final` keyword when applied to a class, method, or variable?
 

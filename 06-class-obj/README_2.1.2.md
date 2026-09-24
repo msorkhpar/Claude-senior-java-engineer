@@ -17,10 +17,10 @@ instantiate classes and set initial states for objects.
 
 ## Relevant Java 21 Features
 
-While object creation and constructors are core concepts that haven't changed significantly, Java 21 introduces some
-related features:
+While object creation and constructors are core concepts that haven't changed significantly, recent Java versions add
+some related features:
 
-- Record classes (preview feature) provide a compact syntax for declaring classes that are transparent holders for
+- Record classes (standard since Java 16) provide a compact syntax for declaring classes that are transparent holders for
   shallowly immutable data.
 - Sealed classes (finalized in Java 17) allow for more precise control over which classes can extend or implement them,
   affecting object creation patterns.
@@ -79,9 +79,9 @@ Person john = new Person("John Doe", LocalDate.of(1990, 1, 1), "john@example.com
 Q3: What happens if you don't define any constructor in a class?
 
 ```text
-If you don't define any constructor in a class, Java automatically provides a default no-argument constructor. 
-This constructor initializes all instance variables to their default values (e.g., 0 for numeric types, null for 
-object references, false for boolean).
+If you don't define any constructor in a class, Java automatically provides a default no-argument constructor
+that only calls super(). Fields get their default values (0 for numeric types, null for object references, false for
+boolean) when the object is allocated, and field initializers and instance initializer blocks still run.
 ```
 
 Q4: Explain constructor overloading with an example.
@@ -169,6 +169,10 @@ public class Singleton {
     }
 }
 ```
+
+This lazy version is not thread-safe: two threads can both see `instance == null` and create two objects. In
+concurrent code, use an eagerly initialized `private static final Singleton INSTANCE = new Singleton();`, the
+initialization-on-demand holder idiom, or a single-element `enum`.
 
 Q9: What is a copy constructor? When would you use one?
 
