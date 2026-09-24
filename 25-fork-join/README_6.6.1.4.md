@@ -28,7 +28,7 @@ is small enough to eat in one bite rather than cutting further.
 5. **Unbalanced splits** (e.g., 10/90) create deeper recursion trees and worse load balance.
 6. Work-stealing mitigates some imbalance, but extreme imbalance still hurts.
 7. **Multi-way splits** (e.g., 4-way, 8-way) can improve parallelism for very large inputs.
-8. Always **fork before join** -- joining before forking forces sequential execution.
+8. **Join last** -- joining a forked task before computing the other half forces sequential execution.
 9. The **fork-compute-join** pattern: fork left, compute right inline, join left.
 10. **invokeAll()** handles symmetric fork/join for you (best for RecursiveAction).
 
@@ -66,7 +66,7 @@ is small enough to eat in one bite rather than cutting further.
    }
    ```
 
-2. **Joining before forking**
+2. **Joining too early**
 
    ```java
    // Problem: sequential execution disguised as fork/join
@@ -297,10 +297,12 @@ Why this is optimal:
 Anti-pattern 1: fork-fork-join-join
   left.fork();
   right.fork();
-  return left.join() + right.join();  // current thread is idle!
+  return left.join() + right.join();  // current thread just waits in join()
 
-  This wastes the current thread. It forks two tasks and then blocks
-  waiting for both. A third thread is needed for one of them.
+  The current thread no longer does the work directly: it forks two tasks and
+  then gets work back only through join() (a pool worker usually runs a queued
+  task itself while joining, so no extra thread is needed, but every split pays
+  for an extra push/pop through the deque).
 
 Anti-pattern 2: join-before-fork-completes
   left.fork();

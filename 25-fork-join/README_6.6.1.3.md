@@ -266,14 +266,16 @@ System.out.println("Count: " + count.get());
 ```text
 A4: Several java.util.Arrays methods use the Fork/Join framework internally:
 
-1. Arrays.parallelSort() -- sorts an array in parallel using a merge-sort
-   variant implemented as RecursiveAction/RecursiveTask internally.
+1. Arrays.parallelSort() -- sorts an array in parallel (sorting parts and merging
+   them), implemented with CountedCompleter tasks rather than RecursiveAction/
+   RecursiveTask; small arrays are simply sorted sequentially.
 
 2. Arrays.parallelSetAll() -- initializes array elements in parallel using
-   an IntUnaryOperator (for int[]) or IntFunction<T> (for T[]).
+   an IntUnaryOperator (for int[]) or IntFunction<T> (for T[]); it runs a
+   parallel IntStream, so it reaches Fork/Join through the stream framework.
 
 3. Arrays.parallelPrefix() -- computes prefix sums (or other associative
-   operations) in parallel.
+   operations) in parallel, also with CountedCompleter tasks.
 
 These methods use the common ForkJoinPool and handle threshold selection
 internally. For standard array operations, prefer these built-in methods

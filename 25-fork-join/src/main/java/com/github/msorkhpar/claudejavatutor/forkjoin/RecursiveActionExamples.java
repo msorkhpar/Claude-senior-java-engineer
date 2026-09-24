@@ -132,7 +132,7 @@ public class RecursiveActionExamples {
     }
 
     /**
-     * RecursiveAction that counts elements matching a predicate using AtomicInteger
+     * RecursiveAction that counts elements equal to a target value using AtomicInteger
      * (demonstrating side-effect accumulation in RecursiveAction).
      */
     public static class CountMatchingAction extends RecursiveAction {

@@ -34,9 +34,10 @@ ForkJoinTask<V>       (abstract, implements Future<V>)
 4. Use `join()` to wait for and retrieve the result of a forked subtask.
 5. Use `compute()` (not `fork()`) for one subtask to keep the current thread busy.
 6. The threshold determines when to switch from parallel to sequential computation.
-7. `RecursiveTask` is **not serializable** -- it is designed for in-process parallelism.
+7. `RecursiveTask` is `Serializable` (as is every `ForkJoinTask`), but it is designed for in-process parallelism;
+   serializing tasks is rarely useful.
 8. Results from subtasks are combined at each level of the recursion tree.
-9. Exceptions thrown in `compute()` are propagated to the caller via `join()` or `invoke()`.
+9. Exceptions thrown in `compute()` are propagated to the caller via `join()` or `invoke()`, unwrapped.
 
 ## Relevant Java 21 Features
 
@@ -74,19 +75,21 @@ ForkJoinTask<V>       (abstract, implements Future<V>)
 2. **Not handling exceptions from join()**
 
    ```java
-   // Problem: exception swallowed
+   // Problem: nothing here expects join() to throw
    left.fork();
-   long right = right.compute();
-   long leftResult = left.join(); // may throw wrapped exception
+   long rightResult = right.compute();
+   long leftResult = left.join(); // rethrows the subtask's RuntimeException or Error
    ```
 
-   **Fix**: Let exceptions propagate or catch `CompletionException`:
+   **Fix**: Let exceptions propagate, or catch the exception type the subtask throws. `join()` does not wrap it in
+   `ExecutionException` or `CompletionException`; if the subtask ran in another thread, the exception may be a copy of
+   the same type whose `getCause()` is the original:
 
    ```java
    try {
        long leftResult = left.join();
-   } catch (CompletionException e) {
-       // handle the wrapped exception
+   } catch (ArithmeticException e) {
+       // handle the subtask's failure
    }
    ```
 
@@ -153,7 +156,8 @@ A1: A SumTask extends RecursiveTask<Long> and takes an array with start/end indi
    g. Return leftResult + rightResult
 
 The threshold prevents excessive task creation. For an array of 10,000 elements
-with a threshold of 1,000, we create roughly 20 tasks (binary tree of depth ~4).
+with a threshold of 1,000, halving creates 31 tasks: 16 leaves of 625 elements
+(a binary tree of depth 4).
 ```
 
 ```java
@@ -252,14 +256,19 @@ A3: Exceptions in RecursiveTask are handled as follows:
 
 1. If compute() throws an unchecked exception, it is captured by the ForkJoinTask.
 2. The exception is re-thrown when join() or get() is called on the task:
-   - join() wraps it in a CompletionException (unchecked)
+   - join() rethrows it unwrapped (the same RuntimeException or Error type)
    - get() wraps it in an ExecutionException (checked)
-3. invoke() on the pool propagates the exception directly.
+3. invoke() on the pool also rethrows it unwrapped.
+
+If the task failed in a different thread from the one calling join()/invoke(), the
+thrown exception may be a fresh copy of the same type, with the original as its cause
+(so the stack trace shows both threads). Use getCause() to reach the original message.
 
 If a subtask fails, the parent task that calls join() will receive the exception.
 The other subtask may still complete normally (it is not automatically cancelled).
 
-To cancel a subtask programmatically, call task.cancel(true).
+To cancel a subtask programmatically, call task.cancel(true). For a ForkJoinTask the
+argument has no effect: a task that is already running is not interrupted.
 To check if a task completed with an exception, use task.isCompletedAbnormally().
 ```
 
@@ -274,15 +283,17 @@ RecursiveTask<Long> faultyTask = new RecursiveTask<>() {
 try {
     ForkJoinPool.commonPool().invoke(faultyTask);
 } catch (ArithmeticException e) {
-    System.out.println("Caught: " + e.getMessage());
+    // thrown in a pool worker, so this is a copy whose cause is the original
+    Throwable original = e.getCause() != null ? e.getCause() : e;
+    System.out.println("Caught: " + original.getMessage()); // Caught: Division by zero
 }
 
-// Or with submit + join
+// Or with submit + join: join() also rethrows the ArithmeticException itself
 var future = ForkJoinPool.commonPool().submit(faultyTask);
 try {
     future.join();
-} catch (CompletionException e) {
-    System.out.println("Cause: " + e.getCause().getMessage());
+} catch (ArithmeticException e) {
+    System.out.println("join() rethrew: " + e.getClass().getSimpleName()); // ArithmeticException
 }
 ```
 
@@ -330,19 +341,19 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 **Q5: How many tasks are created for an array of N elements with threshold T?**
 
 ```text
-A5: For a binary split (the standard approach), the number of tasks is:
+A5: For a binary split at the midpoint (the standard approach), every level halves the
+range until it is <= T, so:
 
-- Leaf tasks (base cases): ceil(N / T)
-- Internal tasks (recursive splits): ceil(N / T) - 1
-- Total tasks: approximately 2 * ceil(N / T) - 1
+- Depth: d = ceil(log2(N / T))
+- Leaf tasks (base cases): 2^d  (between N/T and 2N/T)
+- Internal tasks (recursive splits): 2^d - 1
+- Total tasks: 2^(d+1) - 1
 
 For example, N = 10,000 and T = 1,000:
-- Leaf tasks: 10
-- Internal tasks: 9
-- Total: 19 tasks
-
-The recursion tree has depth log2(N / T):
-- N = 10,000, T = 1,000 => depth ~3-4
+- Depth: ceil(log2(10)) = 4
+- Leaf tasks: 16 (of 625 elements each)
+- Internal tasks: 15
+- Total: 31 tasks
 
 This is important for tuning:
 - Too many tasks (small T): excessive overhead from task creation and scheduling
@@ -357,9 +368,9 @@ is not required.
 // Estimating task count
 int n = 10_000;
 int threshold = 1_000;
-int leafTasks = (int) Math.ceil((double) n / threshold); // 10
-int totalTasks = 2 * leafTasks - 1; // 19
-int depth = (int) Math.ceil(Math.log(leafTasks) / Math.log(2)); // ~4
+int depth = (int) Math.ceil(Math.log((double) n / threshold) / Math.log(2)); // 4
+int leafTasks = 1 << depth; // 16
+int totalTasks = 2 * leafTasks - 1; // 31
 
 System.out.printf("Array: %d, Threshold: %d%n", n, threshold);
 System.out.printf("Leaf tasks: %d, Total tasks: %d, Depth: %d%n",
