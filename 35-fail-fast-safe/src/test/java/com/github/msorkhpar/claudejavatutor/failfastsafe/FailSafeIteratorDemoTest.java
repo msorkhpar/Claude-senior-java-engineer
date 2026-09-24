@@ -178,6 +178,15 @@ class FailSafeIteratorDemoTest {
             // Should contain at minimum the original elements (may also contain some added ones)
             assertThat(iterated).contains(1, 2, 3);
         }
+
+        @Test
+        @DisplayName("Iteration over ConcurrentSkipListSet should stay bounded while adding ahead of the cursor")
+        void testSkipListSetIterationBounded() {
+            List<Integer> iterated = FailSafeIteratorDemo.iterateAndModifyConcurrentSkipListSet(List.of(1, 2, 3));
+
+            // At most the 3 originals plus the 3 values they add
+            assertThat(iterated).hasSizeLessThanOrEqualTo(6);
+        }
     }
 
     @Nested

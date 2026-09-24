@@ -32,7 +32,7 @@ Decision factors:
 | Read performance | O(1) | O(1) | O(1) average |
 | Write performance | O(1) amortized | O(n) per write | O(1) average |
 | Iteration safety | Throws on modification | Always safe (snapshot) | Always safe (weakly consistent) |
-| Memory overhead | Minimal | 2x during writes | Moderate (segment overhead) |
+| Memory overhead | Minimal | 2x during writes | Moderate (per-node overhead) |
 | Consistency | Strict (fail loudly) | Point-in-time snapshot | Eventual/weakly consistent |
 | Null support | Yes | Yes | No |
 | Thread safety | Not thread-safe | Fully thread-safe | Fully thread-safe |
@@ -91,8 +91,10 @@ Decision factors:
    List<String> list = new ArrayList<>(List.of("a", "b", "c"));
    // WRONG -- modifying source during stream processing
    list.stream().forEach(item -> {
-       if (item.equals("b")) list.remove(item); // ConcurrentModificationException!
+       if ("b".equals(item)) list.remove(item); // ConcurrentModificationException (at the end)!
    });
+   // (With item.equals("b") you get a NullPointerException first: the stream keeps
+   // walking the shifted array and hands the vacated slot's null to the lambda.)
    
    // FIX -- use removeIf or collect to new list
    list.removeIf(item -> item.equals("b"));
@@ -119,8 +121,12 @@ Decision factors:
        total += entry.getValue(); // May include some new entries and miss others
    }
    
-   // BETTER -- use atomic reduction
-   int total = scores.reduceValues(Long.MAX_VALUE, Integer::sum);
+   // NOT A FIX -- reduceValues is shorter, but bulk operations are weakly consistent too
+   // (and return null for an empty map)
+   Integer sum = scores.reduceValues(Long.MAX_VALUE, Integer::sum);
+
+   // FIX -- if an exact total matters, keep it next to the writes (e.g., update a
+   // LongAdder in the same place as each put/remove), or guard map and total with one lock
    ```
 
 ## Best Practices and Optimization Techniques
@@ -178,10 +184,10 @@ A1: CopyOnWriteArrayList is the ideal choice for a listener registry because:
 4. Listener lists are typically small (tens of listeners, not thousands).
 5. The O(n) write cost is acceptable because registration happens infrequently.
 
-This is in fact the standard pattern used by many frameworks and libraries:
-- Swing's EventListenerList (pre-concurrent era, but same principle)
-- Spring's ApplicationEventMulticaster
-- Most observer/publish-subscribe implementations
+This is in fact a standard pattern in many frameworks and libraries:
+- Swing's EventListenerList (pre-concurrent era, but same principle: it copies its
+  listener array on every change)
+- Many observer/publish-subscribe implementations
 
 Alternative: If listeners can be dynamically prioritized or the list grows very large,
 consider using ConcurrentLinkedQueue with a separate copy for iteration.
@@ -214,9 +220,9 @@ public class EventBus<E> {
 ```text
 A2: For a thread-safe cache, ConcurrentHashMap is the best choice because:
 
-1. It provides O(1) average reads without locking (using CAS operations).
+1. It provides O(1) average reads without locking (volatile reads; CAS is used for writes).
 2. It supports atomic compound operations like computeIfAbsent() for safe lazy loading.
-3. It scales well with increasing thread count due to lock striping.
+3. It scales well with increasing thread count due to per-bin locking.
 4. It supports approximate size tracking for eviction policies.
 
 For additional optimization:
@@ -278,14 +284,16 @@ ArrayList (with external synchronization):
 CopyOnWriteArrayList:
 - Read: O(1), no synchronization needed
 - Write (add): O(10,000) because the entire array is copied on every write
-- Total for N mixed operations: ~O(N * 10,000 / 2) for the write portion alone
+- Total for N mixed operations: ~O(N/2 * 10,000) for the write portion alone
 - Memory: two arrays of 10,000 elements during writes (old + new)
 
 For 10,000 operations (5,000 reads + 5,000 writes):
 - synchronized ArrayList: ~10,000 constant-time operations
-- CopyOnWriteArrayList: 5,000 constant-time reads + 5,000 * 10,000 = 50,000,000 array copies
+- CopyOnWriteArrayList: 5,000 constant-time reads + 5,000 array copies of ~10,000
+  elements each = ~50,000,000 element copies
 
-CopyOnWriteArrayList would be approximately 5,000x slower for writes in this scenario.
+Each CopyOnWriteArrayList write copies ~10,000 elements instead of storing one, so writes
+do roughly 10,000 times more work in this scenario.
 
 Conclusion: CopyOnWriteArrayList is unsuitable for a 50/50 workload. It shines only when
 the read/write ratio is extremely high (99%+ reads). For balanced workloads, use:

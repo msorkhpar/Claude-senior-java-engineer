@@ -49,8 +49,8 @@ Concurrent collections from `java.util.concurrent` use one of two strategies:
 ## Relevant Java 21 Features
 
 - **Virtual Threads**: With thousands of virtual threads potentially accessing shared collections, choosing the right concurrent collection is more important than ever.
-- **Structured Concurrency (JEP 462 Preview)**: Encourages scoped, short-lived concurrent tasks where immutable snapshots or concurrent collections are preferred over shared mutable state.
-- **Scoped Values (JEP 464 Preview)**: Provide an alternative to ThreadLocal that pairs well with immutable/snapshot collections.
+- **Structured Concurrency (JEP 453, preview in Java 21)**: Encourages scoped, short-lived concurrent tasks where immutable snapshots or concurrent collections are preferred over shared mutable state.
+- **Scoped Values (JEP 446, preview in Java 21)**: Provide an alternative to ThreadLocal that pairs well with immutable/snapshot collections.
 - **`ConcurrentHashMap` enhancements since Java 8**: Methods like `compute()`, `merge()`, `computeIfAbsent()`, `forEach()`, `reduce()`, `search()` are all designed for concurrent use.
 
 ## Common Pitfalls and How to Avoid Them
@@ -150,7 +150,7 @@ Concurrent collections from `java.util.concurrent` use one of two strategies:
 
 1. **Iterating a ConcurrentHashMap during bulk putAll()**: The iterator may see some but not all entries from the putAll -- this is expected weakly consistent behavior.
 2. **Empty CopyOnWriteArrayList iteration**: Works fine, the snapshot is an empty array.
-3. **ConcurrentHashMap with computeIfAbsent that calls itself**: Can cause a deadlock or infinite loop if the mapping function modifies the same map segment.
+3. **ConcurrentHashMap with computeIfAbsent that calls itself**: The mapping function must not modify the map. A recursive update of the same bin throws `IllegalStateException: Recursive update` (Java 9+); in Java 8 it could loop forever.
 4. **Concurrent clear() during iteration**: For ConcurrentHashMap, the iterator may still return some elements that existed before clear(). For CopyOnWriteArrayList, the iterator sees the pre-clear snapshot.
 5. **Single CopyOnWriteArrayList shared across many readers**: Highly efficient -- all readers share the same array reference until a write occurs.
 
@@ -180,8 +180,8 @@ The possible outcomes include:
    this is NOT guaranteed because modCount is not volatile.
 2. Lost updates -- both threads may write to the same bucket, and one write overwrites the other.
 3. Infinite loop -- prior to Java 8, concurrent resize operations could cause linked list cycles,
-   leading to infinite loops in get() or put(). Java 8 mitigated this with tree bins, but the
-   behavior is still undefined.
+   leading to infinite loops in get() or put(). Java 8 rewrote resize to keep each bucket's
+   order, which removed that particular cycle, but the behavior is still undefined.
 4. Corrupted internal state -- the HashMap's size, threshold, or bucket structure may become
    inconsistent.
 5. Partially visible entries -- one thread may see a key with a stale or null value.
@@ -218,7 +218,8 @@ A2: CopyOnWriteArrayList achieves thread safety through a "copy-on-write" strate
 1. The internal array is stored as a volatile reference. All reads go directly to this array
    without synchronization, making reads extremely fast.
 
-2. Every write operation (add, set, remove, clear) acquires a ReentrantLock, creates a new
+2. Every write operation (add, set, remove, clear) acquires a lock (an internal monitor
+   since JDK 9; a ReentrantLock in JDK 8, as in the simplified code below), creates a new
    copy of the entire internal array with the modification applied, and then atomically
    replaces the array reference.
 
@@ -330,8 +331,9 @@ Collections.synchronizedMap:
 
 ConcurrentHashMap:
 - Purpose-built concurrent data structure
-- Uses fine-grained locking (lock striping) or CAS (compare-and-swap) operations
-- Multiple threads can read AND write concurrently to different segments
+- Uses CAS (compare-and-swap) and fine-grained locking of individual bins (Java 8+; Java 7
+  used lock striping over segments)
+- Multiple threads can read AND write concurrently to different bins
 - Provides atomic compound operations: putIfAbsent, compute, merge, replace
 - Uses weakly consistent iterators that never throw ConcurrentModificationException
 - Does not allow null keys or values

@@ -68,7 +68,10 @@ public class FailSafeIteratorDemo {
     }
 
     /**
-     * Demonstrates ConcurrentSkipListSet safe iteration.
+     * Demonstrates ConcurrentSkipListSet safe (weakly consistent) iteration.
+     * Elements added ahead of the cursor are visible to the running iterator, so only the
+     * original elements (below 1000) add a new one; otherwise every added value would be
+     * iterated and add another, and the loop would only end when the int values overflow.
      */
     public static List<Integer> iterateAndModifyConcurrentSkipListSet(Collection<Integer> initialElements) {
         ConcurrentSkipListSet<Integer> skipSet = new ConcurrentSkipListSet<>(initialElements);
@@ -76,7 +79,9 @@ public class FailSafeIteratorDemo {
 
         for (Integer item : skipSet) {
             iteratedElements.add(item);
-            skipSet.add(item + 1000); // Safe - no exception
+            if (item < 1000) {
+                skipSet.add(item + 1000); // Safe - no exception; may be seen later by this iterator
+            }
         }
         return iteratedElements;
     }

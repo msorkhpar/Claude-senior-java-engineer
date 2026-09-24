@@ -11,7 +11,7 @@ When you iterate over a Java collection and something changes it mid-traversal, 
 Fail-fast iterators detect structural modifications (additions, removals, or resizing) to the collection after the iterator was created. When detected, they immediately throw `ConcurrentModificationException` rather than risk returning incorrect or inconsistent data.
 
 How they work internally:
-- Every `AbstractList`-based collection (e.g., `ArrayList`, `LinkedList`, `HashMap`) maintains an integer field called `modCount` that is incremented on every structural modification.
+- Fail-fast collections maintain an integer field called `modCount` that is incremented on every structural modification: `ArrayList` and `LinkedList` inherit it from `AbstractList`, while `HashMap` and `TreeMap` declare their own.
 - When an iterator is created, it snapshots `modCount` into a local `expectedModCount`.
 - On every call to `next()`, `remove()`, or similar iterator operations, the iterator checks whether `modCount == expectedModCount`. If not, it throws `ConcurrentModificationException`.
 
@@ -51,7 +51,8 @@ Collections with fail-safe iterators include:
 
 1. **Modifying a collection inside a for-each loop**
    ```java
-   // WRONG -- throws ConcurrentModificationException
+   // WRONG -- usually throws ConcurrentModificationException (and if "remove-me" is the
+   // second-to-last element, the loop just ends early and silently skips the last one)
    for (String item : list) {
        if (item.equals("remove-me")) {
            list.remove(item);
@@ -182,8 +183,9 @@ for (String s : cowList) {
 ```text
 A2: The modCount (modification count) mechanism works as follows:
 
-1. Every AbstractList-based or AbstractMap-based collection maintains a protected transient int
-   field called modCount, initialized to 0.
+1. Every fail-fast collection maintains a transient int field called modCount, initialized
+   to 0 (AbstractList declares a protected one for ArrayList/LinkedList; HashMap and TreeMap
+   declare their own -- AbstractMap has none).
 2. Every structural modification (add, remove, clear, sort on list) increments modCount.
 3. When an iterator is created, it copies the current modCount into a local field called
    expectedModCount.
@@ -298,10 +300,12 @@ while (it.hasNext()) {
 // Collection.remove() -- unsafe during iteration
 List<String> list2 = new ArrayList<>(List.of("a", "b", "c"));
 for (String item : list2) {
-    if (item.equals("b")) {
+    if (item.equals("a")) {
         list2.remove(item); // Throws ConcurrentModificationException
     }
 }
+// Trap: removing "b" (the second-to-last element) instead throws nothing -- hasNext()
+// sees cursor == size and the loop silently ends, skipping "c". Never rely on the exception.
 ```
 
 **Q5: Is ConcurrentModificationException a checked or unchecked exception? Why?**
@@ -349,8 +353,9 @@ public void processItemsCorrectly(List<String> items) {
 **Q6: Why does Java use the term "weakly consistent" instead of "fail-safe" for concurrent collection iterators?**
 
 ```text
-A6: Java's official documentation and JLS (Java Language Specification) deliberately use
-"weakly consistent" rather than "fail-safe" for concurrent collection iterators because:
+A6: Java's official documentation (the java.util.concurrent package summary and the
+collection Javadocs; the JLS does not cover this) deliberately uses "weakly consistent"
+rather than "fail-safe" for concurrent collection iterators because:
 
 1. "Fail-safe" implies a strong guarantee that the iterator will always return correct and
    complete data. This is NOT what concurrent collection iterators guarantee.

@@ -15,7 +15,8 @@ public class FailFastIteratorDemo {
 
     /**
      * Demonstrates that modifying an ArrayList during iteration with for-each
-     * throws ConcurrentModificationException.
+     * throws ConcurrentModificationException. (Best effort: removing the second-to-last
+     * element ends the loop silently instead, because hasNext() then returns false.)
      */
     public static void modifyListDuringForEach(List<String> list, String toRemove) {
         for (String item : list) {
@@ -120,7 +121,7 @@ public class FailFastIteratorDemo {
     public static List<String> readDuringIteration(List<String> list) {
         List<String> results = new ArrayList<>();
         for (String item : list) {
-            // Accessing elements by index is safe during iteration
+            // Read-only calls (size(), get(i), contains(...)) are safe during iteration
             // as long as you don't structurally modify the collection
             results.add(item + "-" + list.size());
         }
