@@ -3,8 +3,9 @@
 ## Concept Explanation
 
 The `volatile` keyword in Java addresses a critical challenge in multithreaded programming: **memory visibility**.
-In modern computer architectures, each CPU core has its own cache. Without coordination, a write to a variable by one
-thread may remain in that thread's CPU cache and not be visible to other threads reading from their own caches.
+Without coordination, the JIT compiler may keep a variable in a register or hoist a read out of a loop, and the CPU
+may buffer and reorder writes, so a write by one thread may not be seen by another thread when (or ever) it expects.
+(The CPU caches themselves are kept coherent by hardware; they are not the problem.)
 
 **Real-world analogy**: Imagine a company with multiple offices in different cities. Each office keeps its own local
 copy of the company's price list. If headquarters updates the price list, offices might still use their outdated local
@@ -13,9 +14,10 @@ all offices to always consult that central database — never their local copy.
 
 ### The Java Memory Model and Visibility
 
-Without synchronization, the Java Memory Model (JMM) allows threads to keep their own working copies of shared
-variables. A write by Thread A may be cached and not flushed to main memory until later. A read by Thread B may use
-a cached value rather than reading from main memory.
+A common mental model (the vocabulary of the pre-Java 5 specification) says each thread keeps its own "working copy"
+of shared variables: a write by Thread A may not be "flushed to main memory" until later, and a read by Thread B may use
+a stale copy. That is a picture, not the rule. The rule in the Java Memory Model (JLS §17.4) is: without a
+happens-before relationship between a write and a read, the read is not guaranteed to see the write.
 
 This can lead to subtle bugs:
 - A flag set by one thread may never be seen by another thread (infinite loops)
@@ -23,14 +25,13 @@ This can lead to subtle bugs:
 
 ### What `volatile` Guarantees
 
-1. **Visibility**: A write to a volatile variable is immediately visible to all threads that subsequently read it.
-   The JMM guarantees that:
-   - Writing to volatile flushes the new value to main memory
-   - Reading volatile always reads from main memory (bypasses caches)
+1. **Visibility**: A write to a volatile variable happens-before every subsequent read of that variable (subsequent in
+   the synchronization order), so a read sees the latest write. In the mental model: the write is "flushed" and the
+   read "re-reads". In reality, the JIT must not cache the value, and it emits memory barriers; caches are not bypassed.
 
 2. **Ordering (partial)**: Volatile introduces happens-before relationships:
    - All actions before writing to volatile X happen-before the write to X
-   - The write to volatile X happens-before all actions after reading X
+   - The write to volatile X happens-before all actions that follow a read of X which sees that write
 
 3. **Prohibition of reordering**: The JVM and CPU are NOT allowed to reorder reads/writes to volatile variables
    in ways that would violate visibility.
@@ -44,8 +45,8 @@ actually three steps:
 3. Write the new value back
 
 If two threads perform these three steps concurrently, the result is a race condition even if `count` is volatile.
-Only single reads and writes to `volatile long` and `volatile double` are guaranteed atomic (unlike non-volatile
-64-bit operations which may be non-atomic on 32-bit JVMs).
+Single reads and writes of `volatile long` and `volatile double` are guaranteed atomic, unlike non-volatile 64-bit
+reads and writes, which the JLS (§17.7) allows to be split into two 32-bit halves (seen in practice on 32-bit JVMs).
 
 ```java
 // NOT thread-safe even with volatile!
@@ -64,11 +65,12 @@ For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`.
 
 ## Key Points to Remember
 
-1. `volatile` ensures **visibility** — all reads see the most recent write.
+1. `volatile` ensures **visibility** — every read sees the most recent write (in the synchronization order).
 2. `volatile` does NOT ensure **atomicity** — compound operations like `++` are NOT atomic.
 3. `volatile` establishes **happens-before** relationships between reads and writes.
 4. Reading and writing a single `volatile` variable is **always atomic** (including `long` and `double`).
-5. `volatile` prevents CPU/compiler **instruction reordering** around the volatile access.
+5. `volatile` restricts CPU/compiler **instruction reordering** around the volatile access (nothing before a volatile
+   write may move after it; nothing after a volatile read may move before it).
 6. `volatile` is not a replacement for `synchronized` — use it only when the variable is written by one thread and
    read by others, or when multiple threads write independent values.
 7. For compound operations (increment, compare-and-set), use `AtomicXxx` classes or `synchronized`.
@@ -85,16 +87,16 @@ For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`.
   high-contention increment scenarios.
 
 - **Virtual Threads (JEP 444)**: Virtual threads don't change the behavior of `volatile` — the visibility and
-  ordering guarantees still apply. However, `volatile` combined with virtual threads should be used carefully since
-  volatile reads/writes add memory barriers.
+  ordering guarantees still apply, and its cost (memory barriers) is the same as on platform threads.
 
 - **StampedLock (Java 8+)**: Offers optimistic read locking, potentially more scalable than ReadWriteLock for
   read-heavy workloads, but more complex. The optimistic read must be validated.
 
 ### Evolution Across Java Versions
 
-- **Java 1.0–1.4**: `volatile` provided only visibility, but NOT the reordering prohibition. The double-checked
-  locking pattern was broken.
+- **Java 1.0–1.4**: `volatile` accesses were ordered among themselves, but ordinary reads and writes could be
+  reordered around them, so a volatile write could not publish other data. The double-checked locking pattern was
+  broken even with `volatile`.
 - **Java 5 (JSR 133)**: The Java Memory Model was revised. `volatile` now provides both visibility AND
   establishes happens-before, fixing double-checked locking with `volatile`.
 - **Java 9**: VarHandle API introduced, providing fine-grained memory ordering beyond volatile.
@@ -189,7 +191,7 @@ For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`.
    ```java
    volatile Config config; // Only the reference 'config' is volatile
    // config.value is NOT automatically volatile!
-   config.value = newValue; // May not be visible to other threads
+   config.value = newValue; // Not ordered by any volatile write: other threads may not see it
    ```
 
 ## Best Practices and Optimization Techniques
@@ -235,8 +237,9 @@ For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`.
 
 ## Edge Cases and Their Handling
 
-1. **Visibility vs. atomicity for `long` and `double`**: On 32-bit JVMs, reads/writes to 64-bit non-volatile `long`
-   and `double` may not be atomic (can see "word tearing"). `volatile` makes them atomic:
+1. **Visibility vs. atomicity for `long` and `double`**: Reads/writes to 64-bit non-volatile `long` and `double` may
+   not be atomic (JLS §17.7; in practice on 32-bit JVMs), so a reader can see a torn value: half of one write and half
+   of another. (The JLS calls something else "word tearing" (§17.6), and forbids it.) `volatile` makes them atomic:
 
    ```java
    volatile long timestamp; // Guaranteed atomic read/write even on 32-bit JVMs
@@ -255,7 +258,8 @@ For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`.
    ```
 
 3. **Volatile in final fields**: Declared `final` fields in Java 5+ have special visibility guarantees when
-   properly constructed (without `this` escaping). `volatile` is not needed for `final` fields.
+   properly constructed (without `this` escaping). `volatile` is not needed for `final` fields (and a field cannot be
+   both: `final volatile` does not compile).
 
 4. **Happens-before chain**: Volatile creates happens-before guarantees across threads, not just the volatile
    variable itself:
@@ -271,8 +275,9 @@ For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`.
    }
    ```
 
-5. **Spurious `volatile` writes**: Writing to a volatile field even when the value hasn't changed still acts
-   as a full memory barrier and notifies all threads. Don't write volatile fields in tight loops unnecessarily.
+5. **Spurious `volatile` writes**: Writing to a volatile field even when the value hasn't changed still costs a
+   store plus a memory barrier, and makes other cores re-fetch the cache line (no thread is "notified"). Don't write
+   volatile fields in tight loops unnecessarily.
 
 ## Interview-specific Insights
 
@@ -289,7 +294,7 @@ Interviewers focus on:
 Classic interview trick question: "Is `volatile int count; count++` thread-safe?" (Answer: No!)
 
 Tricky topics:
-- 64-bit variables (`long`, `double`) and word tearing on 32-bit JVMs
+- 64-bit variables (`long`, `double`) and torn (non-atomic) reads/writes on 32-bit JVMs
 - The JMM happens-before chain through volatile: non-volatile variables written before a volatile write ARE
   visible after reading the volatile variable
 - Why double-checked locking was broken pre-Java 5
@@ -301,16 +306,17 @@ Tricky topics:
 ```text
 A1: volatile solves the memory visibility problem in multithreaded programs.
 
-Without volatile: Each CPU core has its own cache. The JVM allows threads to keep their own
-"working copy" of shared variables. A write by Thread A may sit in A's CPU cache and never
-be flushed to main memory, so Thread B reading from its own cache always sees the stale value.
+Without volatile (or other synchronization), nothing orders Thread B's write before Thread A's
+read, so the JMM does not require A ever to see it. In practice the JIT compiles the loop,
+sees no synchronization, and reads the field once (hoists it out of the loop). CPU caches are
+coherent; they are not what hides the write.
 
 Classic bug:
   Thread A: while (!shutdown) { doWork(); }   // May never see the update
-  Thread B: shutdown = true;                  // Written to B's cache only?
+  Thread B: shutdown = true;                  // Nothing makes A re-read the field
 
-With volatile: Writes are immediately visible to all threads. All reads go to main memory.
-The JMM prohibits instruction reordering around volatile accesses.
+With volatile: a write happens-before every subsequent read of the field, so A's loop must
+see it. The JMM also restricts reordering of ordinary accesses around volatile accesses.
 
 volatile does NOT solve atomicity — compound operations like count++ are still not atomic
 even if count is declared volatile. For those, use synchronized or AtomicInteger.
@@ -323,11 +329,11 @@ public class VisibilityDemo {
     private volatile boolean running = true;
 
     public void stop() {
-        running = false; // Immediately visible to all threads with volatile
+        running = false; // volatile: every later read of 'running' sees this write
     }
 
     public void work() {
-        while (running) {  // Always reads fresh value from main memory
+        while (running) {  // volatile read: re-read on every iteration, sees the latest write
             // do work
         }
         System.out.println("Stopped");
@@ -419,11 +425,13 @@ The naive implementation:
       }
   }
 
-Why this was BROKEN before Java 5 (JSR 133):
+Why this is BROKEN without volatile (in every Java version):
   new Cls() is not an atomic operation. The JVM allocates memory, initializes fields,
   and then assigns the reference. Without volatile, the JVM/CPU can reorder these steps.
   It may write the reference to 'instance' BEFORE finishing field initialization.
   Thread B reads a non-null but partially-constructed instance!
+  (Before Java 5 (JSR 133) it was broken even with volatile, because volatile did not order the
+  constructor's ordinary writes.)
 
 Why volatile FIXES it:
   volatile establishes a happens-before relationship. The write to 'instance' (volatile)
@@ -516,13 +524,15 @@ public class VolatileHappensBeforeDemo {
 A5: All three provide visibility guarantees, but they differ in scope and cost:
 
 volatile:
-  - Guarantees: visibility of single variable, partial ordering (happens-before for that variable)
+  - Guarantees: visibility and atomic read/write of the single variable, plus happens-before from a write
+    to the reads that see it (which also publishes every write made before it, see Q4)
   - Does NOT guarantee: atomicity of compound operations
   - Performance: Lowest overhead — a memory barrier, no thread context switching
   - Use when: One writer, multiple readers of a simple flag or reference
 
 synchronized:
-  - Guarantees: mutual exclusion, full memory visibility of ALL variables in the block
+  - Guarantees: mutual exclusion; everything written before an unlock is visible to the next thread
+    that locks the same monitor
   - Guarantees: atomicity of the entire synchronized block
   - Performance: Higher overhead — involves lock acquisition, potential thread blocking
   - Use when: Multiple writers, compound operations, or invariants spanning multiple variables
@@ -585,8 +595,8 @@ Another scenario: Volatile array reference but non-volatile element writes.
   volatile int[] scores = new int[10];
   scores[5] = 42; // The reference 'scores' is volatile but element 5 is NOT!
 
-The key insight: volatile provides sequential consistency for the specific variable,
-not for sequences of operations involving that variable.
+The key insight: volatile makes each single read and each single write of the variable atomic
+and visible, but does not make a sequence of operations on that variable atomic.
 Solution: Use synchronized blocks or AtomicXxx for compound operations.
 ```
 

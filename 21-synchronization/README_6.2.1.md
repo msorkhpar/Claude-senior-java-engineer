@@ -71,8 +71,8 @@ Thread B holds lock2, waiting for lock1
 ```
 
 **Starvation** occurs when a thread is perpetually denied access to a resource because other threads are always
-preferred. For example, a high-priority thread that holds a lock for a long time prevents lower-priority threads from
-making progress.
+preferred. For example, a thread that holds a lock for a long time, or an unfair lock that keeps granting it to other
+threads, can keep a waiting thread from making progress.
 
 **Livelock** is a related concept where threads are not blocked but keep responding to each other without making
 progress (like two people in a hallway continually stepping to the same side to let each other pass).
@@ -102,11 +102,11 @@ The most robust strategies to avoid deadlocks are:
 
 ## Relevant Java 21 Features
 
-- **Virtual Threads (Project Loom, JEP 444)**: Virtual threads can block on `synchronized` blocks without pinning the
-  carrier thread in all cases. However, be careful — in Java 21, a virtual thread that blocks inside a `synchronized`
-  block does pin its carrier thread. This is a known limitation and may change in future releases. `ReentrantLock` is
-  preferred for virtual thread-friendly code.
-- **Structured Concurrency (JEP 453)**: Encourages organizing multi-threaded code so that the lifetime of threads is
+- **Virtual Threads (Project Loom, JEP 444)**: In Java 21, a virtual thread that blocks inside a `synchronized` block
+  (or while waiting to enter one) pins its carrier thread: the carrier cannot run other virtual threads meanwhile. This
+  is a known limitation, removed in Java 24 (JEP 491). In Java 21, `ReentrantLock` is preferred for virtual
+  thread-friendly code.
+- **Structured Concurrency (JEP 453, preview in Java 21)**: Encourages organizing multi-threaded code so that the lifetime of threads is
   structured and bounded, reducing synchronization complexity.
 - **Pattern matching in switch (JEP 441)**: Reduces type-checking boilerplate but is orthogonal to synchronization.
 - **Records**: Since records are immutable, they often don't need synchronization, but the record reference itself may
@@ -120,7 +120,7 @@ Java's synchronization has evolved but the intrinsic lock model remains core. Mo
 1. **Synchronizing on a non-shared object** — locks only work if multiple threads use the *same* lock object.
 
    ```java
-   // WRONG: Each thread creates its own String instance
+   // WRONG: Each call creates its own lock object
    public void badExample(int value) {
        synchronized (new Object()) { // pointless — different instance each time
            count += value;
@@ -219,7 +219,8 @@ Java's synchronization has evolved but the intrinsic lock model remains core. Mo
 1. **Use private final lock objects** instead of `this` to prevent lock exposure.
 2. **Minimize critical section size** — hold locks only for the minimum time necessary.
 3. **Prefer `java.util.concurrent`** utilities (`ReentrantLock`, `ReadWriteLock`, `StampedLock`) for complex scenarios.
-4. **Document your locking policy** with `@GuardedBy` annotation (from `javax.annotation` or Checker Framework).
+4. **Document your locking policy** with a `@GuardedBy` annotation (from `javax.annotation.concurrent` in the JCIP /
+   JSR-305 annotations, or from the Checker Framework).
 5. **Avoid nested locks** where possible; when unavoidable, enforce a strict acquisition order.
 6. **Use thread-safe collections** (`ConcurrentHashMap`, `CopyOnWriteArrayList`) instead of manually synchronizing.
 7. **Prefer atomic variables** (`AtomicInteger`, `AtomicReference`) for single-variable atomic operations.
@@ -477,7 +478,9 @@ public class BankAccountExample {
     private final Object balanceLock = new Object();
     private final Object historyLock = new Object();
 
-    // synchronized method — simple but locks 'this' (exposed)
+    // synchronized method — simple but locks 'this' (exposed).
+    // (Shown for contrast only: in THIS class it would be a bug, because balance is written
+    // under balanceLock, and reading it under a different lock gives no visibility guarantee.)
     public synchronized int getBalanceSimple() {
         return balance;
     }
@@ -514,16 +517,17 @@ from making progress. Unlike deadlock (where threads are completely blocked), a 
 is technically runnable but never gets scheduled or can never acquire a lock.
 
 Causes of starvation:
-1. High-priority threads always preempt low-priority threads
+1. The scheduler may favour high-priority threads (priorities are only hints to the OS)
 2. A thread holds a lock for an extremely long time, starving waiting threads
 3. Non-fair scheduling where some threads are repeatedly preferred
 4. Synchronized blocks with unfair lock acquisition (intrinsic locks are not fair)
 
 Prevention:
-1. Use fair locks: ReentrantLock(true) guarantees FIFO order for waiting threads
+1. Use fair locks: ReentrantLock(true) grants the lock to the longest-waiting thread (untimed tryLock() still barges)
 2. Limit lock hold duration — release locks promptly
 3. Avoid holding locks during I/O, sleep, or other long operations
-4. Use appropriate data structures (e.g., ReadWriteLock for read-heavy workloads)
+4. Use appropriate data structures (e.g., ReadWriteLock for read-heavy workloads; with many readers, use its fair
+   mode if writers must not wait indefinitely)
 5. Avoid thread priority as a synchronization mechanism
 ```
 
@@ -534,7 +538,7 @@ public class StarvationPreventionDemo {
     // Non-fair lock (default) — no ordering guarantee for waiting threads
     private final ReentrantLock unfairLock = new ReentrantLock(false);
 
-    // Fair lock — waiting threads are served in FIFO order
+    // Fair lock — the longest-waiting thread gets the lock next
     private final ReentrantLock fairLock = new ReentrantLock(true);
 
     private int resourceValue = 0;
@@ -550,7 +554,9 @@ public class StarvationPreventionDemo {
     }
 
     // Alternative: use ReadWriteLock for read-heavy scenarios
-    // Multiple readers can proceed concurrently — reduces writer starvation risk
+    // Multiple readers can proceed concurrently — this reduces contention among readers.
+    // It does not prevent writer starvation: the javadoc says a continuously contended
+    // nonfair lock may postpone a writer indefinitely; new ReentrantReadWriteLock(true) is fair.
     private final java.util.concurrent.locks.ReadWriteLock rwLock =
             new java.util.concurrent.locks.ReentrantReadWriteLock();
 

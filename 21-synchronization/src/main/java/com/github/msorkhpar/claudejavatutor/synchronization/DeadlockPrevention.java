@@ -241,7 +241,8 @@ public class DeadlockPrevention {
 
         /**
          * Worker1 tries to use the resource but yields if worker2 needs it.
-         * Returns true if the worker eventually completed its work.
+         * Always returns false: the worker gives the resource away every time it holds it,
+         * so it never does its work before running out of retries.
          */
         public boolean worker1Work() {
             while (retryCountWorker1 < maxRetries) {
