@@ -52,7 +52,7 @@ class AutoboxingPerformanceTest {
         System.out.println("Wrapper array sum time: " + wrapperSum.executionTime() + "ns");
 
         assertThat(primitiveSum.executionTime()).isLessThan(wrapperSum.executionTime());
-        assertThat(primitiveSum).isEqualTo(wrapperSum);
+        assertThat(primitiveSum.result()).isEqualTo(wrapperSum.result());
     }
 
     @Test
@@ -65,7 +65,7 @@ class AutoboxingPerformanceTest {
         System.out.println("Primitive stream sum time: " + primitiveStreamSum.executionTime() + "ns");
         System.out.println("Wrapper stream sum time: " + wrapperStreamSum.executionTime() + "ns");
 
-        assertThat(primitiveStreamSum).isEqualTo(wrapperStreamSum);
+        assertThat(primitiveStreamSum.result()).isEqualTo(wrapperStreamSum.result());
         assertThat(wrapperStreamSum.executionTime()).isGreaterThan(primitiveStreamSum.executionTime());
     }
 
