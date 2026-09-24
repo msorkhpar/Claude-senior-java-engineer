@@ -110,12 +110,16 @@ logger.info("Login attempt for user {}", user);
 // BAD - reads entire file regardless of size
 String content = Files.readString(path);
 
-// GOOD - check file size first
-long size = Files.size(path);
-if (size > MAX_ALLOWED_SIZE) {
-    throw new SecurityException("File too large");
+// GOOD - bound the read itself (MAX_ALLOWED_SIZE is an int number of bytes).
+// A Files.size() check alone is not enough: the file can grow between the check and the read.
+String content;
+try (InputStream in = Files.newInputStream(path)) {
+    byte[] data = in.readNBytes(MAX_ALLOWED_SIZE + 1);
+    if (data.length > MAX_ALLOWED_SIZE) {
+        throw new SecurityException("File too large");
+    }
+    content = new String(data, StandardCharsets.UTF_8);
 }
-String content = Files.readString(path);
 ```
 
 ## Best Practices and Optimization Techniques
@@ -139,9 +143,13 @@ String content = Files.readString(path);
    "error"
 2. **Empty strings vs blank strings**: An empty string `""` passes non-null checks but may still be invalid; use
    `isBlank()` for whitespace-only strings
-3. **Unicode and encoding attacks**: Normalize Unicode input before validation to prevent homoglyph attacks (e.g., using
-   Cyrillic "a" instead of Latin "a")
-4. **Path traversal with symbolic links**: Always call `normalize()` on resolved paths and check with `startsWith()`
+3. **Unicode and encoding attacks**: Normalize Unicode input (`java.text.Normalizer`, NFC or NFKC) before validation, so
+   that different encodings of the same text (e.g., a precomposed "é" vs. "e" plus a combining accent, or full-width
+   letters) are validated as one form. Normalization does **not** stop homoglyph attacks (e.g., Cyrillic "а" instead of
+   Latin "a" stays a different character); for those, restrict input to an allow-listed script or character set
+4. **Path traversal with symbolic links**: `normalize()` only removes `.` and `..` from the path text; it does not follow
+   symbolic links, so a link inside the base directory can still point outside it. For paths that exist, also compare
+   the real paths (`toRealPath()`, which resolves links) with `startsWith()`
 5. **Integer boundary values**: `Integer.MIN_VALUE` and `Integer.MAX_VALUE` behave unexpectedly with negation and
    absolute value
 6. **Concurrent modification of shared state**: Use immutable objects or concurrent collections for data shared across
@@ -181,11 +189,13 @@ Input Validation:
 Input Sanitization:
 - Transforms input to remove or neutralize dangerous content
 - Allows the input through after cleaning it
-- Examples: HTML-encoding special characters (<, >, &), stripping SQL keywords, removing null bytes
+- Examples: HTML-encoding special characters (<, >, &), removing control characters or null bytes
 - Used when you must accept a wide range of input (e.g., user comments that may contain HTML-like text)
 
 Best Practice: Validate first, then sanitize. If validation fails, reject the input outright. If the input passes
-validation, sanitize it as a defense-in-depth measure before using it in HTML output, SQL queries, etc.
+validation, encode it for the context where it is used (e.g., HTML-encode it for HTML output) as a defense-in-depth
+measure. For SQL, do not sanitize: pass values as PreparedStatement parameters, because keyword stripping is easy to
+bypass.
 ```
 
 ```java
@@ -272,7 +282,9 @@ Prevention strategy:
 1. Resolve the user-supplied path against a known safe base directory
 2. Normalize the result (resolve ".." and "." components)
 3. Verify the normalized path still starts with the base directory
-4. Optionally, check that the filename does not contain path separators
+4. If the path exists and the base directory may contain symbolic links, repeat the check on the real paths
+   (toRealPath()), because normalize() does not follow links
+5. Optionally, check that the filename does not contain path separators
 
 This approach is essential in any application that serves files based on user input (file upload/download, document
 management, etc.).
@@ -370,8 +382,9 @@ after use, even if an exception occurs. This has several security implications:
 1. Prevents resource leaks: Unclosed file handles, database connections, or network sockets can lead to denial of
    service. An attacker could exhaust the system's file descriptors or connection pool.
 
-2. Ensures proper cleanup: Some resources hold sensitive data in memory (e.g., input streams reading encryption
-   keys). Proper closing triggers cleanup of these internal buffers.
+2. Ensures prompt release: closing frees the file handle, socket or connection as soon as you are done. (It does not
+   wipe buffers: data a stream has read stays in memory until garbage collected, so sensitive data such as keys
+   should be read into arrays you clear yourself.)
 
 3. Prevents data corruption: Unclosed output streams may not flush their buffers, leading to partial writes that
    could compromise data integrity.
@@ -396,7 +409,7 @@ public class TryWithResourcesSecurity {
     // INSECURE: resource leak if exception occurs
     public String readFileInsecure(Path path) throws IOException {
         var reader = Files.newBufferedReader(path);
-        return reader.readLine(); // reader never closed if readLine throws
+        return reader.readLine(); // reader is never closed, whether readLine succeeds or throws
     }
 
     // SECURE: resource automatically closed
@@ -407,6 +420,8 @@ public class TryWithResourcesSecurity {
     }
 
     // SECURE with size limit: defense in depth
+    // (the size check is advisory: the file can change after it; to enforce a hard bound,
+    // limit the bytes actually read, as in pitfall 5)
     public String readFileSafely(Path path, long maxBytes) throws IOException {
         long size = Files.size(path);
         if (size > maxBytes) {
