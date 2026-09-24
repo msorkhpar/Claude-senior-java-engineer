@@ -1,41 +1,10 @@
-# 3.2.1. Creating Custom Exception Classes
+# 3.2.2. Throwing Exceptions Using the `throw` Keyword
 
-Custom exceptions in Java are user-defined exception classes that extend existing Java exception classes. They allow
-developers to create specific exception types for their application's unique error conditions.
-
-## Key points:
-
-- Custom exceptions typically extend `Exception` (for checked exceptions) or `RuntimeException` (for unchecked
-  exceptions).
-- They should have a meaningful name that describes the exceptional condition.
-- Include constructors that allow passing a custom message and/or cause.
-
-Example:
-
-```java
-public class InvalidUserInputException extends Exception {
-    public InvalidUserInputException(String message) {
-        super(message);
-    }
-
-    public InvalidUserInputException(String message, Throwable cause) {
-        super(message, cause);
-    }
-}
-```
-
-## 3.2.2. Throwing Exceptions Using the `throw` Keyword
+## Concept Explanation
 
 The `throw` keyword is used to explicitly throw an exception in Java. It can be used with both built-in Java exceptions
-and custom exceptions.
-
-Key points:
-
-- Use `throw` followed by a new instance of the exception class.
-- The `throw` statement is typically used within a method or constructor.
-- After throwing an exception, the current method execution stops, and the exception is propagated up the call stack.
-
-Example:
+and custom exceptions. Its operand must be an expression whose type is `Throwable` or a subclass; usually it is a new
+instance:
 
 ```java
 if (userInput.isEmpty()) {
@@ -43,130 +12,175 @@ if (userInput.isEmpty()) {
 }
 ```
 
-## 3.2.3. Best Practices for Custom Exceptions
+When a `throw` statement runs:
 
-When creating and using custom exceptions, follow these best practices:
+1. The current method stops at that point; no further statement of it runs (apart from `finally` blocks on the way out).
+2. The JVM looks for the nearest enclosing `try` whose `catch` clause matches the exception's run-time type, first in
+   the current method and then in each caller up the call stack.
+3. If no handler is found, the thread terminates and its uncaught-exception handler (by default) prints the stack trace.
 
-1. Use descriptive names: Choose exception names that clearly describe the error condition.
-2. Extend appropriate superclass: Extend `Exception` for checked exceptions or `RuntimeException` for unchecked
-   exceptions.
-3. Include constructors: Provide constructors that accept a message and/or cause.
-4. Add custom information: If needed, include additional fields or methods specific to the exception.
-5. Document exceptions: Use Javadoc to document the conditions under which the exception is thrown.
-6. Throw exceptions at the appropriate level: Throw exceptions as close to the source of the error as possible.
-7. Catch and wrap exceptions: When catching and re-throwing, consider wrapping the original exception to preserve the
-   stack trace.
+### `throw` and `throws`
 
-## 3.2.4. Checked vs. Unchecked Exceptions
+The two keywords are easy to mix up:
 
-Java has two main categories of exceptions: checked and unchecked.
+- `throw` is a **statement**: it throws one exception object, now.
+- `throws` is part of a **method declaration**: it lists the checked exceptions the method may let escape.
 
-Checked Exceptions:
+A method that throws a checked exception must either catch it or declare it with `throws`; otherwise the code does not
+compile:
 
-- Extend `Exception` (but not `RuntimeException`).
-- Must be declared in the method signature using the `throws` clause or handled using try-catch.
-- Represent recoverable errors that the calling code should handle.
-- Examples: `IOException`, `SQLException`.
+```java
+public static void methodWithCheckedException(boolean throwException) throws CustomCheckedException {
+    if (throwException) {
+        throw new CustomCheckedException("This is a custom checked exception");
+    }
+}
 
-Unchecked Exceptions:
+// Without "throws CustomCheckedException" the compiler reports:
+// error: unreported exception CustomCheckedException; must be caught or declared to be thrown
+```
 
-- Extend `RuntimeException`.
-- Do not need to be declared or caught explicitly.
-- Represent programming errors or unrecoverable conditions.
-- Examples: `NullPointerException`, `IllegalArgumentException`.
+An unchecked exception (a `RuntimeException` subclass) can be thrown without a `throws` clause. Listing it in `throws`
+is allowed and documents it, but the compiler does not enforce it.
 
-When to use each:
+### Rethrowing and wrapping
 
-- Use checked exceptions for recoverable errors that the caller should be aware of and handle.
-- Use unchecked exceptions for programming errors or unrecoverable situations.
+Inside a `catch` block, `throw` can rethrow the caught exception or throw a new one that wraps it as its cause
+(exception chaining):
+
+```java
+public static void methodWithExceptionChaining() throws CustomCheckedException {
+    try {
+        throw new IOException("Original IO exception");
+    } catch (IOException e) {
+        throw new CustomCheckedException("Wrapped exception", e); // e becomes getCause()
+    }
+}
+```
+
+Passing `e` as the cause keeps the original message and stack trace; the stack trace printed for the new exception ends
+with a `Caused by: java.io.IOException: Original IO exception` section.
+
+## Key Points to Remember
+
+1. `throw` needs a `Throwable`; `throw "error"` or `throw 42` does not compile.
+2. Statements directly after a `throw` in the same block are unreachable, and the compiler rejects them
+   ("unreachable statement").
+3. A checked exception thrown with `throw` must be caught or declared with `throws`; an unchecked one need not be.
+4. Throwing `null` (for example `throw someVariable;` when the variable is null) throws a `NullPointerException`
+   instead.
+5. The stack trace is captured when the exception object is **created**, not where it is thrown. Create the exception
+   at the `throw` site so the trace points there.
+6. When wrapping, pass the caught exception as the cause.
+
+## Relevant Java Features
+
+- **Java 7**: precise rethrow. If a `catch (Exception e)` block rethrows `e` unchanged, and `e` is effectively final,
+  the compiler knows which checked exceptions the `try` block can actually throw, so the method only has to declare
+  those:
+
+  ```java
+  static void precise(boolean fail) throws IOException { // not "throws Exception"
+      try {
+          if (fail) throw new IOException("io");
+      } catch (Exception e) {
+          System.out.println("logging " + e.getMessage());
+          throw e; // the compiler knows e can only be an IOException (or an unchecked exception)
+      }
+  }
+  ```
+
+- **Java 14**: switch expressions (JEP 361) allow `throw` as the body of a case, which makes it easy to reject
+  unexpected values:
+
+  ```java
+  static int parseLevel(String s) {
+      return switch (s) {
+          case "low" -> 1;
+          case "high" -> 3;
+          default -> throw new IllegalArgumentException("Unknown level: " + s);
+      };
+  }
+  // parseLevel("high") returns 3; parseLevel("mid") throws IllegalArgumentException: Unknown level: mid
+  ```
+
+- **Java 14**: helpful `NullPointerException` messages (JEP 358) name the variable or expression that was null, which
+  makes an explicit `throw` for a null check less necessary than it used to be; `Objects.requireNonNull(value, "value")`
+  still documents intent and fails fast.
+
+## Common Pitfalls and How to Avoid Them
+
+1. **Losing the cause**: `throw new CustomCheckedException("Failed: " + e.getMessage());` keeps only the text. Pass
+   `e` as the cause.
+2. **Throwing from a lambda**: the standard functional interfaces (`Function`, `Consumer`, ...) declare no checked
+   exceptions, so a lambda body that throws a checked exception does not compile ("unreported exception IOException;
+   must be caught or declared to be thrown"). Catch it inside the lambda and wrap it in an unchecked exception, or use
+   a functional interface of your own that declares it.
+3. **Throwing a generic `Exception` or `RuntimeException`**: callers cannot catch it selectively. Throw the most
+   specific type that describes the problem.
+4. **Creating an exception far from the `throw`**: a pre-built exception stored in a field has the stack trace of the
+   place where it was created, which misleads anyone reading the logs.
+
+## Best Practices
+
+1. Validate arguments at the start of a method and throw immediately (fail fast), before any state has changed.
+2. Write messages that state what was wrong and with which value: `"Unknown level: mid"`, not `"Error"`.
+3. When translating an exception to a higher-level one, always chain the cause.
+4. Declare unchecked exceptions a public method throws in its Javadoc `@throws` tags, even though `throws` does not
+   require them.
+
+## Edge Cases and Their Handling
+
+1. **`throw` inside `finally`**: an exception thrown from `finally` replaces the one that was propagating, which is lost.
+   See [3.1.3](../11-try-catch/README_3.1.3.md); prefer try-with-resources, which records the second exception as
+   suppressed instead.
+2. **Rethrowing a caught exception unchanged**: `throw e;` keeps the original stack trace; it does not reset it to the
+   rethrow point.
+
+## Interview-specific Insights
+
+- Know the difference between `throw` and `throws` and be able to say which one is a statement.
+- Be able to explain what happens to control flow after `throw`, including `finally`.
+- Know precise rethrow (Java 7) and `throw` in switch expressions (Java 14).
+- Be ready to explain why wrapping should keep the cause.
 
 ## Interview Q&A
 
-Q1: What is the purpose of creating custom exceptions in Java?
-A1: Custom exceptions in Java serve several purposes:
+Q1: What is the difference between `throw` and `throws`?
 
-1. They provide more specific error handling for application-specific scenarios.
-2. They improve code readability by clearly indicating the type of error that occurred.
-3. They allow for adding custom information or behavior relevant to the specific error condition.
-4. They help in creating a hierarchical and well-organized exception handling structure in large applications.
+A1: `throw` is a statement that throws one exception object at that point in the code, for example
+`throw new IllegalStateException("closed")`. `throws` is a clause in a method or constructor declaration that lists the
+checked exceptions the method may propagate to its caller, for example `void read() throws IOException`. A method can
+use `throw` without `throws` (for unchecked exceptions, or checked ones it catches itself), and can declare `throws`
+without containing a `throw` (when it calls another method that throws).
 
-Q2: How do you create a custom checked exception in Java?
-A2: To create a custom checked exception in Java:
+Q2: What happens when an exception is thrown and never caught?
 
-```java
-public class CustomCheckedException extends Exception {
-    public CustomCheckedException(String message) {
-        super(message);
-    }
+A2: The exception propagates up the call stack, running any `finally` blocks on the way. If no method on the stack
+catches it, the thread terminates. The thread's uncaught-exception handler is called; the default one prints
+`Exception in thread "main" ...` and the stack trace to standard error. When the `main` thread dies this way and no
+other non-daemon thread is running, the JVM exits with a non-zero status.
 
-    public CustomCheckedException(String message, Throwable cause) {
-        super(message, cause);
-    }
-}
-```
+Q3: Can you throw a checked exception from a method without declaring it?
 
-Q3: What is the difference between throwing a checked and an unchecked exception?
-A3: The main differences are:
+A3: Not with a plain `throw`: the compiler reports "unreported exception X; must be caught or declared to be thrown".
+The method must either catch it or declare it with `throws`. The usual alternative is to wrap it in an unchecked
+exception, passing the original as the cause.
 
-1. Declaration: Checked exceptions must be declared in the method signature using the `throws` clause, while unchecked
-   exceptions don't require this.
-2. Handling: Checked exceptions must be either caught or propagated, while unchecked exceptions don't force the caller
-   to handle them.
-3. Inheritance: Checked exceptions extend `Exception` (but not `RuntimeException`), while unchecked exceptions extend
-   `RuntimeException`.
-4. Use case: Checked exceptions are for recoverable errors, while unchecked exceptions are for programming errors or
-   unrecoverable situations.
+Q4: How can you preserve the original exception information when throwing a new custom exception?
 
-Q4: Can you provide an example of when to use a custom unchecked exception?
-A4: Here's an example of using a custom unchecked exception:
-
-```java
-public class InvalidConfigurationException extends RuntimeException {
-    public InvalidConfigurationException(String message) {
-        super(message);
-    }
-}
-
-public class ConfigurationManager {
-    public void loadConfiguration(String filePath) {
-        if (!Files.exists(Paths.get(filePath))) {
-            throw new InvalidConfigurationException("Configuration file not found: " + filePath);
-        }
-        // Load configuration...
-    }
-}
-```
-
-In this example, `InvalidConfigurationException` is an unchecked exception because a missing configuration file is not
-something the callers of `loadConfiguration` can sensibly recover from: the application should fail fast at startup and
-the deployment should be fixed, rather than every caller being forced to catch it.
-
-Q5: What are some best practices for using custom exceptions in Java?
-A5: Some best practices for using custom exceptions in Java include:
-
-1. Use meaningful and descriptive names for exception classes.
-2. Provide constructors that accept a message and/or cause.
-3. Document the conditions under which the exception is thrown using Javadoc.
-4. Throw exceptions at the appropriate level of abstraction.
-5. Include relevant information in the exception message.
-6. Consider creating a custom exception hierarchy for complex applications.
-7. Use checked exceptions for recoverable errors and unchecked exceptions for programming errors.
-8. Avoid catching and ignoring exceptions without proper handling or logging.
-
-Q6: How can you preserve the original exception information when throwing a new custom exception?
-A6: To preserve the original exception information when throwing a new custom exception, you can use exception chaining.
-Here's an example:
+A4: Use exception chaining: pass the caught exception to the new exception's `(message, cause)` constructor.
 
 ```java
 try {
-    // Some code that may throw an exception
-} catch (SomeException e) {
-    throw new CustomException("A custom error occurred", e);
+    // Some code that may throw an IOException
+} catch (IOException e) {
+    throw new CustomCheckedException("A custom error occurred", e);
 }
 ```
 
-In this example, the original exception `e` is passed as the cause to the new `CustomException`. This preserves the
-stack trace and allows access to the original exception information.
+The original exception is then available from `getCause()`, and the printed stack trace shows it in a `Caused by:`
+section.
 
 ## Code Examples
 
