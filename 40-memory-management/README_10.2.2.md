@@ -60,7 +60,8 @@ Java 21 includes several garbage collectors:
    class objects loaded by system classloader.
 2. **Mark-and-sweep** correctly handles circular references -- only reachability from roots matters.
 3. **Generational GC** exploits the fact that most objects are short-lived, making young generation collection very fast.
-4. **Minor GC** is typically 10-100x faster than Major GC because the young generation is small.
+4. **Minor GC** is typically much faster than Major GC -- illustratively 10-100x, depending on the JVM, the collector,
+   the heap and the hardware -- because the young generation is small and mostly dead.
 5. **Stop-the-world pauses** freeze all application threads during GC; modern collectors minimize these.
 6. **G1 GC** is the default collector since Java 9 and divides the heap into equal-sized regions rather than
    contiguous generations.
@@ -327,7 +328,8 @@ Object lifecycle:
    earlier if the survivor space overflows
 5. Objects in Old Gen are collected during Major GC
 
-Performance impact:
+Performance impact (illustrative orders of magnitude only; real pauses depend on the
+JVM, the collector, heap size, live data and hardware -- measure with GC logs):
 - Minor GC: ~10ms (young gen is small, most objects are dead)
 - Major GC: ~100ms-1s+ (entire heap, more live objects to process)
 - This is why reducing object promotion to Old Gen is important
@@ -367,7 +369,9 @@ public class GenerationalDemo {
 **Q3: Compare G1 GC, ZGC, and Parallel GC. When would you use each?**
 
 ```text
-A3: Each collector is designed for different workload characteristics:
+A3: Each collector is designed for different workload characteristics. The pause times
+below are illustrative orders of magnitude; real values depend on the JVM version, heap
+size, live data, and hardware:
 
 PARALLEL GC (-XX:+UseParallelGC):
 - Strategy: Stop-the-world with multiple GC threads
@@ -614,7 +618,8 @@ What makes it better than previous collectors:
 - vs Serial: G1 uses multiple threads and concurrent phases
 
 Limitations:
-- Higher memory footprint than Parallel (remembered sets overhead, ~5-20%)
+- Higher memory footprint than Parallel (remembered sets overhead, illustratively ~5-20%;
+  it depends on the heap and the workload)
 - Concurrent marking uses CPU that could go to application
 - Not ideal for very small heaps (<1GB) or max-throughput batch workloads
 ```

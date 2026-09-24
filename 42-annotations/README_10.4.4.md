@@ -489,8 +489,10 @@ A6: Performance is a critical factor when choosing between runtime and compile-t
 
 Runtime annotation processing (reflection):
 - Cost: Method.getAnnotation() is relatively expensive (involves synchronization, copying)
-- First access: ~100-1000x slower than direct method calls
-- Cached access: ~10-50x slower (with proper caching of Method/Field objects)
+- First access (lookup + call): roughly 100-1000x slower than a direct method call
+- Cached access: roughly 2-20x slower (with proper caching of Method/Field objects)
+  (both are illustrative orders of magnitude that depend on the JVM, the hardware and
+  warmup; they match the figures in 10.3.4 Reflection Performance Considerations)
 - Memory: Each reflective lookup creates temporary objects
 - JIT: The JIT compiler can partially optimize reflective calls but not as well as direct calls
 - Startup: Classpath scanning (e.g., Spring component scan) can slow startup significantly

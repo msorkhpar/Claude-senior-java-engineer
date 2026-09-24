@@ -20,7 +20,8 @@ The main sources of reflection overhead are:
 - `setAccessible(true)` eliminates per-call access checking overhead -- call it once and reuse the `Method`/`Field`/`Constructor` object.
 - `MethodHandle` (from `java.lang.invoke`) is a high-performance alternative to `Method.invoke()` that the JIT can optimize.
 - `VarHandle` (Java 9+) is a high-performance alternative to `Field.get()`/`Field.set()` with atomic operation support.
-- Cached reflection is typically 2-10x slower than direct access. Uncached reflection can be 50-100x+ slower.
+- As an illustrative order of magnitude (the real figures depend on the JVM, the hardware and warmup): cached
+  reflection is roughly 2-20x slower than direct access, and uncached reflection (lookup + invoke) roughly 100-1000x.
 - `MethodHandle` performance approaches direct call speed when used correctly (final static field, `invokeExact`).
 - For truly hot paths, consider compile-time alternatives: annotation processing, code generation, or `LambdaMetafactory`.
 - Micro-benchmarking reflection requires JMH (Java Microbenchmark Harness) for reliable results; naive `System.nanoTime()` loops are affected by JIT warmup and GC.
@@ -134,7 +135,7 @@ The main sources of reflection overhead are:
 
 Interviewers focus on:
 
-- Your awareness that reflection has a cost and your ability to quantify it roughly (about 2-10x for cached, 50-100x+ for uncached, as in the key points above).
+- Your awareness that reflection has a cost and your ability to quantify it roughly (illustratively about 2-20x for cached, 100-1000x for uncached, as in the key points above).
 - Whether you know about `MethodHandle` as a performant alternative.
 - Caching strategies: what to cache, where to store it, thread safety.
 - When to avoid reflection entirely (direct calls, annotation processors, code generation).
@@ -172,13 +173,14 @@ A1: Reflection is slower for several compounding reasons:
 5. Runtime type checking: The JVM must verify argument types at runtime,
    whereas direct calls are verified at compile time.
 
-Rough performance comparison:
+Rough performance comparison (illustrative orders of magnitude, not measurements;
+they depend on the JVM version, the hardware, and warmup state):
 - Direct call: ~1-2 nanoseconds
-- Cached Method.invoke(): ~10-50 nanoseconds
-- Uncached (lookup + invoke): ~200-1000+ nanoseconds
-- MethodHandle.invokeExact(): ~2-10 nanoseconds
+- Cached Method.invoke(): ~5-20 nanoseconds (roughly 2-20x a direct call)
+- Uncached (lookup + invoke): ~200-1000+ nanoseconds (roughly 100-1000x)
+- MethodHandle.invokeExact() from a static final field: ~1-5 nanoseconds (close to direct)
 
-The exact numbers depend on JVM version, hardware, and warmup state.
+Measure your own case with JMH before relying on any of these figures.
 ```
 
 ```java
@@ -531,7 +533,7 @@ How it works:
 4. The JIT can inline the call as if it were a regular lambda expression.
 
 Performance:
-- Setup cost: ~100 microseconds (one-time, during metafactory call).
+- Setup cost: illustratively ~100 microseconds (one-time, during metafactory call; depends on the JVM and hardware).
 - Per-call cost: same as a regular method call or lambda -- the JIT inlines it.
 
 This is actually how the Java compiler implements lambda expressions:
