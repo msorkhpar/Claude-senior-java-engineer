@@ -268,6 +268,17 @@ class CompositionBasicsTest {
     class InstrumentedSetTest {
 
         @Test
+        @DisplayName("Forwarding wrapper should keep the Set equals/hashCode/toString contract")
+        void testObjectMethodsForwarded() {
+            var set = new CompositionBasics.InstrumentedSet<>(new HashSet<>(Set.of("a", "b")));
+
+            assertThat(set.equals(Set.of("a", "b"))).isTrue();
+            assertThat(Set.of("a", "b").equals(set)).isTrue();
+            assertThat(set.hashCode()).isEqualTo(Set.of("a", "b").hashCode());
+            assertThat(set.toString()).contains("a").contains("b");
+        }
+
+        @Test
         @DisplayName("Should count single add operations")
         void testSingleAdd() {
             var set = new CompositionBasics.InstrumentedSet<>(new HashSet<>());

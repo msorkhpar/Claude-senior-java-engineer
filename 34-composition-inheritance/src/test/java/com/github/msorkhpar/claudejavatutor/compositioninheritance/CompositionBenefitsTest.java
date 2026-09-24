@@ -193,6 +193,49 @@ class CompositionBenefitsTest {
         }
 
         @Test
+        @DisplayName("Should evict the least recently used entry when full")
+        void testEvictsLeastRecentlyUsed() {
+            var cache = new CompositionBenefits.BoundedCache<>(new CompositionBenefits.SimpleCache<String, String>(), 2);
+            cache.put("a", "1");
+            cache.put("b", "2");
+            cache.get("a");        // "a" becomes the most recently used
+            cache.put("c", "3");   // full: evicts "b"
+
+            assertThat(cache.size()).isEqualTo(2);
+            assertThat(cache.containsKey("b")).isFalse();
+            assertThat(cache.containsKey("a")).isTrue();
+            assertThat(cache.containsKey("c")).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should never grow beyond maxSize")
+        void testStaysBounded() {
+            var cache = new CompositionBenefits.BoundedCache<>(new CompositionBenefits.SimpleCache<Integer, Integer>(), 3);
+            for (int i = 0; i < 10; i++) {
+                cache.put(i, i);
+            }
+
+            assertThat(cache.size()).isEqualTo(3);
+            assertThat(cache.get(9)).isEqualTo(9);
+            assertThat(cache.containsKey(0)).isFalse();
+        }
+
+        @Test
+        @DisplayName("Should remove an entry and forget its access order")
+        void testRemove() {
+            var cache = new CompositionBenefits.BoundedCache<>(new CompositionBenefits.SimpleCache<String, String>(), 2);
+            cache.put("a", "1");
+            cache.put("b", "2");
+
+            assertThat(cache.remove("a")).isEqualTo("1");
+            cache.put("c", "3");   // room left: nothing evicted
+
+            assertThat(cache.size()).isEqualTo(2);
+            assertThat(cache.containsKey("b")).isTrue();
+            assertThat(cache.containsKey("c")).isTrue();
+        }
+
+        @Test
         @DisplayName("Should reject non-positive maxSize")
         void testInvalidMaxSize() {
             assertThatThrownBy(() -> new CompositionBenefits.BoundedCache<>(new CompositionBenefits.SimpleCache<>(), 0))
