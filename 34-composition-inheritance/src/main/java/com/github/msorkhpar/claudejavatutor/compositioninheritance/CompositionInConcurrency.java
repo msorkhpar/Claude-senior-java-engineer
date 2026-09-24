@@ -79,10 +79,23 @@ public class CompositionInConcurrency {
             return attempt <= maxRetries;
         }
 
+        /**
+         * Returns initialDelayMs * 2^(attempt - 1), capped at maxDelayMs.
+         * The doubling is done with a shift that is checked before it is applied, so a
+         * large attempt number (even Integer.MAX_VALUE) returns maxDelayMs instead of
+         * overflowing into a zero or negative delay.
+         */
         @Override
         public long delayMillis(int attempt) {
-            long delay = initialDelayMs * (long) Math.pow(2, attempt - 1);
-            return Math.min(delay, maxDelayMs);
+            if (attempt <= 1 || initialDelayMs == 0) {
+                return Math.min(initialDelayMs, maxDelayMs);
+            }
+            int shift = attempt - 1;
+            // initialDelayMs << shift would exceed maxDelayMs (or overflow): return the cap
+            if (shift >= Long.SIZE - 1 || initialDelayMs > (maxDelayMs >> shift)) {
+                return maxDelayMs;
+            }
+            return Math.min(initialDelayMs << shift, maxDelayMs);
         }
 
         public int getMaxRetries() {

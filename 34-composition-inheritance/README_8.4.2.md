@@ -241,7 +241,9 @@ class FixedRetryStrategy implements RetryStrategy {
 class ExponentialBackoffStrategy implements RetryStrategy {
     private final int maxRetries;
     private final long initialDelayMs;
-    // ... implementation with exponential delay calculation
+    private final long maxDelayMs;
+    // ... delay = initialDelayMs * 2^(attempt - 1), capped at maxDelayMs; compute the
+    // doubling as a shift that is checked first, or large attempts overflow to 0 or negative
 }
 
 // Executor composes the strategy
