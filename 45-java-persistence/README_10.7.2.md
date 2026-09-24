@@ -100,16 +100,20 @@ List<Category> categories = em.createQuery(
 ### 2. Detached Entity Modifications Not Persisted
 
 ```java
-// PROBLEM: modifying an entity outside a transaction
+// PROBLEM: modifying an entity after its EntityManager is closed
 Employee emp = em.find(Employee.class, 1); // managed
-em.getTransaction().commit();              // now detached
-emp.setSalary(100000);                     // change is LOST - entity is detached
+em.getTransaction().commit();              // still managed: with an application-managed EntityManager,
+                                           // commit does not detach (a container-managed,
+                                           // transaction-scoped persistence context would)
+em.close();                                // now detached
+emp.setSalary(100000);                     // not tracked - nothing will write this change
 
-// SOLUTION: merge the detached entity back
-em.getTransaction().begin();
-Employee managed = em.merge(emp);          // returns a new managed instance
-managed.setSalary(100000);                 // this change will be flushed
-em.getTransaction().commit();
+// SOLUTION: merge the detached entity into an open persistence context
+EntityManager em2 = emf.createEntityManager();
+em2.getTransaction().begin();
+Employee managed = em2.merge(emp);         // copies emp's state (including the new salary)
+                                           // into a managed instance and returns it
+em2.getTransaction().commit();             // the UPDATE is flushed here
 ```
 
 ### 3. LazyInitializationException
@@ -167,7 +171,7 @@ Employee e2 = em.find(Employee.class, 1);
        p.setCategory(this);
    }
    ```
-2. **Null associations**: A `@ManyToOne` field can be null unless annotated `@JoinColumn(nullable = false)`.
+2. **Null associations**: A `@ManyToOne` field can be null unless mapped as `@ManyToOne(optional = false)`; add `@JoinColumn(nullable = false)` so the generated schema enforces it too.
 3. **Empty collections**: An uninitialized `@OneToMany` collection should default to an empty list, not null.
 4. **Inheritance mapping strategies**: `SINGLE_TABLE` (one table, discriminator column), `JOINED` (normalized), `TABLE_PER_CLASS` (union). Each has trade-offs in query performance vs. storage.
 5. **Composite keys**: Use `@IdClass` or `@EmbeddedId`. Composite keys must properly implement `equals()` and `hashCode()`.
@@ -541,13 +545,14 @@ Key differences:
 6. Database-agnostic: JPQL is portable across databases; JPA translates to the native dialect.
 
 JPQL features:
-- Named parameters: WHERE e.name = :name (not positional ? like JDBC)
+- Named parameters: WHERE e.name = :name, or numbered positional ones: ?1 (not bare ? like JDBC)
 - Constructor expressions: SELECT NEW dto.EmployeeDTO(e.name, e.salary)
 - Aggregate functions: COUNT, SUM, AVG, MIN, MAX
 - Subqueries, CASE expressions, IS EMPTY, MEMBER OF
 - Bulk update/delete: UPDATE Employee e SET e.salary = e.salary * 1.1
 
-Limitations: No DDL, no database-specific functions (use native queries for those).
+Limitations: No DDL; database-specific functions only through FUNCTION('name', args) (JPA 2.1+),
+otherwise use native queries.
 ```
 
 ```java
