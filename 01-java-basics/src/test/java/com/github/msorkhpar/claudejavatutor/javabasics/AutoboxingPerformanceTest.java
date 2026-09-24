@@ -32,7 +32,7 @@ class AutoboxingPerformanceTest {
 
         assertThat(primitiveResult.result()).isEqualTo(expectedSum);
         assertThat(wrapperResult.result()).isEqualTo(expectedSum);
-        assertThat(wrapperResult.executionTime()).isGreaterThan(primitiveResult.executionTime());
+        // Timings are printed, not asserted: a wall-clock ordering is not reliable on a loaded machine.
     }
 
     @Test
@@ -51,8 +51,9 @@ class AutoboxingPerformanceTest {
         System.out.println("Primitive array sum time: " + primitiveSum.executionTime() + "ns");
         System.out.println("Wrapper array sum time: " + wrapperSum.executionTime() + "ns");
 
-        assertThat(primitiveSum.executionTime()).isLessThan(wrapperSum.executionTime());
-        assertThat(primitiveSum.result()).isEqualTo(wrapperSum.result());
+        long expectedSum = (long) size * (size - 1) / 2;
+        assertThat(primitiveSum.result()).isEqualTo(expectedSum);
+        assertThat(wrapperSum.result()).isEqualTo(expectedSum);
     }
 
     @Test
@@ -65,8 +66,9 @@ class AutoboxingPerformanceTest {
         System.out.println("Primitive stream sum time: " + primitiveStreamSum.executionTime() + "ns");
         System.out.println("Wrapper stream sum time: " + wrapperStreamSum.executionTime() + "ns");
 
-        assertThat(primitiveStreamSum.result()).isEqualTo(wrapperStreamSum.result());
-        assertThat(wrapperStreamSum.executionTime()).isGreaterThan(primitiveStreamSum.executionTime());
+        long expectedSum = (long) limit * (limit - 1) / 2;
+        assertThat(primitiveStreamSum.result()).isEqualTo(expectedSum);
+        assertThat(wrapperStreamSum.result()).isEqualTo(expectedSum);
     }
 
     @Test
