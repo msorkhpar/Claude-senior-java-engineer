@@ -306,7 +306,8 @@ em.persist(emp);
 emp.setName("Alice Smith"); // change is automatically detected (dirty checking)
 
 // 3. Flush to database (explicit or automatic at commit)
-em.flush(); // INSERT executed, then UPDATE for name change
+em.flush(); // Hibernate: INSERT with "Alice", then UPDATE for the name change.
+            // JPA does not specify this; a provider may insert the latest state directly.
 
 // 4. DETACHED state
 em.getTransaction().commit();
