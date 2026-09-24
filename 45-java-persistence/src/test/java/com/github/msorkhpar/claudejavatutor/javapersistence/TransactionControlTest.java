@@ -98,6 +98,21 @@ class TransactionControlTest {
         }
 
         @Test
+        @DisplayName("Should reject a negative amount instead of moving money backwards")
+        void testNegativeAmountRejected() throws SQLException {
+            int fromId = txControl.createAccount("Alice", 1000.00);
+            int toId = txControl.createAccount("Bob", 500.00);
+
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> txControl.transfer(fromId, toId, -100.00));
+            assertThatIllegalArgumentException()
+                    .isThrownBy(() -> txControl.transferWithPessimisticLock(fromId, toId, -100.00));
+
+            assertThat(txControl.findAccount(fromId).get().balance()).isEqualTo(1000.00);
+            assertThat(txControl.findAccount(toId).get().balance()).isEqualTo(500.00);
+        }
+
+        @Test
         @DisplayName("Should handle zero amount transfer")
         void testZeroAmountTransfer() throws SQLException {
             int fromId = txControl.createAccount("Alice", 1000.00);

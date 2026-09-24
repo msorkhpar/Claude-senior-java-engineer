@@ -154,7 +154,7 @@ public class OrmPatterns {
                  PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                 pstmt.setString(1, entity.getName());
                 pstmt.setDouble(2, entity.getPrice());
-                pstmt.setInt(3, entity.getCategoryId());
+                setCategoryId(pstmt, 3, entity.getCategoryId());
                 pstmt.executeUpdate();
                 try (ResultSet keys = pstmt.getGeneratedKeys()) {
                     if (keys.next()) {
@@ -171,7 +171,7 @@ public class OrmPatterns {
                  PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 pstmt.setString(1, entity.getName());
                 pstmt.setDouble(2, entity.getPrice());
-                pstmt.setInt(3, entity.getCategoryId());
+                setCategoryId(pstmt, 3, entity.getCategoryId());
                 pstmt.setInt(4, entity.getId());
                 pstmt.executeUpdate();
             }
@@ -247,7 +247,10 @@ public class OrmPatterns {
         }
 
         /**
-         * Simulates JPQL join fetch: SELECT p FROM Product p JOIN FETCH p.category
+         * Simulates the SQL shape of JPQL {@code SELECT p FROM Product p JOIN p.category}:
+         * an inner join, so products without a category are left out. This simplified
+         * Product holds only {@code categoryId}, so no Category object is fetched or mapped
+         * (a real {@code JOIN FETCH} would also populate {@code p.category}).
          */
         public List<Product> findAllWithCategory() throws SQLException {
             String sql = """
@@ -308,7 +311,9 @@ public class OrmPatterns {
         }
 
         /**
-         * Eager loading: fetches a Category with all its Products (simulates JOIN FETCH).
+         * Eager loading: fetches a Category with all its Products up front. It gives the result
+         * of a JOIN FETCH but uses two queries (one for the category, one for its products),
+         * not JOIN FETCH's single joined query.
          */
         public Optional<Category> findCategoryWithProducts(int categoryId) throws SQLException {
             String categorySql = "SELECT id, name FROM categories WHERE id = ?";
@@ -337,6 +342,19 @@ public class OrmPatterns {
                     }
                 }
                 return Optional.of(category);
+            }
+        }
+
+        /**
+         * categoryId 0 means "no category" (mapProduct reads SQL NULL as 0), so it is written as
+         * NULL; writing 0 would violate the foreign key, since no category has id 0.
+         */
+        private static void setCategoryId(PreparedStatement pstmt, int index, int categoryId)
+                throws SQLException {
+            if (categoryId == 0) {
+                pstmt.setNull(index, Types.INTEGER);
+            } else {
+                pstmt.setInt(index, categoryId);
             }
         }
 

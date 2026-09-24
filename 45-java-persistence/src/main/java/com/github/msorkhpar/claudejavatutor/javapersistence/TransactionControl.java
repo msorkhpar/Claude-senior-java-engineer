@@ -102,8 +102,11 @@ public class TransactionControl {
      * Demonstrates atomicity: either both debit and credit succeed, or neither does.
      *
      * @return true if transfer succeeded
+     * @throws IllegalArgumentException if amount is negative (a negative debit would move money
+     *                                  from the destination to the source)
      */
     public boolean transfer(int fromId, int toId, double amount) throws SQLException {
+        requireNonNegative(amount);
         Connection conn = null;
         try {
             conn = getConnection();
@@ -303,6 +306,7 @@ public class TransactionControl {
      * Acquires FOR UPDATE locks on both accounts, then performs debit/credit.
      */
     public boolean transferWithPessimisticLock(int fromId, int toId, double amount) throws SQLException {
+        requireNonNegative(amount);
         Connection conn = null;
         try {
             conn = getConnection();
@@ -353,6 +357,12 @@ public class TransactionControl {
                 conn.setAutoCommit(true);
                 conn.close();
             }
+        }
+    }
+
+    private static void requireNonNegative(double amount) {
+        if (amount < 0) {
+            throw new IllegalArgumentException("Transfer amount must not be negative: " + amount);
         }
     }
 

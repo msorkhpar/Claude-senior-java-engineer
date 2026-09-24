@@ -46,6 +46,20 @@ class OrmPatternsTest {
         }
 
         @Test
+        @DisplayName("Should save and update a product without a category (categoryId 0 = NULL)")
+        void testSaveProductWithoutCategory() throws SQLException {
+            OrmPatterns.Product saved = repo.save(new OrmPatterns.Product(0, "Gift Card", 25.00, 0));
+            assertThat(saved.getId()).isGreaterThan(0);
+            assertThat(repo.findById(saved.getId())).get()
+                    .extracting(OrmPatterns.Product::getCategoryId).isEqualTo(0);
+
+            saved.setPrice(30.00);
+            repo.save(saved);
+            assertThat(repo.findById(saved.getId()).get().getPrice()).isEqualTo(30.00);
+            assertThat(repo.findAllWithCategory()).isEmpty(); // inner join leaves it out
+        }
+
+        @Test
         @DisplayName("Should update an existing product")
         void testUpdateProduct() throws SQLException {
             int catId = repo.saveCategory("Electronics");
