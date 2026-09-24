@@ -63,7 +63,7 @@ class ClassIntrospectionTest {
             List<Class<?>> classes = ClassIntrospection.getClassObjectThreeWays("hello");
 
             assertThat(classes).hasSize(3);
-            assertThat(classes).allSatisfy(c -> assertThat(c).isEqualTo(String.class));
+            assertThat(classes).allSatisfy(c -> assertThat(c).isSameAs(String.class));
         }
     }
 

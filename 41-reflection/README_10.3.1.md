@@ -17,7 +17,7 @@ Once you have a `Class` object, you can query the full class hierarchy (supercla
 ## Key Points to Remember
 
 - Every type in Java (including primitives, arrays, and `void`) has a corresponding `Class` object.
-- `Class.forName()` triggers class loading and static initialization; the other two approaches do not trigger loading of a new class.
+- `Class.forName()` triggers class loading and static initialization; `obj.getClass()` needs no loading (the class of an existing object is already loaded), and a `TypeName.class` literal may load the class the first time it is evaluated but never initializes it.
 - `getInterfaces()` returns only directly declared interfaces; to get all inherited interfaces you must walk the hierarchy.
 - `getDeclaredFields()`/`getDeclaredMethods()` return members declared in that class only (including private), while `getFields()`/`getMethods()` return all public members including inherited ones.
 - `getModifiers()` returns an `int` bitmask; use `java.lang.reflect.Modifier` helper methods to decode it.
@@ -75,7 +75,7 @@ Once you have a `Class` object, you can query the full class hierarchy (supercla
 
 5. **Module access restrictions in Java 9+**
 
-   Reflective access to non-exported packages in named modules will throw `IllegalAccessException` at runtime. Use `--add-opens` JVM flags or module declarations to grant access.
+   Reflectively using a member your code cannot access throws `IllegalAccessException`, and `setAccessible(true)` on a member of a package in a named module that is not opened to your module throws `InaccessibleObjectException` (a `RuntimeException`). Use `--add-opens` JVM flags or `opens` directives in module declarations to grant access.
 
 ## Best Practices and Optimization Techniques
 
@@ -84,7 +84,7 @@ Once you have a `Class` object, you can query the full class hierarchy (supercla
 3. **Use `Class.isInstance(obj)` instead of manual `getClass()` comparisons** for polymorphic checks.
 4. **Walk the hierarchy only once** and cache the result if you need all interfaces or all fields including inherited ones.
 5. **Avoid `Class.forName()` in hot loops** -- it involves classloader lookups and synchronization.
-6. **Use `getSimpleName()` for logging** and `getName()` when you need the canonical form for serialization or persistence.
+6. **Use `getSimpleName()` for logging** and `getName()` (the binary name, e.g. `Outer$Inner`, which `Class.forName()` accepts) when you need a name for serialization or persistence; `getCanonicalName()` gives the source-style `Outer.Inner`.
 
 ## Edge Cases and Their Handling
 
@@ -121,9 +121,10 @@ A1: The three ways are:
 1. object.getClass() -- Called on an instance at runtime. Returns the actual runtime
    class, which may be a subclass of the declared type. Requires a non-null instance.
 
-2. TypeName.class -- A compile-time class literal. Does not require an instance, does not
-   trigger class loading (the class is already loaded when the literal is compiled), and
-   works for primitives (int.class) and void (void.class).
+2. TypeName.class -- A class literal. Does not require an instance and works for
+   primitives (int.class) and void (void.class). The first time it is evaluated at run
+   time, the JVM loads the class if it is not loaded yet, but it does NOT initialize it
+   (no static initializer runs).
 
 3. Class.forName("fully.qualified.Name") -- Loads the class dynamically by its
    fully-qualified name at runtime. Triggers static initialization by default. Throws
@@ -203,7 +204,7 @@ public class FieldDiscoveryDemo {
 
         // getFields -- public fields, including inherited
         Field[] publicFields = Child.class.getFields();
-        // [childPublic, publicField]
+        // [childPublic, publicField] (the order of the returned array is not specified)
     }
 }
 ```

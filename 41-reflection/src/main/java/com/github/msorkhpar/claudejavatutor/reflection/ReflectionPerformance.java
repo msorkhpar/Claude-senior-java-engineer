@@ -237,10 +237,10 @@ public class ReflectionPerformance {
         Map<String, BenchmarkResult> results = new LinkedHashMap<>();
         BenchmarkTarget target = new BenchmarkTarget("test");
 
-        // Direct
+        // Direct (the enclosing class may read the nested class's private field)
         long start = System.nanoTime();
         for (int i = 0; i < iterations; i++) {
-            String ignored = target.getValue();
+            String ignored = target.value;
         }
         results.put("direct", new BenchmarkResult("Direct field read", System.nanoTime() - start, iterations));
 

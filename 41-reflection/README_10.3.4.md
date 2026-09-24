@@ -11,7 +11,7 @@ The main sources of reflection overhead are:
 1. **Member lookup**: `Class.getDeclaredMethod()`, `getDeclaredField()`, etc. scan internal arrays and perform string matching. This is the most expensive part.
 2. **Access checking**: Every `Method.invoke()` or `Field.get()` checks accessibility by default. `setAccessible(true)` bypasses this check.
 3. **Auto-boxing and array creation**: Primitive arguments must be boxed, and an `Object[]` array must be created for `Method.invoke()`.
-4. **JIT optimization barriers**: The JVM's JIT compiler can inline and optimize direct calls aggressively, but reflective calls are opaque to the optimizer, preventing many optimizations.
+4. **JIT optimization barriers**: The JVM's JIT compiler can inline and optimize direct calls aggressively, but reflective calls are harder to optimize. Since JDK 18 (JEP 416), `Method.invoke()`, `Constructor.newInstance()` and `Field` access are implemented with method handles, so the JIT can inline through a `Method`/`Field` held in a `static final` field; a `Method` that is not a constant still goes through an indirect call.
 5. **Type safety overhead**: The JVM must perform runtime type checks that would be unnecessary with direct access.
 
 ## Key Points to Remember
@@ -83,7 +83,8 @@ The main sources of reflection overhead are:
 4. **Ignoring `MethodHandle` for performance-sensitive code**
 
    ```java
-   // SLOWER: Method.invoke() -- JIT cannot inline
+   // SLOWER: Method.invoke() -- boxing, an Object[] array, and (unless the Method is a static final
+   // constant) no inlining; since JDK 18 invoke() itself is built on method handles (JEP 416)
    Method m = Target.class.getMethod("compute", int.class);
    m.invoke(target, 42);
 
@@ -133,7 +134,7 @@ The main sources of reflection overhead are:
 
 Interviewers focus on:
 
-- Your awareness that reflection has a cost and your ability to quantify it roughly (10-100x for uncached, 2-5x for cached).
+- Your awareness that reflection has a cost and your ability to quantify it roughly (about 2-10x for cached, 50-100x+ for uncached, as in the key points above).
 - Whether you know about `MethodHandle` as a performant alternative.
 - Caching strategies: what to cache, where to store it, thread safety.
 - When to avoid reflection entirely (direct calls, annotation processors, code generation).
@@ -164,7 +165,9 @@ A1: Reflection is slower for several compounding reasons:
 
 4. JIT optimization barriers: The JVM's JIT compiler can inline, devirtualize,
    and optimize direct calls. Reflective calls go through invoke(), which is
-   opaque to many JIT optimizations, preventing inlining and escape analysis.
+   harder to optimize: since JDK 18 (JEP 416) invoke() is built on method
+   handles, and the JIT can inline it only when the Method object is a
+   constant (e.g. a static final field).
 
 5. Runtime type checking: The JVM must verify argument types at runtime,
    whereas direct calls are verified at compile time.
@@ -307,8 +310,11 @@ A3: Effective caching strategies for reflection:
        }
    };
 
-4. WeakHashMap with Class keys: Allows class unloading when using custom
-   classloaders, preventing memory leaks.
+4. WeakHashMap with Class keys: Meant to allow class unloading with custom
+   classloaders, but it does NOT work for Method/Field values: each Method or
+   Field strongly references its declaring Class, so the value keeps its own
+   key reachable and the entry is never removed (the WeakHashMap javadoc warns
+   about this). Prefer ClassValue, whose values do not keep the class alive.
 
 5. ThreadLocal caches: For thread-confined reflection operations.
 

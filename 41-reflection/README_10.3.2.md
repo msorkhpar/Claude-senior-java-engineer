@@ -10,7 +10,7 @@ The Reflection API provides two families of accessor methods:
 
 | Family | Scope | Access Level |
 |--------|-------|-------------|
-| `getFields()`, `getMethods()`, `getConstructors()` | Includes inherited | Public only |
+| `getFields()`, `getMethods()`, `getConstructors()` | Includes inherited (constructors are never inherited, so `getConstructors()` returns only this class's) | Public only |
 | `getDeclaredFields()`, `getDeclaredMethods()`, `getDeclaredConstructors()` | This class only | All access levels |
 
 Key operations:
@@ -27,7 +27,7 @@ All three require `setAccessible(true)` to bypass Java access control when acces
 - `Method.invoke(null, args)` invokes a static method.
 - Primitive types are auto-boxed/unboxed when reading/writing fields or invoking methods via reflection.
 - `getDeclaredField()` does **not** search superclasses; you must walk the hierarchy manually.
-- Modifying `final` fields via reflection is possible but strongly discouraged -- the JVM may have already inlined the value.
+- Modifying a `final` instance field of an ordinary class via reflection is possible but strongly discouraged -- if the field is a compile-time constant, `javac` has already inlined its value into the code that reads it. `static final` fields and record fields cannot be set at all (`IllegalAccessException`).
 - `Constructor.newInstance()` wraps any exception thrown by the constructor in `InvocationTargetException`.
 - `Method.invoke()` also wraps checked and unchecked exceptions in `InvocationTargetException`.
 - `getParameterTypes()` returns the formal parameter types of a method or constructor.
@@ -147,7 +147,7 @@ Interviewers focus on:
 
 Common tricky interview questions:
 
-- "Can you modify a `private final` field using reflection?" (Answer: Yes technically, but the JVM may inline the value, making the change invisible.)
+- "Can you modify a `private final` field using reflection?" (Answer: For an instance field of an ordinary class, yes technically, after `setAccessible(true)`; but a compile-time-constant value is inlined by `javac`, making the change invisible to code that reads it. A `static final` field or a record field cannot be modified: `Field.set()` throws `IllegalAccessException`.)
 - "What exception wraps exceptions thrown by a reflectively invoked method?" (Answer: `InvocationTargetException`)
 - "How does Spring inject dependencies into private fields?" (Answer: via `Field.setAccessible(true)` and `Field.set()`)
 
@@ -220,6 +220,10 @@ public class PrivateMethodInvocation {
         private int secretMultiply(int a, int b) {
             return a * b;
         }
+
+        private int secretDivide(int a, int b) {
+            return a / b;
+        }
     }
 
     public static void main(String[] args) throws Exception {
@@ -233,11 +237,15 @@ public class PrivateMethodInvocation {
         System.out.println("Result: " + result); // 42
 
         // Handle exception from invoked method
+        Method divide = Calculator.class.getDeclaredMethod("secretDivide", int.class, int.class);
+        divide.setAccessible(true);
         try {
-            method.invoke(calc, null, null); // Will throw NPE inside
+            divide.invoke(calc, 6, 0); // Throws ArithmeticException inside the method
         } catch (InvocationTargetException e) {
-            System.out.println("Cause: " + e.getCause().getClass().getSimpleName());
+            System.out.println("Cause: " + e.getCause().getClass().getSimpleName()); // ArithmeticException
         }
+        // Note: invoke(calc, null, null) would NOT reach the method: null cannot be unboxed to int,
+        // so invoke() itself throws IllegalArgumentException, which is not wrapped.
     }
 }
 ```
@@ -245,7 +253,7 @@ public class PrivateMethodInvocation {
 **Q3: What is the difference between `Constructor.newInstance()` and `Class.newInstance()`?**
 
 ```text
-A3: Class.newInstance() (deprecated since Java 9, removed in Java 17+):
+A3: Class.newInstance() (deprecated since Java 9, but not removed -- it still exists in Java 21):
 - Only invokes the no-arg constructor.
 - Propagates checked exceptions directly, violating the compile-time checked
   exception mechanism.
@@ -360,8 +368,10 @@ A5: Since Java 9, the module system restricts reflective access:
 5. MethodHandles.privateLookupIn() provides a module-aware alternative that
    requires the target module to open its package to the caller.
 
-This is why many frameworks now emit warnings like "illegal reflective access"
-and why module-aware alternatives (MethodHandle, VarHandle) are preferred.
+In JDK 9-15 the JVM allowed such access to JDK internals by default and printed
+"illegal reflective access" warnings; since JDK 16 (JEP 396) and JDK 17 (JEP 403)
+it fails with InaccessibleObjectException unless the package is opened. This is why
+module-aware alternatives (MethodHandle, VarHandle) are preferred.
 ```
 
 ```java
