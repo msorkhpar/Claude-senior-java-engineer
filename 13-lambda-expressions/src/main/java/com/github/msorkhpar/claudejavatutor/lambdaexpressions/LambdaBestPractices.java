@@ -399,13 +399,14 @@ public class LambdaBestPractices {
          * Use primitive streams to avoid boxing
          */
         public double calculateAverage(List<Integer> numbers) {
-            // Inefficient: boxing/unboxing
+            // Both pipelines unbox each Integer exactly once (the list already holds boxed values) and then
+            // average on a primitive stream; they cost the same. What primitive streams avoid is boxing in
+            // later steps, e.g. numbers.stream().reduce(0, Integer::sum) boxes every intermediate sum.
             double avg1 = numbers.stream()
                     .mapToDouble(n -> n.doubleValue())
                     .average()
                     .orElse(0.0);
 
-            // Efficient: primitive stream
             double avg2 = numbers.stream()
                     .mapToInt(Integer::intValue)
                     .average()
@@ -435,18 +436,20 @@ public class LambdaBestPractices {
          * Avoid creating lambdas in hot paths
          */
         public void demonstrateHotPath(List<String> strings) {
-            // Bad: Creating lambda in loop
+            // A non-capturing lambda such as s -> s.length() > 5 is created once and the same instance is reused
+            // on every evaluation, so extracting it to a variable changes readability, not cost. A lambda that
+            // captures a local variable is a new object on each evaluation. The real waste in both loops below is
+            // re-running the same stream a million times.
             for (int i = 0; i < 1000000; i++) {
                 strings.stream()
-                        .filter(s -> s.length() > 5)  // Lambda created each iteration
+                        .filter(s -> s.length() > 5)  // Non-capturing: one shared instance
                         .count();
             }
 
-            // Better: Extract lambda
             Predicate<String> lengthCheck = s -> s.length() > 5;
             for (int i = 0; i < 1000000; i++) {
                 strings.stream()
-                        .filter(lengthCheck)  // Reuse same lambda
+                        .filter(lengthCheck)  // Same cost as above
                         .count();
             }
 

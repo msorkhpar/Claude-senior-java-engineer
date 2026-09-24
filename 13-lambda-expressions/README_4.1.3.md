@@ -26,12 +26,12 @@ signature), and the lambda provides how to do it (implementation).
 
 ## Relevant Java 21 Features
 
-Java 21 continues to enhance functional programming capabilities:
+The functional interfaces in `java.util.function` are unchanged since Java 8; newer features combine well with them:
 
-- **Improved type inference**: Better handling of complex functional interface scenarios.
 - **Pattern matching**: Functional interfaces work seamlessly with modern pattern matching.
-- **Sequenced collections**: New functional interfaces for sequenced collection operations.
-- **Virtual threads**: Functional interfaces integrate well with Project Loom's virtual threads.
+- **Sequenced collections** (Java 21): New collection methods such as `reversed()`, `getFirst()` and `getLast()`
+  that fit into lambda pipelines (no new functional interfaces were added).
+- **Virtual threads** (Java 21): A `Runnable` or `Callable` lambda is what you hand to a virtual thread or its executor.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -156,7 +156,7 @@ Java 21 continues to enhance functional programming capabilities:
    ```java
    // This is still functional if only one method is abstract
    interface MyInterface extends Runnable, Cloneable {
-       // Only run() is abstract (clone() has default impl from Object)
+       // Only run() is abstract: Cloneable is a marker interface that declares no methods at all
    }
    ```
 
@@ -230,7 +230,7 @@ public class FunctionalInterfaceExample {
         System.out.println(power.calculate(2, 3));          // 8
 
         // Using default method
-        System.out.println(addition.square(5));             // 25 (5+5=10? No, square uses calculate(n,n))
+        System.out.println(addition.square(5));             // 10: square(n) calls calculate(n, n), i.e. 5 + 5 for addition
 
         // Using static method
         System.out.println(Calculator.negate(10));          // -10
@@ -342,8 +342,8 @@ public class StandardFunctionalInterfaces {
         UnaryOperator<Integer> square = n -> n * n;
         UnaryOperator<String> trim = String::trim;
 
-        // Chaining unary operators
-        UnaryOperator<String> trimAndUpper = trim.andThen(toUpper);
+        // Chaining unary operators: andThen is inherited from Function and returns a Function, not a UnaryOperator
+        Function<String, String> trimAndUpper = trim.andThen(toUpper);
         String result = trimAndUpper.apply("  hello  ");  // "HELLO"
     }
 
@@ -536,8 +536,9 @@ public class CustomFunctionalInterfaces {
 
         List<String> numbers = List.of("1", "2", "abc", "4");
         numbers.stream()
-                .map(safeParser)  // Wrapped checked exception
-                .forEach(System.out::println);
+                .map(safeParser)  // Any exception is wrapped in a RuntimeException
+                .forEach(System.out::println);  // Prints 1 and 2, then throws on "abc"
+                                                // (RuntimeException wrapping NumberFormatException)
 
         // 4. PriceCalculator
         PriceCalculator standard = PriceCalculator.standard();
@@ -702,7 +703,7 @@ public class FunctionalInterfaceComposition {
                 .and(notEmpty)
                 .and(startsWithA.or(longerThan5));
 
-        List<String> names = List.of("Alice", "Bob", "Alexander", null, "", "Amy");
+        List<String> names = Arrays.asList("Alice", "Bob", "Alexander", null, "", "Amy"); // List.of rejects null
         List<String> filtered = names.stream()
                 .filter(complex)
                 .collect(Collectors.toList());
@@ -745,7 +746,7 @@ public class FunctionalInterfaceComposition {
         Comparator<Person> byDepartment = Comparator.comparing(Person::getDepartment);
 
         // Chaining: thenComparing
-        Comparator<Person> ageT henName = byAge.thenComparing(byName);
+        Comparator<Person> ageThenName = byAge.thenComparing(byName);
         people.sort(ageThenName);
         // Sorted by age, then by name for same age
 
@@ -908,7 +909,5 @@ Best practices:
 
 ## Code Examples
 
--
-Test: [LambdaFunctionalInterfacesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaFunctionalInterfacesTest.java)
--
-Source: [LambdaFunctionalInterfaces.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaFunctionalInterfaces.java)
+- Test: [LambdaFunctionalInterfacesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaFunctionalInterfacesTest.java)
+- Source: [LambdaFunctionalInterfaces.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaFunctionalInterfaces.java)

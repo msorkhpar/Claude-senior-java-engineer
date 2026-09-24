@@ -13,6 +13,9 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("Lambda Functional Interfaces Tests")
 class LambdaFunctionalInterfacesTest {
 
+    // System.setOut(System.out) would not restore anything once System.out has been replaced
+    private static final PrintStream ORIGINAL_OUT = System.out;
+
     @Nested
     @DisplayName("Standard Interfaces")
     class StandardInterfacesTest {
@@ -29,7 +32,7 @@ class LambdaFunctionalInterfacesTest {
 
             standard.demonstrateConsumer(items);
 
-            System.setOut(System.out);
+            System.setOut(ORIGINAL_OUT);
 
             String output = outContent.toString();
             assertThat(output)
@@ -206,7 +209,7 @@ class LambdaFunctionalInterfacesTest {
 
             primitives.printNumbers(numbers);
 
-            System.setOut(System.out);
+            System.setOut(ORIGINAL_OUT);
 
             String output = outContent.toString();
             assertThat(output)
@@ -497,7 +500,7 @@ class LambdaFunctionalInterfacesTest {
 
             String result = advanced.demonstrateLazyEvaluation();
 
-            System.setOut(System.out);
+            System.setOut(ORIGINAL_OUT);
 
             assertThat(result).isEqualTo("Expensive Result");
 

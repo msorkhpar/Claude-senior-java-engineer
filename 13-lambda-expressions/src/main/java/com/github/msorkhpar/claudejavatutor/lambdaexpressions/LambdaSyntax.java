@@ -439,7 +439,7 @@ public class LambdaSyntax {
         }
 
         /**
-         * Lambda with intersection types (implicit)
+         * Lambda with a bounded type parameter (T extends Comparable<T>)
          */
         public <T extends Comparable<T>> List<T> sortAndFilter(
                 List<T> items,

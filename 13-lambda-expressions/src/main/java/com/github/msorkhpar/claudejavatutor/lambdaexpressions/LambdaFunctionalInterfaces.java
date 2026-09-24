@@ -483,6 +483,9 @@ public class LambdaFunctionalInterfaces {
             }
         }
 
+        // Note: only the top-level results are cached. The recursive this.apply(n - 1) calls go to the plain
+        // anonymous function, not to the memoized one (routing them through HashMap.computeIfAbsent would throw
+        // ConcurrentModificationException). The int result overflows for n > 12.
         public Function<Integer, Integer> createMemoizedFactorial() {
             Function<Integer, Integer> factorial = new Function<Integer, Integer>() {
                 @Override

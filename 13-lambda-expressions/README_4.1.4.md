@@ -26,12 +26,12 @@ when simplicity is better.
 
 ## Relevant Java 21 Features
 
-Java 21 continues to improve lambda expression readability:
+Lambda syntax and inference are essentially unchanged since Java 8; what helps readability in recent versions is:
 
-- **Better type inference**: Reduces the need for verbose type declarations.
-- **Enhanced compiler errors**: More helpful messages when something goes wrong.
-- **Pattern matching**: Can make lambda bodies more readable in some cases.
-- **Improved tooling**: IDEs better support lambda refactoring and navigation.
+- **`var` in lambda parameters** (Java 11): lets you annotate or mark parameters `final` without spelling out the type.
+- **Pattern matching** (`instanceof` since Java 16, `switch` since Java 21): Can make lambda bodies more readable in
+  some cases.
+- **Records** (Java 16): Concise data carriers that keep lambda pipelines free of boilerplate getters.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -329,7 +329,8 @@ A1: The key principles for readable lambda expressions are:
 4. **Avoid side effects**: Lambdas should be pure functions when possible
    - No modifying external state
    - No I/O operations in map/filter
-   - Use forEach or peek for intentional side effects
+   - Use forEach for intentional side effects (peek exists mainly for debugging, and a stream may skip it: since
+     Java 9, `list.stream().peek(...).count()` can compute the count without running peek at all)
 
 5. **Proper formatting**: Format code consistently
    - Break long chains into multiple lines
@@ -349,7 +350,7 @@ public class ReadableLambdas {
     // 1. Simplicity - extract complex logic
     public List<User> getEligibleUsers(List<User> users) {
         // Bad: Complex inline lambda
-        return users.stream()
+        List<User> hardToRead = users.stream()
                 .filter(u -> u.getAge() >= 18 &&
                         u.isActive() &&
                         u.getEmail() != null &&
@@ -1143,7 +1144,5 @@ The sweet spot:
 
 ## Code Examples
 
--
-Test: [LambdaBestPracticesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaBestPracticesTest.java)
--
-Source: [LambdaBestPractices.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaBestPractices.java)
+- Test: [LambdaBestPracticesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaBestPracticesTest.java)
+- Source: [LambdaBestPractices.java](src/main/java/com/github/msorkhpar/claudejavatutor/lambdaexpressions/LambdaBestPractices.java)
