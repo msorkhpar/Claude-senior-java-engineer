@@ -174,7 +174,14 @@ public class HeapStackMemory {
          * Softly referenced objects are collected only when memory is low.
          */
         public SoftReference<byte[]> createSoftReference() {
-            byte[] data = new byte[1024 * 1024]; // 1MB
+            return createSoftReference(new byte[1024 * 1024]); // 1MB
+        }
+
+        /**
+         * Wraps the given data in a SoftReference. While the caller still holds a strong
+         * reference to {@code data}, the GC cannot clear the soft reference.
+         */
+        public SoftReference<byte[]> createSoftReference(byte[] data) {
             return new SoftReference<>(data);
         }
 
@@ -186,9 +193,25 @@ public class HeapStackMemory {
             Object obj = new Object();
             WeakReference<Object> weakRef = new WeakReference<>(obj);
             obj = null; // remove strong reference
-            System.gc(); // suggest GC (not guaranteed)
-            // After GC, weakRef.get() may return null
-            return weakRef.get() == null;
+            return awaitCleared(weakRef);
+        }
+
+        /**
+         * Suggests a GC up to ten times until the reference is cleared, and reports whether it was.
+         * System.gc() is only a hint, but with the default collectors (and without
+         * -XX:+DisableExplicitGC) it runs a full collection, which clears a weakly reachable referent.
+         */
+        public static boolean awaitCleared(java.lang.ref.Reference<?> ref) {
+            for (int attempt = 0; attempt < 10 && ref.get() != null; attempt++) {
+                System.gc();
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            return ref.get() == null;
         }
 
         /**
