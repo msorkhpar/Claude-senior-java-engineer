@@ -20,7 +20,8 @@ including multi-catch syntax introduced in Java 7.
 
 ## Common Pitfalls and How to Avoid Them
 
-1. **Catching Exception class first**: This will catch all exceptions, preventing more specific handlers from executing.
+1. **Catching Exception class first**: A later catch of a subclass could never run, so the compiler rejects it
+   ("exception IllegalArgumentException has already been caught").
     - Solution: Order catch blocks from most specific to most general.
 
 2. **Duplicating code in catch blocks**: This can lead to maintenance issues.
@@ -62,10 +63,10 @@ Q1: Why is the order of catch blocks important?
 ```text
 A1: The order of catch blocks is crucial because they are evaluated from top to bottom. 
 If a more general exception (like Exception) is caught before a more specific one 
-(like IllegalArgumentException), the more specific catch block will never be reached. 
-This is because any exception that would be caught by the specific block would already 
-have been caught by the general one. To ensure proper exception handling, always order 
-catch blocks from most specific to most general.
+(like IllegalArgumentException), the more specific catch block could never be reached, 
+because any exception it would catch has already been caught by the general one. 
+The compiler therefore rejects that order with "exception IllegalArgumentException has 
+already been caught". Always order catch blocks from most specific to most general.
 ```
 
 Q2: What is the multi-catch syntax in Java, and when would you use it?
@@ -95,17 +96,21 @@ public static void demonstrateMultipleCatch(String input) {
         if (value < 0) {
             throw new IllegalArgumentException("Value must be non-negative");
         }
-        double result = 100.0 / value;
+        int result = 100 / value; // integer division: throws ArithmeticException when value is 0
         System.out.println("Result: " + result);
-    } catch (NumberFormatException | IllegalArgumentException e) {
+    } catch (NumberFormatException e) { // a subclass of IllegalArgumentException, so it must come first
+        System.err.println("Not a number: " + e.getMessage());
+    } catch (IllegalArgumentException | ArithmeticException e) { // multi-catch: unrelated types only
         System.err.println("Invalid input: " + e.getMessage());
-    } catch (ArithmeticException e) {
-        System.err.println("Cannot divide by zero");
     } catch (Exception e) {
         System.err.println("An unexpected error occurred: " + e.getMessage());
     }
 }
 ```
+
+The types in one multi-catch must not be subclasses of each other: `catch (NumberFormatException |
+IllegalArgumentException e)` does not compile ("Alternatives in a multi-catch statement cannot be related by
+subclassing"). Note also that floating-point division never throws: `100.0 / 0` is `Infinity`.
 
 Q4: How does exception handling in Java differ from error handling in other languages you've worked with?
 

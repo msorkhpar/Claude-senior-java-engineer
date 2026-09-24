@@ -29,7 +29,8 @@ try {
 While the basic concept of try/catch remains the same, Java 21 continues to support and encourage the use of more
 specific exception handling introduced in earlier versions:
 
-- Pattern matching in catch blocks (preview feature in Java 21)
+- Pattern matching (`instanceof` since Java 16, `switch` since Java 21) can be used inside a catch block to inspect
+  the caught exception; the catch clause itself has no pattern syntax
 - Multi-catch statements (introduced in Java 7)
 
 ## Common Pitfalls and How to Avoid Them
@@ -37,8 +38,9 @@ specific exception handling introduced in earlier versions:
 1. **Catching Exception**: Avoid catching the generic `Exception` class unless absolutely necessary. It can mask other
    important exceptions and make debugging difficult.
 2. **Empty catch blocks**: Never leave catch blocks empty. At the very least, log the exception.
-3. **Catching and rethrowing**: Be cautious when catching an exception only to rethrow it immediately, as this can lose
-   the original stack trace.
+3. **Catching and rethrowing**: Catching an exception only to rethrow it immediately adds nothing. Rethrowing the same
+   object (`throw e;`) keeps its stack trace; what loses the original trace is throwing a new exception without passing
+   the caught one as its cause.
 
 ## Best Practices and Optimization Techniques
 
