@@ -28,6 +28,13 @@ public class PerformanceTestUtil {
             return Objects.equals(result, that.result);
         }
 
+        // equals() above compares only the result, so hashCode() must hash only the result too;
+        // the record's generated hashCode() would also hash executionTime and break the contract.
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(result);
+        }
+
         @Override
         public String toString() {
             return "MeasurementResult{" +
