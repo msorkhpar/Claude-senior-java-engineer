@@ -26,7 +26,8 @@ public class SwitchPattern {
             case Circle c -> "Large circle";
             case Rectangle r when r.width() == r.height() -> "Square";
             case Rectangle r -> "Rectangle";
-            case Triangle t when t.base() == t.height() -> "Equilateral triangle";
+            // base == height does not make a triangle equilateral (that needs height = base * sqrt(3) / 2)
+            case Triangle t when t.base() == t.height() -> "Triangle with base equal to height";
             case Triangle t -> "Triangle";
             case null -> "No shape";
         };

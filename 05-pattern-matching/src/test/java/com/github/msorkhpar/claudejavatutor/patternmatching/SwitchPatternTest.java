@@ -57,7 +57,7 @@ class SwitchPatternTest {
                 Arguments.of(new Circle(7), "Large circle"),
                 Arguments.of(new Rectangle(5, 5), "Square"),
                 Arguments.of(new Rectangle(4, 6), "Rectangle"),
-                Arguments.of(new Triangle(4, 4), "Equilateral triangle"),
+                Arguments.of(new Triangle(4, 4), "Triangle with base equal to height"),
                 Arguments.of(new Triangle(3, 5), "Triangle"),
                 Arguments.of(null, "No shape")
         );

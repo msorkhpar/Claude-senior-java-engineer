@@ -1,8 +1,9 @@
-# 1.5.4 Switch Patterns in Java (Java 19+)
+# 1.5.4 Switch Patterns in Java (Java 17+)
 
 ## Concept Explanation
 
-Switch patterns, introduced as a preview feature in Java 19 and enhanced in subsequent versions, represent a significant
+Switch patterns, introduced as a preview feature in Java 17 (JEP 406), refined in Java 18-20 and standard since Java 21
+(JEP 441), represent a significant
 improvement in Java's pattern matching capabilities. This feature extends the switch statement and expression to work
 with patterns, allowing for more expressive and concise code when dealing with complex data structures and type
 hierarchies.
@@ -21,8 +22,8 @@ structures.
 
 ## Relevant Java Features
 
-- Introduced as a preview feature in Java 19
-- Enhanced in Java 20 and 21
+- Introduced as a preview feature in Java 17
+- Refined in previews in Java 18, 19 and 20; standard in Java 21
 - Works in conjunction with sealed classes (Java 17+) and records (Java 16+)
 
 ## Common Pitfalls and How to Avoid Them
@@ -40,7 +41,7 @@ structures.
 
 ## Edge Cases and Their Handling
 
-1. Null handling: Explicitly handle null cases or use a default case.
+1. Null handling: Explicitly handle null with `case null` (a `default` label alone does not match null).
 2. Subtype relationships: Be aware of the order of cases when dealing with subtypes.
 
 ## Interview-specific Insights
@@ -90,16 +91,16 @@ Q: How do switch patterns interact with sealed classes, and why is this interact
 A: Switch patterns work particularly well with sealed classes due to their complementary nature:
 
 1. Exhaustiveness checking: Sealed classes define a fixed set of possible subtypes. When used with switch patterns,
-2. the compiler can ensure that all possible subtypes are handled, providing compile-time safety.
+   the compiler can ensure that all possible subtypes are handled, providing compile-time safety.
 
 2. Pattern matching: Switch patterns can match against the specific subtypes of a sealed class, allowing for type-safe,
-3. expressive code.
+   expressive code.
 
 3. Extensibility control: Sealed classes restrict which classes can extend them, and switch patterns provide a natural
-4. way to handle all permitted subtypes.
+   way to handle all permitted subtypes.
 
 4. Design clarity: The combination encourages clear hierarchies and promotes thinking about all possible cases in the
-5. domain model.
+   domain model.
 
 Example:
 
@@ -157,18 +158,19 @@ Q: How does null handling work with switch patterns, and what are the best pract
 
 A: Switch patterns provide explicit support for handling null values. Here are the key points and best practices:
 
-1. Null case: You can explicitly handle null using `case null ->`.
-2. Placement: The null case, if present, is typically placed last (but before any default case).
-3. Exhaustiveness: Including a null case contributes to exhaustiveness checking.
-4. Default case: If you don't explicitly handle null and don't have a default case, a NullPointerException will be
-   thrown for null inputs.
+1. Null case: You can explicitly handle null using `case null ->`, or combine it with the default as
+   `case null, default ->`.
+2. Placement: The null case, if present, is often placed first, where a reader sees it immediately.
+3. Exhaustiveness: Null plays no part in exhaustiveness checking; a switch can be exhaustive without `case null`.
+4. Default case: If you don't explicitly handle null, a NullPointerException is thrown for null inputs, whether or not
+   the switch has a default case: `default` never matches null.
 
 Best practices:
 
 1. Always consider null handling in your switch patterns.
 2. Explicitly handle null if it's a valid input in your domain.
 3. If null is not expected, you might omit the null case to fail fast with a NullPointerException.
-4. Use a default case to handle both null and any future subtypes, if appropriate.
+4. Use `case null, default ->` to handle both null and any other value in one branch, if appropriate.
 
 Example:
 
@@ -184,8 +186,8 @@ String describeObject(Object obj) {
 }
 ```
 
-In this example, null is explicitly handled. If you remove the null case and the default case, a null input would result
-in a NullPointerException.
+In this example, null is explicitly handled. If you remove the null case, a null input results in a
+NullPointerException even though the default case is still there.
 
 ## Code Examples
 
