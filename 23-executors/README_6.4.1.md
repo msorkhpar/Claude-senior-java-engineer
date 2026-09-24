@@ -199,7 +199,7 @@ Interviewers commonly focus on:
 - The difference between `execute()` and `submit()` and when to use each.
 - How `ThreadPoolExecutor` decides whether to create a new thread or queue a task.
 - The four built-in rejection policies and their trade-offs.
-- Why `Executors.newFixedThreadPool()` and `newCachedThreadPool()` are discouraged in production (Alibaba Java coding guidelines and their p3c static-analysis rules).
+- Why `Executors.newFixedThreadPool()` and `newCachedThreadPool()` are discouraged in production (static-analysis rule sets such as Alibaba p3c flag the Executors factory methods).
 - Proper shutdown patterns and what happens to pending tasks.
 - How virtual threads change the concurrency landscape.
 - Thread safety of shared state accessed by tasks.
@@ -366,8 +366,8 @@ The recommended approach is to create ThreadPoolExecutor directly with:
 - An appropriate rejection policy
 - A custom ThreadFactory for naming
 
-Some coding standards (e.g., the Alibaba Java coding guidelines, enforced by their p3c
-static-analysis rules) forbid creating thread pools through the Executors factory methods.
+Static-analysis rule sets such as Alibaba p3c flag the Executors factory methods
+as a code smell.
 ```
 
 ```java
