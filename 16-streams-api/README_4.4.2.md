@@ -12,7 +12,8 @@ generator) is the reservoir. The tap controls how water (data) flows into the pi
 ### Stream Creation Sources
 
 1. **Collections**: The most common source — any `Collection` has a `stream()` and `parallelStream()` method.
-2. **Arrays**: `Arrays.stream(array)` or `Stream.of(elements...)` — both support primitive arrays with specialized streams.
+2. **Arrays**: `Arrays.stream(array)` or `Stream.of(elements...)` — only `Arrays.stream` (and `IntStream.of` etc.) turns a
+   primitive array into a specialized stream; `Stream.of(intArray)` is a `Stream<int[]>` with one element.
 3. **Stream factory methods**: `Stream.of()`, `Stream.empty()`, `Stream.ofNullable()`, `Stream.generate()`, `Stream.iterate()`, `Stream.builder()`.
 4. **Primitive streams**: `IntStream.range()`, `IntStream.rangeClosed()`, `LongStream.range()` — efficient iteration without boxing.
 5. **I/O operations**: `Files.lines()`, `BufferedReader.lines()` — line-by-line file processing.
@@ -71,7 +72,8 @@ Stream<String> lines = Files.lines(Path.of("file.txt")); // AutoCloseable!
 - **`Stream.iterate(seed, hasNext, next)`** (Java 9): Three-argument form that replaces common `iterate().takeWhile()` patterns.
 - **`Stream.toList()`** (Java 16): Convenient terminal operation producing unmodifiable list.
 - **`takeWhile()` / `dropWhile()`** (Java 9): New intermediate operations for conditional slicing.
-- **Sequenced collections** (Java 21): `SequencedCollection.stream()` guarantees encounter order matching insertion order.
+- **Sequenced collections** (Java 21): a `SequencedCollection` has a defined encounter order (insertion order for a
+  `List` or `LinkedHashSet`, sorted order for a `TreeSet`), and `reversed().stream()` streams it back to front.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -102,7 +104,7 @@ Stream<String> lines = Files.lines(Path.of("file.txt")); // AutoCloseable!
    }
    ```
 
-3. **Confusing `Stream.of(null)` with `Stream.ofNullable(null)`**:
+3. **Confusing `Stream.of((String) null)` with `Stream.ofNullable(null)`**:
    ```java
    // BROKEN — creates a stream with ONE null element, not empty
    Stream.of((String) null).count(); // Returns 1, not 0
@@ -159,7 +161,9 @@ Interviewers often ask:
 - "What does `Stream.ofNullable()` do and when is it useful?"
 
 Tricky questions:
-- "What is `Stream.of(null)` — is it an empty stream?" (No — it's a stream with one null element)
+- "What is `Stream.of(null)` — is it an empty stream?" (No — an untyped `null` binds to the varargs array parameter, so
+  `Stream.of(null).count()` throws `NullPointerException` (javac warns); `Stream.of((String) null)` is a stream with one
+  null element; only `Stream.ofNullable(null)` is empty)
 - "Can you create a stream from a Map?" (Yes — `map.entrySet().stream()`, `map.keySet().stream()`, `map.values().stream()`)
 - "How would you create a stream of all lines in a file without loading the whole file into memory?" (`Files.lines()`)
 
@@ -224,8 +228,9 @@ A2: Use primitive streams whenever you are working with primitive numeric values
 
 1. No boxing/unboxing overhead: Stream<Integer> boxes each int into an Integer object. IntStream operates
    on raw int values, which is faster and uses less memory.
-2. Specialized operations: sum(), average(), min(), max(), summaryStatistics() are only available on
-   primitive streams. On Stream<Integer>, you would need to use reduce() or Collectors.summarizingInt().
+2. Specialized operations: sum(), average(), summaryStatistics(), and min()/max() without a Comparator are only
+   available on primitive streams. On Stream<Integer>, you would need reduce(), min/max(Comparator), or
+   Collectors.summarizingInt().
 3. Efficient range generation: IntStream.range() and IntStream.rangeClosed() provide efficient numeric
    ranges without creating an intermediate collection.
 

@@ -17,7 +17,7 @@ public class IntermediateOperations {
     // filter
     // -----------------------------------------------------------------------
 
-    /** Keeps only strings longer than the given minimum length. */
+    /** Keeps only strings whose length is at least the given minimum length. */
     public List<String> filterByLength(List<String> list, int minLength) {
         return list.stream()
                 .filter(s -> s.length() >= minLength)
@@ -253,7 +253,7 @@ public class IntermediateOperations {
 
     /**
      * Uses mapMulti to filter and transform in one step
-     * (emits only String instances from a mixed list).
+     * (emits only the String instances from a mixed list, uppercased).
      */
     public List<String> filterStringsFromMixed(List<Object> mixed) {
         return mixed.stream()

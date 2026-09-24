@@ -63,7 +63,7 @@ class ParallelStreamsTest {
         void testParallelGroupCount() {
             List<Integer> input = IntStream.rangeClosed(1, 100).boxed().collect(Collectors.toList());
             Map<Integer, Long> result = ps.parallelGroupCount(input);
-            // 10 groups of 10 each (1-10, 11-20, ...) with last digit mapping
+            // Keys 0-9 (the last digit); each key is shared by 10 of the numbers 1..100
             assertThat(result).hasSize(10);
             result.values().forEach(count -> assertThat(count).isEqualTo(10L));
         }

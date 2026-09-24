@@ -30,7 +30,8 @@ public class StreamIntro {
     /**
      * Demonstrates lazy evaluation: the filter predicate tracks how many
      * elements it actually examines when using a short-circuit terminal op.
-     * Returns how many filter calls were made (should be fewer than list.size()).
+     * Returns how many filter calls were made: fewer than list.size() when a match is found
+     * before the last element, list.size() when there is no match.
      */
     public int countFilterCallsWithFindFirst(List<String> list, String targetPrefix) {
         int[] callCount = {0};
