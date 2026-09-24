@@ -39,19 +39,22 @@ class InstructionReorderingTest {
             demo.stop();      // volatile write
 
             // Worker should see the stop signal and exit
-            assertThat(finished.await(4, TimeUnit.SECONDS)).isTrue()
-                .as("Worker must exit spin loop after volatile stop flag is set");
+            assertThat(finished.await(4, TimeUnit.SECONDS))
+                .as("Worker must exit spin loop after volatile stop flag is set")
+                .isTrue();
         }
 
         @Test
         @DisplayName("Volatile flag should be false initially, true after stop()")
         void testVolatileFlagInitialState() {
             InstructionReordering.VolatileStopFlag demo = new InstructionReordering.VolatileStopFlag();
-            assertThat(demo.isStopped()).isFalse()
-                .as("Flag should start as false");
+            assertThat(demo.isStopped())
+                .as("Flag should start as false")
+                .isFalse();
             demo.stop();
-            assertThat(demo.isStopped()).isTrue()
-                .as("Flag should be true after stop()");
+            assertThat(demo.isStopped())
+                .as("Flag should be true after stop()")
+                .isTrue();
         }
     }
 
@@ -60,20 +63,22 @@ class InstructionReorderingTest {
     class VolatileMemoryBarrierTests {
 
         @Test
-        @DisplayName("Volatile write before non-volatile read must maintain ordering")
+        @DisplayName("A write made before a volatile write is seen after the volatile read that observes it")
         void testVolatileWriteBarrier() throws InterruptedException {
             InstructionReordering.VolatileBarrier barrier = new InstructionReordering.VolatileBarrier();
             boolean correct = barrier.runTest();
-            assertThat(correct).isTrue()
-                .as("Volatile write must flush preceding writes; reader must see data after volatile read");
+            assertThat(correct)
+                .as("Volatile write must flush preceding writes; reader must see data after volatile read")
+                .isTrue();
         }
 
         @RepeatedTest(5)
         @DisplayName("Repeated volatile barrier test for reliability")
         void testVolatileBarrierRepeated() throws InterruptedException {
             InstructionReordering.VolatileBarrier barrier = new InstructionReordering.VolatileBarrier();
-            assertThat(barrier.runTest()).isTrue()
-                .as("Volatile barrier must be consistently correct");
+            assertThat(barrier.runTest())
+                .as("Volatile barrier must be consistently correct")
+                .isTrue();
         }
 
         @Test
@@ -81,8 +86,9 @@ class InstructionReorderingTest {
         void testVolatilePublication() throws InterruptedException {
             InstructionReordering.VolatilePublication pub = new InstructionReordering.VolatilePublication();
             boolean result = pub.testPublication();
-            assertThat(result).isTrue()
-                .as("Volatile publication must ensure object is fully constructed before reference visible");
+            assertThat(result)
+                .as("Volatile publication must ensure object is fully constructed before reference visible")
+                .isTrue();
         }
     }
 
@@ -170,8 +176,9 @@ class InstructionReorderingTest {
             publisher.publish(new InstructionReordering.FinalFieldObject(55, "data"));
 
             assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(observed[0]).isEqualTo(55)
-                .as("Final field value must be visible after safe publication");
+            assertThat(observed[0])
+                .as("Final field value must be visible after safe publication")
+                .isEqualTo(55);
         }
     }
 
@@ -180,13 +187,14 @@ class InstructionReorderingTest {
     class SynchronizedBlockOrderingTests {
 
         @Test
-        @DisplayName("Operations inside synchronized block cannot be reordered outside it")
+        @DisplayName("Writes made under a lock are seen by a later reader that takes the same lock")
         void testSynchronizedOrdering() throws InterruptedException {
             InstructionReordering.SynchronizedOrdering ordering =
                 new InstructionReordering.SynchronizedOrdering();
             boolean result = ordering.runConsistencyTest();
-            assertThat(result).isTrue()
-                .as("Synchronized block must maintain ordering of writes");
+            assertThat(result)
+                .as("Synchronized block must maintain ordering of writes")
+                .isTrue();
         }
 
         @Test
@@ -205,8 +213,9 @@ class InstructionReorderingTest {
                     for (int j = 0; j < opsPerThread; j++) {
                         ordering.atomicUpdate(tid * opsPerThread + j, "thread-" + tid);
                         InstructionReordering.SynchronizedOrdering.Pair pair = ordering.atomicRead();
-                        // Values should always be consistent (updated together atomically)
-                        if (pair.value() < 0) {
+                        // value and label are updated together under the lock, so the label
+                        // must always name the thread whose value range the value falls in
+                        if (!pair.label().equals("thread-" + (pair.value() / opsPerThread))) {
                             inconsistencies.incrementAndGet();
                         }
                     }
@@ -216,8 +225,9 @@ class InstructionReorderingTest {
             }
 
             latch.await(15, TimeUnit.SECONDS);
-            assertThat(inconsistencies.get()).isZero()
-                .as("No inconsistencies should be observed with synchronized access");
+            assertThat(inconsistencies.get())
+                .as("No inconsistencies should be observed with synchronized access")
+                .isZero();
         }
     }
 }

@@ -2,9 +2,10 @@
 
 ## Concept Explanation
 
-The Java Memory Model conceptually divides memory into two regions: **main memory** (shared among all threads) and
-**working memory** (thread-local, private to each thread). Understanding this division is fundamental to diagnosing
-and preventing concurrency bugs.
+A common way to picture the Java Memory Model divides memory into two regions: **main memory** (shared among all
+threads) and **working memory** (thread-local, private to each thread). The pre-Java 5 specification was written in
+these terms; the current JMM (JLS §17.4) is defined through happens-before instead and mentions no caches, but the
+picture predicts the same failures and is fundamental to diagnosing and preventing concurrency bugs.
 
 **Real-world analogy**: Think of a large city library (main memory) and each citizen's personal notebook (working
 memory / CPU cache). When you look up a book in the library, you copy its contents into your notebook. You work from
@@ -35,8 +36,12 @@ Without synchronization: **never guaranteed**. The JMM allows a thread to keep a
 variable indefinitely. This is why the JMM visibility rules (volatile, synchronized, etc.) are essential.
 
 ### volatile and Main Memory
-Declaring a field `volatile` forces every read to go directly to main memory and every write to flush immediately to
-main memory, bypassing the working memory cache. This ensures that all threads always see the latest written value.
+In the working-memory picture, a `volatile` field behaves as if every read came from main memory and every write went
+straight to it. What the JLS actually guarantees (§17.4.4–17.4.5): all volatile accesses fall in one total
+synchronization order, a volatile read sees the last write to that field before it in that order, and a volatile write
+happens-before every later read of the field — which also makes the writer's earlier writes visible. Real hardware keeps
+caches coherent anyway; the JVM implements volatile by restricting compiler reordering and emitting memory barriers,
+not by bypassing CPU caches.
 
 ## Key Points to Remember
 
@@ -44,7 +49,8 @@ main memory, bypassing the working memory cache. This ensures that all threads a
 2. **Heap variables** (instance fields, static fields, array elements) are potentially shared and subject to JMM rules.
 3. Threads operate on **cached copies** of heap variables in their working memory (registers/caches).
 4. Without synchronization, there is **no guarantee** of when (or if) one thread's write is visible to another.
-5. **volatile** fields bypass the working memory cache — reads go to main memory, writes flush to main memory.
+5. **volatile** fields behave as if they bypassed the working memory (reads from, writes to main memory); in reality
+   they are implemented with memory barriers and compiler restrictions, not by bypassing CPU caches.
 6. The working memory concept is **logical** — it maps to CPU caches, registers, and compiler optimizations in
    practice.
 7. Even on modern hardware where caches are coherent (x86), the JMM still permits reordering that can cause
@@ -54,7 +60,8 @@ main memory, bypassing the working memory cache. This ensures that all threads a
 ## Relevant Java 21 Features
 
 - **VarHandle (Java 9+)**: Provides fine-grained control over memory access modes: plain (no ordering), opaque
-  (no reordering within the thread), release/acquire (happens-before without full sequential consistency), and
+  (atomic and coherent per variable, eventually visible, but no ordering with other variables), release/acquire
+  (ordering between a release write and the acquire read that sees it, without full sequential consistency), and
   volatile (full JMM volatile semantics). This allows you to use the minimum ordering needed for correctness.
 - **Virtual Threads (Java 21)**: Each virtual thread has its own stack (and therefore its own local variables).
   Virtual threads share the heap just like platform threads, so the same JMM rules apply.
@@ -66,7 +73,7 @@ main memory, bypassing the working memory cache. This ensures that all threads a
 1. **Reading a stale value from working memory**
 
    ```java
-   // BROKEN: flag may be cached in Thread B's working memory as 'false' forever
+   // BROKEN: 'running' may be cached in Thread B's working memory as 'true' forever
    class BrokenFlag {
        private boolean running = true;
 
@@ -127,8 +134,8 @@ main memory, bypassing the working memory cache. This ensures that all threads a
    ```
 3. **Prefer final fields for immutable data**: Final fields get special JMM publication guarantees at zero runtime
    cost. Design immutable value objects to maximize thread safety without synchronization.
-4. **Use `volatile` conservatively**: `volatile` has a cost (prevents certain compiler optimizations, forces cache
-   coherence operations). Use it only where visibility across threads is truly needed.
+4. **Use `volatile` conservatively**: `volatile` has a cost (prevents certain compiler optimizations, requires memory
+   barriers). Use it only where visibility across threads is truly needed.
 5. **Use `AtomicReference` for CAS-based publication**: When you need to atomically update an object reference,
    `AtomicReference.compareAndSet()` provides both atomicity and visibility.
 
@@ -158,7 +165,8 @@ Interviewers focus on:
 
 Common tricky questions:
 - "If a variable is on the heap, does every thread always see the latest value?" (No — without synchronization, no)
-- "Can two threads have the same local variable?" (Yes — local variables are per-thread on the stack)
+- "Can two threads share a local variable?" (No — each thread running the method has its own copy on its own stack;
+  the object a local variable refers to can still be shared)
 - "Is `volatile` sufficient for `i++`?" (No — `i++` is a compound read-modify-write operation)
 
 ## Interview Q&A Section
@@ -205,21 +213,23 @@ public class StackVsHeapDemo {
 ```text
 A2: When a field is declared volatile, the JMM mandates:
 
-WRITE: Every write to a volatile field must be immediately flushed to main memory. The JVM cannot keep the
-write in the thread's working memory (CPU register or cache) — it must go to main memory right away.
+In the working-memory picture:
+WRITE: a write to a volatile field cannot stay in the thread's working memory — it behaves as if written to main
+memory right away.
+READ: a read of a volatile field cannot be served from a stale cached copy — it behaves as if read from main memory.
 
-READ: Every read of a volatile field must go directly to main memory to fetch the latest written value. The
-JVM cannot return a cached value from working memory.
-
-Additionally, volatile establishes a happens-before edge: a volatile write happens-before any subsequent
-volatile read of the same variable. This means all writes visible before the volatile write are also visible
-to the reading thread.
+What the JLS actually specifies (and what the picture approximates): volatile accesses are totally ordered, each
+volatile read sees the last write to that field before it in that order, and a volatile write happens-before any
+subsequent volatile read of the same variable. This means all writes the writer made before the volatile write
+are also visible to the reading thread. The JLS says nothing about caches or main memory.
 
 Non-volatile reads: The JVM is free to cache the value in the thread's working memory and return the
 cached copy on subsequent reads — even if another thread has updated main memory.
 
-Cost of volatile: Volatile reads/writes are more expensive than non-volatile because they bypass CPU caches
-and prevent certain compiler/JIT optimizations. But they are cheaper than synchronized blocks.
+Cost of volatile: Volatile reads/writes are more expensive than non-volatile because they need memory barriers
+(on x86, a volatile write is followed by a locked instruction or mfence; volatile reads are almost free) and
+prevent certain compiler/JIT optimizations — not because they bypass CPU caches, which stay coherent. They are
+usually cheaper than synchronized blocks.
 ```
 
 ```java
@@ -229,7 +239,7 @@ public class VolatileWorkingMemoryDemo {
 
     public void writer() {
         data = 42;        // (1) may stay in writer's working memory temporarily
-        flag = true;      // (2) volatile write: (1) and (2) both flushed to main memory
+        flag = true;      // (2) volatile write: publishes (1) too — (1) cannot move after (2)
                           // happens-before any subsequent read of 'flag'
     }
 
@@ -363,7 +373,8 @@ In practice:
 - Modern 64-bit JVMs (which are now the overwhelming majority) DO perform atomic 64-bit reads and writes,
   so this is rarely seen in practice.
 - However, the JMM specification does NOT guarantee it, so technically any non-volatile long/double
-  access is subject to tearing on non-conforming implementations.
+  access may tear on an implementation that uses this freedom — and such an implementation still conforms
+  to the specification.
 - For correctness and portability: always use volatile long/double or AtomicLong/AtomicReference for
   shared 64-bit values.
 

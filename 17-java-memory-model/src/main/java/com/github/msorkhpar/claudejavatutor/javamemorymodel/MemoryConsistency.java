@@ -212,9 +212,10 @@ public class MemoryConsistency {
      * <p>The JMM guarantees that:
      * <ol>
      *   <li>The write to the queue inside the {@code put()} synchronized block
-     *       happens-before the {@code notifyAll()} call.</li>
-     *   <li>The {@code notifyAll()} happens-before the return from {@code wait()} in the
-     *       consuming thread.</li>
+     *       happens-before the producer's release of the monitor at the end of that block.</li>
+     *   <li>{@code wait()} returns only after the consuming thread re-acquires the monitor, and
+     *       the producer's release happens-before that re-acquisition (monitor lock rule).
+     *       {@code notifyAll()} itself creates no happens-before edge; it only wakes waiters.</li>
      *   <li>Therefore, {@code take()} sees the item written by {@code put()}.</li>
      * </ol>
      */

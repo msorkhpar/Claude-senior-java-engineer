@@ -200,11 +200,12 @@ public class SharedMemory {
      * Uses explicit synchronization to protect array element access.
      *
      * <p>Key insight: {@code volatile int[] arr} means the array reference is volatile
-     * (other threads see reassignments of arr immediately), but reads and writes to
-     * {@code arr[i]} are NOT atomic or volatile.
+     * (a thread that reads the reference sees the latest reassignment of arr), but reads and
+     * writes of {@code arr[i]} are NOT volatile: no visibility or ordering guarantee. (A single
+     * int element read or write is atomic; a compound update such as {@code arr[i]++} is not.)
      */
     public static class SharedArray {
-        private final int[] elements; // elements guarded by 'this'
+        private final int[] elements; // elements guarded by 'lock'
         private final Object lock = new Object();
 
         public SharedArray(int size) {

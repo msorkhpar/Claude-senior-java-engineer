@@ -18,14 +18,16 @@ Java provides several synchronization mechanisms, each with specific JMM guarant
 
 **1. `synchronized` keyword**
 - `synchronized(obj) { ... }` acquires the intrinsic monitor of `obj`.
-- **On entry**: All cached values in working memory are invalidated; subsequent reads go to main memory.
-- **On exit**: All writes made inside the block are flushed to main memory; the monitor is released.
+- **On entry** (in the working-memory picture): cached values are invalidated; subsequent reads go to main memory.
+- **On exit** (in the same picture): all writes the thread made before the exit — inside the block or earlier — are
+  flushed to main memory; the monitor is released.
 - Establishes a happens-before edge: unlock of monitor M happens-before any subsequent lock of M.
 - Provides BOTH visibility and atomicity for the protected region.
 
 **2. `volatile` keyword**
 - Volatile write happens-before any subsequent volatile read of the same variable.
-- Forces reads to main memory and writes to flush to main memory.
+- In the working-memory picture: reads come from main memory and writes go straight to it (implemented with memory
+  barriers, not by bypassing CPU caches).
 - Provides visibility but NOT atomicity for compound operations (like `i++`).
 
 **3. `java.util.concurrent.locks.Lock` interface (ReentrantLock, etc.)**
@@ -44,6 +46,10 @@ consistent execution, all threads observe all operations in a single, consistent
 consistency, only operations that have an established ordering relationship are guaranteed to be visible in order.
 This weaker model allows hardware and compiler optimizations that make Java programs fast.
 
+The key guarantee on top of this (JLS §17.4.5, "data-race-free implies sequential consistency"): if a program is
+correctly synchronized — it has no data races — then every execution of it appears sequentially consistent. Only
+programs with data races can observe the weaker, reordered behaviour.
+
 ## Key Points to Remember
 
 1. `synchronized` provides **both** atomicity and visibility; `volatile` provides only visibility.
@@ -61,8 +67,9 @@ This weaker model allows hardware and compiler optimizations that make Java prog
 - **Virtual threads and synchronized**: In Java 21, a virtual thread executing inside a `synchronized` block is
   "pinned" to its carrier platform thread (cannot be unmounted). This can reduce the scalability benefit of virtual
   threads. Prefer `ReentrantLock` in code used by virtual threads.
-- **VarHandle.compareAndSet()**: Provides CAS semantics with configurable memory ordering (plain, acquire/release,
-  volatile), allowing optimized lock-free patterns.
+- **VarHandle CAS operations**: `compareAndSet()` always has volatile memory semantics; weaker orderings come from
+  the variants (`compareAndExchangeAcquire/Release`, `weakCompareAndSetPlain/Acquire/Release`), allowing optimized
+  lock-free patterns.
 - **StampedLock (Java 8+)**: Provides optimistic read locking — a reader can read without acquiring a full lock,
   then validate that no write occurred. Falls back to a pessimistic read if validation fails. Great for read-heavy
   workloads.
@@ -74,14 +81,16 @@ This weaker model allows hardware and compiler optimizations that make Java prog
 1. **Synchronizing on the wrong object**
 
    ```java
-   // BROKEN: two threads may use different Integer instances (autoboxing!)
+   // BROKEN: the field is not final — any reassignment (lock = 43, lock++) switches to a
+   // different Integer, so threads end up locking different objects (autoboxing!)
    private Integer lock = 42;
 
    public synchronized void badMethod() { // synchronizes on 'this', not 'lock'
        // ...
    }
 
-   // Also broken: Integer.valueOf(42) may be cached, but relying on this is fragile
+   // Also broken: Integer.valueOf(42) is cached, so this monitor is shared with every other
+   // piece of code in the JVM that locks on a boxed 42 (javac warns: value-based class)
    synchronized (lock) { ... }
    ```
 
@@ -91,10 +100,10 @@ This weaker model allows hardware and compiler optimizations that make Java prog
    synchronized (lock) { ... }
    ```
 
-2. **Double-checked locking without volatile (pre-Java 5 bug)**
+2. **Double-checked locking without volatile** (broken in every Java version; since Java 5, `volatile` fixes it)
 
    ```java
-   // BROKEN before Java 5: partial construction visible without volatile
+   // BROKEN: without volatile, another thread may see a partially constructed object
    private static Singleton instance;
    public static Singleton getInstance() {
        if (instance == null) {              // First check (no lock)
@@ -199,7 +208,8 @@ Interviewers test deep understanding of:
 Common tricky questions:
 - "Can synchronized guarantee ordering without any write in the synchronized block?" (Yes — the lock itself
   establishes happens-before for all prior writes)
-- "Is it safe to use `HashMap` inside a synchronized block?" (Yes — synchronized protects access to HashMap)
+- "Is it safe to use `HashMap` inside a synchronized block?" (Yes — provided EVERY access to that map, reads
+  included, synchronizes on the same lock)
 - "Why is `notifyAll()` preferred over `notify()`?" (notify() wakes one thread, which may not be the right one;
   notifyAll() wakes all and lets them re-check conditions)
 
@@ -285,7 +295,7 @@ is thread-safe but acquires the lock on every call. The DCL optimization checks 
         }
     }
 
-Why was this broken before Java 5?
+Why is it broken without volatile (and why could not even volatile fix it before Java 5)?
 Object construction in Java compiles to roughly:
 1. Allocate memory for the object
 2. Initialize the object fields (call constructor)
@@ -429,10 +439,11 @@ reordering memory operations across the barrier. Different CPUs have different b
 - Full barrier: both load and store ordering enforced
 
 Java abstracts barriers through its higher-level synchronization primitives:
-- volatile write: inserts a StoreStore barrier before + StoreLoad barrier after
-- volatile read: inserts a LoadLoad barrier after + LoadStore barrier after
-- synchronized exit (monitor release): inserts a StoreStore + StoreLoad barrier
-- synchronized entry (monitor acquire): inserts a LoadLoad + LoadStore barrier
+(the conservative recipe from the JSR-133 Cookbook; JIT compilers may omit barriers the hardware does not need)
+- volatile write: StoreStore + LoadStore barriers before, StoreLoad barrier after
+- volatile read: LoadLoad + LoadStore barriers after
+- synchronized exit (monitor release): treated like a volatile write
+- synchronized entry (monitor acquire): treated like a volatile read
 
 Programmers generally don't need to think about hardware barriers — they think in terms of
 happens-before relationships. But understanding barriers helps explain WHY certain patterns work
@@ -440,7 +451,7 @@ and WHY certain optimizations are forbidden by the JMM.
 
 VarHandle (Java 9+) exposes explicit memory ordering:
 - VarHandle.get() / set() — no barrier (plain access)
-- VarHandle.getOpaque() / setOpaque() — prevents reordering within thread
+- VarHandle.getOpaque() / setOpaque() — atomic and coherent per variable, no ordering with other variables
 - VarHandle.getAcquire() / setRelease() — release/acquire semantics (like mutex unlock/lock)
 - VarHandle.getVolatile() / setVolatile() — full volatile semantics
 ```
@@ -504,7 +515,8 @@ public class Singleton {
 Why it works:
 1. The JVM guarantees that class initialization (static initializers) is thread-safe — the JVM uses
    a class initialization lock to ensure only one thread initializes a class.
-2. The Holder class is NOT loaded until the first call to getInstance(). This provides lazy initialization.
+2. The Holder class is NOT initialized until the first call to getInstance() (JLS 12.4.1). This provides lazy
+   initialization.
 3. Once Holder is initialized, the static final INSTANCE is safely published to all threads via the
    class initialization happens-before guarantee.
 4. No volatile needed — the class loading lock provides the ordering guarantee.

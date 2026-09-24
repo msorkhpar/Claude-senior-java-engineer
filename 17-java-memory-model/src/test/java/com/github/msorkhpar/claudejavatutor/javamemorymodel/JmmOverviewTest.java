@@ -48,8 +48,9 @@ class JmmOverviewTest {
 
             startLatch.countDown();
             assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(errors.get()).isZero()
-                .as("Local variables should never interfere across threads");
+            assertThat(errors.get())
+                .as("Local variables should never interfere across threads")
+                .isZero();
         }
 
         @Test
@@ -71,8 +72,9 @@ class JmmOverviewTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.getValue()).isEqualTo(numThreads * incrementsPerThread)
-                .as("Synchronized increments on shared heap object must be consistent");
+            assertThat(counter.getValue())
+                .as("Synchronized increments on shared heap object must be consistent")
+                .isEqualTo(numThreads * incrementsPerThread);
         }
 
         @Test
@@ -101,8 +103,9 @@ class JmmOverviewTest {
             writer.join(3000);
             reader.join(3000);
 
-            assertThat(observed[0]).isEqualTo(42)
-                .as("Volatile static field visible across threads");
+            assertThat(observed[0])
+                .as("Volatile static field visible across threads")
+                .isEqualTo(42);
         }
     }
 
@@ -124,8 +127,9 @@ class JmmOverviewTest {
             t.start(); // start() establishes happens-before
 
             done.await(5, TimeUnit.SECONDS);
-            assertThat(observed[0]).isEqualTo(JmmOverview.WRITTEN_VALUE)
-                .as("Thread.start() happens-before actions in the started thread");
+            assertThat(observed[0])
+                .as("Thread.start() happens-before actions in the started thread")
+                .isEqualTo(JmmOverview.WRITTEN_VALUE);
         }
 
         @Test
@@ -134,8 +138,9 @@ class JmmOverviewTest {
             JmmOverview.JoinDemo demo = new JmmOverview.JoinDemo();
             demo.runWriterAndJoin();
 
-            assertThat(demo.getObservedValue()).isEqualTo(JmmOverview.WRITTEN_VALUE)
-                .as("All actions in thread happen-before Thread.join() returns");
+            assertThat(demo.getObservedValue())
+                .as("All actions in thread happen-before Thread.join() returns")
+                .isEqualTo(JmmOverview.WRITTEN_VALUE);
         }
 
         @Test
@@ -144,8 +149,9 @@ class JmmOverviewTest {
             JmmOverview.VolatileHappensBefore demo = new JmmOverview.VolatileHappensBefore();
             boolean result = demo.demonstrateHappensBefore();
 
-            assertThat(result).isTrue()
-                .as("Volatile write happens-before volatile read of same variable");
+            assertThat(result)
+                .as("Volatile write happens-before volatile read of same variable")
+                .isTrue();
         }
     }
 
@@ -184,8 +190,9 @@ class JmmOverviewTest {
             publisher.publish(new JmmOverview.ImmutablePoint(7, 8));
 
             assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(observedX[0]).isEqualTo(7)
-                .as("Volatile publication ensures fully constructed object is visible");
+            assertThat(observedX[0])
+                .as("Volatile publication ensures fully constructed object is visible")
+                .isEqualTo(7);
         }
 
         @Test
@@ -195,8 +202,9 @@ class JmmOverviewTest {
             JmmOverview.LazySingleton s2 = JmmOverview.LazySingleton.getInstance();
 
             assertThat(s1).isNotNull();
-            assertThat(s1).isSameAs(s2)
-                .as("IODH singleton must return same instance");
+            assertThat(s1)
+                .as("IODH singleton must return same instance")
+                .isSameAs(s2);
         }
 
         @Test
@@ -227,8 +235,9 @@ class JmmOverviewTest {
 
             JmmOverview.LazySingleton expected = instances[0];
             for (JmmOverview.LazySingleton instance : instances) {
-                assertThat(instance).isSameAs(expected)
-                    .as("All threads must get the same singleton instance");
+                assertThat(instance)
+                    .as("All threads must get the same singleton instance")
+                    .isSameAs(expected);
             }
         }
     }
@@ -256,8 +265,9 @@ class JmmOverviewTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.get()).isEqualTo(threads * ops)
-                .as("AtomicInteger.incrementAndGet() is atomic — no lost updates");
+            assertThat(counter.get())
+                .as("AtomicInteger.incrementAndGet() is atomic — no lost updates")
+                .isEqualTo(threads * ops);
         }
 
         @Test
@@ -279,8 +289,9 @@ class JmmOverviewTest {
             }
 
             latch.await(10, TimeUnit.SECONDS);
-            assertThat(counter.getValue()).isEqualTo(threads * ops)
-                .as("Synchronized increment must have no lost updates");
+            assertThat(counter.getValue())
+                .as("Synchronized increment must have no lost updates")
+                .isEqualTo(threads * ops);
         }
 
         @Test

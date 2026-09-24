@@ -12,7 +12,7 @@ governs the rules of this collaboration: when can one engineer see what another 
 stale note that has already been updated? The JMM provides the rulebook that all engineers and the JVM must follow.
 
 The JMM was introduced in Java 1.0 but had well-known flaws. Java 5 (JSR-133) introduced a corrected and
-comprehensive JMM that remains in effect today. At its core, the JMM defines:
+comprehensive JMM that remains in effect today. It is usually explained with the following picture:
 
 1. **Main Memory**: The shared memory area visible to all threads. This conceptually maps to heap memory where objects
    and static fields live.
@@ -20,6 +20,11 @@ comprehensive JMM that remains in effect today. At its core, the JMM defines:
    it is currently using. This conceptually maps to CPU registers and caches.
 3. **Happens-Before Relationships**: A partial order over all actions in a program. If action X happens-before action Y,
    then X's effects are visible to Y. The JMM defines which actions establish happens-before edges.
+
+Items 1 and 2 are a mental model, not the specification: the pre-Java 5 JMM was written in terms of main and working
+memory, but the current JMM (JLS §17.4) defines no memory regions or caches at all. It is defined through actions,
+program order, synchronization order and happens-before (item 3), which is what the guarantees below rest on. The
+"working memory" picture predicts the same failures and is used throughout these lessons as a shorthand.
 
 Without understanding the JMM, you may write code that:
 - Works perfectly in single-threaded tests but fails intermittently in production
@@ -63,7 +68,7 @@ and thread joins. Each of these actions may or may not create happens-before edg
    // BROKEN: stopRequested may never be seen as true by the background thread
    private boolean stopRequested = false;
 
-   public void runBroken() {
+   public void runBroken() throws InterruptedException {
        Thread t = new Thread(() -> {
            while (!stopRequested) { /* spin */ }
        });
@@ -124,9 +129,10 @@ and thread joins. Each of these actions may or may not create happens-before edg
 1. **64-bit long and double reads/writes**: Without `volatile`, reads and writes to `long` and `double` fields are
    NOT atomic on 32-bit JVMs — they may be split into two 32-bit operations. Modern 64-bit JVMs guarantee atomicity,
    but the JMM does not. Always use `volatile` or `AtomicLong` for shared `long`/`double` values.
-2. **Final fields**: Writing to final fields in a constructor creates a happens-before edge with any read of those
-   fields after the constructor completes — but ONLY if the object reference is not published (leaked) before the
-   constructor finishes.
+2. **Final fields**: Final fields have their own guarantee (JLS §17.5), separate from happens-before: any thread that
+   obtains a reference to the object after its constructor finishes sees the values the constructor wrote to its final
+   fields (and to objects reachable through them), even if the reference itself was shared through a data race — but
+   ONLY if `this` did not escape (leak) before the constructor finished.
 3. **Static initializers**: Class initialization is guaranteed to be thread-safe by the JVM (via the class loading
    lock). Static final fields set during class initialization are visible to all threads without additional
    synchronization.
@@ -138,7 +144,8 @@ and thread joins. Each of these actions may or may not create happens-before edg
 Interviewers expect senior engineers to:
 
 - **Explain the JMM in plain English**: "What happens when thread A writes to a variable — when does thread B see it?"
-- **Know happens-before rules from memory**: volatile, synchronized, thread start/join, final fields
+- **Know happens-before rules from memory**: volatile, synchronized, thread start/join — plus the separate
+  final-field guarantee
 - **Identify JMM bugs in code snippets**: spotting missing `volatile`, unsafe publication, double-checked locking errors
 - **Distinguish atomicity, visibility, and ordering**: These are three separate concerns and require different
   solutions
@@ -206,8 +213,9 @@ Happens-before edges are established by:
 3. Volatile write: A write to a volatile field happens-before every subsequent read of that field.
 4. Thread start: Thread.start() happens-before any action in the started thread.
 5. Thread join: All actions in a thread happen-before Thread.join() returns.
-6. Final fields: The write of a final field in a constructor happens-before any external read of the object,
-   assuming the reference is not leaked before the constructor completes.
+Final fields are NOT a happens-before rule: JLS §17.5 gives them a separate guarantee — a thread that sees a
+reference to an object after its constructor finished sees the constructor's values of its final fields, even
+without synchronization, provided the reference did not leak from the constructor.
 
 Happens-before is TRANSITIVE: if X happens-before Y and Y happens-before Z, then X happens-before Z.
 ```
@@ -248,13 +256,16 @@ A3: These are three distinct concerns:
 
 2. VISIBILITY: When thread A writes a value, will thread B see the updated value or a stale cached copy?
    - Without synchronization: NO guarantee
-   - volatile: guarantees the write is immediately flushed to main memory and subsequent reads see the updated value
-   - synchronized: on exit, all writes are flushed to main memory; on entry, the working memory is refreshed
+   - volatile: a write happens-before every later read of the same field, so a read that sees the write also sees
+     everything the writer did before it (pictured as "flush on write, refresh on read")
+   - synchronized: an unlock happens-before every later lock of the same monitor (pictured as "flush on exit,
+     refresh on entry")
 
 3. ORDERING: Can the compiler/JIT/CPU reorder instructions?
    - Without synchronization: YES — compilers and CPUs reorder instructions aggressively
    - volatile: establishes happens-before ordering; writes before a volatile write cannot be moved after it
-   - synchronized: provides sequentially consistent ordering within the protected region
+   - synchronized: code inside the block may be reordered within it but not moved out of it, and threads that use
+     the same lock observe the block's effects as a unit
 
 Senior engineers understand that different problems need different tools:
 - Only atomicity? → AtomicInteger
@@ -293,8 +304,8 @@ public class ThreeConcernsDemo {
 A4: For synchronized blocks, the JMM provides two critical rules:
 
 1. UNLOCK → LOCK (monitor release happens-before subsequent acquisition):
-   When thread A releases a monitor (exits synchronized block), all writes made by thread A while holding that
-   monitor are flushed to main memory. When thread B subsequently acquires the same monitor, thread B's working
+   When thread A releases a monitor (exits synchronized block), all writes made by thread A before the release —
+   inside the block or earlier — are flushed to main memory. When thread B subsequently acquires the same monitor, thread B's working
    memory is invalidated and it refreshes from main memory. Therefore, thread B sees all writes made by thread A.
 
 2. Within a thread, all actions within a synchronized block have program-order happens-before edges between them.
@@ -326,7 +337,8 @@ public class SynchronizedHappensBefore {
         synchronized (lock) { // monitor acquire (4): invalidates cache
             // (4) happens-after (3) by monitor rule
             // (3) happens-after (1) and (2) by program order
-            // Therefore: reader sees sharedValue=100, sharedName="Alice"
+            // Therefore: if the reader's acquire comes after the writer's release, it sees
+            // sharedValue=100, sharedName="Alice"; if it acquires first, it sees 0 and null
             System.out.println(sharedValue + " " + sharedName);
         }
     }
@@ -338,9 +350,11 @@ public class SynchronizedHappensBefore {
 ```text
 A5: The JMM provides a special guarantee for final fields:
 
-FINAL FIELD RULE: A write to a final field in a constructor, and a write to an object referenced by a final field
-in a constructor, happens-before the first read of that final field outside the constructor, provided the reference
-to the object is not published (leaked) before the constructor completes.
+FINAL FIELD RULE (JLS 17.5, a guarantee separate from happens-before): a thread that obtains a reference to an
+object after its constructor has finished is guaranteed to see the values the constructor wrote to the object's
+final fields — and, through a final field, the state of the referenced object as of the end of the constructor —
+even if the reference was passed through a data race, provided the reference to the object is not published
+(leaked) before the constructor completes.
 
 This means:
 - An object whose ALL mutable state is set through final fields is inherently thread-safe without additional
