@@ -124,8 +124,8 @@ Custom annotations consist of:
 3. **Class<?> elements**: Useful for specifying types — `Class<?> implementation() default Void.class`.
 4. **Repeatable annotations accessed via container**: When using `getAnnotation()`, you get the container; use
    `getAnnotationsByType()` to get individual repeatable annotations.
-5. **Annotations on local variables**: Only available with SOURCE retention — the JVM does not preserve local variable
-   annotations at runtime.
+5. **Annotations on local variables**: Whatever the retention, a declaration annotation on a local variable is never
+   stored in the class file (JLS 9.6.4.2), so only the compiler and annotation processors can see it.
 6. **Inheriting annotations with `@Inherited`**: Only the annotation from the most-specific parent is inherited; if both
    parent and grandparent have the annotation, only the parent's is seen.
 

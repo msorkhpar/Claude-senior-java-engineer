@@ -35,7 +35,8 @@ the `RetentionPolicy` enum.
 3. CLASS retention includes everything SOURCE retention provides, plus bytecode presence.
 4. `SOURCE < CLASS < RUNTIME` in terms of availability scope.
 5. Only RUNTIME-retained annotations can be read using `getAnnotation()`, `isAnnotationPresent()`, etc.
-6. SOURCE-retained annotations are processed by annotation processors during compilation (JSR 269).
+6. SOURCE-retained annotations are processed by annotation processors during compilation (JSR 269); processors see
+   annotations of every retention policy in the source they compile.
 7. CLASS-retained annotations can be read by bytecode engineering tools (ASM, Byte Buddy, CGLIB).
 8. Most custom annotations should use RUNTIME retention unless there's a specific reason not to.
 9. The `@Target` meta-annotation controls WHERE an annotation can be placed (TYPE, METHOD, FIELD, PARAMETER, etc.) —
@@ -44,7 +45,7 @@ the `RetentionPolicy` enum.
 ## Relevant Java 21 Features
 
 - **Annotation processing** (JSR 269, `javax.annotation.processing`) — Compile-time annotation processors can process
-  SOURCE and CLASS-retained annotations to generate code, validate usage, or produce documentation.
+  annotations of any retention (SOURCE, CLASS or RUNTIME) to generate code, validate usage, or produce documentation.
 - **TYPE_USE target** (Java 8+) — Enables annotations on any type usage, useful with retention policies for
   compile-time null checking (`@NonNull`) or runtime type validation.
 - **Record patterns and sealed classes** — Annotations on record components are propagated based on `@Target`, and their
@@ -112,7 +113,9 @@ the `RetentionPolicy` enum.
 ## Edge Cases and Their Handling
 
 1. **Local variable annotations**: Even with RUNTIME retention, annotations on local variables are NOT accessible
-   via reflection. The JVM does not retain local variable annotations in a reflection-accessible form.
+   via reflection. A declaration annotation on a local variable is not written to the class file at all (JLS 9.6.4.2);
+   a TYPE_USE annotation on a local variable's type is written (RuntimeVisibleTypeAnnotations) but core reflection
+   offers no API to read it.
 
 2. **Parameter annotations with RUNTIME retention**: These ARE accessible via `Method.getParameterAnnotations()`.
 
@@ -379,15 +382,17 @@ Annotation[] direct = Child.class.getDeclaredAnnotations(); // empty (no direct 
 
 ```text
 A5: No, you cannot access annotations on local variables at runtime, even if the annotation
-has RUNTIME retention. This is a JVM limitation — the bytecode format and the Reflection API
-do not provide a mechanism to retrieve annotations on local variables.
+has RUNTIME retention. The language specification (JLS 9.6.4.2) says an annotation on a local
+variable declaration is never retained in the binary representation, and the Reflection API
+has no method for local variables.
 
 Here's what happens with each retention policy for local variable annotations:
 - SOURCE: The annotation is discarded by the compiler (as expected)
-- CLASS: The annotation is stored in the class file's LocalVariableTypeTable attribute,
-  but the JVM does not make this accessible via standard reflection
-- RUNTIME: Same as CLASS for local variables — stored in bytecode but NOT accessible
-  via the standard Reflection API
+- CLASS and RUNTIME: For a declaration annotation (@Target(LOCAL_VARIABLE)) the result is
+  the same -- the compiler does not write it to the class file at all
+- A TYPE_USE annotation on the local variable's type is different: it is written to the
+  method's RuntimeVisibleTypeAnnotations (or RuntimeInvisibleTypeAnnotations) attribute,
+  where bytecode tools can read it, but core reflection still cannot
 
 Local variable annotations are primarily useful for:
 1. Compile-time annotation processors
@@ -443,19 +448,19 @@ A6: @Target and @Retention are orthogonal meta-annotations that control differen
 - ElementType.TYPE_PARAMETER — generic type parameters (Java 8+)
 - ElementType.TYPE_USE — any type usage (Java 8+)
 - ElementType.MODULE — modules (Java 9+)
-- ElementType.RECORD_COMPONENT — record components (Java 14+)
+- ElementType.RECORD_COMPONENT — record components (Java 16+; preview in 14 and 15)
 
 @Retention controls WHEN the annotation is available:
 - SOURCE, CLASS, or RUNTIME
 
 These are independent — you can combine any @Target with any @Retention. However, some
 combinations are more useful than others:
-- LOCAL_VARIABLE + RUNTIME: The annotation is in bytecode but NOT accessible via reflection
+- LOCAL_VARIABLE + RUNTIME: The annotation is NOT written to bytecode, so reflection cannot see it
 - PARAMETER + RUNTIME: Accessible via Method.getParameterAnnotations()
 - TYPE_USE + RUNTIME: Accessible via AnnotatedType objects
 
-If @Target is not specified, the annotation can be applied to any element (except type
-parameters and type uses in some cases).
+If @Target is not specified, the annotation can be applied to any declaration (type
+parameters included, in Java 21) but to no type use.
 ```
 
 ```java

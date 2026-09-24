@@ -18,8 +18,9 @@ inspectors who visit the finished building, read the labels on equipment and sys
 1. **Compile-time processing** (`javax.annotation.processing.AbstractProcessor`):
    - Runs during compilation via `javac`
    - Can generate new source files, resource files, and compilation errors/warnings
-   - Cannot modify existing source files
-   - Used by: Lombok, MapStruct, Dagger, AutoValue, Immutables
+   - Cannot modify existing source files through the standard API
+   - Used by: MapStruct, Dagger, AutoValue, Immutables; Lombok also runs as an annotation processor but
+     modifies the classes being compiled through javac's internal APIs, which the standard API does not allow
 
 2. **Runtime processing** (Reflection API + `java.lang.reflect`):
    - Runs when the application executes
@@ -91,8 +92,9 @@ inspectors who visit the finished building, read the labels on equipment and sys
 4. **Module access violations in Java 9+**: Accessing private members of classes in other modules requires `opens`
    directives in `module-info.java`.
 
-5. **Not handling `InvocationTargetException` in proxy handlers**: When a proxied method throws an exception, the proxy
-   wraps it in `InvocationTargetException`. Always unwrap it.
+5. **Not handling `InvocationTargetException` in proxy handlers**: When the handler calls `method.invoke(target, args)`
+   and the target method throws, `Method.invoke()` wraps the exception in `InvocationTargetException`. If the handler
+   lets that checked exception escape, the proxy's caller receives an `UndeclaredThrowableException`. Always unwrap it.
    ```java
    try {
        return method.invoke(target, args);
@@ -116,9 +118,11 @@ inspectors who visit the finished building, read the labels on equipment and sys
 
 1. **Proxying methods from Object class**: `toString()`, `equals()`, `hashCode()` are also intercepted by the proxy.
    Handle them explicitly in the `InvocationHandler`.
-2. **Proxy with no interfaces**: `Proxy.newProxyInstance` requires at least one interface.
-3. **Annotation with Class<?> element at compile time**: Compile-time processors cannot use `getAnnotation()` directly;
-   they must use the `javax.lang.model` API and handle `MirroredTypeException`.
+2. **Proxy with no interfaces**: `Proxy.newProxyInstance` accepts an empty interface array, but the resulting proxy
+   only has `Object`'s methods (`equals`, `hashCode`, `toString`) to intercept, so it is rarely useful.
+3. **Annotation with Class<?> element at compile time**: A processor can call `Element.getAnnotation()`, but reading a
+   `Class<?>` element from the result throws `MirroredTypeException` (the class may not be compiled yet); read it
+   through `AnnotationMirror` in the `javax.lang.model` API, or catch the exception and use its `TypeMirror`.
 4. **Circular dependencies in annotation-driven DI**: Can cause stack overflows during injection. Use lazy initialization
    or provider patterns.
 5. **Thread safety of injected values**: If fields are injected reflectively after construction, ensure proper
@@ -305,7 +309,8 @@ Key differences from runtime processing:
 - Generated code is type-safe and compiled normally
 
 Popular tools using compile-time processing:
-- Lombok: Generates boilerplate (getters, setters, constructors)
+- Lombok: Generates boilerplate (getters, setters, constructors) -- the exception to the
+  rule above: it modifies the classes being compiled through javac internals
 - MapStruct: Generates type-safe mapper implementations
 - Dagger: Generates dependency injection code
 - AutoValue/Immutables: Generates value objects
@@ -535,7 +540,7 @@ class PerformanceComparison {
     private static final Map<String, Method> methodCache = new ConcurrentHashMap<>();
 
     static Method getCachedMethod(Class<?> clazz, String name, Class<?>... params) {
-        String key = clazz.getName() + "." + name;
+        String key = clazz.getName() + "." + name + Arrays.toString(params); // overloads need distinct keys
         return methodCache.computeIfAbsent(key, k -> {
             try {
                 Method m = clazz.getDeclaredMethod(name, params);

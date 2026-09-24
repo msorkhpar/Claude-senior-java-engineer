@@ -206,10 +206,14 @@ A3: The most commonly used warning categories include:
 2. "deprecation" — Suppresses warnings when using deprecated APIs
 3. "rawtypes" — Suppresses warnings about using raw types instead of parameterized types
 4. "serial" — Suppresses warnings about missing serialVersionUID in Serializable classes
-5. "unused" — Suppresses warnings about unused variables, imports, or methods
-6. "all" — Suppresses ALL warnings (strongly discouraged)
+5. "unused" — Suppresses warnings about unused variables, imports, or methods (IDE/Eclipse)
+6. "all" — Suppresses ALL warnings in IDEs and the Eclipse compiler (strongly discouraged);
+   javac does not recognise it
 7. "fallthrough" — Suppresses warnings about switch case fall-through
-8. "restriction" — Suppresses warnings about using restricted/internal APIs
+8. "restriction" — Suppresses warnings about using restricted/internal APIs (Eclipse)
+
+javac honours only its own -Xlint keys (such as unchecked, deprecation, removal, rawtypes,
+serial, fallthrough, cast, varargs) and silently ignores any other string.
 
 Best practice: Always use the narrowest category and the narrowest scope possible.
 Apply @SuppressWarnings to the local variable or method, not the class.
@@ -266,8 +270,14 @@ public class OverrideCheck {
         System.out.println("Has @Override: " + hasOverride); // false
 
         // To check if it's actually an override, inspect the superclass
-        boolean isOverride = Dog.class.getSuperclass()
-                .getDeclaredMethod("speak") != null;
+        // (getDeclaredMethod never returns null: it throws NoSuchMethodException if absent)
+        boolean isOverride;
+        try {
+            Dog.class.getSuperclass().getDeclaredMethod("speak");
+            isOverride = true;
+        } catch (NoSuchMethodException e) {
+            isOverride = false; // this checks only the direct superclass
+        }
         System.out.println("Is actually an override: " + isOverride); // true
     }
 }
@@ -354,9 +364,10 @@ public class SafeVarargsExample {
     }
 
     // UNSAFE: Writes to the array — DO NOT use @SafeVarargs
-    public static <T> void unsafeMethod(T... elements) {
-        Object[] array = elements;
-        array[0] = "String"; // Heap pollution if T is not String!
+    public static void unsafeMethod(List<String>... lists) {
+        Object[] array = lists;
+        array[0] = List.of(42);     // No ArrayStoreException: the array is a List[] at run time
+        String s = lists[0].get(0); // Heap pollution: ClassCastException here
     }
 }
 ```
