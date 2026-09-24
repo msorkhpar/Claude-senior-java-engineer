@@ -443,6 +443,20 @@ class CallableFutureDemoTest {
         }
 
         @Test
+        @DisplayName("Should report a task that throws an Error instead of failing with ClassCastException")
+        void shouldReportErrorCause() {
+            var patterns = new CallableFutureDemo.PracticalPatterns();
+
+            Callable<String> throwsError = () -> {
+                throw new AssertionError("Error, not Exception");
+            };
+
+            assertThatThrownBy(() -> patterns.executeWithRetry(executor, throwsError, 1))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(AssertionError.class);
+        }
+
+        @Test
         @DisplayName("Should process tasks in completion order")
         void shouldProcessInCompletionOrder() throws InterruptedException {
             var patterns = new CallableFutureDemo.PracticalPatterns();

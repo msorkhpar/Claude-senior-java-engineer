@@ -114,9 +114,7 @@ public class ExecutorServiceDemo {
             for (int i = 0; i < taskCount; i++) {
                 executor.execute(() -> {
                     try {
-                        int active = ((ThreadPoolExecutor) Thread.currentThread()
-                                .getUncaughtExceptionHandler() instanceof Thread.UncaughtExceptionHandler
-                                ? executor.getActiveCount() : executor.getActiveCount());
+                        int active = executor.getActiveCount();
                         maxActive.updateAndGet(current -> Math.max(current, active));
                         startLatch.await(5, TimeUnit.SECONDS);
                     } catch (InterruptedException e) {
@@ -166,10 +164,14 @@ public class ExecutorServiceDemo {
          * to check completion or retrieve exceptions.
          */
         public Future<?> submitRunnable(ExecutorService executor) {
-            return executor.submit(() -> {
-                Thread.sleep(50);
-                return null;
-            });
+            Runnable task = () -> {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            return executor.submit(task);
         }
 
         /**

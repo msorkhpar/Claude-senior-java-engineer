@@ -148,6 +148,18 @@ class ExecutorServiceDemoTest {
             assertThat(executor.getQueue().remainingCapacity()).isEqualTo(5);
             executor.shutdown();
         }
+
+        @Test
+        @DisplayName("Extra threads beyond core are created only once the queue is full")
+        void shouldGrowToMaxPoolSizeWhenQueueIsFull() throws InterruptedException {
+            var config = new ExecutorServiceDemo.ThreadPoolExecutorConfig();
+
+            // core 2, max 4, queue 2: tasks 1-2 start core threads, 3-4 are queued,
+            // 5-6 start two extra threads -> 4 tasks running, 2 waiting, nothing rejected
+            ThreadPoolExecutor executor = config.createCustomExecutor(2, 4, 1000L, 2);
+
+            assertThat(config.getActiveThreadCount(executor, 6)).isEqualTo(4);
+        }
     }
 
     @Nested
