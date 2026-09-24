@@ -5,6 +5,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.IOException;
+
 import static org.assertj.core.api.Assertions.*;
 
 class CustomExceptionDemoTest {
@@ -30,6 +32,7 @@ class CustomExceptionDemoTest {
         assertThatThrownBy(() -> demo.processFile("nonexistent.txt"))
                 .isInstanceOf(CustomExceptionDemo.FileProcessingException.class)
                 .hasMessageContaining("Error processing file: nonexistent.txt")
+                .hasCauseInstanceOf(IOException.class)
                 .extracting("fileName")
                 .isEqualTo("nonexistent.txt");
     }

@@ -18,7 +18,7 @@ difference between these two types is crucial for effective exception handling a
 - Unchecked exceptions are exceptions that don't need to be explicitly caught or declared.
 - They are typically used for programming errors or unrecoverable conditions.
 - Examples include `NullPointerException`, `ArrayIndexOutOfBoundsException`, and `IllegalArgumentException`.
-- Unchecked exceptions are subclasses of `RuntimeException`.
+- Unchecked exceptions are subclasses of `RuntimeException` (subclasses of `Error` are unchecked as well).
 
 ## Key Points to Remember
 
@@ -74,7 +74,7 @@ Checked exceptions:
 
 Unchecked exceptions:
 
-- Are subclasses of RuntimeException
+- Are subclasses of RuntimeException (or of Error)
 - Do not need to be explicitly caught or declared
 - Are typically used for programming errors or unrecoverable conditions
 - Compiler does not enforce handling of these exceptions
@@ -141,8 +141,9 @@ A4: When deciding whether to use a checked or unchecked exception, consider the 
 5. Exception propagation: If you expect the exception to be handled at a higher level of the application, an unchecked
    exception might be more appropriate as it can propagate up the call stack without explicit declaration.
 
-6. Performance: In performance-critical code, unchecked exceptions might be preferred as they don't require the JVM to
-   do stacktrace filling for exceptions that are expected to be caught.
+6. Performance: Checked or unchecked makes no difference at run time; both fill in a stack trace when created. If
+   creating exceptions on a hot path is a measured cost, a custom exception can skip the stack trace through the
+   `Throwable(String, Throwable, boolean enableSuppression, boolean writableStackTrace)` constructor.
 
 Ultimately, the decision should balance these factors while considering the specific context and requirements of your
 application.

@@ -137,8 +137,9 @@ public class ConfigurationManager {
 }
 ```
 
-In this example, `InvalidConfigurationException` is an unchecked exception used to indicate a programming error (missing
-configuration file) that should be fixed during development rather than handled at runtime.
+In this example, `InvalidConfigurationException` is an unchecked exception because a missing configuration file is not
+something the callers of `loadConfiguration` can sensibly recover from: the application should fail fast at startup and
+the deployment should be fixed, rather than every caller being forced to catch it.
 
 Q5: What are some best practices for using custom exceptions in Java?
 A5: Some best practices for using custom exceptions in Java include:

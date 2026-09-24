@@ -34,10 +34,8 @@ To throw a custom exception, use the `throw` keyword followed by an instance of 
 Example:
 
 ```java
-if(user ==null){
-        throw new
-
-InvalidUserException("User not found",userId);
+if (user == null) {
+    throw new InvalidUserException("User not found", userId);
 }
 ```
 
@@ -61,7 +59,7 @@ InvalidUserException("User not found",userId);
 
 ### Unchecked Exceptions
 
-- Extend from `RuntimeException`.
+- Extend from `RuntimeException` (subclasses of `Error` are unchecked too, but applications should not throw those).
 - Do not need to be declared or caught explicitly.
 - Used for programming errors or unrecoverable states.
 - Example: `NullPointerException`, `IllegalArgumentException`
@@ -102,7 +100,8 @@ A1: The main differences between checked and unchecked exceptions in Java are:
 
 4. Handling: Checked exceptions force the developer to handle the exception or propagate it, which can lead to more robust error handling. Unchecked exceptions can be handled optionally.
 
-5. Performance: Unchecked exceptions have slightly better performance because the compiler doesn't need to check them.
+5. Performance: There is no runtime difference. "Checked" is purely a compile-time rule; at run time both kinds are
+ordinary Throwable objects, created and thrown the same way.
 
 Choose between checked and unchecked exceptions based on whether the calling code can reasonably be expected to recover from the exception.
 ```

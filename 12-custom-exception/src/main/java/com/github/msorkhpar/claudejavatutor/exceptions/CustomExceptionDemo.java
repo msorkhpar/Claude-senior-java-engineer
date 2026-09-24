@@ -22,6 +22,11 @@ public class CustomExceptionDemo {
             this.fileName = fileName;
         }
 
+        public FileProcessingException(String message, String fileName, Throwable cause) {
+            super(message, cause);
+            this.fileName = fileName;
+        }
+
         public String getFileName() {
             return fileName;
         }
@@ -42,7 +47,8 @@ public class CustomExceptionDemo {
             }
             // File processing logic...
         } catch (IOException e) {
-            throw new FileProcessingException("Error processing file: " + fileName, fileName);
+            // Chain the IOException as the cause so its message and stack trace are not lost
+            throw new FileProcessingException("Error processing file: " + fileName, fileName, e);
         }
     }
 }
