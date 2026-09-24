@@ -194,4 +194,11 @@ public class ReadWriteLockUsage<K, V> {
     public boolean isFair() {
         return rwLock.isFair();
     }
+
+    /**
+     * Exposes the underlying lock for advanced testing scenarios.
+     */
+    ReentrantReadWriteLock getLock() {
+        return rwLock;
+    }
 }

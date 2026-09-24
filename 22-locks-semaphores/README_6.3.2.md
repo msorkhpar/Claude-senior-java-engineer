@@ -84,8 +84,8 @@ A semaphore permit can be released by any thread — enabling producer/consumer 
 
 - **Virtual Threads**: `Semaphore.acquire()` causes a virtual thread to park (unmount from carrier), enabling high
   concurrency. Semaphores are virtual-thread-friendly.
-- **Structured Concurrency**: Semaphores can be used inside `StructuredTaskScope` to limit parallelism within a
-  scope, though `StructuredTaskScope` itself has parallelism controls.
+- **Structured Concurrency** (a preview API in Java 21): Semaphores can be used inside `StructuredTaskScope` to limit
+  parallelism within a scope, because `StructuredTaskScope` itself has no built-in limit on concurrent subtasks.
 - **`Thread.ofVirtual()`**: Easy creation of many virtual threads each acquiring semaphore permits models real-world
   connection pools and rate limiters at scale.
 
@@ -185,10 +185,11 @@ A semaphore permit can be released by any thread — enabling producer/consumer 
 
 1. **Zero initial permits**: `new Semaphore(0)` — useful for "start gate" patterns. All acquirers block until
    a coordinator calls `release()`.
-2. **Negative permits**: Not directly constructable (constructor clamps to 0 via `sync`), but `reducePermits()`
-   (a protected method) can be used in subclasses to reduce below initial.
-3. **Very large permit counts**: Permit count is an `int`; overflow is possible if `release()` is called too
-   many times.
+2. **Negative permits**: Legal in the constructor — `new Semaphore(-2)` starts at -2 permits, so two `release()`
+   calls must happen before any `acquire()` succeeds. `reducePermits()` (a protected method) can also be used in
+   subclasses to reduce the count below its initial value.
+3. **Very large permit counts**: Permit count is an `int`; a `release()` that would push it past
+   `Integer.MAX_VALUE` throws `java.lang.Error("Maximum permit count exceeded")` rather than overflowing.
 4. **Multiple permits in single acquire**: `acquire(n)` atomically waits for all n permits to be available, not
    one-at-a-time. A thread needing 5 permits won't partially hold 3 and deadlock.
 5. **`drainPermits()` for throttle reset**: Useful to atomically consume all outstanding permits when resetting
@@ -294,9 +295,10 @@ mutexes cannot express cleanly.
 ```java
 // ReentrantLock — owner-tracked mutual exclusion
 ReentrantLock mutex = new ReentrantLock();
-mutex.lock();       // Thread A acquires
+mutex.lock();       // Thread A acquires (hold count 1)
+mutex.lock();       // Re-entrant: Thread A acquires again without blocking (hold count 2)
 mutex.unlock();     // Thread A must release (IllegalMonitorStateException if Thread B tries)
-mutex.lock();       // Re-entrant: Thread A can acquire again without blocking
+mutex.unlock();     // hold count 0: the lock is free
 
 // Binary semaphore — cross-thread signaling
 Semaphore gate = new Semaphore(0); // starts at 0 (no permits)
@@ -387,7 +389,7 @@ until the "starter" releases one or more permits. This is useful for:
 Compared to CountDownLatch:
 - CountDownLatch(1) is simpler for one-shot "signal to all" (signalAll semantics).
 - Semaphore(0) is more flexible: you can signal N waiters by releasing N times, or signal repeatedly.
-- Neither is reusable (Semaphore can be, CountDownLatch cannot).
+- Reusability: a Semaphore can be reused; a CountDownLatch cannot (its count never resets).
 
 Compared to CyclicBarrier:
 - CyclicBarrier waits for ALL parties to arrive; Semaphore(0) is signaled by a controlling thread.
@@ -438,9 +440,10 @@ A5: acquire(n) is semantically different from n calls to acquire() in two import
    This can cause deadlock in certain patterns.
 
 2. Partial acquisition problem:
-   Example: Semaphore(5), Thread A needs 3, Thread B needs 3.
+   Example: Semaphore(4), Thread A needs 3, Thread B needs 3.
    With individual acquire() calls:
-     - Thread A takes 1, Thread B takes 1, Thread A takes 1, Thread B takes 1... both stall.
+     - Thread A takes 1, Thread B takes 1, Thread A takes 1, Thread B takes 1 — all 4 are taken, each thread
+       holds 2 and waits for a third that never comes: both stall.
    With acquire(3):
      - Thread A blocks until 3 are available (all at once); no partial state.
 
