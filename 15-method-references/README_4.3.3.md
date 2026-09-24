@@ -7,7 +7,7 @@ Method references reach their full potential when combined with Java's built-in 
 method references must satisfy, and choosing the right combination unlocks highly readable, reusable code.
 
 This section covers how to use each method reference type with the five core functional interfaces (`Consumer`,
-`Supplier`, `Function`, `Predicate`, `BiFunction`) and two special-purpose interfaces (`Comparator`, `Optional`),
+`Supplier`, `Function`, `Predicate`, `BiFunction`), the special-purpose interface `Comparator` and the `Optional` class,
 showing both the method reference syntax and its equivalent lambda.
 
 ### `Consumer<T>` — `void accept(T t)`
@@ -50,12 +50,10 @@ A `Function` transforms one value into another. All four reference types can pro
 Function<String, Integer> parse = Integer::parseInt;
 
 // Bound instance method reference → Function (method takes one arg)
-String delimiter = ",";
-Function<String, String[]> split = delimiter::split; // ??? — wait, this is reversed
-// Better: the bound object receives; the Function's arg is the method's parameter
-// "delimiter" would be the receiver... actually this example needs correction:
-// String::split is an unbound instance method ref
-Function<String, String[]> splitByComma = s -> s.split(","); // lambda when arg needed
+String greeting = "Hello, ";
+Function<String, String> greet = greeting::concat;   // name -> "Hello, ".concat(name)
+// Splitting each argument by a fixed delimiter cannot be a bound ref: the argument must be the receiver
+Function<String, String[]> splitByComma = s -> s.split(","); // lambda when the fixed value is the argument
 
 // Unbound instance method reference → Function (method takes no args; receiver is the arg)
 Function<String, Integer> length = String::length;     // str -> str.length()
@@ -78,7 +76,7 @@ Predicate<String> isNull  = Objects::isNull;
 // Bound instance method reference → Predicate
 String keyword = "Java";
 Predicate<String> contains = keyword::contains;        // bound: checks if "Java" contains arg
-// Wait — this tests if "Java" contains each element. Usually want the other way:
+// This tests if "Java" contains each element. Usually the other way is wanted:
 Predicate<String> contains2 = s -> s.contains("Java"); // lambda for this common case
 
 // Unbound instance method reference → Predicate (boolean return, no extra args)
@@ -95,21 +93,24 @@ A `BiFunction` transforms two values into one. Unbound instance method reference
 ```java
 // Unbound instance method reference with one argument → BiFunction
 BiFunction<String, String, String> concat = String::concat;   // (s1, s2) -> s1.concat(s2)
-BiFunction<String, String, Boolean> contains = String::contains; // compile error — CharSequence!
-// Correct:
+BiFunction<String, String, Boolean> contains = String::contains; // compiles: a String is a CharSequence
+// Also valid, matching the declared parameter type exactly:
 BiFunction<String, CharSequence, Boolean> containsBi = String::contains;
 
 // Static method → BiFunction
 BiFunction<Integer, Integer, Integer> max = Math::max;         // Math.max(int, int)
 
+// Unbound String::repeat(int) → BiFunction (the Integer argument is unboxed)
+BiFunction<String, Integer, String> repeated = String::repeat; // (s, n) -> s.repeat(n)
+
 // Constructor with one arg → Function, two args → BiFunction
-BiFunction<String, Integer, String> repeated = (s, n) -> s.repeat(n); // lambda (no direct ref)
+BiFunction<Integer, Float, HashMap<String, String>> mapMaker = HashMap::new; // new HashMap<>(capacity, loadFactor)
 ```
 
 ### `Comparator<T>` — `int compare(T o1, T o2)`
 
-`Comparator` is a two-argument functional interface. Unbound instance method references with one additional
-parameter (the argument to compare against) map cleanly via `Comparator.comparing()`.
+`Comparator` is a two-argument functional interface. Unbound instance method references with one parameter (the
+argument to compare against) map to it directly; one-argument key extractors map to it via `Comparator.comparing()`.
 
 ```java
 // Unbound instance method ref → Comparator (String::compareTo = (s1,s2) -> s1.compareTo(s2))
@@ -153,7 +154,8 @@ Optional<String> filtered = opt.filter(String::isBlank); // Predicate<String>
 - **Java 9**: `Optional.stream()` — converts `Optional` to a stream, enabling further method reference chaining.
 - **Java 11**: `Predicate.not(Predicate)` — `Predicate.not(String::isBlank)` is idiomatic for negation.
 - **Java 16**: `Stream.toList()` — eliminates the need for `Collectors.toList()` in terminal operations.
-- **Java 17**: Pattern matching improves the readability of switches that feed into method references.
+- **Java 21**: Pattern matching for `switch` (preview in Java 17–20, final in 21) improves the readability of switches
+  that feed into method references.
 - **Java 21**: `SequencedCollection` methods (`getFirst()`, `getLast()`) can be used as bound instance method
   references when the collection is the receiver.
 
@@ -169,7 +171,7 @@ Optional<String> filtered = opt.filter(String::isBlank); // Predicate<String>
    ```
 
    ```java
-   // Fix: use a lambda when you need to adapt/transform arguments
+   // Fix: add a step that adapts the argument (or use a lambda: s -> Integer.parseInt(s.trim()))
    List<Integer> numbers = rawNumbers.stream()
            .map(String::trim)             // method reference for trimming
            .map(Integer::parseInt)        // method reference for parsing
@@ -221,14 +223,15 @@ Optional<String> filtered = opt.filter(String::isBlank); // Predicate<String>
    both.accept("event");  // adds to log AND prints
    ```
 
-5. **Ambiguous overload in `Comparator.comparing`**:
+5. **Type inference in `Comparator.comparing(...).reversed()`**:
 
    ```java
-   // Problem: if a record has a getter that conflicts with a standard Object method
    record Box(int size, String label) {}
-   // Comparator.comparing(Box::size) might conflict if 'size' is also a method name
-   // in a parent class — prefer method references to clearly-named methods
-   Comparator<Box> bySize = Comparator.comparingInt(Box::size); // clear and unambiguous
+   // Problem: with a lambda, the chained call gives the lambda no target type, so 'b' is inferred as Object
+   // Comparator<Box> bad = Comparator.comparing(b -> b.size()).reversed(); // compile error: cannot find symbol size()
+   // A method reference carries its type, so the same chain compiles:
+   Comparator<Box> bySizeDesc = Comparator.comparing(Box::size).reversed();
+   Comparator<Box> bySize = Comparator.comparingInt(Box::size); // also avoids boxing the int key
    ```
 
 ## Best Practices and Optimization Techniques
@@ -337,7 +340,8 @@ Common patterns:
 - System.out::println — bound instance ref to println, used as Consumer<Object>
 - list::add — bound instance ref to add, used as Consumer<T> for collecting side effects
 - Logger::log — static method ref if log(String) is static
-- MyService::processItem — bound or unbound depending on context
+- MyService::processItem — static if processItem is static, otherwise unbound (the bound form is
+  myService::processItem)
 
 andThen chains multiple Consumers, all receiving the same input.
 ```
@@ -366,7 +370,9 @@ public class ConsumerMethodRefDemo {
         );
 
         // Chain: audit → store → print
-        Consumer<Order> pipeline = ConsumerMethodRefDemo::auditOrder  // static method ref
+        // A method reference has no type of its own until assigned, so give it one before calling andThen
+        Consumer<Order> audit = ConsumerMethodRefDemo::auditOrder;         // static method ref
+        Consumer<Order> pipeline = audit
                 .andThen(processedOrders::add)                        // bound instance ref
                 .andThen(o -> System.out.println("Done: " + o.id())); // lambda for complex action
 
@@ -417,17 +423,17 @@ public class ComparatorMethodRefDemo {
         Comparator<Employee> byName = Comparator.comparing(Employee::name);
 
         // Multi-level: department asc, salary desc, name asc
+        // Note: calling .reversed() after thenComparingDouble would reverse the WHOLE chain so far
+        // (department too), so only the salary comparator is reversed here.
         Comparator<Employee> multiLevel =
                 Comparator.comparing(Employee::department)           // primary: dept asc
-                        .thenComparingDouble(Employee::salary)       // secondary: salary asc
-                        .reversed()                                  // whole chain reversed
-                        .thenComparing(Employee::name);              // tertiary: name asc (not reversed)
+                        .thenComparing(Comparator.comparingDouble(Employee::salary)
+                                .reversed())                         // secondary: salary desc
+                        .thenComparing(Employee::name);              // tertiary: name asc
 
         List<Employee> sorted = employees.stream()
-                .sorted(Comparator.comparing(Employee::department)
-                        .thenComparingDouble(Employee::salary).reversed()
-                        .thenComparing(Employee::name))
-                .collect(Collectors.toList());
+                .sorted(multiLevel)
+                .collect(Collectors.toList()); // Alice, Eve, Charlie, Diana, Bob
 
         // Easiest pattern: step by step
         List<Employee> byDeptThenSalary = employees.stream()
@@ -722,6 +728,7 @@ the no-argument .toArray() already returns a primitive array.
 ```
 
 ```java
+import java.util.*;
 import java.util.stream.*;
 import java.util.function.*;
 
@@ -747,7 +754,7 @@ public class ArrayConstructorRefDemo {
                 new Employee("Alice", 90000),
                 new Employee("Bob", 75000))
                 .sorted(Comparator.comparing(Employee::name))
-                .toArray(Employee[]::new);     // Employee constructor ref for array
+                .toArray(Employee[]::new);     // array constructor reference for Employee[]
         System.out.println(employees[0].name()); // Alice
 
         // IntFunction stands alone for array creation

@@ -92,23 +92,19 @@ public class MethodReferenceTypes {
     public static class BoundInstanceMethodReferences {
 
         /**
-         * Creates a Predicate that tests whether each string starts with a fixed prefix.
-         * The 'prefix' object is captured and fixed at reference creation time.
+         * Creates a Predicate that tests whether each candidate is a prefix of a fixed text.
+         * The 'text' object is captured and fixed at reference creation time, so
+         * text::startsWith means text.startsWith(candidate). Testing whether each element
+         * starts with a fixed prefix is the other direction and needs a lambda:
+         * s -> s.startsWith(prefix).
          */
-        public Predicate<String> startsWithPrefix(String prefix) {
-            return prefix::startsWith;
-            // Wait — this is backwards. prefix::startsWith means prefix.startsWith(each element),
-            // which checks if the prefix starts with each element.
-            // The correct bound ref to filter strings that start with prefix:
-            // return s -> s.startsWith(prefix); — this is a lambda not a bound ref
+        public Predicate<String> isPrefixOf(String text) {
+            return text::startsWith;    // bound: text is the receiver, each candidate is the argument
         }
 
         /**
-         * Creates a filter that keeps strings starting with a specified prefix.
-         * Uses bound instance method reference on each element — actually this pattern
-         * needs a lambda for the "each element starts with X" direction.
-         * This method demonstrates the actual bound-ref pattern correctly:
-         * the captured object IS the receiver.
+         * Creates a filter that keeps strings contained in a fixed collection.
+         * The captured List IS the receiver; each tested string is the argument.
          */
         public Predicate<String> containedInCollection(List<String> validValues) {
             // validValues::contains — bound ref: the List object is fixed;
@@ -274,7 +270,7 @@ public class MethodReferenceTypes {
         public record Point(double x, double y) {}
 
         /**
-         * Creates Point objects from double arrays using a custom Supplier.
+         * Creates Point objects from two coordinates using a constructor reference.
          * Since Point has a two-arg constructor, BiFunction is needed.
          */
         public BiFunction<Double, Double, Point> createPointFactory() {
@@ -299,7 +295,7 @@ public class MethodReferenceTypes {
     // ─────────────────────────────────────────────────
 
     /**
-     * Demonstrates all four types in a realistic processing pipeline.
+     * Demonstrates method reference types combined in a realistic processing pipeline.
      */
     public static class CombinedTypesDemo {
 
@@ -307,15 +303,12 @@ public class MethodReferenceTypes {
 
         /**
          * Processes raw price strings into formatted product lines.
-         * Uses all four method reference types:
-         * 1. Static: Integer::parseInt, Math::abs
-         * 2. Bound: System.out::println
+         * Uses:
+         * 1. Static: Objects::nonNull
          * 3. Unbound: String::trim, String::isEmpty
-         * 4. Constructor: Product::new (via lambda fallback for 2-arg constructors)
+         * and a lambda to combine the prefix with each price (two values to combine).
          */
         public List<String> processRawData(List<String> rawPrices, String productPrefix) {
-            // Bound reference: productPrefix::concat (the prefix is the receiver)
-            // Actually: we want productPrefix + each trimmed price, so lambda is cleaner
             return rawPrices.stream()
                     .filter(Objects::nonNull)              // 1. Static: Objects::nonNull
                     .map(String::trim)                     // 3. Unbound: String::trim
