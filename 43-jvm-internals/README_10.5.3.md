@@ -29,8 +29,8 @@ The typical path for hot methods is: Level 0 -> Level 3 -> Level 4.
 
 1. **Method Inlining**: Replaces method calls with the method body, eliminating call overhead and enabling further
    optimizations. The single most impactful optimization.
-2. **Escape Analysis**: Determines if an object escapes the method/thread scope. If not, it can be stack-allocated or
-   eliminated entirely.
+2. **Escape Analysis**: Determines if an object escapes the method/thread scope. If not, the allocation can be
+   eliminated entirely (HotSpot does this by scalar replacement; it does not stack-allocate objects).
 3. **Loop Optimizations**: Loop unrolling, loop-invariant code motion, range check elimination.
 4. **Dead Code Elimination**: Removes code that can never be reached or whose results are never used.
 5. **Null Check Elimination**: Removes redundant null checks based on dominance analysis.
@@ -65,13 +65,14 @@ to interpreted execution. Common triggers:
 ## Relevant Java 21 Features
 
 - **Tiered compilation is default**: All modern JVMs use tiered compilation, combining C1 and C2 compilers.
-- **GraalVM integration**: GraalVM's compiler can be used as a drop-in replacement for C2 via
-  `-XX:+UseJVMCICompiler`.
+- **GraalVM integration**: On a JDK that includes the Graal compiler (a GraalVM distribution), it replaces C2 through
+  JVMCI (`-XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI -XX:+UseJVMCICompiler`). The experimental Graal JIT that
+  shipped inside OpenJDK builds was removed in JDK 17 (JEP 410), so a plain OpenJDK 21 has only C1 and C2.
 - **Segmented code cache**: Since Java 9, the code cache is divided into segments (non-method, profiled, non-profiled)
   for better management.
-- **Compact object headers (Project Lilliput)**: Experimental in Java 21, reduces object header size, improving cache
-  efficiency for JIT-compiled code.
-- **Profile-guided optimization improvements**: Better profiling data collection for virtual thread workloads.
+- **Compact object headers (Project Lilliput)**: Not available in Java 21. They arrived as an experimental option in
+  JDK 24 (JEP 450) and became a product option in JDK 25 (JEP 519); they shrink object headers, improving cache
+  efficiency.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -109,10 +110,13 @@ to interpreted execution. Common triggers:
    Shape s = getRandomShape(); // Circle, Square, Triangle, Hexagon...
    s.draw(); // Virtual dispatch every time -- slower
    ```
-   **Solution**: Minimize polymorphism at hot call sites. Use sealed classes to help the JIT.
+   **Solution**: Minimize polymorphism at hot call sites. (Declaring the hierarchy `sealed` does not change this:
+   HotSpot devirtualizes from the receiver types it has profiled and from the classes actually loaded, not from the
+   `permits` list.)
 
-3. **Methods too large to inline**: HotSpot won't inline methods larger than 325 bytes (default) or called methods
-   larger than 35 bytes (frequent inlining threshold).
+3. **Methods too large to inline**: By default HotSpot inlines a method of at most 35 bytes of bytecode at an ordinary
+   call site (`MaxInlineSize`) and at most 325 bytes at a hot, frequently executed call site (`FreqInlineSize`); larger
+   methods are not inlined.
    ```java
    // This large method won't be inlined
    public int computeEverything(int input) {
@@ -130,7 +134,7 @@ to interpreted execution. Common triggers:
        return p; // p escapes the method
    }
 
-   // Object does NOT escape -- can be stack-allocated or eliminated
+   // Object does NOT escape -- the allocation can be eliminated (scalar replacement)
    public int getDistance() {
        Point p = new Point(3, 4);
        return p.x * p.x + p.y * p.y; // p never escapes
@@ -143,7 +147,9 @@ to interpreted execution. Common triggers:
 1. **Write simple, idiomatic code**: The JIT compiler is tuned to optimize common Java patterns. Clever tricks often
    inhibit optimization.
 2. **Keep hot methods small**: Smaller methods are more likely to be inlined, which enables cascading optimizations.
-3. **Use final and sealed classes**: They help the JIT devirtualize method calls.
+3. **Use final classes and methods where the design allows**: A `final` method has exactly one target, so the JIT can
+   bind it directly. (`sealed` documents a closed hierarchy but gives HotSpot no extra devirtualization information;
+   it relies on the classes actually loaded and on type profiles.)
 4. **Favor immutable objects in hot paths**: They enable better escape analysis and elimination.
 5. **Use `@ForceInline` and `@DontInline`** (JDK-internal, for JDK developers) -- for application code, structure
    methods to be naturally inline-friendly.
@@ -157,11 +163,11 @@ to interpreted execution. Common triggers:
 1. **Code cache exhaustion**: When the code cache is full, no more methods can be JIT-compiled, and performance degrades.
    Monitor with `-XX:+PrintCodeCache` and tune with `-XX:ReservedCodeCacheSize`.
 2. **Deoptimization storms**: Rapid deoptimization/recompilation cycles can cause performance oscillation. Diagnose with
-   `-XX:+TraceDeoptimization`.
+   `-XX:+UnlockDiagnosticVMOptions -XX:+TraceDeoptimization`, or with the JFR `jdk.Deoptimization` event.
 3. **OSR compilation edge cases**: On-stack replacement in deeply nested loops can produce suboptimal code compared to
    regular compilation.
 4. **Native method boundaries**: JIT cannot optimize across JNI boundaries. Consider the Foreign Function & Memory API
-   (Java 21) as an alternative.
+   (a preview API in Java 21, final in Java 22) as a lower-overhead alternative; native code is still not inlined.
 5. **Uncommon traps**: If a branch that was assumed "never taken" is suddenly taken, the JVM deoptimizes and recompiles
    with updated profiling data.
 
@@ -309,7 +315,8 @@ public class InliningDemo {
         @Override public int area() { return (int)(Math.PI * r * r); }
     }
 
-    // With sealed classes, JIT knows all implementations -- helps inlining
+    // Sealed classes document every implementation for readers and for switch
+    // exhaustiveness; HotSpot does not use 'permits' for inlining decisions
     sealed interface SealedShape permits SealedCircle, SealedSquare {
         int area();
     }
@@ -500,7 +507,7 @@ Diagnostic Flags:
    - Shows code cache utilization at shutdown
    - Helps identify if code cache is exhausted
 
-4. -XX:+LogCompilation (produces XML log)
+4. -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation (produces XML log)
    - Most detailed output, used with JITWatch visualization tool
    - Generates hotspot_pidXXXX.log
 
@@ -534,7 +541,8 @@ public class JitDiagnostics {
         return x + 1;
     }
 
-    // Likely too large to be frequently inlined
+    // 36 bytes of bytecode: over MaxInlineSize (35), so C1 and cold call sites do not
+    // inline it; under FreqInlineSize (325), so C2 can inline it at a hot call site
     static int largeMethod(int x) {
         int result = x;
         for (int i = 0; i < 10; i++) {
@@ -550,11 +558,13 @@ public class JitDiagnostics {
         int sum = 0;
         for (int i = 0; i < 100_000; i++) {
             sum += smallMethod(i);  // Will be inlined
-            sum += largeMethod(i);  // May not be inlined
+            sum += largeMethod(i);  // C1 reports "callee is too large"; C2 can inline it
+                                // ("inline (hot)") if the loop runs long enough for C2
+                                // to compile main -- 100_000 iterations may end first
         }
         System.out.println("Sum: " + sum);
 
-        // Check code cache stats
+        // The number of CPUs also sizes the JIT compiler thread pool
         System.out.println("Available processors: " +
             Runtime.getRuntime().availableProcessors());
     }
