@@ -2,9 +2,10 @@
 
 ## Concept Explanation
 
-Three primary language-level mechanisms establish happens-before guarantees across threads in Java:
-**synchronized methods/blocks**, **volatile variables**, and **final fields**. Each targets a different use case and
-provides a different granularity of guarantee.
+Three primary language-level mechanisms give visibility guarantees across threads in Java: **synchronized
+methods/blocks** and **volatile variables**, which establish happens-before, and **final fields**, which have their own
+initialization-safety rule (JLS §17.5). Each targets a different use case and provides a different granularity of
+guarantee.
 
 ### 5.2.2.1. Synchronized Methods and Blocks
 
@@ -15,12 +16,13 @@ releases it.
 
 **Monitor Lock Rule (JLS §17.4.5)**: An unlock of monitor M **happens-before** every subsequent lock of M.
 
-This means: all writes a thread performed while holding the lock (and all writes that happened-before while it held
-the lock) become visible to the next thread that acquires the same lock.
+This means: all writes a thread performed before releasing the lock (inside the block, and anything that
+happened-before that) become visible to the next thread that acquires the same lock.
 
 `synchronized` provides TWO guarantees:
 1. **Mutual exclusion (atomicity)**: Only one thread can execute inside the block at a time.
-2. **Memory visibility**: On exit, writes are flushed; on entry, the thread refreshes its view of memory.
+2. **Memory visibility**: In the working-memory picture, on exit writes are flushed and on entry the thread
+   refreshes its view of memory — formally, the unlock happens-before the next lock of the same monitor.
 
 **Real-world analogy**: A synchronized block is like a shared notebook in a locked cabinet. Whoever has the key
 (lock) can update the notebook. When they put the key back (unlock), all their changes are in the notebook. The next
@@ -32,9 +34,13 @@ A `volatile` variable provides the **Volatile Variable Rule (JLS §17.4.5)**: A 
 **happens-before** every subsequent read of V.
 
 Volatile provides:
-1. **Visibility**: Writes are immediately visible to all threads that subsequently read the variable.
-2. **Prohibition of caching**: The JVM cannot cache the value in a register or CPU cache.
-3. **Limited reordering prevention**: Operations cannot be reordered across a volatile access (full memory barrier).
+1. **Visibility**: A write is visible to every read of the variable that comes after it (in the synchronization
+   order), together with everything the writer did before the write.
+2. **No register caching**: The JIT cannot keep the value in a register or skip re-reading it. (CPU caches are
+   coherent; volatile is implemented with memory barriers, not by bypassing them.)
+3. **Limited reordering prevention**: Reads and writes before a volatile write cannot be moved after it, and reads
+   and writes after a volatile read cannot be moved before it. It is not a full barrier in both directions for
+   ordinary accesses.
 
 Volatile does NOT provide:
 - **Atomicity** for compound operations: `volatile int i; i++` is still a read-modify-write that requires
@@ -57,12 +63,12 @@ The `final` field guarantee is different from volatile and synchronized — it a
 and requires no synchronization at use time.
 
 **Final Field Rule (JLS §17.5)**: If object O is properly constructed (the `this` reference does not escape during
-construction), then a write to a `final` field of O in O's constructor **happens-before** any subsequent read of that
-field in any other thread.
+construction), then any thread that obtains a reference to O after its constructor finished is guaranteed to see the
+values O's constructor wrote to its `final` fields. This is a separate guarantee, not a happens-before edge.
 
-This means: once a reference to an object is safely published (made visible to other threads through a
-happens-before mechanism), all `final` fields of that object are guaranteed to be visible with their
-initialized values — even without any explicit synchronization at the read site.
+This means: once a thread has a reference to the object, all `final` fields of that object are guaranteed to be
+visible with their initialized values — even without any explicit synchronization at the read site, and even if the
+reference itself was passed through a data race. (Non-final fields still need safe publication.)
 
 **Implications**:
 - Immutable objects (all fields `final`) require only safe publication of the reference — no locking at read time.
@@ -79,19 +85,24 @@ it captures the values at the moment of birth and is forever fixed. Anyone who g
 1. `synchronized` provides BOTH mutual exclusion AND memory visibility; it is the strongest guarantee.
 2. `volatile` provides visibility and ordering but NO mutual exclusion; `i++` on a volatile is NOT atomic.
 3. `final` fields provide visibility after safe publication without any runtime synchronization overhead.
-4. All three mechanisms are based on different happens-before rules, each with different costs and use cases.
-5. A `volatile` write acts as a "store fence" and a `volatile` read acts as a "load fence" at the CPU level.
+4. `synchronized` and `volatile` rest on different happens-before rules; `final` rests on its own §17.5 rule. Each
+   has different costs and use cases.
+5. A `volatile` write has release semantics and a `volatile` read has acquire semantics (plus a StoreLoad barrier
+   after the volatile write, which gives volatile accesses their single total order).
 6. Synchronized blocks that use DIFFERENT locks provide NO mutual exclusion and NO happens-before between them.
 7. Final field guarantee is conditional: the object must be **properly constructed** (no `this` escape).
 8. `volatile` on an object reference does NOT make the object's fields volatile — only the reference itself.
 
 ## Relevant Java 21 Features
 
-- **Java 5 (JSR-133)**: Fixed the volatile semantics to include full memory barrier semantics. Pre-Java 5 volatile
-  only prevented CPU caching, not compiler reordering. This is why double-checked locking is only safe in Java 5+.
+- **Java 5 (JSR-133)**: Strengthened volatile: since Java 5 a volatile write publishes every write made before it
+  (release) and a volatile read acquires them. Before Java 5, ordinary reads and writes could be reordered around
+  volatile accesses, so a volatile write did not publish earlier writes. This is why double-checked locking is only
+  safe in Java 5+.
 - **Java 9 (VarHandle, JEP 193)**: `java.lang.invoke.VarHandle` provides fine-grained memory ordering:
   - `PLAIN`: no ordering guarantees (like unsynchronized access)
-  - `OPAQUE`: prohibits tearing (for long/double) and some reordering, but no cross-thread guarantees
+  - `OPAQUE`: atomic (no tearing), coherent per variable and eventually visible to other threads, but no ordering
+    with other variables
   - `ACQUIRE`/`RELEASE`: one-sided memory barriers — `ACQUIRE` for reads, `RELEASE` for writes (lighter than volatile)
   - `VOLATILE`: full volatile semantics
 - **Java 21 (Virtual Threads)**: Virtual threads use the same synchronization mechanisms. However, a `synchronized`
@@ -222,6 +233,11 @@ it captures the values at the moment of birth and is forever fixed. Anyone who g
 
    ```java
    // Fix: Replace the whole object (immutable update pattern)
+   final class Config {
+       final int timeout; final String host;
+       Config(int timeout, String host) { this.timeout = timeout; this.host = host; }
+   }
+
    class Server {
        volatile Config config = new Config(30, "localhost");
 
@@ -343,9 +359,10 @@ class AtomicExample {
 **Q2: What does the final field guarantee provide and when does it NOT apply?**
 
 ```text
-A2: The final field guarantee (JLS §17.5): A write to a final field in an object's constructor
-happens-before any subsequent read of that final field in another thread, provided the object
-is PROPERLY CONSTRUCTED.
+A2: The final field guarantee (JLS §17.5): a thread that obtains a reference to an object after its
+constructor finished sees the values the constructor wrote to its final fields — without
+synchronization, even if the reference arrived through a data race — provided the object is
+PROPERLY CONSTRUCTED. (It is its own rule, not a happens-before edge.)
 
 "Properly constructed" means: the 'this' reference does not escape during the constructor.
 If any code in the constructor passes 'this' to another thread (directly or indirectly), the
@@ -362,7 +379,8 @@ When the guarantee does NOT apply:
 3. Reflection bypassing final (setAccessible + Field.set on a final field after construction).
 
 This is why immutable objects like String, Integer, and record types are safe to share across
-threads without additional synchronization — all their fields are final and properly set.
+threads without additional synchronization — their state is held in final fields set in the
+constructor. (String also caches its hash code in a non-final field; that race is benign by design.)
 ```
 
 ```java
@@ -476,7 +494,7 @@ Specifically, it may assign the reference to 'instance' BEFORE finishing initial
 Thread B doing the first check could see instance != null and return a partially initialized object.
 
 In Java 5+, making 'instance' volatile fixes this:
-- The volatile write of 'instance' acts as a full memory barrier.
+- The volatile write of 'instance' has release semantics.
 - No store of any field can be reordered to appear after the volatile write.
 - Thread B's volatile read of 'instance' creates happens-before from Thread A's write,
   ensuring Thread B sees the fully initialized object.
@@ -535,11 +553,12 @@ allow programmers to choose the exact memory barrier strength needed:
    Use: within a single thread or with external synchronization.
 
 2. OPAQUE (setOpaque/getOpaque): Prevents tearing (atomic reads/writes of any type).
-   Coherent within a thread but no cross-thread guarantees. Use: progress indicators.
+   Coherent per variable (all threads see its writes in one order) and eventually visible,
+   but no ordering with other variables. Use: progress indicators.
 
 3. RELEASE/ACQUIRE (setRelease/getAcquire): One-sided barriers.
    - setRelease: All prior stores are visible before this store. (Producer side.)
-   - getAcquire: This load happens-before all subsequent loads. (Consumer side.)
+   - getAcquire: No later load or store can be reordered before this load. (Consumer side.)
    Use: lock-free publish-subscribe patterns. Lighter than full volatile.
 
 4. VOLATILE (setVolatile/getVolatile): Full bidirectional memory barrier.
@@ -611,7 +630,8 @@ Recommendation:
 - Use java.util.concurrent.locks.ReentrantLock (or ReadWriteLock, StampedLock) instead of
   synchronized for I/O-bound operations in virtual-thread-heavy code. These locks do not pin.
 - Reserve synchronized for very short critical sections where blocking is highly unlikely.
-- The JVM team is working to remove the pinning limitation in a future release.
+- Java 24 (JEP 491) removed this limitation: synchronized no longer pins in Java 24+. In Java 21
+  the advice above applies.
 
 Java 21's StructuredTaskScope provides a higher-level API with automatic happens-before
 from all child tasks to the joiner, making concurrent result collection safe.
@@ -645,10 +665,11 @@ class VirtualThreadFriendlyCounter {
 }
 
 // Structured concurrency — happens-before from all tasks to the joiner
+// StructuredTaskScope is a PREVIEW API in Java 21: compile and run with --enable-preview
 import java.util.concurrent.StructuredTaskScope;
 
 class StructuredDemo {
-    int fetchData() throws InterruptedException {
+    int fetchData() throws InterruptedException, java.util.concurrent.ExecutionException {
         try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
             var f1 = scope.fork(() -> compute(1)); // fork tasks
             var f2 = scope.fork(() -> compute(2));

@@ -337,11 +337,12 @@ class HappensBeforeDefinitionTest {
         @DisplayName("interrupt() hb interrupted thread detecting interruption — message is visible")
         void interruptHappensBeforeDetection() throws Exception {
             var demo = new HappensBeforeDefinition.InterruptHappensBefore();
-            demo.setMessageBeforeInterrupt("visible-after-interrupt");
 
             Thread t = demo.createInterruptibleThread();
             t.start();
             Thread.sleep(50); // give the thread time to enter sleep
+            // Written AFTER start(), to a plain field: only the interrupt rule makes it visible
+            demo.setMessageBeforeInterrupt("visible-after-interrupt");
             t.interrupt(); // interrupt() hb InterruptedException detection
 
             boolean detected = demo.getInterruptDetected().await(2, TimeUnit.SECONDS);

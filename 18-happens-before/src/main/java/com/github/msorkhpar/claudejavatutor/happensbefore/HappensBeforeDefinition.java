@@ -41,7 +41,7 @@ public class HappensBeforeDefinition {
      * Demonstrates the monitor lock rule: unlock of monitor M happens-before
      * every subsequent lock of M. The shared value written by the writer thread
      * is guaranteed to be visible to the reader thread once the reader acquires
-     * the same monitor.
+     * the same monitor — provided the reader's lock comes after the writer's unlock.
      */
     public static class MonitorLockDemo {
         private final Object monitor = new Object();
@@ -59,12 +59,12 @@ public class HappensBeforeDefinition {
 
         /**
          * Reader: acquires same monitor, reads value.
-         * Because lock happens-after the writer's unlock, the monitor lock rule
+         * If this lock comes after the writer's unlock, the monitor lock rule
          * guarantees sharedValue is visible with the value written by write().
          */
         public int read() {
-            synchronized (monitor) { // lock of monitor — happens-after unlock
-                return sharedValue;  // guaranteed to see written value
+            synchronized (monitor) { // lock of monitor — happens-after any earlier unlock
+                return sharedValue;  // sees the value of the last write() before this lock
             }
         }
     }
@@ -212,8 +212,8 @@ public class HappensBeforeDefinition {
         }
 
         /**
-         * Holder class: loaded only when getInstance() is first called.
-         * Static initializer runs under JVM class-loading lock, establishing
+         * Holder class: initialized only when getInstance() is first called.
+         * Static initializer runs under the JVM class-initialization lock, establishing
          * happens-before for any subsequent access to INSTANCE.
          */
         private static final class Holder {
@@ -222,7 +222,7 @@ public class HappensBeforeDefinition {
 
         /**
          * Thread-safe lazy initialization without explicit synchronization.
-         * The class-loading lock provides the necessary happens-before guarantee.
+         * The class-initialization lock provides the necessary happens-before guarantee.
          */
         public static IoDHSingleton getInstance() {
             return Holder.INSTANCE;
@@ -240,7 +240,10 @@ public class HappensBeforeDefinition {
      * Thread.interrupt() happens-before the interrupted thread detects the interruption.
      */
     public static class InterruptHappensBefore {
-        private volatile String messageBeforeInterrupt = null;
+        // Deliberately NOT volatile: if it were, the volatile rule alone would make it visible.
+        // Written by the interrupting thread before interrupt(); the interrupt rule
+        // (JLS 17.4.4) is what makes it visible to the interrupted thread.
+        private String messageBeforeInterrupt = null;
         private final AtomicReference<String> observedMessage = new AtomicReference<>();
         private final CountDownLatch interruptDetected = new CountDownLatch(1);
 

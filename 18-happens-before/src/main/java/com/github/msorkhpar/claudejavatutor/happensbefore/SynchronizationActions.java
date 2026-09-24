@@ -6,11 +6,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Demonstrates the three core synchronization mechanisms that establish happens-before:
+ * Demonstrates the three core mechanisms that give cross-thread visibility guarantees:
  * <ul>
- *   <li>5.2.2.1 Synchronized methods and blocks — monitor lock rule</li>
- *   <li>5.2.2.2 Volatile variables — volatile variable rule</li>
- *   <li>5.2.2.3 Final fields — safe publication of immutable objects</li>
+ *   <li>5.2.2.1 Synchronized methods and blocks — monitor lock rule (happens-before)</li>
+ *   <li>5.2.2.2 Volatile variables — volatile variable rule (happens-before)</li>
+ *   <li>5.2.2.3 Final fields — initialization safety (JLS 17.5, a separate guarantee)</li>
  * </ul>
  *
  * <p>All tests demonstrate CORRECT behavior. Broken (unsynchronized) versions would be
@@ -72,8 +72,10 @@ public class SynchronizationActions {
     }
 
     /**
-     * Demonstrates synchronized blocks (explicit lock object) vs methods.
-     * Shows split-lock pattern for fine-grained locking.
+     * Demonstrates synchronized blocks with explicit lock objects, and what happens when
+     * reads and writes of the SAME field use DIFFERENT locks: the two locks give no mutual
+     * exclusion and no happens-before with each other, so visibility here comes only from
+     * volatile. (Real lock splitting uses separate locks for independent pieces of state.)
      */
     public static class SplitLockDemo {
         private final Object readLock = new Object();
@@ -244,9 +246,9 @@ public class SynchronizationActions {
     // ── 5.2.2.3 Final Fields ──────────────────────────────────────────────────
 
     /**
-     * Demonstrates the final field guarantee: writes to final fields in the constructor
-     * happen-before any subsequent read of those fields, provided the object is
-     * properly constructed (no 'this' escape).
+     * Demonstrates the final field guarantee (JLS 17.5, separate from happens-before): a
+     * thread that obtains a reference after the constructor finished sees the constructor's
+     * values of the final fields, provided the object is properly constructed (no 'this' escape).
      */
     public static class FinalFieldSafePublication {
 
@@ -300,19 +302,21 @@ public class SynchronizationActions {
         private final CountDownLatch constructionDone;
 
         /**
-         * Properly constructed: sets safeValue before 'this' could be seen externally.
-         * The CountDownLatch is notified AFTER the constructor body completes.
+         * Properly constructed: the constructor never hands 'this' to anything outside,
+         * so the final-field guarantee applies. The waiters are signalled only by
+         * publishAndSignal(), called after construction.
          */
         public ProperConstructionDemo(int value, CountDownLatch latch) {
             this.safeValue = value; // final write — guarantee applies
             this.constructionDone = latch;
-            // We do NOT call latch.countDown() here — that would let 'this' be seen
-            // before final field writes are complete (technically latch is just tracked)
+            // 'this' would escape if the constructor passed it on, e.g. started a thread
+            // that uses it, registered it as a listener, or stored it in a shared field.
         }
 
         /**
-         * After construction is complete, publish 'this' and notify waiters.
-         * This pattern avoids 'this' escape during construction.
+         * Signals waiters after construction is complete. The latch itself carries no
+         * reference; the point is that any hand-off of 'this' belongs here, not in the
+         * constructor.
          */
         public void publishAndSignal() {
             constructionDone.countDown(); // signal AFTER construction is complete
@@ -327,7 +331,7 @@ public class SynchronizationActions {
      * providing the needed happens-before for producer-consumer patterns.
      *
      * <p>RELEASE: all prior stores are visible before this store (producer side).
-     * <p>ACQUIRE: this load is visible before all subsequent loads (consumer side).
+     * <p>ACQUIRE: no later load or store can be reordered before this load (consumer side).
      */
     public static class VarHandleReleaseAcquire {
         private int data = 0;
@@ -355,7 +359,7 @@ public class SynchronizationActions {
 
         /**
          * Consume: read with ACQUIRE mode, then read data.
-         * ACQUIRE ensures this load is visible before all subsequent loads.
+         * ACQUIRE ensures no later load or store is reordered before this load.
          * If we see published==1, we are guaranteed to see data==value from produce().
          */
         public int consume() {

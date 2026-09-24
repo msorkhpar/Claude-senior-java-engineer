@@ -127,7 +127,7 @@ public class MemoryVisibility {
     // ── Pattern 3: AtomicInteger Counter (Lock-free) ──────────────────────────
 
     /**
-     * A thread-safe counter using AtomicInteger — lock-free alternative to synchronized.
+     * A thread-safe counter using AtomicLong — lock-free alternative to synchronized.
      * Suitable when the operation is a single atomic read-modify-write on one variable.
      */
     public static class AtomicSharedCounter {
@@ -340,7 +340,7 @@ public class MemoryVisibility {
          * All workers' writes are visible after await() returns.
          */
         public int[] awaitAndGetResults() throws InterruptedException {
-            initialized.await(); // hb all countDown() calls
+            initialized.await(); // every countDown() call hb this return
             return results.clone();
         }
 
