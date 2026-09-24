@@ -23,7 +23,7 @@ This section covers two sub-topics:
 - **Virtual threads (JEP 444)**: Simplify executor management -- `Executors.newVirtualThreadPerTaskExecutor()` reduces the need for custom thread pool boilerplate.
 - **Structured concurrency (JEP 453, preview)**: `StructuredTaskScope` eliminates duplicated fork-join-cancel patterns.
 - **Records**: Ideal for immutable results returned from reusable concurrent utilities.
-- **`try-with-resources`**: ExecutorService now implements `AutoCloseable` in Java 21, reducing shutdown boilerplate.
+- **`try-with-resources`**: ExecutorService implements `AutoCloseable` (since Java 19), reducing shutdown boilerplate.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -135,7 +135,7 @@ and awaitTermination. When this pattern is duplicated:
 3. A third might skip awaitTermination() -- returning results before tasks complete.
 
 By extracting a reusable ParallelComputation utility, the lifecycle is correct everywhere.
-In Java 21, ExecutorService implements AutoCloseable, so try-with-resources handles shutdown
+Since Java 19, ExecutorService implements AutoCloseable, so try-with-resources handles shutdown
 automatically -- an even DRYer approach.
 ```
 
