@@ -145,7 +145,7 @@ public class ParameterizedEnumConstants {
         }
     }
 
-    // --- Example 3: Enum with BiFunction parameter for strategy ---
+    // --- Example 3: Enum with UnaryOperator parameter for strategy ---
 
     /**
      * String transformation strategies as parameterized enum constants.
@@ -273,10 +273,10 @@ public class ParameterizedEnumConstants {
         }
     }
 
-    // --- Example 5: Enum implementing multiple interfaces ---
+    // --- Example 5: Enum with several parameters, optional values and static lookups ---
 
     /**
-     * Day schedule enum implementing Comparable behavior with custom parameters.
+     * Day schedule enum: each constant maps to a DayOfWeek with optional working hours.
      */
     public enum WorkSchedule {
         MONDAY(DayOfWeek.MONDAY, "09:00", "17:00", true),

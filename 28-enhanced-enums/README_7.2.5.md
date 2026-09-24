@@ -31,7 +31,8 @@ Key use cases covered:
 - **Record patterns**: The `Result<T>` pattern (enum status + record) benefits from record pattern deconstruction in switches.
 - **Sealed interfaces**: Enums implementing sealed interfaces gain exhaustive switch support.
 - **Virtual threads**: Enum-based service registries can dispatch work onto virtual threads.
-- **Sequenced collections**: EnumSet iteration order is guaranteed (declaration order), making it a natural `SequencedSet`.
+- **Sequenced collections**: EnumSet iterates in declaration order, but in Java 21 it does not implement `SequencedSet`
+  (no `getFirst()` or `reversed()`); copy it into a `List` or use `TreeSet` if you need those.
 
 ## Common Pitfalls and How to Avoid Them
 

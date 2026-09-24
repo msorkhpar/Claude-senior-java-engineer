@@ -193,12 +193,14 @@ public class EnumUseCases {
      */
     public enum CacheType {
         LRU {
-            private final Map<String, Object> cache = new LinkedHashMap<>(16, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
-                    return size() > maxSize();
-                }
-            };
+            // An enum constant is a shared singleton, so its mutable state must be thread-safe
+            private final Map<String, Object> cache = Collections.synchronizedMap(
+                    new LinkedHashMap<>(16, 0.75f, true) {
+                        @Override
+                        protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
+                            return size() > maxSize();
+                        }
+                    });
 
             @Override
             public void put(String key, Object value) {
@@ -223,8 +225,9 @@ public class EnumUseCases {
         FIFO {
             private final LinkedHashMap<String, Object> cache = new LinkedHashMap<>();
 
+            // synchronized: an enum constant is a shared singleton
             @Override
-            public void put(String key, Object value) {
+            public synchronized void put(String key, Object value) {
                 if (cache.size() >= maxSize() && !cache.containsKey(key)) {
                     String firstKey = cache.keySet().iterator().next();
                     cache.remove(firstKey);
@@ -233,17 +236,17 @@ public class EnumUseCases {
             }
 
             @Override
-            public Optional<Object> get(String key) {
+            public synchronized Optional<Object> get(String key) {
                 return Optional.ofNullable(cache.get(key));
             }
 
             @Override
-            public void clear() {
+            public synchronized void clear() {
                 cache.clear();
             }
 
             @Override
-            public int size() {
+            public synchronized int size() {
                 return cache.size();
             }
         };
@@ -261,10 +264,10 @@ public class EnumUseCases {
         public abstract int size();
     }
 
-    // --- Use Case 5: Enum for pattern matching with sealed types ---
+    // --- Use Case 5: Enum status combined with a generic record (Result type) ---
 
     /**
-     * Result type using enum for status and sealed interface for detail.
+     * Result status enum, combined with the generic {@link Result} record below.
      */
     public enum ResultStatus {
         SUCCESS, FAILURE, PENDING;
