@@ -10,7 +10,7 @@ Key features of switch expressions include:
 
 1. Arrow syntax (`->`) for concise case labels
 2. Multiple case labels per branch
-3. No fall-through between cases (unless explicitly stated)
+3. No fall-through between cases with the arrow form (the colon form, `case X:` with `yield`, can still fall through)
 4. Ability to return a value directly
 5. Exhaustiveness checking by the compiler
 
@@ -42,11 +42,12 @@ Key features of switch expressions include:
 2. Combine case labels when the same action applies to multiple values.
 3. Prefer the arrow syntax for single-expression cases.
 4. Use blocks with `yield` for complex case logic.
-5. Leverage pattern matching in switch (preview feature in Java 21) for more powerful switches.
+5. Leverage pattern matching in switch (standard since Java 21, JEP 441) for more powerful switches.
 
 ## Edge Cases and Their Handling
 
-1. Null values: Switch expressions don't handle null by default. Use a preceding null check if necessary.
+1. Null values: Without a `case null` label, a switch throws `NullPointerException` on null. Since Java 21 you can add
+   `case null ->`; otherwise use a preceding null check.
 2. Enum switches: Ensure all enum constants are covered or include a default case.
 3. Exhaustiveness with sealed classes: When switching on sealed classes, cover all permitted subclasses.
 
@@ -55,7 +56,7 @@ Key features of switch expressions include:
 - Be prepared to compare switch expressions with traditional switch statements.
 - Understand the benefits of switch expressions in terms of readability and safety.
 - Know how to refactor a traditional switch statement into a switch expression.
-- Be aware of the latest developments, such as pattern matching in switch (preview in Java 21).
+- Be aware of the latest developments, such as pattern matching in switch (standard since Java 21).
 
 ## Interview Q&A
 
@@ -147,7 +148,7 @@ String shade = switch (color) {
 Q4: Can you use switch expressions with null values?
 
 A4: Switch expressions don't handle null values by default. Attempting to switch on a null value will result in a
-NullPointerException. To handle potential null values, you should perform a null check before the switch expression:
+NullPointerException. To handle potential null values, you can perform a null check before the switch expression:
 
 ```java
 String result = (obj == null) ? "Null input" : switch (obj) {
@@ -157,9 +158,20 @@ String result = (obj == null) ? "Null input" : switch (obj) {
 };
 ```
 
-Q5: How do switch expressions interact with pattern matching in Java 21 (preview feature)?
+Since Java 21, a switch can instead handle null itself with a `case null` label:
 
-A5: Pattern matching in switch, introduced as a preview feature in Java 21, enhances switch expressions by allowing you
+```java
+String result = switch (obj) {
+    case null -> "Null input";
+    case String s -> "String: " + s;
+    case Integer i -> "Integer: " + i;
+    default -> "Unknown type";
+};
+```
+
+Q5: How do switch expressions interact with pattern matching in Java 21?
+
+A5: Pattern matching in switch, previewed in Java 17-20 and standard since Java 21 (JEP 441), enhances switch expressions by allowing you
 to match against patterns, including type patterns and guarded patterns. This makes switch expressions even more
 powerful:
 

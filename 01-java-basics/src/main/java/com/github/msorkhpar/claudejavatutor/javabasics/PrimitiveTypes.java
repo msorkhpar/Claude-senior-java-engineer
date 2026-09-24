@@ -18,12 +18,22 @@ public class PrimitiveTypes {
         return new long[]{Long.MIN_VALUE, Long.MAX_VALUE};
     }
 
+    // Float.MIN_VALUE and Double.MIN_VALUE are the smallest POSITIVE values, not the most negative ones;
+    // the range of a floating-point type is -MAX_VALUE .. MAX_VALUE.
     public float[] getFloatRange() {
-        return new float[]{Float.MIN_VALUE, Float.MAX_VALUE};
+        return new float[]{-Float.MAX_VALUE, Float.MAX_VALUE};
     }
 
     public double[] getDoubleRange() {
-        return new double[]{Double.MIN_VALUE, Double.MAX_VALUE};
+        return new double[]{-Double.MAX_VALUE, Double.MAX_VALUE};
+    }
+
+    public float getSmallestPositiveFloat() {
+        return Float.MIN_VALUE;
+    }
+
+    public double getSmallestPositiveDouble() {
+        return Double.MIN_VALUE;
     }
 
     public boolean[] getBooleanValues() {

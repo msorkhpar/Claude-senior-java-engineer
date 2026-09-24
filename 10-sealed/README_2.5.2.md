@@ -22,7 +22,7 @@ explore permitted and non-permitted subclasses in the context of sealed classes 
 
 ## Declaring Permitted Subclasses
 
-There are three ways to declare permitted subclasses:
+There are two ways to declare permitted subclasses, and they cannot be mixed:
 
 1. **Explicit Declaration**: Using the `permits` clause in the sealed class or interface declaration.
    ```java
@@ -38,10 +38,11 @@ There are three ways to declare permitted subclasses:
    non-sealed class Triangle extends Shape { }
    ```
 
-3. **Mixed Declaration**: Combining explicit and implicit declarations.
+3. **No Mixed Declaration**: Once a `permits` clause is present, it is the complete list; a subclass in the same file
+   that is not listed is rejected.
    ```java
    public sealed class Shape permits Circle {
-       final class Square extends Shape { }
+       final class Square extends Shape { } // error: class is not allowed to extend sealed class: Shape
    }
    final class Circle extends Shape { }
    ```
@@ -79,9 +80,9 @@ There are three ways to declare permitted subclasses:
 - Understand the implications of sealed classes on class design and inheritance.
 - Be able to discuss scenarios where sealed classes provide benefits over traditional class hierarchies.
 
-Q: What are the three ways to declare permitted subclasses in a sealed class or interface?
+Q: What are the ways to declare permitted subclasses in a sealed class or interface?
 
-A: The three ways to declare permitted subclasses are:
+A: There are two ways to declare permitted subclasses:
 
 1. Explicit Declaration: Using the `permits` clause in the sealed class or interface declaration.
    Example:
@@ -99,11 +100,11 @@ A: The three ways to declare permitted subclasses are:
    non-sealed class Triangle extends Shape { }
    ```
 
-3. Mixed Declaration: Combining explicit and implicit declarations.
+The two cannot be mixed: when a `permits` clause is present, it must list every permitted subclass.
    Example:
    ```java
    public sealed class Shape permits Circle {
-       final class Square extends Shape { }
+       final class Square extends Shape { } // error: class is not allowed to extend sealed class: Shape
    }
    final class Circle extends Shape { }
    ```

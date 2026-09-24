@@ -16,7 +16,6 @@ public record Employee(String name, int id, LocalDate hireDate) {
 
     // Custom method
     public boolean isNewHire() {
-        System.out.println(LocalDate.now());
         return LocalDate.now(Clock.systemDefaultZone()).minusMonths(6).isBefore(hireDate);
     }
 

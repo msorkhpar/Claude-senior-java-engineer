@@ -14,7 +14,8 @@ and the addition of new functionality.
 Key points:
 
 - Use the `extends` keyword to create a subclass.
-- Subclasses inherit all non-private members (fields and methods) from the superclass.
+- Subclasses inherit all non-private members (fields and methods) from the superclass (package-private members only
+  when the subclass is in the same package).
 - Constructors are not inherited, but the superclass constructor can be called using `super()`.
 - Java supports single inheritance for classes (a class can only extend one superclass).
 
@@ -52,7 +53,8 @@ superclass. This enables the subclass to modify or extend the behavior inherited
 
 Key points:
 
-- The overriding method must have the same name, return type, and parameter list as the overridden method.
+- The overriding method must have the same name and parameter list as the overridden method, and the same or a
+  covariant (subtype) return type.
 - Use the `@Override` annotation to indicate that a method is intended to override a superclass method.
 - The `super` keyword is used to call the superclass version of an overridden method.
 
@@ -141,8 +143,9 @@ public class Circle extends Shape {
 
 1. Multiple inheritance: Java doesn't support multiple inheritance for classes. Use interfaces to achieve a similar
    effect.
-2. Diamond problem: This issue is avoided in Java due to single inheritance, but can occur with interfaces (solved using
-   default methods in Java 8+).
+2. Diamond problem: This issue is avoided for state because a class has a single superclass. Since Java 8, default
+   methods let it appear for behaviour: if a class inherits the same default method from two interfaces, it must
+   override the method (and may pick one with `InterfaceName.super.method()`); otherwise it does not compile.
 3. Constructors in abstract classes: Although abstract classes can't be instantiated, they can have constructors to
    initialize common state for subclasses.
 
@@ -163,7 +166,8 @@ Method overriding and method overloading are both forms of polymorphism in Java,
 Method Overriding:
 
 - Occurs between a superclass and its subclass.
-- The method in the subclass has the same name, return type, and parameter list as the method in the superclass.
+- The method in the subclass has the same name and parameter list as the method in the superclass, and the same or a
+  covariant return type.
 - It's used to provide a specific implementation of a method that is already defined in the superclass.
 - It's resolved at runtime (dynamic polymorphism).
 
@@ -184,8 +188,11 @@ class Dog extends Animal {
     @Override
     void makeSound() { System.out.println("Dog barks"); }
 }
+```
 
 Example of overloading:
+
+```java
 class Calculator {
     int add(int a, int b) { return a + b; }
     double add(double a, double b) { return a + b; }
@@ -210,7 +217,8 @@ When to use abstract classes:
 
 1. When you want to provide a common interface and some shared functionality for a group of related classes.
 2. When you have a partial implementation that you want subclasses to complete.
-3. When you want to declare non-public members, which is not possible with interfaces.
+3. When you want non-public fields or protected/package-private methods, which interfaces do not allow (interface
+   members are public, except private methods, allowed since Java 9).
 4. When you need to define a template for a group of subclasses, enforcing certain methods to be implemented.
 
 Example:

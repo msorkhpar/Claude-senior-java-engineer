@@ -21,7 +21,9 @@ less error-prone code.
 
 7. **Reduced Risk of Errors**: Automatic generation of methods reduces the risk of errors in implementations.
 
-8. **Serialization Support**: Records are serializable by default if all their components are serializable.
+8. **Serialization Support**: A record that implements `Serializable` (it is not serializable unless it declares
+   that) is serialized by its components and deserialized through its canonical constructor, so the constructor's
+   validation also runs on deserialization.
 
 ## Best Practices
 
@@ -112,7 +114,8 @@ Q5: Are there any limitations to using records that developers should be aware o
 A5: Yes, there are some limitations to records:
 
 - Records cannot extend other classes (except java.lang.Record)
-- All fields in a record are final, so they cannot have mutable state
+- All fields in a record are final, so a record cannot change which objects it holds (but a component of a mutable
+  type, such as a List, can still be modified; records are only shallowly immutable)
 - Records are designed for use as simple data carriers and may not be suitable for complex domain objects
 - Records cannot declare instance fields other than the private final fields for the components of the record component
   list

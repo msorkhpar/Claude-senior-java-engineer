@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
  * <p>Function<T, R> - transforms a value of type T into type R.
  * Key methods:
  *   - R apply(T t)
- *   - Function<V, R> compose(Function<T, V> before)  — before.apply then this.apply
+ *   - Function<V, R> compose(Function<V, T> before)  — before.apply then this.apply
  *   - Function<T, V> andThen(Function<R, V> after)   — this.apply then after.apply
  *   - static Function<T, T> identity()
  *

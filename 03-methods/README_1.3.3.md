@@ -58,10 +58,8 @@ involving method calls with primitives and objects.
 
 ## Tests
 
-Unit tests demonstrating the behavior of pass by value for both primitives and objects can be found in
-`PassByValueExampleTest.java`.
-
-Now, let's implement the code and tests to demonstrate these concepts.
+The module's own code and tests are linked under "Code Examples" at the end of this page. A minimal, self-contained
+version of the same idea:
 
 PassByValueExample.java:
 
@@ -214,18 +212,16 @@ These examples and explanations should provide a comprehensive understanding of 
 primitives and object references. Remember, the key is to understand that Java always passes by value, but the value
 being passed for objects is a copy of the reference to the object.
 
-Process finished with exit code 0
-
 ## Code Examples
 
-- Test: [PassByValueTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/PassByValueTest.java)
-- Source: [PassByValue.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/PassByValue.java)
+- Test: [PassByValueReferenceReferenceTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/methods/PassByValueReferenceReferenceTest.java)
+- Source: [PassByValueReference.java](src/main/java/com/github/msorkhpar/claudejavatutor/methods/PassByValueReference.java)
 
 This example demonstrates that:
 
-1. Changes to the primitive `primitive` inside the method don't affect `number`.
-2. Changes to the object's state (`object.append()`) are reflected in `text`.
-3. Reassigning `object` inside the method doesn't affect `text`.
+1. Assigning to the parameter `value` inside `modifyPrimitive` doesn't affect the caller's `x`.
+2. Changes to the object's state (`sb.append()` in `modifyObject`) are visible to the caller.
+3. Reassigning `sb` inside `reassignObject` doesn't affect the caller's `sb`.
 
 These tests demonstrate:
 
@@ -233,7 +229,8 @@ These tests demonstrate:
 2. Objects (like StringBuilder) are passed by value of the reference, allowing modifications to the object's state.
 3. Reassigning object references inside methods doesn't affect the original reference.
 4. Arrays, being objects, behave similarly to other objects.
-5. Strings and wrapper classes (like Integer) behave like primitives due to their immutability.
+5. Strings and wrapper classes (like Integer) are passed exactly like any other reference; because they are immutable,
+   the method cannot change the object, and `s += " World"` or `i = 20` only reassigns the local parameter.
 
 This implementation and test suite cover the core concepts of pass by value in Java, including common edge cases and
 potential misconceptions. It provides a solid foundation for understanding and explaining this important Java concept

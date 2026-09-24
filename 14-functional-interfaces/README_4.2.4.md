@@ -63,8 +63,8 @@ public interface Predicate<T> {
 - **Java 8**: `Predicate<T>`, `BiPredicate<T,U>`, and primitive specializations introduced.
 - **Java 8**: `Stream.filter(Predicate)`, `Collection.removeIf(Predicate)`, and `Optional.filter(Predicate)` added.
 - **Java 11**: `Predicate.not(Predicate)` static factory method added — enables clean negation of method references like `Predicate.not(String::isBlank)`.
-- **Java 16+**: Records can be tested with Predicates without getters — `p -> p instanceof PersonRecord(var n, var a) && a > 18` (pattern matching).
-- **Java 21**: Pattern matching for switch can be used inside a Predicate to test complex type hierarchies. `Predicate<Shape> isLargeCircle = s -> s instanceof Circle c && c.radius() > 100`.
+- **Java 21**: Record patterns let a Predicate test record components directly — `p -> p instanceof PersonRecord(var n, var a) && a > 18`.
+- **Java 16+/21**: Pattern matching (`instanceof` since Java 16, `switch` since Java 21) can be used inside a Predicate to test complex type hierarchies. `Predicate<Shape> isLargeCircle = s -> s instanceof Circle c && c.radius() > 100`.
 - **Java 21**: Sequenced collections' `getFirst()`/`getLast()` can be used inside Predicate conditions.
 
 ## Common Pitfalls and How to Avoid Them
@@ -116,15 +116,15 @@ public interface Predicate<T> {
    // Fix: keep Predicate pure, handle side effects separately
    List<String> result = list.stream()
        .filter(s -> !s.isEmpty()) // pure predicate
-       .peek(seen::add)           // side effect with peek (only for debugging)
        .collect(toList());
+   seen.addAll(result);           // side effect after the stream, on one thread
    ```
 
-4. **Calling `and()` / `or()` with null** — passing null to `and()` or `or()` throws `NullPointerException` when the composed predicate is tested (not at composition time).
+4. **Calling `and()` / `or()` with null** — passing null to `and()` or `or()` throws `NullPointerException` immediately, at composition time (both call `Objects.requireNonNull(other)`), not later when the predicate is tested.
 
    ```java
    Predicate<String> p = s -> true;
-   Predicate<String> bad = p.and(null); // NPE thrown when test() is called
+   Predicate<String> bad = p.and(null); // NPE thrown right here
    ```
 
    ```java
@@ -287,11 +287,11 @@ Before Java 11, to negate a method reference you had to:
 
 Both workarounds are verbose. Predicate.not() solves this elegantly:
 
-    // Java 8-10 workaround
-    Predicate<String> notBlank = ((Predicate<String>) String::isBlank).negate();
+    // Java 8-10 workaround (String.isBlank itself only exists since Java 11, so isEmpty here)
+    Predicate<String> notEmpty = ((Predicate<String>) String::isEmpty).negate();
 
     // Java 11+
-    Predicate<String> notBlank = Predicate.not(String::isBlank);
+    Predicate<String> notEmpty = Predicate.not(String::isEmpty);
 
 The most common use case is stream filtering: filter out elements that match a condition
 expressed as a method reference.
@@ -308,7 +308,7 @@ List<String> nonEmpty = strings.stream()
     .collect(Collectors.toList());
 // ["hello", "world", "java"]
 
-// Contrast with verbose Java 8 workaround
+// Contrast with the plain-lambda version (the style you would write before Java 11)
 List<String> nonEmpty8 = strings.stream()
     .filter(s -> s != null)
     .filter(s -> !s.isEmpty())
@@ -463,8 +463,7 @@ String prefix = "he";
 List<String> matching = words.stream()
     .filter(w -> combined.test(w, prefix))
     .collect(Collectors.toList());
-// ["hello", "hey"] — "hey" is 3 chars so fails longerThan3? No: "hey".length() = 3 > 3 is false
-// Actually: ["hello"] — only "hello" passes both: length > 3 AND starts with "he"
+// ["hello"] — "hey" starts with "he" but its length 3 is not > 3, so longerThan3 fails
 
 // negate()
 BiPredicate<String, String> doesNotContain = contains.negate();
@@ -542,7 +541,8 @@ for which the Predicate returns true. It is a default method on Collection (Java
 Advantages over iterator-based removal:
 1. Conciseness: one line vs. 5-6 lines of iterator code
 2. Safety: no ConcurrentModificationException — the method handles iteration internally
-3. Performance: ArrayList's implementation uses a BitSet for efficient bulk removal (O(n))
+3. Performance: ArrayList's implementation marks the elements to remove in a bit mask and then
+   compacts the array once, so the whole removal is O(n) instead of O(n) per removed element
 4. Readability: the condition is expressed as a named Predicate
 
 Use removeIf when you want to modify a collection in-place based on a condition.
@@ -577,7 +577,7 @@ users.removeIf(inactive); // remove users inactive for over a year
 
 // Note: removeIf works on mutable collections only
 // List.of() is immutable — removeIf throws UnsupportedOperationException
-// List.of("a", "b").removeIf(s -> true); // UnsupportedOperationException!
+// List.of("a", "b").removeIf(s -> true); // UnsupportedOperationException (even if nothing matches)
 ```
 
 ## Code Examples

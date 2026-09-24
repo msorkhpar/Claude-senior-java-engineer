@@ -35,12 +35,12 @@ Lambda expressions consist of three parts:
 
 ## Relevant Java 21 Features
 
-Java 21 continues to improve lambda expression syntax and usability:
+The lambda syntax itself has barely changed since Java 8; the relevant additions are:
 
-- **Enhanced type inference**: Better inference in complex generic scenarios.
+- **`var` for lambda parameters** (Java 11): `(var s) -> ...`, useful when a parameter needs an annotation or `final`.
 - **Pattern matching integration**: Lambda expressions work seamlessly with modern pattern matching features.
-- **Underscore for unused parameters**: `(_) -> expression` (preview in some versions).
-- **Better compiler errors**: More helpful error messages when lambda syntax is incorrect.
+- **Underscore for unused parameters**: `(_) -> expression` is a preview feature in Java 21 (JEP 443, needs
+  `--enable-preview`) and standard from Java 22 (JEP 456).
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -127,8 +127,10 @@ Java 21 continues to improve lambda expression syntax and usability:
    // When functional interface expects void
    Consumer<String> printer = s -> System.out.println(s);
 
-   // Expression statement must not return a value
-   // Wrong: Consumer<String> consumer = s -> s.length();
+   // A method call used as the body is allowed even if it returns a value: the value is discarded
+   Consumer<String> consumer = s -> s.length(); // compiles
+   // Wrong: a body that is not a statement expression cannot be void
+   // Consumer<String> wrong = s -> s.length() + 1;  // Compilation error: lambda body is not compatible with a void functional interface
    ```
 
 2. **Empty parameter list**:
@@ -282,16 +284,21 @@ public class TargetTypingExample {
     }
 
     // Context 4: Overloaded methods (can be ambiguous)
+    interface StringProcessor { Integer process(String s); }
+    interface ObjectProcessor { Integer process(Object o); }
+
     public void example4() {
-        // If process is overloaded, explicit types might be needed
+        // process(s -> 1);                 // Compilation error: reference to process is ambiguous
         process((String s) -> s.length());  // Explicit type resolves ambiguity
     }
 
-    private void process(Function<String, Integer> func) {
+    private void process(StringProcessor func) {
     }
 
-    private void process(Function<Object, Integer> func) {
+    private void process(ObjectProcessor func) {
     }
+    // (Two overloads taking Function<String, Integer> and Function<Object, Integer> would not compile at all:
+    //  after erasure both are process(Function), a "name clash".)
 
     // Context 5: Casting
     public void example5() {
@@ -314,17 +321,22 @@ A2 (continued): Target typing is powerful but has limitations:
 public class ExplicitTypesExample {
 
     // Case 1: Resolving ambiguity in overloaded methods
+    // (The overloads use two different functional interfaces: process(Function<String, Integer>) and
+    //  process(Function<Integer, Integer>) would have the same erasure and could not both be declared.)
+    interface StringProcessor { Integer process(String s); }
+    interface IntegerProcessor { Integer process(Integer i); }
+
     public void case1() {
         // Without explicit types, compiler can't determine which method
         process((String s) -> s.length());  // Calls first process
         process((Integer i) -> i * 2);      // Calls second process
     }
 
-    private void process(Function<String, Integer> func) {
+    private void process(StringProcessor func) {
         System.out.println("String version");
     }
 
-    private void process(Function<Integer, Integer> func) {
+    private void process(IntegerProcessor func) {
         System.out.println("Integer version");
     }
 
@@ -353,11 +365,13 @@ public class ExplicitTypesExample {
                 .forEach(this::sendEmail);
     }
 
-    // Case 4: Annotations on parameters (requires explicit types)
+    // Case 4: Annotations on parameters (require an explicit type, or var since Java 11)
     public void case4() {
-        // When you need to annotate parameters
+        // When you need to annotate parameters (@NonNull stands for any parameter annotation, e.g. from a library)
         Function<String, Integer> func =
-                (@NonNull String s) -> s.length();  // Requires explicit type
+                (@NonNull String s) -> s.length();  // Explicit type
+        Function<String, Integer> func2 =
+                (@NonNull var s) -> s.length();     // Or var (Java 11+)
     }
 
     // Case 5: Multiple parameters with some final
@@ -388,8 +402,8 @@ A3: Use explicit parameter types when:
 1. **Resolving ambiguity**: Overloaded methods need clarification
 2. **Complex generics**: Multiple nested generic types benefit from clarity
 3. **Documentation**: Types serve as inline documentation for complex logic
-4. **Annotations**: Parameter annotations require explicit types
-5. **Modifiers**: Using final or other modifiers on parameters
+4. **Annotations**: Parameter annotations require explicit types (or `var`, since Java 11)
+5. **Modifiers**: Using final on parameters (also possible with `var`)
 
 Otherwise, prefer type inference for:
 - Cleaner, more concise code
@@ -842,7 +856,7 @@ One parameter:
 Multiple parameters:
 - Must use parentheses: (a, b) -> expression
 - All parameters typed or all inferred (can't mix)
-- Can use final modifier with types
+- Can use final modifier with types (or with `var`)
 
 Naming guidelines:
 1. Use descriptive names for non-obvious contexts
@@ -853,8 +867,8 @@ Naming guidelines:
 Special cases:
 - Varargs: works like regular methods
 - Generics: usually inferred from context
-- Underscore (_): preview feature for unused params
-- Annotations: require explicit types
+- Underscore (_): preview feature for unused params in Java 21, standard since Java 22
+- Annotations: require explicit types or `var`
 
 Choose the form that best balances conciseness and clarity!
 ```

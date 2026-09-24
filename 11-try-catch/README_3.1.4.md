@@ -34,7 +34,8 @@ try (Resource1 res1 = new Resource1();
 ## Best Practices
 
 1. Use try-with-resources for all `AutoCloseable` resources.
-2. Declare resources in the order you want them to be closed (reverse order of closing).
+2. Declare resources in the order they depend on each other (for example a stream before the reader that wraps it);
+   they are closed in the reverse order of declaration.
 3. Avoid declaring variables or performing operations in the try-with-resources statement that are not related to
    resource initialization.
 
@@ -67,7 +68,6 @@ Q1: What is the main advantage of using try-with-resources over traditional try-
 
 ```text
 A1: The main advantage of try-with-resources is automatic resource management. It ensures that resources are properly closed when the try block exits, even if an exception occurs. This eliminates the need for explicit cleanup in a finally block, reducing the risk of resource leaks and making the code cleaner and more concise. It also handles suppressed exceptions automatically, which can occur when both the try block throws an exception and the resource closing throws an exception.
-</text>
 ```
 
 Q2: How does try-with-resources handle multiple resources?

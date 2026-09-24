@@ -10,8 +10,9 @@ operations. It ensures that certain code is executed regardless of whether an ex
 2. It's commonly used for cleanup operations like closing resources (files, database connections, etc.).
 3. The `finally` block is optional but can only be used in conjunction with a `try` block.
 4. If a `finally` block is present, it will execute even if the `try` or `catch` blocks contain a `return` statement.
-5. In rare cases, a `finally` block might not execute if the JVM exits abruptly or if the thread executing the `try`
-   block is interrupted or killed.
+5. In rare cases, a `finally` block might not execute: if the JVM exits first (`System.exit`, a crash, the process
+   being killed) or the `try` block never finishes (an infinite loop or a deadlock). Interrupting the thread does not
+   skip `finally`.
 
 ## Common Pitfalls
 

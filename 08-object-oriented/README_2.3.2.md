@@ -1,9 +1,3 @@
-/usr/bin/python3.10 /mnt/Data/Projects/Java/Claude-senior-java-engineer/get-content.py
-Certainly! I'll focus on section 2.3.2 Polymorphism and its subsections. Here's the comprehensive coverage of this
-topic:
-
-README.md:
-
 # 2.3.2 Polymorphism in Java
 
 Polymorphism is a fundamental concept in object-oriented programming that allows objects of different types to be
@@ -53,7 +47,8 @@ compile-time. It's a fundamental feature that enables runtime polymorphism in Ja
 ### Key Aspects:
 
 - It's based on the actual object type, not the reference type.
-- All non-static methods in Java are virtual by default.
+- All non-static, non-private methods in Java are virtual by default (a `final` method is still dispatched virtually,
+  it just cannot be overridden; private methods are never dispatched dynamically).
 - It allows for more flexible and extensible code.
 
 ### Example:
@@ -276,7 +271,8 @@ Interfaces:
 1. Can only declare abstract methods (prior to Java 8) and constants.
 2. Since Java 8, can have default and static methods with implementations.
 3. A class can implement multiple interfaces.
-4. All methods are implicitly public and abstract (except default and static methods).
+4. All methods are implicitly public and abstract (except default and static methods, and private methods, which are
+   allowed since Java 9).
 5. Cannot have instance variables (only static final constants).
 
 Abstract Classes:
@@ -307,6 +303,8 @@ The `@Override` annotation in Java is used to indicate that a method in a subcla
 4. Documentation: It serves as a form of self-documentation, making the code's intent clearer.
 
 Example:
+```
+
 ```java
 class Animal {
     public void makeSound() {
@@ -326,12 +324,10 @@ class Dog extends Animal {
 In this example, if we were to accidentally misspell `makeSound` in the `Dog` class, the `@Override` annotation would cause a compile-time error, catching the mistake early.
 ```
 
-Now, let's implement some code to demonstrate these concepts and create corresponding test cases.
-
-First, we'll create a Maven module named `polymorphism` in the project structure. Here's the implementation code:
+This module's implementation of these concepts (see the Code Examples links below) looks like this:
 
 ```java
-package com.github.msorkhpar.claudejavatutor.polymorphism;
+package com.github.msorkhpar.claudejavatutor.oo;
 
 // Shape interface
 interface Shape2 {
@@ -373,8 +369,6 @@ class Rectangle2 implements Shape2 {
 }
 
 ```
-
-Process finished with exit code 0
 
 ## Code Examples
 

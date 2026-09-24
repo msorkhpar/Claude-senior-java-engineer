@@ -111,6 +111,15 @@ class MethodReferenceTypesTest {
                 new MethodReferenceTypes.BoundInstanceMethodReferences();
 
         @Test
+        @DisplayName("isPrefixOf tests whether each candidate is a prefix of the captured text")
+        void isPrefixOf_testsCandidateAgainstCapturedText() {
+            Predicate<String> prefixOfHello = refs.isPrefixOf("Hello");
+            assertThat(prefixOfHello.test("He")).isTrue();
+            assertThat(prefixOfHello.test("")).isTrue();
+            assertThat(prefixOfHello.test("Hello, World")).isFalse(); // the captured text is the receiver
+        }
+
+        @Test
         @DisplayName("containedInCollection filters items present in the collection")
         void containedInCollection_filtersCorrectly() {
             List<String> validNames = Arrays.asList("Alice", "Bob", "Charlie");

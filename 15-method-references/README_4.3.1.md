@@ -15,7 +15,7 @@ Before method references, developers using lambdas would often write trivial wra
 
 ```java
 list.forEach(s -> System.out.println(s));      // lambda that just calls one method
-list.forEach(s -> s.toUpperCase());             // lambda that delegates to another
+list.stream().map(s -> s.toUpperCase());       // lambda that delegates to another
 list.stream().map(s -> new StringBuilder(s));  // lambda that just calls a constructor
 ```
 
@@ -23,13 +23,14 @@ Method references simplify these to:
 
 ```java
 list.forEach(System.out::println);
-list.forEach(String::toUpperCase);
+list.stream().map(String::toUpperCase);
 list.stream().map(StringBuilder::new);
 ```
 
-The compiler translates a method reference into the same bytecode as the equivalent lambda. The key difference is
-readability: method references are self-documenting because the method name communicates intent directly, whereas a
-lambda body requires reading to understand.
+Both a method reference and the equivalent lambda are compiled to an `invokedynamic` call site; the only difference
+in the bytecode is that a lambda body is also compiled into a private synthetic `lambda$...` method, which a method
+reference does not need. The practical difference is readability: method references are self-documenting because
+the method name communicates intent directly, whereas a lambda body requires reading to understand.
 
 ### Relationship Between Lambdas and Method References
 
@@ -82,8 +83,8 @@ not a result.
   `Function`, `Consumer`, `Supplier`, `Predicate`, `BiFunction`, `Comparator`, etc.
 - **Java 11**: `var` in lambda parameters (not directly for method references, but for contexts where method references
   are used).
-- **Java 14+**: Pattern matching and records integrate cleanly with method references — record accessor methods
-  (`Person::name()`) can be used as method references.
+- **Java 16+**: Records (final in Java 16) integrate cleanly with method references — record accessor methods
+  (`Person::name`) can be used as method references.
 - **Java 16+**: `Stream.toList()` and other convenience terminal operations pair naturally with method references.
 - **Java 21**: Virtual threads and structured concurrency commonly use `Thread.ofVirtual()::start` and similar
   method references for cleaner concurrent code.
@@ -157,7 +158,8 @@ not a result.
    ```
 
 5. **Assuming method references always have better performance**: Method references and their equivalent lambdas
-   compile to essentially the same bytecode. Choosing between them should be based on readability, not performance.
+   both compile to an `invokedynamic` call site (the lambda adds a small synthetic method), and their runtime
+   performance is effectively the same. Choosing between them should be based on readability, not performance.
 
 ## Best Practices and Optimization Techniques
 
@@ -177,7 +179,7 @@ not a result.
 5. **Combine with `Comparator.comparing()`**: This is one of the most common and readable uses of method references:
    `Comparator.comparing(Person::getName)` vs `Comparator.comparing(p -> p.getName())`.
 
-6. **Consider method references in tests**: Method references like `assertThat(result).allSatisfy(String::isEmpty)`
+6. **Consider method references in tests**: Method references like `assertThat(result).allMatch(String::isEmpty)`
    make test assertions highly readable.
 
 ## Edge Cases and Their Handling
@@ -195,8 +197,8 @@ not a result.
    references through the implementing type.
 
    ```java
-   // Iterable.forEach is a default method, but we reference it via the concrete type
-   Consumer<List<String>> printer = list -> list.forEach(System.out::println);
+   // Collection.stream() is a default method; List::stream references it through the List type
+   Function<List<String>, Stream<String>> toStream = List::stream;
    ```
 
 3. **Generic methods as method references**: When the method is generic and the target type provides enough
@@ -232,7 +234,7 @@ Interviewers focus on:
 - Understanding the four distinct types of method references and how to choose between them.
 - The difference between bound vs. unbound instance method references — this trips up many candidates.
 - How method references interact with overloaded methods and how the compiler resolves ambiguity.
-- Recognizing that method references are compiled identically to their lambda equivalents.
+- Recognizing that method references and their lambda equivalents both compile to `invokedynamic` and perform the same.
 - Real-world use cases, especially in Stream pipelines, `Comparator.comparing`, and `Optional.map`.
 
 **Common tricky interview questions:**
@@ -259,7 +261,8 @@ Key differences:
 2. Reuse: method references reuse existing code; lambdas define new inline behavior.
 3. Readability: method references communicate intent through the method name; lambdas require
    reading the body.
-4. Bytecode: both are compiled using invokedynamic — the resulting bytecode is equivalent.
+4. Bytecode: both are compiled using invokedynamic — a lambda additionally gets a private synthetic method for its
+   body, but the runtime behaviour and performance are equivalent.
 5. Flexibility: lambdas can contain multiple statements, conditionals, and complex logic;
    method references are limited to single-method delegation.
 
@@ -395,16 +398,20 @@ import java.util.function.Consumer;
 // The compiler picks the right overload based on target type:
 
 Consumer<String>  sc = System.out::println;  // resolves to println(String)
-Consumer<Integer> ic = System.out::println;  // resolves to println(int) via unboxing
+Consumer<Integer> ic = System.out::println;  // resolves to println(Object): overload resolution tries
+                                             // methods without unboxing first, and println(Object) fits
 Consumer<Object>  oc = System.out::println;  // resolves to println(Object)
 
-// Ambiguity example:
-// If a method accepts both Consumer<String> and Consumer<Object>,
-// the compiler cannot pick the right overload:
-// ambiguousMethod(System.out::println); // compile error: ambiguous
+// Ambiguity example (Consumer<String> and Consumer<Object> overloads would not even compile:
+// they have the same erasure, so two distinct functional interfaces are used here):
+// interface StringSink { void accept(String s); }
+// interface IntSink    { void accept(Integer i); }
+// void ambiguousMethod(StringSink s) { ... }
+// void ambiguousMethod(IntSink i)    { ... }
+// ambiguousMethod(System.out::println); // compile error: reference to ambiguousMethod is ambiguous
 
 // Fix: cast explicitly
-// ambiguousMethod((Consumer<String>) System.out::println);
+// ambiguousMethod((StringSink) System.out::println);
 ```
 
 ---

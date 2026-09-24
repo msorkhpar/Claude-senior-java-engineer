@@ -51,4 +51,13 @@ class BankAccountTest {
                     assertThat(e.getAccountBalance()).isEqualTo(1000.0);
                 });
     }
+
+    @Test
+    void failedOperations_leaveTheBalanceUnchanged() {
+        // Failure atomicity (README_3.2.3): validation runs before the balance is changed
+        assertThatThrownBy(() -> account.withdraw(1500.0)).isInstanceOf(InsufficientFundsException.class);
+        assertThatThrownBy(() -> account.withdraw(-100.0)).isInstanceOf(InvalidAmountException.class);
+        assertThatThrownBy(() -> account.deposit(0.0)).isInstanceOf(InvalidAmountException.class);
+        assertThat(account.getBalance()).isEqualTo(1000.0);
+    }
 }

@@ -14,8 +14,9 @@ and are essential for efficient memory management and performance optimization.
 
 - While primitive types themselves haven't changed, modern Java encourages the use of var for local variable type
   inference (introduced in Java 10).
-- Java 21 introduces enhancements to the switch expressions and pattern matching, which can be used with primitive
-  types.
+- Java 21 finalises pattern matching for `switch` and record patterns, but these patterns match reference types only;
+  a plain `switch` on primitives still accepts only `char`, `byte`, `short` and `int` (and their wrappers). Primitive
+  types in patterns, `instanceof` and `switch` arrive only as a preview feature in Java 23 (JEP 455).
 
 ## Common Pitfalls and Best Practices:
 
@@ -23,7 +24,7 @@ and are essential for efficient memory management and performance optimization.
 
   ```java
   int maxInt = Integer.MAX_VALUE;
-int overflow = maxInt + 1; 
+int overflow = maxInt + 1; // wraps around silently to Integer.MIN_VALUE (-2147483648)
   ```
 
 2. Floating-Point Precision: Don't use == for comparing floating-point numbers.
@@ -67,7 +68,7 @@ int overflow = maxInt + 1;
     Integer autoBoxed = 42; // Automatically boxes int to Integer
     
     // Auto-unboxing
-    int unboxed = autoboxed; // Automatically unboxes Integer to int
+    int unboxed = autoBoxed; // Automatically unboxes Integer to int
     ```
 
 ## Edge Cases:

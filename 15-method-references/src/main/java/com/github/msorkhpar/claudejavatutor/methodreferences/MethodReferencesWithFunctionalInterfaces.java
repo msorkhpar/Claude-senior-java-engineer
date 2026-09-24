@@ -7,7 +7,7 @@ import java.util.stream.IntStream;
 
 /**
  * Demonstrates using method references with the standard functional interfaces:
- * Consumer, Supplier, Function, Predicate, BiFunction, Comparator, and Optional.
+ * Consumer, Supplier, Function, Predicate, BiFunction and Comparator, and with Optional's methods.
  *
  * @see README_4.3.3.md
  */
@@ -110,8 +110,8 @@ public class MethodReferencesWithFunctionalInterfaces {
         }
 
         /**
-         * Lazily provides a value using a Supplier backed by a bound method reference.
-         * The value is only computed on first access.
+         * Lazily provides a default value using a Supplier (a method reference or a lambda).
+         * The Supplier is called only when value is null; the result is not cached.
          */
         public <T> T getOrDefault(T value, Supplier<T> defaultSupplier) {
             return value != null ? value : defaultSupplier.get();
@@ -395,7 +395,8 @@ public class MethodReferencesWithFunctionalInterfaces {
          */
         public Optional<Integer> trimAndGetLength(Optional<String> opt) {
             return opt
-                    .filter(Objects::nonNull)       // static method ref as predicate
+                    .filter(Objects::nonNull)       // static method ref as predicate (always true here:
+                                                    // an Optional never holds null)
                     .map(String::trim)               // unbound ref: trim whitespace
                     .filter(Predicate.not(String::isBlank)) // negated unbound ref
                     .map(String::length);            // unbound ref: get length

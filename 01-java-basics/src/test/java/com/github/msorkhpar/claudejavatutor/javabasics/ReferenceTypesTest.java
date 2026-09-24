@@ -88,6 +88,12 @@ class ReferenceTypesTest {
 
         assertThat(shallowCopy.getName()).isNotEqualTo(original.getName());
         assertThat(deepCopy.getName()).isNotEqualTo(original.getName());
+
+        // The difference: the shallow copy shares the friends list, the deep copy has its own
+        original.addFriend(new ReferenceTypes.Person("New Friend", 31));
+
+        assertThat(shallowCopy.getFriends()).isSameAs(original.getFriends()).hasSize(2);
+        assertThat(deepCopy.getFriends()).isNotSameAs(original.getFriends()).hasSize(1);
     }
 
     @Test

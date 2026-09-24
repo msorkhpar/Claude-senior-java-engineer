@@ -80,8 +80,8 @@ Function<String, StringBuilder> sbMaker = StringBuilder::new;
 StringBuilder sb = sbMaker.apply("initial"); // calls new StringBuilder("initial")
 
 // Two-argument constructor (requires BiFunction or custom interface)
-BiFunction<String, Integer, String> repeat = String::new; // hypothetical
-// In practice: PointRecord record = biFunction.apply(x, y);
+BiFunction<Integer, Float, HashMap<String, String>> mapMaker = HashMap::new;
+HashMap<String, String> map = mapMaker.apply(16, 0.75f); // calls new HashMap<>(16, 0.75f)
 ```
 
 ### Summary Table
@@ -114,8 +114,8 @@ BiFunction<String, Integer, String> repeat = String::new; // hypothetical
 - **Java 16+**: Record components generate getter methods that are perfect for unbound instance method references.
   `record Person(String name, int age){}` — use `Person::name` or `Person::age` as `Function<Person, String>` and
   `Function<Person, Integer>` respectively.
-- **Java 21**: `String` template processors (preview) and `SequencedCollection` methods are designed with method
-  reference usage in mind.
+- **Java 21**: No new kind of method reference. New APIs such as the `SequencedCollection` methods can be
+  referenced like any other method, e.g. `Function<List<String>, String> first = List::getFirst;`.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -155,7 +155,7 @@ BiFunction<String, Integer, String> repeat = String::new; // hypothetical
    String target = "searchTerm";
    List<String> sources = List.of("find searchTerm here", "nothing", "also searchTerm");
 
-   // BOUND: always checks if target contains "se" — probably not intent
+   // BOUND: always checks whether target contains the argument — probably not the intent
    Predicate<String> bound = target::contains; // checks if "searchTerm" contains each source
    // sources.stream().filter(bound).toList(); // filters sources that "searchTerm" contains??
 
@@ -223,12 +223,13 @@ BiFunction<String, Integer, String> repeat = String::new; // hypothetical
 
 ## Edge Cases and Their Handling
 
-1. **Varargs constructor reference**: If the constructor accepts varargs, the functional interface must accept an
-   array of the vararg type.
+1. **Varargs constructor reference**: If the constructor accepts varargs, the functional interface can accept an
+   array of the vararg type, or individual arguments (the reference then uses variable-arity invocation).
 
    ```java
    // String has no varargs constructor in standard API; hypothetical:
    // Function<Object[], MyClass> fn = MyClass::new; // if MyClass(Object... args) exists
+   // BiFunction<String, String, MyClass> fn2 = MyClass::new; // also valid: args packed into an array
    ```
 
 2. **Generic class constructor reference with type wildcards**: Type inference usually handles this, but sometimes
@@ -239,7 +240,7 @@ BiFunction<String, Integer, String> repeat = String::new; // hypothetical
    Supplier<ArrayList<String>> supplier = ArrayList::new; // fine
 
    // If inference fails, use explicit type
-   Supplier<ArrayList<String>> explicit = ArrayList<String>::new; // Java 8 diamond in ref
+   Supplier<ArrayList<String>> explicit = ArrayList<String>::new; // explicit type argument in the reference
    ```
 
 3. **Inner class constructor reference**: Non-static inner classes require an enclosing instance, making their
@@ -284,9 +285,9 @@ Interviewers focus on:
 - "What is the functional interface type for `String::compareTo`? Why does it take two strings?"
   (`Comparator<String>` or `BiFunction<String, String, Integer>` — because the receiver is the first arg)
 - "How is `new ArrayList<>()` expressed as a constructor reference? What functional interface does it match?"
-  (`ArrayList::new` as `Supplier<ArrayList>`)
+  (`ArrayList::new` as `Supplier<ArrayList<String>>`)
 - "If a class has a private constructor, can you use a constructor reference to it?"
-  (No — the same access rules as regular invocations apply)
+  (Only where that constructor is accessible, e.g. inside the class itself — the same access rules as `new` apply)
 
 ## Interview Q&A Section
 
@@ -435,7 +436,7 @@ public class ConstructorRefFactoryDemo {
         return Stream.generate(factory).limit(count).collect(Collectors.toList());
     }
 
-    // Two-argument factory
+    // Factory taking one argument per element
     public static <T> List<T> createList(List<String> names, Function<String, T> factory) {
         return names.stream().map(factory).collect(Collectors.toList());
     }
@@ -443,7 +444,7 @@ public class ConstructorRefFactoryDemo {
     public static void main(String[] args) {
         // Using no-arg constructor reference as Supplier
         Supplier<ArrayList<String>> listFactory = ArrayList::new;
-        List<List<String>> buckets = createList(3, listFactory); // 3 empty ArrayLists
+        List<ArrayList<String>> buckets = createList(3, listFactory); // 3 empty ArrayLists
 
         // Using single-arg constructor reference as Function
         List<String> names = List.of("Alice", "Bob", "Charlie");
@@ -502,9 +503,9 @@ class Disambiguate {
         // because unbound instance refs consume one extra param for the receiver
         BiFunction<Disambiguate, String, String> unboundRef = Disambiguate::instanceMethod;
 
-        // For the instance method, if used as Function<String,String>,
-        // it would try static interpretation (1 param in + 1 param out) — but
-        // staticMethod shadows here. In general: the compiler picks based on method type.
+        // Does NOT compile: Function<String,String> gives no receiver, and instanceMethod is not static
+        // Function<String, String> wrong = Disambiguate::instanceMethod;
+        // error: unexpected instance method instanceMethod(String) found in unbound lookup
 
         // Creating an unbound ref for just one class with one instance method:
         // Function<String, Integer> len = String::length; // unbound: String is receiver

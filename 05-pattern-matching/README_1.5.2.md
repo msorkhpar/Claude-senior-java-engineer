@@ -3,9 +3,8 @@
 ## Concept Explanation
 
 Pattern matching for `instanceof` is a feature introduced in Java 14 as a preview feature and became standard in Java
-
 16. It simplifies and enhances the traditional `instanceof` operator by allowing you to declare and initialize a
-17. variable of the tested type in a single step.
+variable of the tested type in a single step.
 
 This feature reduces boilerplate code and improves readability, especially when working with polymorphic code or when
 you need to perform type-specific operations after an `instanceof` check.
@@ -14,9 +13,11 @@ you need to perform type-specific operations after an `instanceof` check.
 
 1. Pattern matching for `instanceof` combines type checking and casting in one step.
 2. It eliminates the need for explicit casting after an `instanceof` check.
-3. The scope of the pattern variable is limited to the `if` block where it's declared.
+3. The pattern variable is in scope only where the match is certain ("flow scoping"): usually the `if` block, but after
+   `if (!(obj instanceof String s)) return;` it is in scope for the rest of the method.
 4. It works with both classes and interfaces.
-5. The pattern variable is effectively final within its scope.
+5. The pattern variable is not implicitly final: it can be reassigned unless you declare it `final` (as in
+   `obj instanceof final String s`), although reassigning it is rarely a good idea.
 
 ## Relevant Java Features
 
@@ -27,18 +28,20 @@ you need to perform type-specific operations after an `instanceof` check.
 ## Common Pitfalls and How to Avoid Them
 
 1. **Shadowing variables**: Be careful not to shadow existing variables with the pattern variable.
-2. **Forgetting the scope**: Remember that the pattern variable is only in scope within the `if` block.
+2. **Forgetting the scope**: Remember that the pattern variable is only in scope where the match is guaranteed (see
+   key point 3).
 3. **Unnecessary pattern matching**: For simple casts without additional checks, a traditional cast might be clearer.
 
 ## Best Practices and Optimization Techniques
 
 1. Use pattern matching when you need to both check the type and use the object as that type.
 2. Combine with other modern Java features for more concise and readable code.
-3. Consider using pattern matching in switch expressions (Java 17+) for multiple type checks.
+3. Consider using pattern matching in switch expressions (standard since Java 21) for multiple type checks.
 
 ## Edge Cases and Their Handling
 
-1. Null values: Pattern matching still requires explicit null checks.
+1. Null values: `obj instanceof String s` is simply false for null, so no NullPointerException is possible; add a
+   separate null check only when null needs its own handling.
 2. Sealed classes: Pattern matching works well with sealed classes and interfaces.
 
 ## Interview-specific Insights
@@ -67,8 +70,10 @@ if (obj instanceof Square square) {
 
 Q2: How does pattern matching for instanceof affect variable scoping?
 
-A2: The pattern variable introduced in a pattern matching instanceof check is scoped to the if block (or the else block
-if the condition is negated). This means the variable is only accessible within that block. For example:
+A2: The pattern variable introduced in a pattern matching instanceof check is in scope only where the compiler knows the
+match succeeded: the if block (or the else block if the condition is negated), and also the code after an `if` whose
+negated test exits the method, e.g. `if (!(obj instanceof Square square)) return;`. In the example below, the
+variable is accessible only within the if block:
 
 ```java
 if (obj instanceof Square square) {
@@ -108,7 +113,7 @@ public void processShape(Object obj) {
 Q4: How can pattern matching for instanceof be combined with other modern Java features?
 
 A4: Pattern matching for instanceof can be effectively combined with other modern Java features like switch expressions
-and records. Here's an example using switch expressions (Java 17+):
+and records. Here's an example using switch expressions (pattern matching for switch is standard since Java 21):
 
 ```java
 public static String describeShape(Object obj) {
@@ -123,8 +128,8 @@ public static String describeShape(Object obj) {
 
 Q5: How does pattern matching for instanceof handle null values?
 
-A5: Pattern matching for instanceof does not handle null values automatically. You still need to perform explicit null
-checks if necessary. For example:
+A5: Pattern matching for instanceof never matches null: `null instanceof String s` is false, so the pattern is null-safe
+and cannot throw. If null needs its own handling, test for it separately. For example:
 
 ```java
 public void processObject(Object obj) {

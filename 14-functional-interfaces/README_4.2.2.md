@@ -59,7 +59,7 @@ wrapping one Supplier inside another.
 - **Java 9**: `Optional.or(Supplier<Optional<T>>)` — returns the optional if present, otherwise calls the Supplier to produce a new Optional.
 - **Java 9**: `Optional.ifPresentOrElse(Consumer, Runnable)` — for two-branch handling without a Supplier, contrast with `orElseGet`.
 - **Java 11**: `Predicate.not(Predicate)` does not involve Supplier, but `Optional.orElseThrow(Supplier)` is commonly paired with it.
-- **Java 16+**: Records used as DTOs can be supplied via constructor references: `() -> new PersonRecord("Alice", 30)`.
+- **Java 16+**: Records used as DTOs can be supplied via a lambda such as `() -> new PersonRecord("Alice", 30)` (or a constructor reference like `PersonRecord::new` where the target interface's parameters match a constructor).
 - **Java 21**: Virtual threads benefit from Supplier-based lazy initialization — the Supplier wraps expensive resource creation (DB connections, HTTP clients) and is only invoked when the virtual thread actually needs it.
 
 ## Common Pitfalls and How to Avoid Them
@@ -109,10 +109,19 @@ wrapping one Supplier inside another.
    ```
 
    ```java
-   // Fix: use AtomicReference for thread-safe lazy initialization
-   AtomicReference<String> ref = new AtomicReference<>();
-   Supplier<String> threadSafeMemo = () ->
-       ref.updateAndGet(v -> v != null ? v : expensiveComputation());
+   // Fix: synchronize the check-and-compute so it runs at most once
+   Object lock = new Object();
+   Object[] cached = {null};
+   Supplier<String> threadSafeMemo = () -> {
+       synchronized (lock) {
+           if (cached[0] == null) {
+               cached[0] = expensiveComputation();
+           }
+           return (String) cached[0];
+       }
+   };
+   // Note: AtomicReference.updateAndGet(v -> v != null ? v : expensiveComputation()) publishes a single value
+   // safely, but under contention it may call expensiveComputation() more than once (its function can be retried).
    ```
 
 4. **Using `Supplier` where `Callable` is needed** — `Supplier.get()` cannot throw checked exceptions. If the computation throws a checked exception, use `Callable<T>` instead.
@@ -312,7 +321,9 @@ in a memoizing layer, we change its semantics to "produce this value once, then 
 
 There are two common implementations:
 1. Single-threaded: use a boolean flag and a result holder.
-2. Thread-safe: use AtomicReference with compareAndSet or updateAndGet.
+2. Thread-safe: use AtomicReference with compareAndSet. This guarantees that every caller sees the
+   same cached value, but two threads racing on the first call may both run the computation (only
+   one result is kept). If the computation must run at most once, use synchronization instead.
 ```
 
 ```java
@@ -322,7 +333,8 @@ public static <T> Supplier<T> memoize(Supplier<T> supplier) {
     return () -> {
         T value = cached.get();
         if (value == null) {
-            // updateAndGet is atomic: only one thread wins the computation
+            // compareAndSet is atomic: only one thread's result is stored. Several threads racing here
+            // may each call supplier.get(); the losers' results are discarded.
             cached.compareAndSet(null, supplier.get());
             value = cached.get();
         }

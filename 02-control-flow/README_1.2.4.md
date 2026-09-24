@@ -7,7 +7,9 @@ an alternative to multiple if-else statements when comparing a single variable a
 
 ## Key Points to Remember
 
-1. The switch expression can be of type `byte`, `short`, `char`, `int`, `String` (since Java 7), or an `enum`.
+1. The switch expression can be of type `byte`, `short`, `char`, `int`, their wrappers (`Byte`, `Short`, `Character`,
+   `Integer`), `String` (since Java 7), or an `enum`. Since Java 21, a switch that uses patterns can switch on any
+   reference type.
 2. Each case is followed by the value to compare and a colon (:).
 3. The `break` statement is used to exit the switch block after a case is executed.
 4. The `default` case is optional and executed when no other case matches.
@@ -15,8 +17,9 @@ an alternative to multiple if-else statements when comparing a single variable a
 
 ## Java 21 Features
 
-While switch statements themselves haven't changed significantly in Java 21, it's worth noting that Java 14 introduced
-switch expressions, which offer more concise syntax and eliminate the need for break statements.
+Java 14 introduced switch expressions, which offer more concise syntax and eliminate the need for break statements.
+Java 21 finalised pattern matching for switch (JEP 441), which applies to switch statements too: `case` labels can be
+type or record patterns with `when` guards, and a `case null` label can handle null explicitly (see 1.2.5 and 1.5.4).
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -28,14 +31,15 @@ switch expressions, which offer more concise syntax and eliminate the need for b
 ## Best Practices and Optimization Techniques
 
 1. Use `switch` when comparing a single variable against multiple values.
-2. Order cases from most to least frequent for slight performance improvement.
+2. Case order does not affect performance: `javac` compiles an int switch to a `tableswitch` (direct jump) or a
+   `lookupswitch` (sorted keys, binary search), whatever the order in the source.
 3. Use `enum` types with switch for type-safe comparisons.
 4. Consider using switch expressions (Java 14+) for more concise and less error-prone code.
 
 ## Edge Cases and Their Handling
 
 1. Empty switch statement: Valid but not useful.
-2. Switch on `null`: Results in a `NullPointerException`.
+2. Switch on `null`: Results in a `NullPointerException`, unless (since Java 21) the switch has a `case null` label.
 3. Large number of cases: Consider alternatives like lookup tables or strategy pattern.
 
 ## Interview-specific Insights
@@ -54,8 +58,8 @@ A1: The main differences are:
 1. `switch` can only compare equality, while `if-else` can use any boolean expression.
 2. `switch` is generally more readable and potentially more efficient for multiple equality comparisons.
 3. `switch` can have fall-through behavior, which `if-else` doesn't have.
-4. `switch` works with a limited set of data types (int, byte, short, char, String, enum), while `if-else` can work with
-   any type.
+4. A classic `switch` works with a limited set of data types (int, byte, short, char, their wrappers, String, enum),
+   while `if-else` can work with any type. (Since Java 21, a pattern switch accepts any reference type.)
 
 ```java
 // switch example
@@ -122,7 +126,8 @@ switch (fruit) {
 }
 ```
 
-It's important to note that if `fruit` is `null`, this will throw a `NullPointerException`.
+It's important to note that if `fruit` is `null`, this will throw a `NullPointerException` (a `case null` label,
+available since Java 21, would handle it instead).
 
 Q4: What are the performance implications of using `switch` vs `if-else`?
 

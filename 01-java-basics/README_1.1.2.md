@@ -94,8 +94,10 @@ A1: Primitive data types and reference data types in Java differ in several impo
     - Reference types store a reference (memory address) to an object in memory.
 
 2. Memory allocation:
-    - Primitive types are stored in the stack memory.
-    - Reference types are stored in the heap memory.
+    - A primitive value lives wherever its variable lives: a local variable on the thread's stack, a field inside
+      its object on the heap, an array element inside its array on the heap.
+    - Objects themselves are allocated on the heap; a reference variable (on the stack or in a field) only points to
+      them. (The JIT may avoid a heap allocation through escape analysis, but that is an optimisation, not the model.)
 
 3. Default values:
     - Primitive types have default values (e.g., 0 for int, false for boolean).
@@ -130,15 +132,16 @@ public class DataTypeComparison {
         int primitiveInt = 5;
         
         // Reference type
-        Integer referenceInt = new Integer(5);
+        Integer referenceInt = Integer.valueOf(5); // new Integer(5) is deprecated for removal since Java 16
         
         // Null assignment
         // primitiveInt = null; // This would cause a compilation error
         referenceInt = null; // This is allowed
         
-        // Default values
-        int defaultPrimitive; // Will be initialized to 0
-        Integer defaultReference; // Will be initialized to null
+        // Default values apply to FIELDS and array elements only: an int field defaults to 0, an Integer field to null.
+        // Local variables get no default: reading one before assigning it is a compile error.
+        int defaultPrimitive;     // System.out.println(defaultPrimitive); -> "variable might not have been initialized"
+        Integer defaultReference; // same for a local reference variable
         
         // Method call
         // primitiveInt.toString(); // This would cause a compilation error
@@ -151,7 +154,8 @@ public class DataTypeComparison {
 
 In this example, we can see that:
 
-- The primitive int is directly assigned a value, while the Integer object is created using the new keyword.
+- The primitive int is directly assigned a value, while the Integer object is obtained from `Integer.valueOf` (which
+  may return a cached instance for values from -128 to 127).
 - We can assign null to the reference type but not to the primitive type.
 - The reference type allows method calls, while the primitive type doesn't.
 
@@ -165,19 +169,29 @@ works:
 Object Creation:
 
 - When an object is created, Java allocates memory for it in the heap.
-  Reference Counting:
-- The JVM keeps track of how many references point to each object.
-  Unreachable Objects:
+
+Reachability (not reference counting):
+
+- The JVM does not count references to each object. Instead, the collector traces which objects can be reached from
+  the GC roots (local variables of live threads, static fields, JNI references, etc.); this is why circular references
+  between otherwise unreachable objects are collected without any special handling.
+
+Unreachable Objects:
+
 - An object becomes eligible for garbage collection when it's no longer reachable from the program's root set (active
   threads, static fields, etc.).
-  Garbage Collection Process:
+
+Garbage Collection Process:
+
 - The garbage collector periodically runs to identify and remove unreachable objects.
 - It uses various algorithms (like mark-and-sweep or copying collection) to identify unreachable objects.
 - Memory occupied by unreachable objects is reclaimed and can be reused.
 
 Finalization:
 
-- Before reclaiming memory, the garbage collector calls the object's finalize() method if it's implemented.
+- If a class overrides finalize(), the JVM may call it at some point after the object becomes unreachable, but there
+  is no guarantee it runs at all (for example, the JVM may exit first). Finalization is deprecated for removal since
+  Java 18 (JEP 421); use try-with-resources or `java.lang.ref.Cleaner` instead.
 
 Here's a simple example to illustrate:
 
@@ -219,7 +233,9 @@ In this example:
 - When createObjects() method exits, obj2 also becomes eligible for GC as it goes out of scope.
 - We call System.gc() to suggest a garbage collection (note that in real applications, explicitly calling gc() is
   generally not recommended).
-- The finalize() method (though its use is discouraged in modern Java) demonstrates when objects are being collected.
+- The finalize() method (deprecated for removal; compiling it prints a `[removal]` warning) prints a message if and when
+  an object is finalized. Run the program a few times: sometimes both messages appear, often neither does, because
+  System.gc() is only a request and the JVM may exit before the finalizer thread runs.
 
 Key points to remember:
 

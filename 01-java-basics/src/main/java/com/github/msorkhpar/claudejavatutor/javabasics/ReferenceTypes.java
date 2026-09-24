@@ -89,14 +89,17 @@ public class ReferenceTypes {
         }
     }
 
-    // Demonstrate memory leak
+    // Demonstrate memory leak: a long-lived (static) collection that is only ever added to keeps every
+    // element reachable, so none of them can be collected. A LOCAL list would not leak: it becomes
+    // unreachable as soon as the method returns.
+    private static final List<Person> REGISTRY = new ArrayList<>();
+
     public static void demonstrateMemoryLeak() {
-        List<Person> people = new ArrayList<>();
         for (int i = 0; i < 100000; i++) {
-            people.add(new Person("Person " + i, i));
+            REGISTRY.add(new Person("Person " + i, i));
         }
         // Uncomment the next line to fix the memory leak
-        // people.clear();
+        // REGISTRY.clear();
     }
 
     // Demonstrate aliasing
@@ -124,9 +127,12 @@ public class ReferenceTypes {
         bob.addFriend(alice);
     }
 
-    // Demonstrate deep vs shallow copy
+    // Demonstrate deep vs shallow copy: a shallow copy copies the fields, so it SHARES the referenced
+    // friends list with the original; a deep copy copies the referenced objects too.
     public static Person shallowCopy(Person original) {
-        return new Person(original.getName(), original.getAge());
+        Person copy = new Person(original.getName(), original.getAge());
+        copy.setFriends(original.getFriends());
+        return copy;
     }
 
     public static Person deepCopy(Person original) throws IOException, ClassNotFoundException {

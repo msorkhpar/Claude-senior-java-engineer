@@ -299,8 +299,8 @@ class MethodReferencesWithFunctionalInterfacesTest {
         }
 
         @Test
-        @DisplayName("filterNonNullNonBlankShort with maxLength 0 keeps only empty strings")
-        void filterNonNullNonBlankShort_maxLength0_keepsOnlyEmpty() {
+        @DisplayName("filterNonNullNonBlankShort with maxLength 0 keeps nothing (the empty string is blank)")
+        void filterNonNullNonBlankShort_maxLength0_keepsNothing() {
             // With maxLength 0: isShort = s.length() <= 0 — only empty string qualifies,
             // but isNotBlank filter removes it. So result should be empty.
             List<String> input = Arrays.asList("hi", "a", "", "  ");

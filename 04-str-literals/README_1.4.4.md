@@ -95,8 +95,8 @@ example:
 
 Q2: How does string interning affect string comparison with `==`?
 
-A2: String interning is a method of storing only one copy of each distinct string value in memory. In Java, string l
-iterals are automatically interned. This means that when you create string literals with the same content, they will
+A2: String interning is a method of storing only one copy of each distinct string value in memory. In Java, string
+literals are automatically interned. This means that when you create string literals with the same content, they will
 reference the same object in memory. As a result, comparing these strings with `==` will return `true`. However, strings
 created with `new` or by string manipulation methods are not automatically interned, so `==` comparison with these
 strings may return `false` even if the content is the same.

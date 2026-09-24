@@ -40,7 +40,7 @@ statements, which can be useful when working with overloaded methods that handle
 
 1. Null arguments: Be careful when overloading methods that can accept null values
 2. Widening and boxing conversions: Understand how Java chooses between overloaded methods when dealing with these
-3. conversions
+   conversions
 
 ## Interview-specific Insights
 
@@ -111,7 +111,7 @@ Q4: What's the difference between method overloading and method overriding?
 A4:
 Method Overloading:
 
-- Occurs in the same class
+- Occurs in the same class, or between a class and its subclass (as `display(String)` in the example below)
 - Methods have the same name but different parameters
 - Resolved at compile-time (static polymorphism)
 - Return type can be different

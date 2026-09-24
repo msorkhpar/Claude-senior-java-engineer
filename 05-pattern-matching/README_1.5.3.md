@@ -43,12 +43,14 @@ record instances and bind their components to variables in a single, expressive 
 1. Use record patterns to simplify complex nested record structures.
 2. Combine record patterns with sealed classes for exhaustive pattern matching.
 3. Leverage type inference with `var` to reduce verbosity.
-4. Use record patterns in loops and streams for more expressive data processing.
+4. Use record patterns inside loop bodies and stream lambdas for more expressive data processing. (Record patterns in
+   the enhanced `for` header were a Java 20 preview and were removed in Java 21.)
 5. Prefer record patterns over manual getter calls for improved readability.
 
 ## Edge Cases and Their Handling
 
-1. **Null records**: Always account for potential null values when using record patterns.
+1. **Null records**: A record pattern never matches null (and a nested record pattern never matches a null component),
+   so account for null separately when it is a possible value.
 2. **Empty records**: Record patterns work with empty records, but be mindful of their limited utility.
 3. **Generic records**: Record patterns can be used with generic records, but type erasure applies at runtime.
 
@@ -141,7 +143,7 @@ A6: Some best practices for using record patterns include:
 1. Use them to simplify complex nested record structures.
 2. Combine them with sealed classes for exhaustive pattern matching.
 3. Leverage type inference with `var` to reduce verbosity.
-4. Use them in loops and streams for more expressive data processing.
+4. Use them inside loop bodies and stream lambdas (not in the `for` header, which Java 21 does not allow).
 5. Prefer record patterns over manual getter calls for improved readability.
 
 Q7: How do you handle potential null values when using record patterns?

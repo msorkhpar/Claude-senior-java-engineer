@@ -15,7 +15,7 @@ particularly useful when you know in advance how many times you want to execute 
 
 ## Java 21 Features
 
-1. Enhanced for loop (for-each): `for (Type item : collection) { // code block }`
+1. Enhanced for loop (for-each, available since Java 5): `for (Type item : collection) { // code block }`
 2. Use with the `var` keyword for local variable type inference (Java 10+).
 
 ## Common Pitfalls and How to Avoid Them

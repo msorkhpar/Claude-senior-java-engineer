@@ -35,7 +35,7 @@ public class ExceptionHandler {
             if (number < 0) {
                 throw new IllegalArgumentException("Number must be non-negative");
             }
-            return 100 / number;
+            return 100 / number; // integer division (100 / 3 == 33); throws ArithmeticException when number is 0
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Invalid number format", e);
         } catch (ArithmeticException e) {

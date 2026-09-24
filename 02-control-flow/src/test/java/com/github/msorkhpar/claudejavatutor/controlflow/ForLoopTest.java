@@ -37,6 +37,7 @@ class ForLoopTest {
     void testPrintMatrix() {
         int[][] matrix = {{1, 2}, {3, 4}};
         ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
         System.setOut(new PrintStream(outContent));
 
         ForLoop.printMatrix(matrix);
@@ -44,7 +45,7 @@ class ForLoopTest {
         String expectedOutput = "1 2 \n3 4 \n";
         assertEquals(expectedOutput, outContent.toString());
 
-        System.setOut(System.out);
+        System.setOut(originalOut);
     }
 
     @Test

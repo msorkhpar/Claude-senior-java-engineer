@@ -26,9 +26,9 @@ receiver can execute those steps whenever needed.
 
 ## Relevant Java 21 Features
 
-While lambda expressions were introduced in Java 8, Java 21 continues to enhance the functional programming experience:
+While lambda expressions were introduced in Java 8, later versions add features that work well with them:
 
-- **Better type inference**: Java 21 improves type inference for lambda expressions in complex scenarios.
+- **`var` in lambda parameters** (Java 11): `(var s) -> ...` lets you add annotations to inferred parameters.
 - **Pattern matching integration**: Lambda expressions work seamlessly with pattern matching features.
 - **Virtual threads**: Lambda expressions are commonly used with virtual threads for concurrent programming.
 - **Sequenced collections**: Lambda expressions integrate well with the new sequenced collections API.
@@ -157,11 +157,11 @@ A2: While lambda expressions can replace anonymous inner classes in some cases, 
    - In a lambda, 'this' refers to the enclosing class
    - In an anonymous inner class, 'this' refers to the anonymous class itself
 
-2. **Compilation**: Lambda expressions are compiled using invokedynamic instruction (introduced in Java 7), making them more efficient. Anonymous inner classes generate a new .class file for each instance.
+2. **Compilation**: Lambda expressions are compiled using the invokedynamic instruction (introduced in Java 7); the implementing class is generated at run time. Each anonymous inner class declaration produces its own .class file at compile time (one per declaration, not per instance).
 
 3. **Usage**: Lambda expressions can only be used with functional interfaces (single abstract method). Anonymous inner classes can implement interfaces with any number of methods.
 
-4. **Variable capture**: Both can access effectively final variables from the enclosing scope, but lambda expressions enforce this more strictly.
+4. **Variable capture**: Both can access only final or effectively final local variables from the enclosing scope. Unlike an anonymous class, a lambda cannot declare a local variable or parameter that shadows one from the enclosing method (that is a compile error).
 
 5. **Performance**: Lambda expressions generally have better performance characteristics due to how they're implemented by the JVM.
 ```
@@ -200,9 +200,9 @@ public void demonstrateNonFinal() {
 A3 (continued): "Effectively final" means a variable that isn't explicitly declared as final but whose value doesn't change after initialization. Lambda expressions can only access local variables from the enclosing scope if they are final or effectively final.
 
 Why this restriction?
-1. **Thread safety**: Lambda expressions might be executed in different threads, and mutable shared state would cause race conditions.
-2. **Semantic clarity**: It makes the code's intent clearer and prevents confusing bugs.
-3. **Implementation efficiency**: The JVM can optimize lambda expressions better when variables are immutable.
+1. **Capture by value**: The lambda receives a copy of the local variable's value, so a later change to the variable could never be seen by the lambda; forbidding changes removes that confusion.
+2. **Thread safety**: Lambda expressions might be executed in other threads, after the method that created them has returned; local variables live on that method's stack, and sharing them mutably would cause race conditions.
+3. **Semantic clarity**: It makes the code's intent clearer and prevents confusing bugs.
 ```
 
 **Q4: What is a functional interface and how does it relate to lambda expressions?**
@@ -322,7 +322,7 @@ A6: Lambda expressions are generally very efficient in Java:
 
 Advantages:
 1. **invokedynamic**: Lambda expressions use the invokedynamic bytecode instruction, which allows the JVM to optimize their execution over time.
-2. **No extra class files**: Unlike anonymous inner classes, lambda expressions don't generate separate .class files.
+2. **No extra class files**: Unlike anonymous inner classes, lambda expressions don't generate separate .class files at compile time (the implementing class is spun at run time).
 3. **Lazy evaluation**: When used with streams, lambda expressions enable lazy evaluation and optimization.
 4. **JIT optimization**: The JIT compiler can inline lambda expressions effectively.
 
@@ -332,7 +332,7 @@ Potential concerns:
 3. **Stateless vs stateful**: Stateless lambdas (no captured variables) are more efficient than stateful ones.
 
 Best practices for performance:
-1. Prefer method references over lambdas when possible (slightly more efficient).
+1. Prefer method references over lambdas when they read better; the performance is the same in practice.
 2. Avoid creating lambdas in tight loops if they capture many variables.
 3. Use parallel streams judiciously - the overhead of parallelization isn't always worth it for small collections.
 4. For very hot code paths, measure and profile to ensure lambda expressions don't become a bottleneck.
@@ -346,8 +346,9 @@ In practice, the readability and maintainability benefits of lambda expressions 
 // Problem: Checked exceptions in lambdas
 public class ExceptionHandlingInLambdas {
 
-    // This won't compile because parseInt can throw NumberFormatException
-    // and forEach doesn't declare throwing checked exceptions
+    // This compiles, because NumberFormatException is unchecked, but it stops with an exception at run time on "abc".
+    // A lambda calling a method that throws a CHECKED exception (e.g. Files.readString throwing IOException) would not
+    // compile at all, because Consumer.accept declares no checked exceptions.
     public void problematicExample() {
         List<String> numbers = Arrays.asList("1", "2", "abc", "4");
         // numbers.forEach(s -> System.out.println(Integer.parseInt(s)));

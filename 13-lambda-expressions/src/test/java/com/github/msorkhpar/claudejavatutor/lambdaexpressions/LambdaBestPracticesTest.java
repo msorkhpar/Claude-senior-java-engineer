@@ -540,8 +540,8 @@ class LambdaBestPracticesTest {
             List<LambdaBestPractices.Documentation.User> result = documentation.scoreAndRankUsers(users);
 
             assertThat(result).hasSize(3);
-            // Scores: Alice=25, Bob=30, Charlie=10 (not active)
-            // Ranked: Bob(30), Alice(25), Charlie(10)
+            // Scores are age * 0.5: Alice=12.5, Bob=15.0, Charlie=10.0 (inactive users are still scored)
+            // Ranked: Bob(15.0), Alice(12.5), Charlie(10.0)
             assertThat(result)
                     .extracting(LambdaBestPractices.Documentation.User::name)
                     .containsExactly("Bob", "Alice", "Charlie");

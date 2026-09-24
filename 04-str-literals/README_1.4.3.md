@@ -18,12 +18,12 @@ functionality. However, it's worth noting that Java 21 continues to optimize str
 
 1. **IndexOutOfBoundsException**: Always check string length before using `charAt()` or `substring()`.
 2. **Off-by-one errors**: Remember that string indices start at 0, not 1.
-3. **Unnecessary string creation**: Avoid creating new strings when simple checks can suffice (e.g., use `isEmpty()`
-   instead of `length() == 0`).
+3. **Unnecessary string creation**: Avoid creating new strings when simple checks can suffice (e.g., use
+   `str.startsWith("abc")` instead of `str.substring(0, 3).equals("abc")`, which also throws on a shorter string).
 
 ## Best Practices and Optimization Techniques
 
-1. Use `isEmpty()` instead of `length() == 0` for better readability and potential performance benefits.
+1. Use `isEmpty()` instead of `length() == 0` for better readability (the two do the same work).
 2. When possible, use `charAt()` instead of `substring()` for single character extraction.
 3. For repeated concatenations or manipulations, consider using StringBuilder.
 
@@ -41,8 +41,9 @@ their behavior and efficiency is crucial.
 
 ### length()
 
-The `length()` method returns the number of characters in the string. It's a constant-time operation (O(1)) because the
-length is stored as part of the String object.
+The `length()` method returns the number of UTF-16 `char` units in the string. It's a constant-time operation (O(1))
+because it is derived from the length of the String's internal array. A character outside the Basic Multilingual Plane,
+such as an emoji, takes two `char` units: `"\uD83D\uDE00".length()` is 2, while `codePointCount(0, 2)` is 1.
 
 ### charAt(int index)
 
