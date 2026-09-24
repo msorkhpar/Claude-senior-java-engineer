@@ -25,7 +25,7 @@ can work simultaneously without interfering with each other.
    same lock, creating a bottleneck under contention.
 3. **Synchronized wrappers do NOT make iteration thread-safe**: You must manually synchronize on the wrapper during
    iteration.
-4. **`ConcurrentHashMap`** uses lock striping and CAS for fine-grained concurrency; it outperforms synchronized HashMap
+4. **`ConcurrentHashMap`** uses per-bin locking and CAS for fine-grained concurrency; it outperforms synchronized HashMap
    by orders of magnitude under contention.
 5. **`CopyOnWriteArrayList`** trades write performance for read performance: zero-cost reads, expensive writes.
 6. **Legacy synchronized collections** (`Vector`, `Hashtable`) exist but are generally discouraged in favor of modern
@@ -39,8 +39,8 @@ can work simultaneously without interfering with each other.
   `synchronized` blocks inside virtual thread tasks as they pin the carrier thread; prefer `ReentrantLock` instead.
 - **Structured concurrency (Preview)**: When using `StructuredTaskScope`, concurrent collections are often used to
   aggregate results from subtasks.
-- **Scoped values (Preview, JEP 446)**: Can replace some uses of ConcurrentHashMap for thread-local data sharing in
-  structured concurrency patterns.
+- **Scoped values (Preview, JEP 446)**: Can replace some uses of `ThreadLocal` for sharing immutable data with
+  subtasks in structured concurrency patterns (they are not a replacement for a concurrent collection).
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -116,8 +116,9 @@ can work simultaneously without interfering with each other.
    from multiple threads, use `Collections.synchronizedList()` or a `ConcurrentLinkedQueue`.
 3. **Size queries**: `ConcurrentHashMap.size()` may return stale values during concurrent modification. Use
    `mappingCount()` for a long-valued count that avoids overflow.
-4. **Serialization**: Both synchronized wrappers and concurrent collections are serializable, but be aware that
-   deserialization does not restore the synchronized/concurrent wrapper automatically for wrapper-based collections.
+4. **Serialization**: Both synchronized wrappers and concurrent collections are serializable (a wrapper only if its
+   backing collection is). Deserializing a synchronized wrapper gives back a synchronized wrapper around a copy of the
+   backing collection.
 
 ## Interview-specific Insights
 
@@ -138,11 +139,11 @@ A1: The key differences are:
 
 1. Locking granularity:
    - synchronizedMap: Locks the ENTIRE map for every operation (single monitor lock)
-   - ConcurrentHashMap: Locks only individual buckets (lock striping) or uses CAS operations
+   - ConcurrentHashMap: Locks only individual buckets (bins) or uses CAS operations
 
 2. Performance under contention:
    - synchronizedMap: All threads compete for one lock -> severe contention bottleneck
-   - ConcurrentHashMap: Multiple threads can read/write different segments simultaneously
+   - ConcurrentHashMap: Multiple threads can read/write different bins simultaneously
 
 3. Iteration safety:
    - synchronizedMap: Iterator is fail-fast; requires external synchronization during iteration
@@ -153,8 +154,10 @@ A1: The key differences are:
    - ConcurrentHashMap: Does NOT allow null keys or values
 
 5. Atomic compound operations:
-   - synchronizedMap: No built-in atomic compound operations (putIfAbsent, compute, merge)
-   - ConcurrentHashMap: Provides atomic compute(), merge(), putIfAbsent(), computeIfAbsent()
+   - synchronizedMap: putIfAbsent(), compute(), merge() etc. are atomic too (each runs under the
+     one map lock), but every other thread waits while the function runs
+   - ConcurrentHashMap: Provides atomic compute(), merge(), putIfAbsent(), computeIfAbsent(),
+     locking only the affected bin
 
 6. Bulk operations:
    - synchronizedMap: No parallel bulk operations
@@ -281,8 +284,9 @@ several reasons:
 1. Coarse-grained synchronization: Every method is synchronized, even when no contention exists. This 
    causes unnecessary overhead in single-threaded or low-contention scenarios.
 
-2. No atomic compound operations: Like synchronized wrappers, they don't provide atomic putIfAbsent(), 
-   compute(), or merge() operations.
+2. Compound sequences are not atomic: each method is synchronized, but a sequence such as
+   if (!vector.contains(x)) vector.add(x) is two calls, so it still needs external locking.
+   (Hashtable does get synchronized putIfAbsent(), compute() and merge() since Java 8.)
 
 3. API design: They expose implementation details (e.g., Vector.capacity(), Hashtable.elements()) 
    and have legacy methods that don't align with the Collections Framework.
@@ -358,7 +362,8 @@ for (int i = 0; i < 4; i++) {
     });
 }
 executor.shutdown();
-// Expected: 4000, Actual: likely much less (e.g., 1200, 2500, ...)
+executor.awaitTermination(10, TimeUnit.SECONDS);
+// Expected: 4000, Actual: often less (lost updates), and it varies from run to run
 
 // SAFE: Using ConcurrentHashMap.merge()
 ConcurrentHashMap<String, Integer> safeMap = new ConcurrentHashMap<>();
@@ -373,6 +378,7 @@ for (int i = 0; i < 4; i++) {
     });
 }
 safeExecutor.shutdown();
+safeExecutor.awaitTermination(10, TimeUnit.SECONDS);
 // Always: 4000
 ```
 

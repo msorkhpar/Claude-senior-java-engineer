@@ -227,7 +227,7 @@ class CommonCollectionsTest {
         @Test
         @DisplayName("HashSet does not guarantee order")
         void testOrderNotGuaranteed() {
-            // Just verify the method runs without error
+            // Iteration order differs from insertion order
             assertThat(examples.orderNotGuaranteed()).isTrue();
         }
 

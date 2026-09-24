@@ -150,19 +150,20 @@ public class CommonCollections {
         }
 
         /**
-         * Demonstrates that HashSet does not guarantee insertion order.
+         * Demonstrates that HashSet does not preserve insertion order.
+         *
+         * @return true if the set's iteration order differs from the insertion order
          */
         public boolean orderNotGuaranteed() {
+            List<Integer> insertionOrder = new ArrayList<>();
             Set<Integer> set = new HashSet<>();
             for (int i = 100; i >= 0; i--) {
+                insertionOrder.add(i);
                 set.add(i);
             }
-            List<Integer> asList = new ArrayList<>(set);
-            List<Integer> sorted = new ArrayList<>(asList);
-            Collections.sort(sorted);
-            // If order were guaranteed to be insertion order, asList would be reversed
-            // This is intentionally non-deterministic to demonstrate the point
-            return true;
+            // Small Integers hash to themselves, so this set happens to iterate 0, 1, ..., 100:
+            // the reverse of the insertion order (100, 99, ..., 0)
+            return !new ArrayList<>(set).equals(insertionOrder);
         }
 
         /**
