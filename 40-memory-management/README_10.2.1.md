@@ -33,8 +33,9 @@ the JVM allocates space on the heap. Key characteristics:
 
 - Shared across all threads
 - Managed by the garbage collector
-- Divided into generations (Young, Old) for GC efficiency
-- Slower allocation than stack (requires finding free space, GC overhead)
+- Divided into generations (Young, Old) for GC efficiency by generational collectors such as G1 (the default)
+- Allocation itself is usually fast (HotSpot bumps a pointer in a thread-local allocation buffer, TLAB), but heap
+  objects must later be found and reclaimed by the GC, which stack frames never need
 
 ### String Pool
 
@@ -50,20 +51,24 @@ collector. However, developers control when objects become **eligible** for coll
 
 - **Strong reference** (default): Object is never collected while reachable
 - **Soft reference** (`SoftReference<T>`): Collected only under memory pressure
-- **Weak reference** (`WeakReference<T>`): Collected at the next GC cycle
+- **Weak reference** (`WeakReference<T>`): Cleared by the first GC cycle that examines the object and finds it only
+  weakly reachable (a young-only collection does not examine old-generation objects)
 - **Phantom reference** (`PhantomReference<T>`): Used for post-mortem cleanup
 
 ## Key Points to Remember
 
 1. **Stack is per-thread, heap is shared** -- each thread has its own stack but all threads share the heap.
 2. **Primitives on the stack, objects on the heap** -- primitive local variables live on the stack; objects are always
-   allocated on the heap (with JIT escape analysis as an exception).
+   allocated on the heap (with JIT escape analysis as an exception: HotSpot can eliminate a non-escaping allocation
+   entirely by scalar replacement).
 3. **References are on the stack, referents on the heap** -- a local variable like `String s = "hello"` puts the
    reference `s` on the stack and the String object on the heap.
 4. **Stack memory is automatically reclaimed** when a method returns -- no GC needed.
 5. **StackOverflowError** occurs when the call stack exceeds its size limit (deep recursion).
 6. **OutOfMemoryError** occurs when the heap is exhausted and GC cannot free enough memory.
-7. **Escape analysis** (JIT optimization) can allocate objects on the stack if they don't escape the method.
+7. **Escape analysis** (JIT optimization) lets HotSpot's C2 compiler eliminate the allocation of an object that doesn't
+   escape the method (scalar replacement: its fields become local values in registers or stack slots). HotSpot does
+   not allocate whole objects on the stack.
 8. **String pool** is part of the heap and stores deduplicated string literals.
 9. **Pass-by-value** in Java means the reference value (pointer) is copied, not the object itself.
 10. **Nullifying references** makes objects eligible for GC but doesn't guarantee immediate collection.
@@ -74,13 +79,14 @@ collector. However, developers control when objects become **eligible** for coll
   threads), enabling millions of concurrent threads. The JVM can dynamically grow/shrink virtual thread stacks.
 - **Escape Analysis improvements**: Modern JVMs (including Java 21) have improved escape analysis, enabling more
   aggressive scalar replacement (allocating object fields directly on the stack).
-- **Compact Object Headers (Project Lilliput preview)**: Ongoing work to reduce object header size from 12-16 bytes to
-  8 bytes, reducing heap overhead.
-- **Generational ZGC (JEP 439)**: Java 21 introduces generational mode for ZGC, improving young-generation collection
-  efficiency.
-- **Record classes**: Records produce compact heap objects with minimal overhead compared to traditional classes.
-- **Sealed classes**: Enable JIT optimizations through known type hierarchies, potentially improving memory layout
-  decisions.
+- **Compact Object Headers (Project Lilliput)**: Not part of Java 21. Work to reduce the object header from 12 bytes
+  (16 without compressed class pointers) to 8 bytes; it became an experimental option in JDK 24 (JEP 450).
+- **Generational ZGC (JEP 439)**: Java 21 introduces generational mode for ZGC (opt-in with
+  `-XX:+UseZGC -XX:+ZGenerational`), improving young-generation collection efficiency.
+- **Record classes**: Records have the same object layout as an equivalent final class with final fields; they save
+  source code, not heap space.
+- **Sealed classes**: Tell the compiler the complete set of subclasses (enabling exhaustive `switch`); they do not
+  change object layout.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -168,8 +174,8 @@ collector. However, developers control when objects become **eligible** for coll
 7. **Size collections appropriately** (`new ArrayList<>(expectedSize)`) to avoid repeated resizing and copying.
 8. **Convert deep recursion to iteration** when stack depth is a concern.
 9. **Monitor memory usage** with JMX (`MemoryMXBean`) or tools like VisualVM, JFR, and async-profiler.
-10. **Tune JVM stack size** with `-Xss` only when necessary; the default (usually 512KB-1MB) is sufficient for most
-    applications.
+10. **Tune JVM stack size** with `-Xss` only when necessary; the default (1MB on Linux/Windows x64, 2MB on Linux
+    AArch64) is sufficient for most applications.
 
 ## Edge Cases and Their Handling
 
@@ -180,8 +186,9 @@ collector. However, developers control when objects become **eligible** for coll
 3. **Integer cache**: `Integer.valueOf(127) == Integer.valueOf(127)` is `true` (cached), but
    `Integer.valueOf(128) == Integer.valueOf(128)` is `false` (new heap objects).
 4. **Empty collections**: `Collections.emptyList()` returns a shared singleton -- no heap allocation per call.
-5. **Stack overflow with virtual threads**: Virtual threads have dynamically growing stacks, so StackOverflowError
-   thresholds differ from platform threads.
+5. **Stack overflow with virtual threads**: Virtual threads have dynamically growing stacks, but they can grow only up
+   to the JVM's configured platform thread stack size (`-Xss`), so the StackOverflowError threshold is about the same
+   as for a platform thread.
 6. **Null references**: A null reference occupies stack space but points to no heap object. Dereferencing it throws
    `NullPointerException`.
 
@@ -200,7 +207,8 @@ Interviewers frequently test:
 Common tricky questions:
 - "Does Java pass objects by reference?" (No -- it passes references by value)
 - "Where are String literals stored?" (In the string pool, which is part of the heap since Java 7)
-- "Can an object be allocated on the stack?" (Yes, through escape analysis / scalar replacement by JIT)
+- "Can an object be allocated on the stack?" (Not as a whole object in HotSpot; escape analysis lets the JIT replace a
+  non-escaping object by its fields (scalar replacement), so no heap allocation happens)
 - "What happens to method local variables when the method returns?" (Stack frame is popped, locals are gone)
 
 ## Interview Q&A Section
@@ -215,13 +223,13 @@ Stack Memory:
 - Stores: method frames (local primitives, references, parameters, return addresses)
 - Allocation: LIFO order, extremely fast (just move a pointer)
 - Deallocation: automatic when method returns (frame is popped)
-- Size: typically 512KB-1MB per thread (configurable via -Xss)
+- Size: typically 1MB per thread on 64-bit platforms (configurable via -Xss)
 - Error: StackOverflowError when exhausted
 
 Heap Memory:
 - Shared: all threads access the same heap
 - Stores: all objects and arrays (anything created with 'new')
-- Allocation: requires finding free space, managed by GC
+- Allocation: usually a fast pointer bump in a thread-local buffer (TLAB), but reclaimed later by the GC
 - Deallocation: handled by the garbage collector asynchronously
 - Size: configurable via -Xms (initial) and -Xmx (maximum)
 - Error: OutOfMemoryError when exhausted
@@ -313,7 +321,7 @@ A3: Java provides four reference types with different GC behavior:
 
 3. Weak Reference (java.lang.ref.WeakReference):
    - Created with: WeakReference<Object> ref = new WeakReference<>(obj);
-   - GC behavior: Collected at the next GC cycle if no strong refs exist
+   - GC behavior: Cleared by the first GC cycle that finds the object only weakly reachable
    - Use case: Canonicalizing mappings (WeakHashMap), listener registries
    - Does not prevent GC even if memory is plentiful
 
@@ -512,7 +520,7 @@ StackOverflowError:
 - Cause: The call stack for a thread exceeds its maximum size
 - Typical trigger: Unbounded or very deep recursion
 - Scope: Per-thread (each thread has its own stack)
-- Stack size: Configurable with -Xss (default ~512KB-1MB)
+- Stack size: Configurable with -Xss (default 1MB on Linux/Windows x64)
 - Prevention: Use iterative algorithms, limit recursion depth, increase -Xss
 - Recovery: Generally recoverable by catching the error (the stack unwinds)
 
@@ -522,7 +530,9 @@ OutOfMemoryError:
   * "Java heap space" -- heap is full
   * "Metaspace" -- class metadata area full
   * "GC overhead limit exceeded" -- GC spending >98% time recovering <2% memory
-  * "unable to create new native thread" -- OS thread limit reached
+    (in JDK 21 only the Parallel collector throws this; G1 and Serial report "Java heap space")
+  * "unable to create native thread: possibly out of memory or process/resource
+    limits reached" -- the OS refused a new thread (thread limit or memory)
 - Scope: JVM-wide (heap is shared)
 - Heap size: Configurable with -Xms/-Xmx
 - Prevention: Fix memory leaks, increase heap, optimize object usage
@@ -570,8 +580,10 @@ fundamentally change how stack memory is managed:
 
 Traditional Platform Threads:
 - Each thread gets a fixed-size stack (default ~1MB)
-- Stack size is allocated upfront from OS memory
-- 10,000 threads = ~10GB of stack memory alone
+- The stack's address range is reserved upfront; the OS commits pages as the
+  stack actually grows
+- 10,000 threads = ~10GB of reserved address space for stacks (much less is
+  actually committed)
 - This limits scalability for I/O-heavy applications
 
 Virtual Threads:
@@ -584,8 +596,9 @@ Virtual Threads:
 
 Implications:
 1. Stack memory is no longer a limiting factor for thread count
-2. -Xss has no effect on virtual threads
-3. StackOverflowError can still occur but at different thresholds
+2. There is no per-thread stack reservation to size, but -Xss still caps how deep
+   a virtual thread's stack can grow (JEP 444)
+3. StackOverflowError can still occur, at about the same depth as on a platform thread
 4. Stack frames are stored on the heap, making them subject to GC
 5. Pinning: synchronized blocks can prevent virtual thread unmounting,
    causing a carrier thread to be blocked

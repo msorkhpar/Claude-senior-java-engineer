@@ -160,7 +160,7 @@ public class HeapStackMemory {
 
         /**
          * Demonstrates weak references using WeakReference.
-         * Weakly referenced objects can be collected at next GC cycle.
+         * A weakly referenced object is cleared by the first GC cycle that finds it only weakly reachable.
          */
         public WeakReference<byte[]> createWeakReference() {
             byte[] data = new byte[1024 * 1024]; // 1MB
@@ -192,9 +192,9 @@ public class HeapStackMemory {
         }
 
         /**
-         * Demonstrates memory leak through static collections.
-         * Objects added to static collections are never eligible for GC
-         * unless explicitly removed.
+         * Demonstrates retention through a long-lived collection (a static collection behaves
+         * the same way for the whole program): objects added to it are never eligible for GC
+         * while the collection is reachable, unless explicitly removed.
          */
         private final List<Object> retainedObjects = new ArrayList<>();
 
@@ -222,8 +222,8 @@ public class HeapStackMemory {
 
         /**
          * Demonstrates the escape analysis concept.
-         * Objects that don't escape a method can potentially be allocated on the stack
-         * by the JIT compiler (scalar replacement).
+         * The JIT compiler can eliminate the allocation of an object that doesn't escape a method
+         * (scalar replacement: its fields become local values).
          */
         public int computeWithNonEscapingObject(int x, int y) {
             // The JIT compiler may optimize this Point allocation away

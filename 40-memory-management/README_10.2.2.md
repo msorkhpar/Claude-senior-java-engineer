@@ -37,10 +37,10 @@ Based on the **weak generational hypothesis**: most objects die young. The heap 
     - **Eden Space**: Initial allocation area
     - **Survivor Spaces (S0, S1)**: Objects that survive a young GC are copied here
 - **Old Generation (Tenured)**: Objects that survive multiple young GCs are promoted here
-- **Metaspace** (since Java 8): Stores class metadata (replaced PermGen)
+- **Metaspace** (since Java 8): Stores class metadata (replaced PermGen); it is native memory, not part of the heap
 
-**Minor GC** collects the young generation (fast, frequent). **Major GC** (or Full GC) collects the entire heap
-(slow, infrequent).
+**Minor GC** collects the young generation (fast, frequent). **Major GC** collects the old generation, and a **Full
+GC** collects the entire heap (slow, infrequent); the two terms are often used interchangeably.
 
 ### Modern GC Implementations
 
@@ -64,8 +64,8 @@ Java 21 includes several garbage collectors:
 5. **Stop-the-world pauses** freeze all application threads during GC; modern collectors minimize these.
 6. **G1 GC** is the default collector since Java 9 and divides the heap into equal-sized regions rather than
    contiguous generations.
-7. **ZGC** (Java 21) achieves sub-millisecond pause times regardless of heap size, using colored pointers and
-   load barriers.
+7. **ZGC** (production-ready since Java 15, generational mode added in Java 21) achieves sub-millisecond pause times
+   regardless of heap size, using colored pointers and load barriers.
 8. **`System.gc()`** is a suggestion, not a command -- the JVM may ignore it.
 9. **Finalization** (`finalize()`) is deprecated; use `Cleaner` or `PhantomReference` for cleanup.
 10. **GC tuning** should be data-driven: measure with GC logs, JFR, or monitoring tools before changing defaults.
@@ -73,13 +73,15 @@ Java 21 includes several garbage collectors:
 ## Relevant Java 21 Features
 
 - **Generational ZGC (JEP 439)**: ZGC now supports generational collection, combining ultra-low pause times with the
-  throughput benefits of generational collection. Enabled with `-XX:+UseZGC -XX:+ZGenerational` (default in future
-  releases).
+  throughput benefits of generational collection. Enabled with `-XX:+UseZGC -XX:+ZGenerational` (it became the
+  default ZGC mode in JDK 23).
 - **Deprecation of finalize()**: `Object.finalize()` is deprecated for removal. Use `java.lang.ref.Cleaner` instead.
-- **Improved G1 region pinning**: G1 can now pin regions during JNI critical sections, avoiding full GC pauses.
-- **Compact Object Headers (Lilliput)**: Experimental support for reducing object header size, directly reducing GC
-  pressure by making objects smaller.
-- **GC logging unification**: All collectors use the unified GC logging framework (`-Xlog:gc*`).
+- **G1 region pinning (JDK 22, not 21)**: From JDK 22 (JEP 423), G1 pins regions during JNI critical sections instead
+  of disabling GC; in Java 21 a JNI critical section still blocks G1 collections.
+- **Compact Object Headers (Lilliput, not in 21)**: Experimental from JDK 24 (JEP 450); reduces object header size,
+  directly reducing GC pressure by making objects smaller.
+- **GC logging unification**: All collectors use the unified GC logging framework (`-Xlog:gc*`), available since
+  Java 9.
 
 ## Common Pitfalls and How to Avoid Them
 
@@ -143,6 +145,7 @@ Java 21 includes several garbage collectors:
 
    ```java
    // Problem: Large objects bypass Eden and go directly to Old Gen
+   // (in G1: any object larger than half a region is "humongous"; 10MB is humongous for regions up to 16MB)
    public void processItems(List<Item> items) {
        for (Item item : items) {
            byte[] buffer = new byte[10_000_000]; // 10MB per iteration!
@@ -197,8 +200,9 @@ Java 21 includes several garbage collectors:
    the young generation entirely.
 3. **GC with off-heap memory**: Direct ByteBuffers (`ByteBuffer.allocateDirect()`) use off-heap memory not tracked by
    the GC. A Cleaner frees them when the ByteBuffer object is collected.
-4. **Concurrent mode failure**: In G1/CMS, if the old generation fills up before concurrent collection completes, a
-   full stop-the-world GC is triggered.
+4. **Concurrent mode failure**: In CMS (removed in Java 14), if the old generation filled up before concurrent
+   collection completed, a full stop-the-world GC was triggered. G1 has the same risk: if concurrent marking and mixed
+   collections cannot free space fast enough, allocation fails and G1 falls back to a full stop-the-world GC.
 5. **JNI and GC roots**: Objects passed to native code via JNI become GC roots and cannot be collected until released.
 6. **Soft reference clearing timing**: The JVM has discretion on when to clear soft references. Under memory pressure,
    all soft references may be cleared simultaneously, causing a "cache stampede."
@@ -318,7 +322,9 @@ Object lifecycle:
 1. Object allocated in Eden
 2. First minor GC: if alive, copied to Survivor S0
 3. Second minor GC: if alive, copied from S0 to S1 (or vice versa)
-4. After N minor GCs (MaxTenuringThreshold, default 15): promoted to Old Gen
+4. After enough minor GCs: promoted to Old Gen. The tenuring threshold adapts at
+   runtime and is capped by MaxTenuringThreshold (default 15); objects are promoted
+   earlier if the survivor space overflows
 5. Objects in Old Gen are collected during Major GC
 
 Performance impact:
@@ -470,15 +476,15 @@ public class GCRootsDemo {
     public void methodWithRoots() {
         Object localRoot = new Object();     // GC root: local variable
         Object[] array = new Object[2];      // GC root: local variable
-        array[0] = new Object();             // reachable via localRoot -> array -> [0]
+        array[0] = new Object();             // reachable via array -> [0]
         
         // At this point, all objects are reachable
         
         array[0] = null;  // Object formerly at array[0] is now unreachable
         // GC can collect it even though 'array' is still alive
         
-        localRoot = null;  // Now 'array' and its contents are unreachable
-        // (assuming no other references exist)
+        localRoot = null;  // Now the Object localRoot referred to is unreachable
+        // (assuming no other references exist); 'array' is still reachable through its own local variable
     }
 
     // Circular reference example -- both collected
@@ -513,8 +519,10 @@ GC SELECTION:
 
 G1-SPECIFIC:
 - -XX:MaxGCPauseMillis=200: Target pause time (default 200ms)
-- -XX:G1HeapRegionSize: Region size (1MB-32MB, auto-calculated)
-- -XX:InitiatingHeapOccupancyPercent: When to start concurrent marking (default 45%)
+- -XX:G1HeapRegionSize: Region size (a power of 2; ergonomics picks 1MB-32MB, and since
+  JDK 18 it can be set up to 512MB)
+- -XX:InitiatingHeapOccupancyPercent: When to start concurrent marking (default 45%; only
+  the initial value, since adaptive IHOP (-XX:+G1UseAdaptiveIHOP) is on by default)
 
 GENERATIONAL:
 - -XX:MaxTenuringThreshold: How many minor GCs before promoting to Old (default 15)
@@ -577,7 +585,7 @@ A6: G1 (Garbage First) GC is a region-based, partially concurrent collector that
 aims to provide predictable pause times while maintaining good throughput.
 
 Architecture:
-- Divides the heap into equal-sized regions (1MB-32MB, typically 2048 regions)
+- Divides the heap into equal-sized regions (ergonomically 1MB-32MB, aiming at about 2048 regions)
 - Each region can be Eden, Survivor, Old, or Humongous (large objects)
 - No fixed contiguous generation boundaries
 
@@ -629,8 +637,8 @@ public class G1Detection {
                 .map(GarbageCollectorMXBean::getName)
                 .reduce((a, b) -> a + ", " + b)
                 .orElse("unknown");
-        // Example output: "G1 Young Generation, G1 Old Generation"
-        // or: "ZGC" for ZGC
+        // Example output (JDK 21): "G1 Young Generation, G1 Concurrent GC, G1 Old Generation"
+        // or: "ZGC Cycles, ZGC Pauses" for ZGC
     }
     
     public static boolean isG1() {
