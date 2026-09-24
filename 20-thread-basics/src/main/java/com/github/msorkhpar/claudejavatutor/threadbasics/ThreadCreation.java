@@ -83,7 +83,7 @@ public class ThreadCreation {
     }
 
     /**
-     * Creates and starts a thread by extending Thread.
+     * Creates (but does not start) a thread by extending Thread.
      */
     public static CountingThread createViaThreadSubclass(String name) {
         CountingThread thread = new CountingThread(name);

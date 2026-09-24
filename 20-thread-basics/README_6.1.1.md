@@ -57,9 +57,9 @@ Thread virtualThread = Thread.ofVirtual().start(() -> System.out.println("Virtua
 ## Key Points to Remember
 
 1. **`Runnable` is preferred over `Thread` subclassing** because it separates task logic from thread management and supports composition (a class can implement `Runnable` and extend another class).
-2. **`run()` vs `start()`**: Calling `run()` executes the method on the current thread (no new thread). Calling `start()` creates a new OS-level thread and then invokes `run()` on it.
+2. **`run()` vs `start()`**: Calling `run()` executes the method on the current thread (no new thread). Calling `start()` creates a new thread (an OS-level thread for a platform thread) and then invokes `run()` on it.
 3. **`Runnable` is a functional interface** with a single abstract method `void run()`, so lambdas work seamlessly.
-4. **Thread naming**: Threads get default names like `Thread-0`, `Thread-1`. You can set a custom name via the constructor or `setName()`.
+4. **Thread naming**: Platform threads get default names like `Thread-0`, `Thread-1` (virtual threads are unnamed by default). You can set a custom name via the constructor or `setName()`.
 5. **Daemon threads**: Threads can be daemon (background) threads. The JVM exits when all non-daemon threads complete.
 6. **Thread priority**: Ranges from `Thread.MIN_PRIORITY` (1) to `Thread.MAX_PRIORITY` (10). Default is `Thread.NORM_PRIORITY` (5).
 
@@ -220,7 +220,7 @@ pool.submit(() -> loadData());
 ```text
 A2: Calling run() directly does NOT create a new thread. The run() method executes synchronously on the CALLING thread, just like any ordinary method call.
 
-- thread.start(): Creates a new OS-level thread, registers it with the JVM thread scheduler, and then asynchronously calls run() on the new thread. Returns immediately to the caller.
+- thread.start(): Creates a new thread (an OS-level thread for a platform thread), registers it with the JVM thread scheduler, and then asynchronously calls run() on the new thread. Returns immediately to the caller.
 - thread.run(): Simply invokes the run() method on the current thread. No new thread is created. The entire execution happens sequentially.
 
 This is one of the most common beginner mistakes. It explains why a program might appear to work correctly during testing (because the logic in run() executes) but doesn't gain any concurrency benefit.
@@ -328,10 +328,10 @@ A5: A daemon thread is a background thread that does not prevent the JVM from ex
 Key characteristics:
 - Set before start(): thread.setDaemon(true) must be called before thread.start()
 - Inherits daemon status from parent: if the creating thread is daemon, child threads are daemon by default
-- JVM shutdown interrupts daemon threads abruptly (no finally block guarantees)
+- When the JVM exits, daemon threads are abandoned abruptly: they are not interrupted, and their finally blocks do not run
 
 Use cases for daemon threads:
-- Garbage collection (JVM's GC threads are daemon)
+- JVM housekeeping (e.g. the Java-level "Reference Handler" and "Finalizer" threads are daemon threads; GC worker threads are internal VM threads)
 - Background monitoring / health checks
 - Log flushing in the background
 - Housekeeping tasks that should not block JVM exit
@@ -386,8 +386,10 @@ Future<Integer> future2 = executor.submit(computation);
 try {
     Integer result = future2.get(); // blocks until result is available
     System.out.println("Result: " + result); // 42
-} catch (InterruptedException | ExecutionException e) {
-    Thread.currentThread().interrupt();
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt(); // restore the flag
+} catch (ExecutionException e) {
+    throw new IllegalStateException("computation failed", e.getCause());
 }
 executor.shutdown();
 ```

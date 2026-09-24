@@ -62,17 +62,18 @@ t.join(); // Caller blocks here until t finishes
   ```java
   Thread vt = Thread.ofVirtual().start(() -> handleRequest());
   ```
-- **`ExecutorService.newVirtualThreadPerTaskExecutor()`**: Creates a virtual thread for each submitted task. Ideal for high-concurrency I/O servers.
+- **`Executors.newVirtualThreadPerTaskExecutor()`**: Creates a virtual thread for each submitted task. Ideal for high-concurrency I/O servers.
   ```java
   try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
       exec.submit(() -> handleRequest());
   }
   ```
-- **Structured Concurrency (Preview)**: Groups related threads so that if one fails, others are cancelled:
+- **Structured Concurrency (Preview in Java 21, needs `--enable-preview`)**: Groups related threads so that if one
+  fails, others are cancelled:
   ```java
   try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-      Future<String> f1 = scope.fork(() -> fetchFromDB());
-      Future<String> f2 = scope.fork(() -> fetchFromCache());
+      StructuredTaskScope.Subtask<String> f1 = scope.fork(() -> fetchFromDB());   // fork returns a Subtask in 21
+      StructuredTaskScope.Subtask<String> f2 = scope.fork(() -> fetchFromCache());
       scope.join().throwIfFailed();
   }
   ```
@@ -141,7 +142,7 @@ t.join(); // Caller blocks here until t finishes
    executor.submit(() -> doWork());
    ```
 
-2. **Set `UncaughtExceptionHandler`** to catch thread failures silently dropped otherwise.
+2. **Set `UncaughtExceptionHandler`** to handle thread failures that would otherwise only be printed to `System.err`.
 
 3. **Use `CountDownLatch` or `CyclicBarrier`** for coordinating groups of threads rather than chaining multiple `join()` calls.
 
@@ -168,7 +169,7 @@ t.join(); // Caller blocks here until t finishes
 
 3. **`start()` on a thread whose `run()` is a no-op**: The thread transitions through all states instantly and terminates immediately. This is valid but wastes resources.
 
-4. **`join()` on a thread that hasn't started**: `join()` returns immediately because an unstarted thread is considered "done" (it has never run).
+4. **`join()` on a thread that hasn't started**: `join()` returns immediately, because it waits only while the thread is alive and an unstarted thread is not alive.
 
 5. **`join()` timeout of 0**: `join(0)` is equivalent to `join()` — it waits indefinitely.
 
@@ -217,6 +218,7 @@ public class StartSequenceDemo {
 
         System.out.println("1. Before start() - state: " + t.getState()); // NEW
         t.start();
+        // Lines 2 and 3 may print in either order: the two threads now run concurrently
         System.out.println("3. After start() returns - main continues immediately");
         t.join(); // wait for t to finish
         System.out.println("4. After join() - thread state: " + t.getState()); // TERMINATED

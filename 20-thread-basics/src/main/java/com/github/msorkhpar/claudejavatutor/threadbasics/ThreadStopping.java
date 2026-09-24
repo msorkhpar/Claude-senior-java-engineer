@@ -181,8 +181,8 @@ public class ThreadStopping {
     }
 
     /**
-     * Demonstrates that interrupting a thread blocked on sleep() throws InterruptedException
-     * and clears the interrupt flag.
+     * Demonstrates that interrupting a thread blocked on sleep() throws InterruptedException.
+     * (Throwing it clears the interrupt flag; the handler restores it, as it should.)
      */
     public static boolean interruptSleepingThread() throws InterruptedException {
         boolean[] interruptedExceptionThrown = {false};
