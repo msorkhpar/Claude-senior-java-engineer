@@ -33,7 +33,7 @@ The Observer pattern consists of these participants:
 
 - **Functional interfaces (Java 8+)**: Observers can be expressed as `Consumer<T>`, `BiConsumer<String, T>`, or custom `@FunctionalInterface` types, enabling lambda-based subscriptions.
 - **CopyOnWriteArrayList (Java 5+, enhanced)**: Thread-safe collection ideal for observer lists where reads (notifications) vastly outnumber writes (subscribe/unsubscribe).
-- **ConcurrentHashMap (Java 8+)**: For event bus implementations where listeners are grouped by event type.
+- **ConcurrentHashMap (Java 5+; atomic `computeIfAbsent` since Java 8)**: For event bus implementations where listeners are grouped by event type.
 - **Records (Java 16+)**: Event data can be modeled as immutable records for type safety and clarity.
 - **Virtual threads (Java 21)**: Notifications can be dispatched asynchronously using virtual threads for high-throughput event systems.
 
@@ -230,8 +230,9 @@ A2: java.util.Observable was deprecated for several design flaws:
 4. Weak API design: No way to distinguish event types, no filtering,
    limited composability.
 
-5. Serialization problems: Observable implements Serializable but its
-   internal observer list cannot be serialized properly.
+5. Unspecified semantics: the Java 9 deprecation note itself says the event
+   model is quite limited, the order of notifications is unspecified, and state
+   changes are not in one-for-one correspondence with notifications.
 
 What to use instead:
 1. Custom Observer interface with generics (recommended):
@@ -389,8 +390,9 @@ Prevention strategies:
    - Similar to coroutine scopes in Kotlin
 
 5. Event bus with weak listeners:
-   - Some event bus implementations use weak references by default
-   - Guava's EventBus can be configured for weak listeners
+   - Some event bus implementations can hold listeners through weak references
+   - Guava's EventBus is not one of them: it holds strong references, so
+     listeners must be removed with unregister()
 ```
 
 ```java

@@ -42,7 +42,7 @@ The Strategy pattern consists of three participants:
 |---------|----------------------------|
 | Pre-Java 8 | Required separate classes or anonymous inner classes for each strategy |
 | Java 8 | Lambdas and functional interfaces made simple strategies one-liners |
-| Java 14+ | Records provide concise strategy implementations with data |
+| Java 16+ | Records provide concise strategy implementations with data (preview in Java 14 and 15) |
 | Java 17+ | Sealed interfaces restrict permitted strategies for type safety |
 | Java 21 | Pattern matching for switch enables exhaustive strategy dispatching |
 
@@ -381,12 +381,12 @@ Predicate<String> longerThan3 = s -> s.length() > 3;
 Predicate<String> combined = notEmpty.and(longerThan3);
 
 // Data pipeline with strategy stages
-DataPipeline<Integer> pipeline = new DataPipeline<Integer>()
+DataPipeline<Integer> dataPipeline = new DataPipeline<Integer>()
     .addStage(list -> list.stream().filter(n -> n > 0).toList())
     .addStage(list -> list.stream().distinct().toList())
     .addStage(list -> list.stream().sorted().toList());
 
-List<Integer> result = pipeline.execute(Arrays.asList(3, -1, 2, 3, 0, 5));
+List<Integer> result = dataPipeline.execute(Arrays.asList(3, -1, 2, 3, 0, 5));
 // result: [2, 3, 5]
 ```
 

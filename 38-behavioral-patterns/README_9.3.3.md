@@ -115,8 +115,11 @@ The Command pattern consists of these participants:
 
 3. **Use lambdas for simple fire-and-forget commands**: When undo is not needed, `Runnable` or `Consumer<T>` is sufficient.
    ```java
-   CommandQueue queue = new CommandQueue();
-   queue.enqueue(() -> System.out.println("Hello")); // simple lambda command
+   Queue<Runnable> queue = new ArrayDeque<>();
+   queue.add(() -> System.out.println("Hello")); // simple lambda command
+   queue.poll().run();
+   // A Command with execute(), undo() and description() is not a functional interface,
+   // so a lambda cannot be passed where a Command is expected (see LambdaCommand in Q4).
    ```
 
 4. **Implement the Memento pattern for complex undo**: For receivers with complex state, use the Memento pattern to save and restore snapshots rather than trying to reverse individual operations.
@@ -475,8 +478,11 @@ history.redo();                       // editor: "Hello World"
 
 ```text
 A6: Event sourcing is an architectural pattern where state changes are stored as
-a sequence of events (commands) rather than storing the current state directly.
-The Command pattern is the foundation of event sourcing.
+a sequence of events rather than storing the current state directly. The Command
+pattern is closely related: a command is a request to change state, and handling it
+produces the events that are stored. Strictly, event sourcing stores the events
+(facts that happened), not the commands; a log of replayable commands is sometimes
+called command sourcing, and the simplified example below stores commands.
 
 How they relate:
 1. Each state change is represented as a Command object
