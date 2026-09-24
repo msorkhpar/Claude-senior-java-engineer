@@ -150,7 +150,9 @@ Key syntax rules:
 3. **Text block with the closing delimiter at column 0**: No indentation is removed.
 4. **Text block used in a constant expression**: Text blocks can be used as compile-time constants.
 5. **Text block in annotation values**: Text blocks work in annotation string elements.
-6. **Concatenation of text blocks**: `"""a""" + """b"""` works but is unusual; use a single text block.
+6. **Concatenation of text blocks**: two text blocks can be joined with `+` (each still needs its own line
+   terminator after the opening `"""`, so `"""a""" + """b"""` does not compile); it works but is unusual; use a
+   single text block.
 
 ## Interview-specific Insights
 

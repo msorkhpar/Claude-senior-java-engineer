@@ -262,11 +262,12 @@ A3: Escape sequences reduce readability in several ways:
 // Escape sequence examples showing readability impact
 public class EscapeReadability {
     // Regex: match a digit followed by a backslash and a word character
-    // Actual regex: \d\\w
+    // Actual regex: \d\\\w
     String regex = "\\d\\\\\\w"; // Hard to read!
 
-    // SQL with single quotes inside
-    String sql = "SELECT * FROM users WHERE name = 'O\\'Brien'";
+    // SQL with single quotes inside: no Java escaping needed for ',
+    // SQL itself escapes a quote by doubling it
+    String sql = "SELECT * FROM users WHERE name = 'O''Brien'";
 
     // JSON with nested quotes
     String json = "{\"message\": \"She said \\\"Hello\\\"\"}";
@@ -296,8 +297,9 @@ A4: Traditional string literals remain the better choice in several scenarios:
 
 5. Format strings used inline: "User: %s" is clearer as a traditional string.
 
-6. Strings in annotations: Annotations still require traditional string literals
-   in many cases.
+6. Short strings in annotations: text blocks are constant expressions and ARE
+   allowed in annotation values, but a short value reads better as a
+   traditional literal.
 
 7. Performance-critical contexts: While there's no runtime difference, some teams
    prefer traditional strings for consistency in utility code.
@@ -347,7 +349,8 @@ Groovy:
 
 Scala:
 - Triple-quoted strings: """raw string"""
-- stripMargin for indentation: """  |line1  |line2""".stripMargin
+- stripMargin for indentation: on each line, everything up to and including a
+  leading '|' is removed
 
 Java's text blocks (JEP 378) drew inspiration from these languages but with key differences:
 - Java text blocks DO process escape sequences (unlike Kotlin raw strings).

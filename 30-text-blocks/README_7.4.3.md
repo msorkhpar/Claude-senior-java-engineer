@@ -77,7 +77,7 @@ The algorithm works as follows:
    String fixed = """
            Hello  \s
            World""";
-   // Result: "Hello    \nWorld" (three spaces + \s space preserved)
+   // Result: "Hello   \nWorld" (two spaces + the \s space preserved)
    ```
 
 4. **Mixing tabs and spaces for indentation**:
@@ -417,9 +417,9 @@ Why this matters:
 3. Alignment: column-aligned text needs preserved trailing whitespace
 4. Code generation: generated code may need exact spacing
 
-The \s escape is unique to text blocks (though it technically works in
-regular strings too since Java 15). It was specifically designed for
-this trailing whitespace preservation use case.
+The \s escape is not unique to text blocks: since Java 15 it is valid in any
+string or char literal. It was designed for this trailing whitespace
+preservation use case in text blocks.
 ```
 
 ```java
@@ -487,13 +487,13 @@ public class TranslateEscapesExample {
         // String read from a file containing literal escape sequences
         String fromFile = "Hello\\nWorld\\tTab";
 
-        // Before translateEscapes: length = 20 (literal \n and \t)
-        System.out.println(fromFile.length()); // 20
+        // Before translateEscapes: length = 17 (literal \n and \t, two chars each)
+        System.out.println(fromFile.length()); // 17
         System.out.println(fromFile);          // Hello\nWorld\tTab (literal)
 
-        // After translateEscapes: length = 16 (actual newline and tab)
+        // After translateEscapes: length = 15 (actual newline and tab)
         String translated = fromFile.translateEscapes();
-        System.out.println(translated.length()); // 16
+        System.out.println(translated.length()); // 15
         System.out.println(translated);           // Hello
                                                   // World	Tab
 

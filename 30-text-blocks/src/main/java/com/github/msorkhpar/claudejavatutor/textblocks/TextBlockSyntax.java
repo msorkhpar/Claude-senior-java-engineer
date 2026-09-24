@@ -27,9 +27,11 @@ public class TextBlockSyntax {
     }
 
     /**
-     * Demonstrates that the closing delimiter position determines indentation removal.
-     * When the closing delimiter is at the beginning of its line,
-     * all common leading whitespace is removed.
+     * Demonstrates content written at column 0, with the closing delimiter on the
+     * last content line. There is no leading whitespace to remove, so the result is
+     * the same as indented content with the closing delimiter aligned to it.
+     * (A closing delimiter at column 0 on its OWN line would instead keep all of the
+     * content's source indentation.)
      */
     public static String closingDelimiterAtStart() {
         return """
