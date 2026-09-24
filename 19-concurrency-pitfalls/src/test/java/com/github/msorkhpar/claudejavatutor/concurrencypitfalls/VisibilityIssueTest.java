@@ -88,9 +88,12 @@ class VisibilityIssueTest {
             CountDownLatch started = new CountDownLatch(1);
             var resultFuture = new CompletableFuture<Long>();
 
+            // No practical iteration cap: the loop can end only by seeing the stop signal.
+            // (A cap of 100,000,000 took about 22 ms warm, so a delayed stop could let the
+            // loop run out first and fail the test for timing reasons.)
             Thread worker = Thread.ofVirtual().start(() -> {
                 started.countDown();
-                long iterations = flag.spinUntilStop(100_000_000L);
+                long iterations = flag.spinUntilStop(Long.MAX_VALUE);
                 resultFuture.complete(iterations);
             });
 
@@ -98,10 +101,10 @@ class VisibilityIssueTest {
             Thread.sleep(5); // Let worker spin briefly
             flag.requestStop();
 
-            Long iterations = resultFuture.get(5, TimeUnit.SECONDS);
+            Long iterations = resultFuture.get(5, TimeUnit.SECONDS); // completes only via the stop
             worker.join(5000);
 
-            assertThat(iterations).isLessThan(100_000_000L);
+            assertThat(iterations).isLessThan(Long.MAX_VALUE);
         }
     }
 

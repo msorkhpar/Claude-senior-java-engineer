@@ -28,8 +28,9 @@ public class DataRace {
 
     /**
      * An UNSAFE counter with a data race on the counter field.
-     * Multiple threads calling increment() concurrently will lose updates
-     * because counter++ is a non-atomic read-modify-write operation.
+     * Multiple threads calling increment() concurrently can lose updates
+     * because counter++ is a non-atomic read-modify-write operation. The JMM allows
+     * lost updates but does not promise them: a run may still produce the exact total.
      */
     public static class UnsynchronizedCounter {
         private int counter = 0;
@@ -207,7 +208,7 @@ public class DataRace {
     /**
      * Runs the given task concurrently across the specified number of threads,
      * each executing incrementsPerThread iterations.
-     * Returns when all threads have completed.
+     * Returns when all threads have completed (or after 15 seconds, whichever comes first).
      */
     public static void runConcurrentIncrements(int threadCount, int incrementsPerThread, Runnable task)
             throws InterruptedException {

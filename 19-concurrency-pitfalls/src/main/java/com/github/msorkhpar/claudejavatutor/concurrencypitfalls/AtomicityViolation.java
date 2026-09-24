@@ -27,7 +27,7 @@ public class AtomicityViolation {
 
     /**
      * UNSAFE: counter++ is not atomic. It decomposes into read, increment, write.
-     * Under concurrent access, updates will be lost.
+     * Under concurrent access, updates can be lost.
      */
     public static class NonAtomicIncrement {
         private int counter = 0;
@@ -327,7 +327,9 @@ public class AtomicityViolation {
         }
 
         /**
-         * Returns the sum and resets atomically.
+         * Returns the sum and resets to zero. NOT an atomic snapshot (see the LongAdder
+         * javadoc): an add() that runs concurrently with this call may be left out of the
+         * returned sum (and then survives the reset). Exact only when no updates are in flight.
          */
         public long sumThenReset() {
             return adder.sumThenReset();

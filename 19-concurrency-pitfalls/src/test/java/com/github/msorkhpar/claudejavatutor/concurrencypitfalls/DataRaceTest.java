@@ -37,10 +37,10 @@ class DataRaceTest {
 
             DataRace.runConcurrentIncrements(threads, perThread, counter::increment);
 
-            // Due to the data race, the counter is almost certainly less than expected.
-            // We assert it is <= expected (it could theoretically equal it, but very unlikely).
+            // Lost updates are allowed but not promised by the JMM: the result can be anything up
+            // to 'expected', including 'expected' itself. So a test can only assert <= expected;
+            // asserting "strictly less" would be a flaky test, and one run's value proves nothing.
             assertThat(counter.getCounter()).isLessThanOrEqualTo(expected);
-            // We log it for visibility; in a real test we'd check it's strictly less.
             System.out.println("Unsynchronized counter: expected=" + expected
                     + ", actual=" + counter.getCounter());
         }

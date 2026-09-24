@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * Visibility issues occur when one thread writes a value but another thread cannot see the update
  * because there is no happens-before relationship between the write and the read. The JIT compiler
- * and CPU caches can cause threads to work with stale values indefinitely.
+ * and CPU reordering can cause threads to work with stale values indefinitely.
  * <p>
  * Patterns covered:
  * <ul>
@@ -62,7 +62,7 @@ public class VisibilityIssue {
 
     /**
      * Thread-safe stop flag using volatile.
-     * Volatile ensures that every read of 'stop' fetches the latest value from main memory.
+     * Volatile ensures that every read of 'stop' re-reads the field and sees the latest write to it.
      */
     public static class VolatileFlag {
         private volatile boolean stop = false;
@@ -114,7 +114,7 @@ public class VisibilityIssue {
 
     /**
      * Demonstrates that synchronized provides BOTH mutual exclusion AND memory visibility.
-     * When a thread exits a synchronized block, all writes made within that block become
+     * When a thread exits a synchronized block, all writes it made before exiting become
      * visible to any thread that subsequently enters a synchronized block on the same monitor.
      */
     public static class SynchronizedVisibility {

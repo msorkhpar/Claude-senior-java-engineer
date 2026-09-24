@@ -18,9 +18,10 @@ Under the Java Memory Model (JMM), a data race is specifically defined as:
 - At least one access is a write
 - The accesses are not ordered by a happens-before relationship
 
-The JMM makes no guarantees about what value a thread will read from a variable when there is a data race — the result
-is essentially undefined behavior (or more precisely, the JMM guarantees only "out-of-thin-air" values for references,
-but allows any value for primitives).
+The JMM makes only weak guarantees about what value a thread will read from a variable when there is a data race: the
+read returns a value that some write to that variable actually wrote — possibly a stale one — and never a value "out of
+thin air" (for references and primitives alike; only non-volatile `long`/`double` may tear). Unlike C/C++, this is not
+undefined behavior, but the program is almost certainly wrong.
 
 ### Why Data Races Are Dangerous
 
@@ -28,19 +29,23 @@ but allows any value for primitives).
 2. **Memory visibility**: Without synchronization, a thread may see a stale value from its local cache.
 3. **Instruction reordering**: Compilers and CPUs may reorder instructions for optimization — valid for single-threaded
    execution but can cause surprising results in concurrent code.
-4. **Torn reads/writes**: On 64-bit platforms, a `long` or `double` field access may not be atomic on all JVMs,
-   causing a read to see half of one write and half of another.
+4. **Torn reads/writes**: A non-volatile `long` or `double` field access is not required to be atomic (JLS §17.7) —
+   in practice this happens on 32-bit JVMs — so a read may see half of one write and half of another.
 
 ## Key Points to Remember
 
 1. A data race requires: concurrent access + at least one write + no synchronization.
 2. Data races can corrupt state even if the code looks logically correct in isolation.
-3. `volatile` prevents data races on single read/write operations but not compound operations.
+3. `volatile` removes data races on that variable, but compound operations such as `i++` on it still have race
+   conditions (lost updates).
 4. `synchronized` prevents data races by establishing mutual exclusion and memory visibility.
 5. Immutable objects can never be involved in a data race (their fields never change after construction).
 6. `final` fields, when safely published, are immune to data races.
-7. Detecting data races: use tools like ThreadSanitizer, Helgrind, or the Java Concurrency Stress (JCStress) framework.
-8. Data races on reference types may produce "out-of-thin-air" values in theory — always use synchronization.
+7. Detecting data races: use stress testing with the Java Concurrency Stress (JCStress) framework, static analysis
+   (SpotBugs), and code review; ThreadSanitizer and Helgrind target native code (a Java port of ThreadSanitizer exists
+   only as an experimental OpenJDK project).
+8. Data races on reference types may return a stale reference, or a reference to an object whose non-final fields are
+   not yet visible — always use synchronization.
 
 ## Relevant Java 21 Features
 
@@ -48,9 +53,10 @@ but allows any value for primitives).
   prevent data races. The same synchronization rules apply.
 - **Structured concurrency (JEP 453 preview)**: Encourages task hierarchies that reduce shared-state access between
   sibling tasks.
-- **Sequenced collections**: Provide predictable iteration order, reducing certain race-prone patterns.
-- **Record classes**: Immutable by design, making them safe for sharing across threads without synchronization for their
-  fields (assuming safe publication).
+- **Sequenced collections**: Unrelated to thread safety — the new `SequencedCollection` methods on `ArrayList`,
+  `LinkedHashMap`, etc. are exactly as unsynchronized as the rest of those classes.
+- **Record classes**: Shallowly immutable (all fields `private final`), making them safe for sharing across threads
+  without synchronization for their fields.
 - **Pattern matching for switch**: Enables more expressive code, but concurrent state management requirements remain
   unchanged.
 
@@ -173,15 +179,18 @@ private Queue<String> sharedQueue = new ConcurrentLinkedQueue<>();
 
 ### 1. Safe publication of immutable objects
 
-Even immutable objects can be involved in a data race if they are not *safely published*. A safely published object is
-one whose reference is made visible to other threads only after construction is complete.
+Even immutable objects can be involved in a data race if they are not *safely published*: the race is then on the
+*reference*. For a truly immutable object (all fields `final`, no `this` escape), a thread that does see the reference
+also sees the constructed field values (JLS §17.5) — but it may keep seeing `null`. An "immutable" class whose fields
+are not `final` can additionally be seen partially constructed.
 
 ```java
-// UNSAFE: Another thread may see the reference before construction is done
+// UNSAFE: the write of the reference races with the readers
 private MyImmutable obj;
 
 public void init() {
-    obj = new MyImmutable(42); // May be partially constructed when another thread reads obj
+    obj = new MyImmutable(42); // Readers may keep seeing null; if MyImmutable's fields are not
+                               // final, a reader may also see them unset
 }
 
 // SAFE: volatile ensures the write to obj is visible only after the object is fully constructed
@@ -190,7 +199,7 @@ private volatile MyImmutable obj;
 
 ### 2. Static initializer safety
 
-Static initializers run within a class-loading lock, so they are inherently thread-safe. Static fields initialized in
+Static initializers run under the class initialization lock (JLS §12.4.2), so they are inherently thread-safe. Static fields initialized in
 a static initializer or at declaration are safely published.
 
 ```java
@@ -238,12 +247,13 @@ Interviewers often probe:
 - Real-world examples of data races in production systems
 
 Common tricky questions:
-- "Can you have a race condition without a data race?" — Yes! Check-then-act under synchronized is a logical race but
-  not a JMM data race.
+- "Can you have a race condition without a data race?" — Yes! A check-then-act built from individually synchronized
+  calls (e.g. `contains` then `add` on a `Collections.synchronizedSet`) is a logical race but not a JMM data race.
 - "Is `i++` on a volatile int atomic?" — No! volatile only ensures visibility, not atomicity of compound operations.
-- "What happens if two threads write to different fields of the same object without synchronization?" — They may still
-  cause data races because Java does not guarantee field-level atomicity for long/double, and compiler/CPU reordering
-  can still cause issues.
+- "What happens if two threads write to different fields of the same object without synchronization?" — No data race:
+  they are different variables, and JLS §17.6 forbids word tearing, so neither write can disturb the other (at most
+  they cause false sharing, a performance effect). Problems start only when a thread also reads the other thread's
+  field, or when the two fields must stay consistent with each other.
 
 ## Interview Q&A Section
 
@@ -252,8 +262,8 @@ Common tricky questions:
 ```text
 A1: A data race is a precise technical term defined by the Java Memory Model (JMM): it occurs when
 two threads access the same variable concurrently, at least one access is a write, and the
-accesses are not ordered by a happens-before relationship. The JMM makes no guarantees about the
-outcome — results are undefined.
+accesses are not ordered by a happens-before relationship. The JMM then allows stale and
+reordered results (though not values out of thin air).
 
 A race condition is a broader term for any situation where the correctness of a program depends on
 the relative timing or interleaving of threads. A race condition can exist even in fully
@@ -262,12 +272,13 @@ the check and the action, even if each individual operation is synchronized.
 
 Key distinction:
 - All data races are a form of race condition, but not all race conditions are data races.
-- A data race = JMM violation (undefined behavior).
+- A data race = accesses the JMM leaves unordered (stale or reordered values allowed).
 - A race condition = logical correctness issue that may or may not involve a JMM violation.
 
-Example of a race condition without a data race:
-  synchronized(lock) { if (!set.contains(x)) set.add(x); }
-  // Each operation is synchronized, but between the check and the add, another thread may add x.
+Example of a race condition without a data race (set = Collections.synchronizedSet(...)):
+  if (!set.contains(x)) set.add(x);
+  // Each call is synchronized, but between the check and the add, another thread may add x.
+  // (Wrapping both calls in one synchronized (set) { ... } block removes the race.)
 ```
 
 ```java
@@ -348,8 +359,9 @@ class HappensBeforeDemo {
 
 ```text
 A3: The `volatile` keyword guarantees two things:
-1. Visibility: A write to a volatile variable is immediately visible to all threads.
-2. No reordering: Reads and writes of volatile variables are not reordered with other memory operations.
+1. Visibility: A write to a volatile variable is visible to every later read of it.
+2. Ordering: Reads and writes before a volatile write cannot move after it, and those after a volatile read
+   cannot move before it.
 
 However, `volatile` does NOT make compound operations like `i++` atomic. The `i++` operation
 decomposes into THREE separate steps:
@@ -385,14 +397,20 @@ class VolatileVsAtomic {
         var example = new VolatileVsAtomic();
         var threads = new ArrayList<Thread>();
 
-        for (int i = 0; i < 1000; i++) {
-            threads.add(Thread.ofVirtual().start(example::unsafeIncrement));
+        for (int i = 0; i < 100; i++) {
+            threads.add(Thread.ofVirtual().start(() -> {
+                for (int j = 0; j < 1000; j++) {
+                    example.unsafeIncrement();
+                    example.safeIncrement();
+                }
+            }));
         }
         for (var t : threads) t.join();
 
-        // volatileCounter is likely < 1000 due to data race
-        System.out.println("Volatile (likely wrong): " + example.volatileCounter);
-        System.out.println("Atomic (always correct): " + example.atomicCounter.get());
+        // Expected 100000 for both. Lost updates can make volatileCounter smaller;
+        // the JMM does not promise they will happen, so one run proves nothing either way.
+        System.out.println("Volatile (may lose updates): " + example.volatileCounter);
+        System.out.println("Atomic (always 100000):      " + example.atomicCounter.get());
     }
 }
 ```
@@ -402,15 +420,16 @@ class VolatileVsAtomic {
 ```text
 A4: Several tools and techniques exist for detecting data races in Java:
 
-1. ThreadSanitizer (TSan): A dynamic analysis tool available via native agent. Detects data races
-   at runtime by tracking all memory accesses. Available for HotSpot JVM.
+1. ThreadSanitizer (TSan): A dynamic race detector for native code. A Java port exists only as an
+   experimental OpenJDK project (not part of standard JDK builds).
 
 2. JCStress (Java Concurrency Stress): A specialized framework for writing correctness tests for
    concurrent code. Tests can reveal races that are very hard to reproduce with regular unit tests.
 
 3. Helgrind / DRD: Valgrind tools that detect data races (mainly for native code, less common for JVM).
 
-4. SpotBugs with FindSecBugs: Static analysis that can detect some classes of thread-safety bugs.
+4. SpotBugs: Its multithreaded-correctness detectors (e.g. inconsistent synchronization) find some classes of
+   thread-safety bugs statically.
 
 5. IntelliJ IDEA / Eclipse: IDEs can warn about common concurrent programming mistakes.
 
@@ -430,7 +449,7 @@ class DataRaceStressTest {
     private int sharedCounter = 0;
 
     // Run this repeatedly with many threads to detect the race
-    @org.junit.jupiter.api.Test
+    // (@RepeatedTest alone: combining it with @Test would register the method twice)
     @org.junit.jupiter.api.RepeatedTest(10)
     void detectRaceWithRepetition() throws InterruptedException {
         sharedCounter = 0;
@@ -449,7 +468,7 @@ class DataRaceStressTest {
 
         int expected = threadCount * incrementsPerThread;
         // This assertion will FAIL intermittently due to the data race
-        // Org.assertj.core.api.Assertions.assertThat(sharedCounter).isEqualTo(expected);
+        // org.assertj.core.api.Assertions.assertThat(sharedCounter).isEqualTo(expected);
         System.out.println("Expected: " + expected + ", Actual: " + sharedCounter);
     }
 }
@@ -464,14 +483,15 @@ concurrent write — and without a concurrent write, there can be no data race.
 
 Java provides two mechanisms for immutability:
 1. final fields: A final field can only be assigned once (in the constructor or at declaration).
-   After construction, if the object is safely published, the final field's value is guaranteed to
-   be visible to all threads without any additional synchronization.
+   After construction, the final field's value is guaranteed to be visible to every thread that
+   obtains a reference to the object, without any additional synchronization — even if the reference
+   was passed through a data race (JLS 17.5), provided 'this' did not escape the constructor.
 2. Records: Java record classes (Java 16+) generate final fields for all components, making them
-   naturally immutable.
+   (shallowly) immutable.
 
-"Safe publication" is essential even for immutable objects: the reference to the object must be
-made visible to other threads through a properly synchronized channel (volatile field, concurrent
-collection, synchronized block, etc.).
+"Safe publication" is still needed for the REFERENCE: publish it through a properly synchronized
+channel (volatile field, concurrent collection, synchronized block, etc.) so that other threads are
+guaranteed to see it at all. The object's final-field state itself is safe even without it.
 
 Immutability is the gold standard for concurrent programming because it:
 - Eliminates data races by definition

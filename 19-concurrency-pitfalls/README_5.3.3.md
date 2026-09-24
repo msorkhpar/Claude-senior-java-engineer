@@ -4,15 +4,15 @@
 
 A **visibility issue** occurs when one thread writes a value to a shared variable but another thread continues to see a
 stale (outdated) value because there is no happens-before relationship between the write and the subsequent read. Under
-the Java Memory Model (JMM), without explicit synchronization, the JIT compiler and CPU caches are free to optimize in
-ways that prevent updates from being propagated across threads.
+the Java Memory Model (JMM), without explicit synchronization, the JIT compiler and the CPU are free to optimize (keep
+values in registers, reorder memory operations) in ways that prevent updates from being seen by other threads.
 
 **Real-world analogy**: Imagine a team of accountants in different offices, each with a personal whiteboard that mirrors
 a central ledger. When accountant A updates the central ledger, accountants B and C keep working from their personal
-whiteboards -- they never know the ledger changed because nobody told them to refresh. A visibility issue is exactly
-this: one thread updates a variable in main memory, but the other thread's CPU cache still holds the old value, and
-without a synchronization action (the equivalent of "refresh your whiteboard"), the reading thread may never see the
-update.
+whiteboards -- they never know the ledger changed because nobody told them to refresh. A visibility issue is like
+this: one thread updates a variable, but the other thread keeps working from its own copy (in practice usually a value
+the JIT keeps in a register, or a reordered read — CPU caches themselves are kept coherent by the hardware), and without
+a synchronization action (the equivalent of "refresh your whiteboard"), the reading thread may never see the update.
 
 ### Why Visibility Issues Are Dangerous
 
@@ -35,7 +35,7 @@ The Java Memory Model defines **happens-before** relationships that guarantee vi
 | `synchronized` exit/entry | An unlock on a monitor happens-before every subsequent lock on the same monitor.                  |
 | `Thread.start()`    | The call to `start()` happens-before any action in the started thread.                                |
 | `Thread.join()`     | All actions in a thread happen-before `join()` returns in the calling thread.                         |
-| `final` fields       | A final field written in a constructor is visible to all threads after the constructor completes (if safely published). |
+| `final` fields       | A final field written in a constructor is visible to any thread that gets the reference after the constructor completes — even through a race (JLS §17.5, its own rule, not happens-before). |
 
 ## Key Points to Remember
 
@@ -50,7 +50,7 @@ The Java Memory Model defines **happens-before** relationships that guarantee vi
    that subsequently reads the volatile variable (volatile "publishes" the preceding writes).
 5. Double-checked locking is **broken** without `volatile` on the instance field -- instruction reordering can expose a
    partially constructed object.
-6. The Initialization-on-Demand Holder idiom leverages JLS class-loading guarantees for safe, lazy, synchronization-free
+6. The Initialization-on-Demand Holder idiom leverages JLS class-initialization guarantees for safe, lazy, synchronization-free
    singleton initialization.
 7. `final` fields are safely visible to all threads after construction completes -- provided the `this` reference does
    not escape during construction.
@@ -211,7 +211,7 @@ public class UnsafePublication {
     }
 
     public Holder getHolder() {
-        return holder; // Reader may see holder != null but holder.value == 0
+        return holder; // Reader may see holder != null but holder.value == 0 (if value is not final)
     }
 }
 ```
@@ -350,7 +350,8 @@ Interviewers focus on:
   Thread.start/join, final fields).
 - Why double-checked locking is broken without volatile and what instruction reordering scenario causes the bug.
 - The **piggybacking** technique: how writing to a volatile variable "publishes" all prior non-volatile writes.
-- Whether `final` fields are truly safe across threads (yes, with safe publication and no `this` escape).
+- Whether `final` fields are truly safe across threads (yes, provided there is no `this` escape — even if the reference
+  itself is published through a race).
 - Real-world scenarios where visibility bugs manifest only under load or after JIT compilation.
 
 Common tricky questions:
@@ -369,13 +370,13 @@ Common tricky questions:
 
 ```text
 A1: A visibility issue occurs when a write performed by one thread is not seen by another thread.
-This happens because of the hardware memory architecture: each CPU core has its own cache, and
-without an explicit synchronization action, the JVM and CPU are free to serve reads from the
-local cache rather than main memory.
+This happens because, without an explicit synchronization action, the JIT and the CPU are free to
+keep values in registers, buffer stores, and reorder memory operations. (CPU caches are kept
+coherent by the hardware; the usual culprit for a read that never updates is the JIT.)
 
 The Java Memory Model (JMM) defines "happens-before" relationships that guarantee visibility.
 Without such a relationship between a write and a subsequent read:
-- The reading thread may see a stale value from its cache indefinitely.
+- The reading thread may see a stale value indefinitely.
 - The JIT compiler may optimize by hoisting a field read out of a loop, caching it in a CPU
   register, and never re-reading from memory.
 - The CPU may reorder instructions, causing writes to appear in a different order to other threads.
@@ -385,8 +386,9 @@ Key mechanisms that establish happens-before (and thus guarantee visibility):
 2. synchronized block exit -> synchronized block entry (on the same monitor)
 3. Thread.start() -> first action in the started thread
 4. Last action in a thread -> Thread.join() return
-5. Writing a final field in a constructor -> reading that field after construction (with safe
-   publication)
+5. Separately from happens-before (JLS 17.5): writing a final field in a constructor -> any read
+   of that field through a reference obtained after construction (no 'this' escape needed; no
+   safe publication needed for the final fields themselves)
 ```
 
 ```java
@@ -541,7 +543,7 @@ class HolderSingleton {
     }
 
     public static HolderSingleton getInstance() {
-        return Holder.INSTANCE; // Class loading guarantees thread safety
+        return Holder.INSTANCE; // Class initialization guarantees thread safety
     }
 }
 ```
@@ -565,7 +567,7 @@ synchronized:
 - Applies to ALL variables accessed within the synchronized block.
 - Guarantees visibility: when a thread exits a synchronized block, all writes become visible
   to the next thread entering a synchronized block on the SAME monitor.
-- Guarantees ordering: instructions cannot be reordered across synchronized block boundaries.
+- Guarantees ordering: operations inside the block cannot be moved out of it.
 - Provides mutual exclusion (atomicity): only one thread can hold the monitor at a time.
 - Heavier: involves lock acquisition/release, potential thread blocking and context switches.
 - Essential when multiple variables must be consistent together or compound operations are needed.
@@ -623,10 +625,14 @@ This works because the JVM inserts a "freeze" action at the end of the construct
 with final fields. This freeze ensures that the writes to final fields are visible before the
 object reference is published.
 
-However, this guarantee has a critical prerequisite: SAFE PUBLICATION. The object must be
-published only after its constructor has completed. If the 'this' reference escapes during
-construction (e.g., by passing it to another thread, registering as a listener, or storing it
-in a static field within the constructor), the guarantee is void.
+However, this guarantee has a critical prerequisite: PROPER CONSTRUCTION. The object must not be
+visible to other threads before its constructor has completed. If the 'this' reference escapes
+during construction (e.g., by passing it to another thread, registering as a listener, or storing
+it in a static field within the constructor), the guarantee is void.
+
+Safe publication (below) is a different matter: it is what guarantees another thread sees the
+REFERENCE at all, and what non-final state needs. The final fields themselves are visible even if
+the reference arrives through a data race.
 
 Safe publication mechanisms:
 1. Storing the reference in a volatile field
@@ -695,8 +701,8 @@ synchronization and no volatile fields.
 How it works:
 1. The singleton instance is stored as a static final field of a private static inner class (the
    "Holder").
-2. The Holder class is not loaded until it is referenced for the first time -- which happens only
-   when getInstance() is called.
+2. The Holder class is not initialized until it is referenced for the first time -- which happens
+   only when getInstance() is called.
 3. The JLS (Section 12.4.2) guarantees that class initialization is performed exactly once, is
    thread-safe (the JVM acquires a lock during initialization), and all static fields are visible
    to all threads after initialization.
@@ -721,23 +727,24 @@ public class HolderIdiom {
         // Private constructor -- prevents external instantiation
     }
 
-    // Inner class is loaded only when getInstance() is first called
+    // Inner class is initialized only when getInstance() is first called
     private static class Holder {
         static final HolderIdiom INSTANCE = new HolderIdiom();
         // JLS guarantees: this initialization is thread-safe and happens exactly once
     }
 
     public static HolderIdiom getInstance() {
-        return Holder.INSTANCE; // Triggers Holder class loading on first call
+        return Holder.INSTANCE; // Triggers Holder class initialization on first call
     }
 }
 
-// For comparison: Enum singleton (another safe approach, but eager)
+// For comparison: Enum singleton (another safe approach; created when the enum class is initialized,
+// i.e. on its first use, so it is only as lazy as that)
 public enum EnumSingleton {
     INSTANCE;
 
     public void doSomething() {
-        // Enum constants are initialized during class loading -- thread-safe and serialization-safe
+        // Enum constants are created during class initialization -- thread-safe and serialization-safe
     }
 }
 ```
