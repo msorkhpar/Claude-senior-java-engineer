@@ -36,13 +36,17 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    reader's own assertion and needs nobody's agreement to be true. ⚠️ The
    served half is a different fact: a PASS is established by a grader run and
    is written where it was established (spec §8.5). ⛔ **A read mark is
-   never a pass**, and nothing here can produce one — this file has no notion
-   of a practice, a grader or a result at all.
+   never a pass**, and nothing here can produce a run's pass — this file knows
+   no grader and no run, and a quiz's pass is only kept here, never judged.
 
    ⛔ **An explicit act, never inferred.** Nothing here observes scrolling, the
    narration reaching the end, or the page having been opened. The store is
    written when the reader presses the control and at no other time. A record
    the reader cannot trust is worse than none.
+
+   ⭐ **A third record holds the quizzes the reader has answered wholly right**:
+   a quiz is graded in its own page, and nothing about it is a server's, so
+   its pass is the reader's own, like a mark. ⛔ It is never a run's pass.
 
    ⛔ **Two records, never one.** The marks and the reader's display
    preferences have different shapes and different lifetimes, so they are two
@@ -83,6 +87,8 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      the reader's browser put it. */
   var MARKS_KEY = 'studyforge.read.v1';
   var DISPLAY_KEY = 'studyforge.display.v1';
+  /* ⭐ The third record: the quizzes this reader has answered wholly right. */
+  var QUIZZES_KEY = 'studyforge.quizzes.v1';
 
   /* ⛔ THE BOOT CACHE, AND IT IS A DIFFERENT STORAGE AREA ON PURPOSE.
      ⚠️ `page.html` carries a synchronous boot in the `<head>` so a
@@ -108,6 +114,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      and a reader whose two machines disagree is the normal case. */
   var RECORD_VERSION = 1;
   var MARKS_FIELD = 'read';
+  var PASSED_FIELD = 'passed';
   var DISPLAY_FIELD = 'display';
 
   /* How long a thing this will keep. ⚠️ A bound rather than a grammar: the
@@ -251,6 +258,31 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     return writeMarks(marks().filter(function (held) { return held !== key; }));
   }
 
+  /* ⭐ **A quiz passed, by its practice key** — the same machinery as the
+     marks, over its own key. ⛔ A quiz is graded in its page and the server
+     records nothing about it (the user's ruling), so its pass is the reader's
+     own record, kept where the read marks are; it is never a RUN's pass. */
+  function passes() {
+    var held = record(QUIZZES_KEY);
+    var listed = held && Array.isArray(held[PASSED_FIELD]) ? held[PASSED_FIELD] : [];
+    return listed.filter(function (entry, at) {
+      return usable(entry) && listed.indexOf(entry) === at;
+    }).sort();
+  }
+
+  function passedQuiz(key) {
+    return usable(key) && passes().indexOf(key) !== -1;
+  }
+
+  function passQuiz(key) {
+    if (!usable(key)) { return false; }
+    var kept = passes();
+    if (kept.indexOf(key) === -1) { kept.push(key); }
+    var body = { version: RECORD_VERSION };
+    body[PASSED_FIELD] = kept.sort();
+    return keep(QUIZZES_KEY, body);
+  }
+
   /* The second record, and it is deliberately the same machinery over a
      different key — never the same record with a second field in it. */
   function preferences() {
@@ -286,6 +318,9 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   window.studyforge.progress = {
     MARKS_KEY: MARKS_KEY,
     DISPLAY_KEY: DISPLAY_KEY,
+    QUIZZES_KEY: QUIZZES_KEY,
+    passedQuiz: passedQuiz,
+    passQuiz: passQuiz,
     supported: function () { return backed !== null; },
     marks: marks,
     marked: marked,
@@ -1792,37 +1827,32 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   });
 }());
 
-/* The quiz: what a reader chose, and what the local study server said about it.
+/* The quiz: what a reader chose, whether it was right, and why — graded in the page.
 
-   ⛔ **THE KEY IS NOT IN THE PAGE, AND THIS FILE DOES NOT GRADE**: the correct
-   answers stay on the local server, which validates each answer and returns
-   the result with its explanation. ⭐ So this file reads
-   which option the reader chose, hands the choices to `window.studyforge.quiz`
-   — which the SERVING PROCESS adds to a served page and a built page never
-   names (R8) — and shows what came back: right or wrong per question,
-   the chosen option's sentence, the count, and whether the quiz is complete.
-   ⛔ **The completion rule is the server's** (`exercise.quiz.completes`, applied
-   once, in Python); this file shows `complete` and never re-derives it.
+   ⭐ **The user's ruling (2026-09-25): the quiz answers remain in the page, in a
+   script local to that page, and nothing about a quiz is a server function.**
+   This reverses the ruling that kept the key on the local study server. ⭐ So
+   each quiz section carries its OWN key, as a JSON data block
+   (`<script type="application/json" data-practice-part="key">`, written by
+   `render/page/quiz.py`), and this file — shared by every page, and holding no
+   answer — reads it and grades in the browser. ⛔ **No request is made to
+   answer a quiz**, so the reading is the same over `file://` and served (R8).
 
-   ⚠️ **Superseded, and kept readable so it is not re-derived:** until that
-   ruling this file graded in the page from a key every option carried, identically
-   over `file://`, on the stance that an offline page cannot hide the key it grades
-   with. The ruling removes the key from the page instead.
+   ⭐ **The rule, in full**: a question is right when the chosen option is its
+   key; the chosen option's sentence is shown, right or wrong; and the quiz is
+   complete only when EVERY question is answered right — no pass mark, no
+   partial credit. ⚠️ A wrong answer shows its own sentence and never names
+   the key: a reader told why their choice fails can try again.
 
-   ⭐ **Over `file://` the questions and the options still show** and a reader
-   may still choose; the Check control stays `hidden` and the `offline`
-   sentence stays showing, exactly as Run and Submit do in the code panel. ⛔
-   Nothing is sent from a file page — there is no origin to send it to.
+   ⭐ **A complete quiz is recorded as passed in the reader's own browser store**
+   (`study-progress.js`, where "Mark as read" keeps its marks), so its card reads
+   *passed* after a reload. ⛔ Never on the server, and never as a run's pass.
+   ⚠️ The answers themselves are not kept: a reload clears the choices, and the
+   pass stays.
 
    ⛔ **A quiz has no file, no command and no grader to submit to, so it renders
-   no Run and no Submit — and not disabled ones**: a dead button is never
-   rendered.
-
-   ⛔ **Nothing is written to browser storage, and the server records nothing
-   either.** What a reader answered is the page's for as long as they are on
-   it; ⚠️ **so a reload clears the answers**, and recording a quiz's completion
-   in the reader's own state is not done here — and it would never be a
-   run verdict, which a quiz does not produce.
+   no Run and no Submit — and not disabled ones.** With no script at all, the
+   Check control stays hidden and the page says why.
 
    ⭐ **Every word this file says is read off the markup**, where Python put it —
    the same two-sided spelling every hook on this page has. */
@@ -1835,16 +1865,17 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var QUESTION = 'data-practice-question';
   var VERDICT = 'data-practice-verdict';
 
+  /* What a quiz says when it is graded, raised on its section, so the card over
+     it reads the reader's record again (`practice-workspace.js`). */
+  var SETTLED = 'studyforge:practice-settled';
+
   /* Where each of this file's own sentences is kept. ⚠️ `right` is read off two
      different elements and means two different things — the question's *Right.*
-     and the section's counting line — which is why it is asked for by element
-     rather than looked up in one table. */
+     and the section's counting line. */
   var RIGHT = 'data-practice-right';
   var WRONG = 'data-practice-wrong';
   var COMPLETE = 'data-practice-complete';
   var BLANK = 'data-practice-blank';
-  var CHECKING = 'data-practice-checking';
-  var FAILED = 'data-practice-failed';
 
   function part(root, name) {
     return root.querySelector('[' + PART + '="' + name + '"]');
@@ -1854,9 +1885,21 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     return (element && element.getAttribute(name)) || '';
   }
 
-  /* What the reader chose, as `{question id: option id}`. ⚠️ Read off the DOM
-     rather than remembered: the radios ARE the state, and a second copy of them
-     would be a second answer to *what did they choose?*. */
+  /* This quiz's key, or null where the block is missing or is not one. ⛔ A
+     quiz with no key cannot be graded, and says nothing rather than guess. */
+  function keyOf(quiz) {
+    var block = part(quiz, 'key');
+    if (!block) { return null; }
+    try {
+      var key = JSON.parse(block.textContent);
+      return key && typeof key === 'object' && !Array.isArray(key) ? key : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /* What the reader chose, as `{question id: option id}`. ⚠️ Read off the DOM:
+     the radios ARE the state. */
   function chosen(quiz) {
     var answers = {};
     [].slice.call(quiz.querySelectorAll('[' + QUESTION + ']')).forEach(function (question) {
@@ -1866,81 +1909,66 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     return answers;
   }
 
-  /* One question's row of the server's verdict, drawn. ⭐ The sentence is the
-     one for whatever the reader CHOSE, right or wrong — a page that showed one
-     only for a wrong answer would teach half the material. ⛔ A question the
-     verdict says nobody answered shows nothing. */
-  function draw(question, row) {
+  /* One question graded and drawn; answers whether it is right. ⭐ The sentence
+     is the one for whatever the reader CHOSE, right or wrong. */
+  function draw(question, entry, answer) {
     var says = part(question, 'says');
-    if (!row || !row.answered) {
+    var hasSaid = entry && entry.says && Object.prototype.hasOwnProperty.call(entry.says, answer);
+    if (answer === undefined || !hasSaid) {
       question.removeAttribute(VERDICT);
       if (says) { says.textContent = ''; says.hidden = true; }
-      return;
+      return false;
     }
-    question.setAttribute(VERDICT, row.correct ? 'correct' : 'wrong');
+    var right = answer === entry.key;
+    question.setAttribute(VERDICT, right ? 'correct' : 'wrong');
     if (says) {
-      says.textContent = words(says, row.correct ? RIGHT : WRONG) + ' ' + (row.says || '');
+      /* ⚠️ The sentence is markup the BUILD rendered (`markup.inline`: escaped,
+         its inline code as code); the verdict's own word stays text. */
+      says.textContent = words(says, right ? RIGHT : WRONG) + ' ';
+      says.insertAdjacentHTML('beforeend', entry.says[answer]);
       says.hidden = false;
     }
+    return right;
   }
 
-  function show(quiz, verdict) {
-    var rows = {};
-    (verdict.questions || []).forEach(function (row) { rows[row.id] = row; });
-    [].slice.call(quiz.querySelectorAll('[' + QUESTION + ']')).forEach(function (question) {
-      draw(question, rows[question.getAttribute(QUESTION)]);
-    });
+  function grade(quiz, key) {
+    var answers = chosen(quiz);
     var status = part(quiz, 'status');
-    if (!status) { return; }
-    /* ⛔ **Complete is the SERVER's word** and is EVERY question answered
-       correctly; the count is said in every other case so a reader is never
-       told only that they are not finished. */
-    status.textContent = verdict.complete === true
-      ? words(status, COMPLETE)
-      : words(status, RIGHT).replace('{right}', verdict.right).replace('{asked}', verdict.asked);
+    var questions = [].slice.call(quiz.querySelectorAll('[' + QUESTION + ']'));
+    var right = 0;
+    questions.forEach(function (question) {
+      var id = question.getAttribute(QUESTION);
+      if (draw(question, key[id], answers[id])) { right += 1; }
+    });
+    /* ⛔ Complete is EVERY question answered right, and nothing less. */
+    var complete = questions.length > 0 && right === questions.length;
+    if (status) {
+      status.textContent = !Object.keys(answers).length ? words(status, BLANK)
+        : complete ? words(status, COMPLETE)
+          : words(status, RIGHT).replace('{right}', right).replace('{asked}', questions.length);
+    }
+    var store = window.studyforge && window.studyforge.progress;
+    if (complete && store) { store.passQuiz(quiz.getAttribute('data-practice-quiz')); }
+    quiz.dispatchEvent(new CustomEvent(SETTLED, { bubbles: true }));
   }
 
-  function wire(quiz, client) {
+  function wire(quiz) {
+    var key = keyOf(quiz);
     var check = part(quiz, 'check');
     var controls = part(quiz, 'controls');
     var offline = part(quiz, 'offline');
-    var status = part(quiz, 'status');
-    if (!check || !controls) { return; }
+    if (!key || !check || !controls) { return; }
     if (offline) { offline.hidden = true; }
     controls.hidden = false;
     var graded = false;
-    /* ⭐ Only the LATEST request may draw: a reader who changes an answer while
-       the previous one is still being checked must never see the older verdict
-       land on top of the newer choice. */
-    var asked = 0;
-
-    function grade() {
-      var answers = chosen(quiz);
-      var ticket = ++asked;
-      if (!Object.keys(answers).length) {
-        show(quiz, { questions: [], right: 0, asked: 0, complete: false });
-        if (status) { status.textContent = words(status, BLANK); }
-        return;
-      }
-      if (status) { status.textContent = words(status, CHECKING); }
-      client.grade(quiz.getAttribute('data-corpus'), quiz.getAttribute('data-practice-quiz'), answers)
-        .then(function (verdict) {
-          if (ticket === asked) { show(quiz, verdict); }
-        }, function () {
-          if (ticket === asked && status) { status.textContent = words(status, FAILED); }
-        });
-    }
-
     /* ⭐ Re-graded as soon as a reader changes an answer, once they have asked
        once, so the sentence under a question can never describe an option that
        is no longer chosen. */
-    check.addEventListener('click', function () { graded = true; grade(); });
-    quiz.addEventListener('change', function () { if (graded) { grade(); } });
+    check.addEventListener('click', function () { graded = true; grade(quiz, key); });
+    quiz.addEventListener('change', function () { if (graded) { grade(quiz, key); } });
   }
 
-  var client = window.studyforge && window.studyforge.quiz;
-  if (!client || !client.available()) { return; }
-  [].slice.call(document.querySelectorAll(QUIZ)).forEach(function (quiz) { wire(quiz, client); });
+  [].slice.call(document.querySelectorAll(QUIZ)).forEach(wire);
 }());
 
 /* A lesson's practices: the list of cards, and the one workspace a card opens in.
@@ -1966,10 +1994,12 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    second. This file never touches a frame.
 
    ⛔ **The status is the reader's own record, never the page's.** A card's
-   status words are markup, hidden; they are shown only where the SERVED client
-   answers what the reader's progress record holds (`studyforge.run.practices`),
-   and read again when a run in the workspace settles. ⭐ Over `file://` there is
-   no record to ask, and a card says nothing rather than something wrong.
+   status words are markup, hidden. A code card's are shown only where the
+   SERVED client answers what the reader's progress record holds
+   (`studyforge.run.practices`); a quiz card's from the reader's browser store
+   (`studyforge.progress`), where the quiz page records a pass — served or over
+   `file://`. Both are read again when a run or a quiz settles. ⭐ Where there
+   is no record to ask, a card says nothing rather than something wrong.
 
    ⛔ **Close returns the reader to where they were**: the scroll position read
    when the workspace opened is put back `instant` — `reset.css` makes every
@@ -2004,6 +2034,27 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   /* The mark an open section and panel carry, and the one the document carries
      while the workspace is up. ⛔ Also read by `practice-editor.js`. */
   var OPEN = 'data-workspace-open';
+
+  /* ⭐ A quiz opens in ONE column: its intro above its questions, its check
+     and explanations below — there is no editor to set beside it. The mark on
+     the document chooses the column geometry, and `INTRO` carries the intro's
+     height so the questions start under it (`practice-workspace.css`). */
+  var KIND = 'data-practice-kind';
+  var QUIZ_OPEN = 'data-workspace-quiz';
+  var INTRO = '--workspace-intro';
+
+  function isQuiz(one) { return one.card.getAttribute(KIND) === 'quiz'; }
+
+  function column(one) {
+    var root = document.documentElement;
+    if (!one || !isQuiz(one)) {
+      root.removeAttribute(QUIZ_OPEN);
+      root.style.removeProperty(INTRO);
+      return;
+    }
+    root.setAttribute(QUIZ_OPEN, '');
+    root.style.setProperty(INTRO, Math.ceil(one.section.getBoundingClientRect().height) + 'px');
+  }
   var LIVE = 'data-practices-live';
 
   /* What the workspace says to the editor, and what a run says back. */
@@ -2103,6 +2154,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     var one = practices[current];
     say(CLOSED, one);
     each(one, false);
+    column(null);
     wake();
   }
 
@@ -2118,6 +2170,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     act('next').hidden = index === practices.length - 1;
     shell.hidden = false;
     document.documentElement.setAttribute(OPEN, '');
+    column(one);
     still(one);
     one.section.scrollTop = 0;
     part('title').focus({ preventScroll: true });
@@ -2158,6 +2211,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   document.addEventListener('keydown', function (event) {
     if (current >= 0 && event.key === ESCAPE) { close(); }
   });
+  window.addEventListener('resize', function () { if (current >= 0) { column(practices[current]); } });
 
   /* ⭐ A practice named in the address opens at once, and Close then returns
      the reader to where the entry's state says they were — or, with none, to
@@ -2171,10 +2225,13 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       ? kept : Math.max(0, box.top + (window.pageYOffset || 0) - window.innerHeight / 3);
   });
 
-  /* --- the status: the reader's own record, asked of the served origin ---- */
+  /* --- the status: the reader's own record ------------------------------ */
+  /* ⭐ A code practice's pass is the served origin's (a run established it);
+     a quiz's is the reader's browser store, where the quiz page kept it (the
+     user's ruling: nothing about a quiz is a server's). */
   var run = window.studyforge && window.studyforge.run;
   var asks = run && run.available() && run.practices;
-
+  var store = window.studyforge && window.studyforge.progress;
   function paint(card, passed) {
     var slot = card.querySelector(STATE);
     if (!slot) { return; }
@@ -2186,11 +2243,19 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     slot.hidden = false;
   }
 
-  /* ⭐ One question per page: the cards share a unit, so its record is read once
-     and each card is painted from the answer. ⛔ An answer that is not one — no
-     record, no such unit, a server that could not say — paints nothing. */
-  function refresh() {
-    if (!asks) { return; }
+  /* ⭐ One question per page for the code cards: they share a unit, so its
+     record is read once. ⛔ An answer that is not one — no record, no such
+     unit, a server that could not say — paints nothing. A quiz card is read
+     from the store, served or not; with no store it says nothing. ⛔ A quiz's
+     own settling asks the server nothing: answering a quiz makes no request. */
+  function refresh(event) {
+    practices.forEach(function (one) {
+      if (isQuiz(one) && store && store.supported()) {
+        paint(one.card, store.passedQuiz(one.card.getAttribute(CARD_KEY) || ''));
+      }
+    });
+    var quizzed = !!event && event.target.hasAttribute('data-practice-quiz');
+    if (!asks || quizzed) { return; }
     var first = practices[0].card;
     var key = first.getAttribute(CARD_KEY) || '';
     var unit = key.slice(0, key.lastIndexOf('/'));
@@ -2198,7 +2263,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
       if (!held) { return; }
       practices.forEach(function (one) {
         var own = one.card.getAttribute(CARD_KEY) || '';
-        if (one.card.querySelector(STATE)) {
+        if (!isQuiz(one) && one.card.querySelector(STATE)) {
           paint(one.card, held[own.slice(own.lastIndexOf('/') + 1)] === true);
         }
       });
