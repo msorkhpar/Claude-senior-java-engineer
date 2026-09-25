@@ -32,20 +32,41 @@ then `python3 docker/editor/build.py --runtimes java,maven --print-tag` with the
 ⛔ Never type a tag, and never edit either file: re-run the step when the
 component's pin, the prime or the host's architecture moves.
 
+## Stage the study server's image
+
+⭐ The skill's site step (`siteimage.stage_site`) checks the installed library is
+the one this corpus pinned, stages it with its build file, writes `.studyforge/execution/site.env`
+and hands back the one build to run, from this corpus's root:
+
+```
+docker build --file .studyforge/execution/site/site.containerfile --tag "$(sed -n 's/^STUDYFORGE_SITE_IMAGE=//p' .studyforge/execution/site.env)" .studyforge/execution/site
+```
+
 ## Bring it up
 
 ```
-docker compose --env-file .studyforge/execution/runner.env --env-file .studyforge/execution/editor.env --env-file .studyforge/execution/instance.env -f .studyforge/execution/compose.yaml up -d --wait
+docker compose --env-file .studyforge/execution/runner.env --env-file .studyforge/execution/editor.env --env-file .studyforge/execution/instance.env --env-file .studyforge/execution/site.env -f .studyforge/execution/compose.yaml up -d --wait
 ```
 
-⛔ That one command starts the editor AND the runner, each from the tag the
-corpus recorded. The study server never starts either and never holds the
-Docker socket (§8.3).
+⛔ That one command starts the study server, the editor AND the runner, each
+from the tag the corpus recorded; before the site's image is staged it starts
+the editor and the runner alone. The study server reaches the runner over
+the compose network's internal side, which the runner publishes no port on,
+and never holds the Docker socket (§8.3).
 
-⭐ `.studyforge/execution/instance.env` holds this checkout's compose project, the editor's host
-port and both container names; the study server finds the containers by
-the same file. A second checkout of this corpus on one host records its own
-four with the skill's record step, and runs beside this one.
+⭐ `.studyforge/execution/instance.env` is the one place a port is set: the study server's, the
+editor's, the compose project and the container names. Change one with the
+skill's record step, which rewrites that file, and bring it up again; a page
+learns the editor's address from the study server, never from a built file.
+A second checkout on one host records its own the same way, and runs beside
+this one.
+
+⛔ Every port is published on 127.0.0.1 alone. The editor has no password
+because loopback is its whole access control: widening either bind means
+restoring the editor's authentication first.
+
+⭐ Serving on the host instead (`studyforge serve <root>`) stays the
+development path: it finds the editor and the runner by the same file.
 
 ⛔ These exist on the host before the start (§8.1), or docker
 creates them root-owned and the container can never write them:
