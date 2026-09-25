@@ -54,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "// Counting semaphore — 3 concurrent accesses allowed\nSemaphore semaphore = new Semaphore(3);\n\n// Binary semaphore — at most 1 thread at a time (like a mutex)\nSemaphore binarySemaphore = new Semaphore(1);\n\n// Fair semaphore — FIFO ordering for waiting threads\nSemaphore fairSemaphore = new Semaphore(3, true);\n"
+      "text": "// Counting semaphore — 3 concurrent accesses allowed\nSemaphore semaphore = new Semaphore(3);\n\n// Binary semaphore — at most 1 thread at a time (like a mutex)\nSemaphore binarySemaphore = new Semaphore(1);\n\n// Fair semaphore — FIFO ordering for waiting threads\nSemaphore fairSemaphore = new Semaphore(3, true);"
     },
     {
       "type": "heading",
@@ -213,78 +213,55 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Not releasing in `finally`**:"
+        [
+          "**Not releasing in `finally`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG — exception leaks the permit\nsemaphore.acquire();\ndoRiskyWork(); // throws RuntimeException\nsemaphore.release(); // never reached\n\n// CORRECT\nsemaphore.acquire();\ntry {\n    doRiskyWork();\n} finally {\n    semaphore.release();\n}"
+          }
+        ],
+        [
+          "**Releasing more than acquired (permit inflation)**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Accidentally inflates permit count\nSemaphore sem = new Semaphore(2);\nsem.release(); // now has 3 permits!\n// sem.acquire() now allows 3 concurrent threads instead of 2\n\n// CORRECT — only release what you acquired\nsem.acquire();\ntry { /* work */ } finally { sem.release(); }"
+          }
+        ],
+        [
+          "**Thinking semaphore provides mutual exclusion identity**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG assumption: only \"the\" thread that acquired can access\n// Binary semaphore does NOT track which thread holds it\nSemaphore binary = new Semaphore(1);\nbinary.acquire();\n// ... another thread can also call binary.release() legally\n// This is actually a feature, but can be a bug if not anticipated"
+          }
+        ],
+        [
+          "**Calling `acquire()` twice without `release()`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Semaphore is NOT reentrant\nSemaphore sem = new Semaphore(1);\nsem.acquire(); // acquires 1 permit\nsem.acquire(); // DEADLOCKS — only 1 permit total, already taken"
+          }
+        ],
+        [
+          "**Race condition with `availablePermits()`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG — check-then-act is not atomic\nif (sem.availablePermits() > 0) {\n    sem.acquire(); // another thread may have taken the permit between check and acquire\n}\n\n// CORRECT — use tryAcquire() for atomic check-and-acquire\nif (sem.tryAcquire()) {\n    try { /* work */ } finally { sem.release(); }\n}"
+          }
+        ],
+        [
+          "**Not handling `InterruptedException`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG — swallows interruption\ntry {\n    semaphore.acquire();\n} catch (InterruptedException e) {\n    // ignored — thread won't respond to cancellation\n}\n\n// CORRECT — restore interrupt status\ntry {\n    semaphore.acquire();\n} catch (InterruptedException e) {\n    Thread.currentThread().interrupt();\n    return; // or rethrow as RuntimeException\n}"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG — exception leaks the permit\nsemaphore.acquire();\ndoRiskyWork(); // throws RuntimeException\nsemaphore.release(); // never reached\n\n// CORRECT\nsemaphore.acquire();\ntry {\n    doRiskyWork();\n} finally {\n    semaphore.release();\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Releasing more than acquired (permit inflation)**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Accidentally inflates permit count\nSemaphore sem = new Semaphore(2);\nsem.release(); // now has 3 permits!\n// sem.acquire() now allows 3 concurrent threads instead of 2\n\n// CORRECT — only release what you acquired\nsem.acquire();\ntry { /* work */ } finally { sem.release(); }\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Thinking semaphore provides mutual exclusion identity**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG assumption: only \"the\" thread that acquired can access\n// Binary semaphore does NOT track which thread holds it\nSemaphore binary = new Semaphore(1);\nbinary.acquire();\n// ... another thread can also call binary.release() legally\n// This is actually a feature, but can be a bug if not anticipated\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Calling `acquire()` twice without `release()`**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Semaphore is NOT reentrant\nSemaphore sem = new Semaphore(1);\nsem.acquire(); // acquires 1 permit\nsem.acquire(); // DEADLOCKS — only 1 permit total, already taken\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Race condition with `availablePermits()`**:"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG — check-then-act is not atomic\nif (sem.availablePermits() > 0) {\n    sem.acquire(); // another thread may have taken the permit between check and acquire\n}\n\n// CORRECT — use tryAcquire() for atomic check-and-acquire\nif (sem.tryAcquire()) {\n    try { /* work */ } finally { sem.release(); }\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Not handling `InterruptedException`**:"
-      ],
-      "start": 6
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG — swallows interruption\ntry {\n    semaphore.acquire();\n} catch (InterruptedException e) {\n    // ignored — thread won't respond to cancellation\n}\n\n// CORRECT — restore interrupt status\ntry {\n    semaphore.acquire();\n} catch (InterruptedException e) {\n    Thread.currentThread().interrupt();\n    return; // or rethrow as RuntimeException\n}\n"
     },
     {
       "type": "heading",
@@ -368,12 +345,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: A semaphore is a concurrency primitive with a permit counter that controls concurrent access to a resource.\n\nUse Semaphore when:\n1. Resource pooling: Limit concurrent access to N resources (database connections, file handles, GPU units).\n   Semaphore(N) ensures at most N threads are accessing the resource simultaneously.\n\n2. Rate limiting: Allow at most N operations per time window.\n\n3. Cross-thread signaling: One thread acquires (waits), another releases (signals).\n   Binary semaphore with initial count 0 = \"start gate\" pattern.\n\n4. One-way signaling (producer -> consumer): A producer releases to signal availability; consumer acquires.\n\nUse ReentrantLock when:\n1. Mutual exclusion with ownership: Only the acquiring thread should release.\n2. Complex coordination: Need Condition objects for multi-predicate waiting.\n3. Recursive locking: Same thread re-enters protected code.\n4. Diagnostics: Need isHeldByCurrentThread(), getQueueLength(), etc.\n\nKey difference: Semaphores have no notion of \"owner\" — any thread can release any permit.\nThis makes them flexible for cross-thread signaling but unsuitable for classic mutual exclusion\nwhere ownership identity matters.\n"
+      "text": "A1: A semaphore is a concurrency primitive with a permit counter that controls concurrent access to a resource.\n\nUse Semaphore when:\n1. Resource pooling: Limit concurrent access to N resources (database connections, file handles, GPU units).\n   Semaphore(N) ensures at most N threads are accessing the resource simultaneously.\n\n2. Rate limiting: Allow at most N operations per time window.\n\n3. Cross-thread signaling: One thread acquires (waits), another releases (signals).\n   Binary semaphore with initial count 0 = \"start gate\" pattern.\n\n4. One-way signaling (producer -> consumer): A producer releases to signal availability; consumer acquires.\n\nUse ReentrantLock when:\n1. Mutual exclusion with ownership: Only the acquiring thread should release.\n2. Complex coordination: Need Condition objects for multi-predicate waiting.\n3. Recursive locking: Same thread re-enters protected code.\n4. Diagnostics: Need isHeldByCurrentThread(), getQueueLength(), etc.\n\nKey difference: Semaphores have no notion of \"owner\" — any thread can release any permit.\nThis makes them flexible for cross-thread signaling but unsuitable for classic mutual exclusion\nwhere ownership identity matters."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Connection pool using Semaphore\npublic class ConnectionPool {\n    private final Semaphore permits;\n    private final Queue<Connection> connections = new ConcurrentLinkedQueue<>();\n\n    public ConnectionPool(int size) {\n        this.permits = new Semaphore(size, true); // fair\n        for (int i = 0; i < size; i++) {\n            connections.offer(createConnection());\n        }\n    }\n\n    public Connection acquire() throws InterruptedException {\n        permits.acquire(); // wait for available connection\n        return connections.poll();\n    }\n\n    public void release(Connection conn) {\n        connections.offer(conn);\n        permits.release(); // signal a waiting thread\n    }\n}\n"
+      "text": "// Connection pool using Semaphore\npublic class ConnectionPool {\n    private final Semaphore permits;\n    private final Queue<Connection> connections = new ConcurrentLinkedQueue<>();\n\n    public ConnectionPool(int size) {\n        this.permits = new Semaphore(size, true); // fair\n        for (int i = 0; i < size; i++) {\n            connections.offer(createConnection());\n        }\n    }\n\n    public Connection acquire() throws InterruptedException {\n        permits.acquire(); // wait for available connection\n        return connections.poll();\n    }\n\n    public void release(Connection conn) {\n        connections.offer(conn);\n        permits.release(); // signal a waiting thread\n    }\n}"
     },
     {
       "type": "para",
@@ -382,12 +359,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: While both a binary semaphore (Semaphore(1)) and a ReentrantLock provide mutual exclusion, they differ in:\n\n1. Ownership:\n   - Mutex (ReentrantLock): Only the acquiring thread can release. Attempting unlock from another thread\n     throws IllegalMonitorStateException.\n   - Binary semaphore: Any thread can release, regardless of which thread acquired.\n\n2. Reentrancy:\n   - ReentrantLock: Reentrant — the same thread can acquire multiple times (hold count tracks it).\n   - Binary semaphore: NOT reentrant — the same thread acquiring twice will deadlock (only 1 permit).\n\n3. Semantics:\n   - Mutex: \"I own this section; only I can release it.\"\n   - Binary semaphore: \"One thing is happening; when done, someone (possibly different) signals completion.\"\n\n4. Use cases:\n   - Mutex: Protecting mutable state from concurrent modification.\n   - Binary semaphore(0): Start-gate / one-shot signaling (e.g., \"work item is ready\").\n\nCommon misconception: \"semaphore is just a non-reentrant mutex.\" While functionally true in the binary case,\nthe ownership distinction makes binary semaphores suited for inter-thread signaling patterns that\nmutexes cannot express cleanly.\n"
+      "text": "A2: While both a binary semaphore (Semaphore(1)) and a ReentrantLock provide mutual exclusion, they differ in:\n\n1. Ownership:\n   - Mutex (ReentrantLock): Only the acquiring thread can release. Attempting unlock from another thread\n     throws IllegalMonitorStateException.\n   - Binary semaphore: Any thread can release, regardless of which thread acquired.\n\n2. Reentrancy:\n   - ReentrantLock: Reentrant — the same thread can acquire multiple times (hold count tracks it).\n   - Binary semaphore: NOT reentrant — the same thread acquiring twice will deadlock (only 1 permit).\n\n3. Semantics:\n   - Mutex: \"I own this section; only I can release it.\"\n   - Binary semaphore: \"One thing is happening; when done, someone (possibly different) signals completion.\"\n\n4. Use cases:\n   - Mutex: Protecting mutable state from concurrent modification.\n   - Binary semaphore(0): Start-gate / one-shot signaling (e.g., \"work item is ready\").\n\nCommon misconception: \"semaphore is just a non-reentrant mutex.\" While functionally true in the binary case,\nthe ownership distinction makes binary semaphores suited for inter-thread signaling patterns that\nmutexes cannot express cleanly."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// ReentrantLock — owner-tracked mutual exclusion\nReentrantLock mutex = new ReentrantLock();\nmutex.lock();       // Thread A acquires (hold count 1)\nmutex.lock();       // Re-entrant: Thread A acquires again without blocking (hold count 2)\nmutex.unlock();     // Thread A must release (IllegalMonitorStateException if Thread B tries)\nmutex.unlock();     // hold count 0: the lock is free\n\n// Binary semaphore — cross-thread signaling\nSemaphore gate = new Semaphore(0); // starts at 0 (no permits)\n\n// Consumer thread\nThread consumer = Thread.ofVirtual().start(() -> {\n    try {\n        gate.acquire(); // blocks until producer releases\n        System.out.println(\"Received signal!\");\n    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }\n});\n\n// Producer thread signals the consumer\nThread.ofVirtual().start(() -> {\n    prepareData();\n    gate.release(); // any thread can release — cross-thread signaling!\n});\n"
+      "text": "// ReentrantLock — owner-tracked mutual exclusion\nReentrantLock mutex = new ReentrantLock();\nmutex.lock();       // Thread A acquires (hold count 1)\nmutex.lock();       // Re-entrant: Thread A acquires again without blocking (hold count 2)\nmutex.unlock();     // Thread A must release (IllegalMonitorStateException if Thread B tries)\nmutex.unlock();     // hold count 0: the lock is free\n\n// Binary semaphore — cross-thread signaling\nSemaphore gate = new Semaphore(0); // starts at 0 (no permits)\n\n// Consumer thread\nThread consumer = Thread.ofVirtual().start(() -> {\n    try {\n        gate.acquire(); // blocks until producer releases\n        System.out.println(\"Received signal!\");\n    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }\n});\n\n// Producer thread signals the consumer\nThread.ofVirtual().start(() -> {\n    prepareData();\n    gate.release(); // any thread can release — cross-thread signaling!\n});"
     },
     {
       "type": "para",
@@ -396,12 +373,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: A semaphore-based rate limiter restricts the number of concurrent operations. For a per-second rate\nlimit, combine a semaphore with periodic permit replenishment.\n\nApproach 1 — Concurrent capacity limit (not time-based):\nUse Semaphore(N) to allow at most N operations to be in-flight at once. This is a concurrency limiter,\nnot strictly a rate limiter, but it's simple and effective for resource protection.\n\nApproach 2 — Time-window rate limit:\nUse tryAcquire() to non-blockingly check and acquire. Periodically release permits (replenish the bucket)\nusing a scheduled executor. This implements a \"token bucket\" algorithm.\n\nKey design decisions:\n1. Fair vs. non-fair: Fair ensures no request starves; non-fair gives higher throughput.\n2. Blocking vs. non-blocking: tryAcquire() for \"fail fast\"; acquire() for \"queue and wait\".\n3. Replenishment frequency: More frequent replenishment → smoother rate; less frequent → burstier.\n"
+      "text": "A3: A semaphore-based rate limiter restricts the number of concurrent operations. For a per-second rate\nlimit, combine a semaphore with periodic permit replenishment.\n\nApproach 1 — Concurrent capacity limit (not time-based):\nUse Semaphore(N) to allow at most N operations to be in-flight at once. This is a concurrency limiter,\nnot strictly a rate limiter, but it's simple and effective for resource protection.\n\nApproach 2 — Time-window rate limit:\nUse tryAcquire() to non-blockingly check and acquire. Periodically release permits (replenish the bucket)\nusing a scheduled executor. This implements a \"token bucket\" algorithm.\n\nKey design decisions:\n1. Fair vs. non-fair: Fair ensures no request starves; non-fair gives higher throughput.\n2. Blocking vs. non-blocking: tryAcquire() for \"fail fast\"; acquire() for \"queue and wait\".\n3. Replenishment frequency: More frequent replenishment → smoother rate; less frequent → burstier."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class RateLimiter {\n    private final Semaphore semaphore;\n    private final int maxPermitsPerSecond;\n    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();\n\n    public RateLimiter(int permitsPerSecond) {\n        this.maxPermitsPerSecond = permitsPerSecond;\n        this.semaphore = new Semaphore(permitsPerSecond, true);\n\n        // Replenish permits every second\n        scheduler.scheduleAtFixedRate(this::replenish, 1, 1, TimeUnit.SECONDS);\n    }\n\n    private void replenish() {\n        int currentPermits = semaphore.availablePermits();\n        int toAdd = maxPermitsPerSecond - currentPermits;\n        if (toAdd > 0) {\n            semaphore.release(toAdd);\n        }\n    }\n\n    /** Blocking — waits until a permit is available */\n    public void acquire() throws InterruptedException {\n        semaphore.acquire();\n    }\n\n    /** Non-blocking — returns false if rate limit exceeded */\n    public boolean tryAcquire() {\n        return semaphore.tryAcquire();\n    }\n\n    public void shutdown() {\n        scheduler.shutdown();\n    }\n}\n"
+      "text": "public class RateLimiter {\n    private final Semaphore semaphore;\n    private final int maxPermitsPerSecond;\n    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();\n\n    public RateLimiter(int permitsPerSecond) {\n        this.maxPermitsPerSecond = permitsPerSecond;\n        this.semaphore = new Semaphore(permitsPerSecond, true);\n\n        // Replenish permits every second\n        scheduler.scheduleAtFixedRate(this::replenish, 1, 1, TimeUnit.SECONDS);\n    }\n\n    private void replenish() {\n        int currentPermits = semaphore.availablePermits();\n        int toAdd = maxPermitsPerSecond - currentPermits;\n        if (toAdd > 0) {\n            semaphore.release(toAdd);\n        }\n    }\n\n    /** Blocking — waits until a permit is available */\n    public void acquire() throws InterruptedException {\n        semaphore.acquire();\n    }\n\n    /** Non-blocking — returns false if rate limit exceeded */\n    public boolean tryAcquire() {\n        return semaphore.tryAcquire();\n    }\n\n    public void shutdown() {\n        scheduler.shutdown();\n    }\n}"
     },
     {
       "type": "para",
@@ -410,12 +387,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: A start gate (or \"bang\" pattern) uses a Semaphore initialized with 0 permits. No thread can acquire\nuntil the \"starter\" releases one or more permits. This is useful for:\n\n1. Synchronizing the start of multiple threads (all start at the same time).\n2. One-shot \"event has occurred\" signaling.\n3. Pipeline stages where downstream stages wait for upstream completion.\n\nCompared to CountDownLatch:\n- CountDownLatch(1) is simpler for one-shot \"signal to all\" (signalAll semantics).\n- Semaphore(0) is more flexible: you can signal N waiters by releasing N times, or signal repeatedly.\n- Reusability: a Semaphore can be reused; a CountDownLatch cannot (its count never resets).\n\nCompared to CyclicBarrier:\n- CyclicBarrier waits for ALL parties to arrive; Semaphore(0) is signaled by a controlling thread.\n"
+      "text": "A4: A start gate (or \"bang\" pattern) uses a Semaphore initialized with 0 permits. No thread can acquire\nuntil the \"starter\" releases one or more permits. This is useful for:\n\n1. Synchronizing the start of multiple threads (all start at the same time).\n2. One-shot \"event has occurred\" signaling.\n3. Pipeline stages where downstream stages wait for upstream completion.\n\nCompared to CountDownLatch:\n- CountDownLatch(1) is simpler for one-shot \"signal to all\" (signalAll semantics).\n- Semaphore(0) is more flexible: you can signal N waiters by releasing N times, or signal repeatedly.\n- Reusability: a Semaphore can be reused; a CountDownLatch cannot (its count never resets).\n\nCompared to CyclicBarrier:\n- CyclicBarrier waits for ALL parties to arrive; Semaphore(0) is signaled by a controlling thread."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class StartGateExample {\n\n    public void demonstrateStartGate() throws InterruptedException {\n        int threadCount = 5;\n        Semaphore startGate = new Semaphore(0); // no permits yet\n        Semaphore endGate  = new Semaphore(0);  // count completions\n\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < threadCount; i++) {\n            final int id = i;\n            threads.add(Thread.ofVirtual().start(() -> {\n                try {\n                    startGate.acquire(); // all threads block here\n                    System.out.println(\"Thread \" + id + \" started!\");\n                    Thread.sleep(Duration.ofMillis(10));\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                } finally {\n                    endGate.release(); // signal completion\n                }\n            }));\n        }\n\n        System.out.println(\"All threads ready. Starting...\");\n        startGate.release(threadCount); // release ALL at once — start gate!\n\n        endGate.acquire(threadCount); // wait for all to finish\n        System.out.println(\"All threads completed!\");\n    }\n}\n"
+      "text": "public class StartGateExample {\n\n    public void demonstrateStartGate() throws InterruptedException {\n        int threadCount = 5;\n        Semaphore startGate = new Semaphore(0); // no permits yet\n        Semaphore endGate  = new Semaphore(0);  // count completions\n\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < threadCount; i++) {\n            final int id = i;\n            threads.add(Thread.ofVirtual().start(() -> {\n                try {\n                    startGate.acquire(); // all threads block here\n                    System.out.println(\"Thread \" + id + \" started!\");\n                    Thread.sleep(Duration.ofMillis(10));\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                } finally {\n                    endGate.release(); // signal completion\n                }\n            }));\n        }\n\n        System.out.println(\"All threads ready. Starting...\");\n        startGate.release(threadCount); // release ALL at once — start gate!\n\n        endGate.acquire(threadCount); // wait for all to finish\n        System.out.println(\"All threads completed!\");\n    }\n}"
     },
     {
       "type": "para",
@@ -424,12 +401,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: acquire(n) is semantically different from n calls to acquire() in two important ways:\n\n1. Atomicity of the multi-permit acquisition:\n   acquire(n) waits until ALL n permits are simultaneously available before returning.\n   Calling acquire() n times acquires permits one at a time — a thread could hold k < n permits\n   and then block waiting for the rest, while other threads may need those k permits to proceed.\n   This can cause deadlock in certain patterns.\n\n2. Partial acquisition problem:\n   Example: Semaphore(4), Thread A needs 3, Thread B needs 3.\n   With individual acquire() calls:\n     - Thread A takes 1, Thread B takes 1, Thread A takes 1, Thread B takes 1 — all 4 are taken, each thread\n       holds 2 and waits for a third that never comes: both stall.\n   With acquire(3):\n     - Thread A blocks until 3 are available (all at once); no partial state.\n\n3. Performance:\n   acquire(n) may be slightly more efficient as it performs one atomic CAS instead of n.\n\n4. Exception safety:\n   acquire(n) is either fully acquired or fully not acquired (on InterruptedException).\n   With n individual calls, an interrupt after k < n acquires leaves those k permits consumed.\n\nUse acquire(n) when you genuinely need multiple permits atomically (e.g., allocating N I/O buffers).\n"
+      "text": "A5: acquire(n) is semantically different from n calls to acquire() in two important ways:\n\n1. Atomicity of the multi-permit acquisition:\n   acquire(n) waits until ALL n permits are simultaneously available before returning.\n   Calling acquire() n times acquires permits one at a time — a thread could hold k < n permits\n   and then block waiting for the rest, while other threads may need those k permits to proceed.\n   This can cause deadlock in certain patterns.\n\n2. Partial acquisition problem:\n   Example: Semaphore(4), Thread A needs 3, Thread B needs 3.\n   With individual acquire() calls:\n     - Thread A takes 1, Thread B takes 1, Thread A takes 1, Thread B takes 1 — all 4 are taken, each thread\n       holds 2 and waits for a third that never comes: both stall.\n   With acquire(3):\n     - Thread A blocks until 3 are available (all at once); no partial state.\n\n3. Performance:\n   acquire(n) may be slightly more efficient as it performs one atomic CAS instead of n.\n\n4. Exception safety:\n   acquire(n) is either fully acquired or fully not acquired (on InterruptedException).\n   With n individual calls, an interrupt after k < n acquires leaves those k permits consumed.\n\nUse acquire(n) when you genuinely need multiple permits atomically (e.g., allocating N I/O buffers)."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class MultiPermitExample {\n    private final Semaphore semaphore = new Semaphore(10);\n\n    // SAFE: atomic acquisition of 3 permits\n    public void processInBatch() throws InterruptedException {\n        semaphore.acquire(3); // waits for ALL 3 permits simultaneously\n        try {\n            // use 3 resources concurrently\n            processResource1();\n            processResource2();\n            processResource3();\n        } finally {\n            semaphore.release(3); // release all 3 at once\n        }\n    }\n\n    // RISKY: individual acquisitions — partial acquisition possible\n    public void processInBatchRisky() throws InterruptedException {\n        semaphore.acquire(); // got 1\n        semaphore.acquire(); // got 2\n        semaphore.acquire(); // blocking here with 2 permits already held — potential deadlock\n        try { /* ... */ } finally {\n            semaphore.release();\n            semaphore.release();\n            semaphore.release();\n        }\n    }\n\n    private void processResource1() {}\n    private void processResource2() {}\n    private void processResource3() {}\n}\n"
+      "text": "public class MultiPermitExample {\n    private final Semaphore semaphore = new Semaphore(10);\n\n    // SAFE: atomic acquisition of 3 permits\n    public void processInBatch() throws InterruptedException {\n        semaphore.acquire(3); // waits for ALL 3 permits simultaneously\n        try {\n            // use 3 resources concurrently\n            processResource1();\n            processResource2();\n            processResource3();\n        } finally {\n            semaphore.release(3); // release all 3 at once\n        }\n    }\n\n    // RISKY: individual acquisitions — partial acquisition possible\n    public void processInBatchRisky() throws InterruptedException {\n        semaphore.acquire(); // got 1\n        semaphore.acquire(); // got 2\n        semaphore.acquire(); // blocking here with 2 permits already held — potential deadlock\n        try { /* ... */ } finally {\n            semaphore.release();\n            semaphore.release();\n            semaphore.release();\n        }\n    }\n\n    private void processResource1() {}\n    private void processResource2() {}\n    private void processResource3() {}\n}"
     },
     {
       "type": "para",
@@ -438,12 +415,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: It is perfectly legal to call release() on a Semaphore before any acquire(). The permit count\nwill increase from 0 to 1 (or by n if release(n) is called). This is one of the key differences\nfrom locks — there is no \"ownership\" requirement.\n\nThis behavior is intentionally useful:\n1. The \"start gate\" pattern (Semaphore(0) + release to go) relies on it.\n2. A producer can release() to signal work availability before a consumer calls acquire().\n3. Cross-thread signaling where the signaler doesn't \"hold\" anything.\n\nContrast with ReentrantLock:\n  lock.unlock() without lock.lock() throws IllegalMonitorStateException.\n  semaphore.release() is always valid regardless of acquisition history.\n\nPotential bug: Calling release() too many times inflates the permit count beyond the intended maximum.\nIf a Semaphore(2) has release() called 3 times more than acquire(), it becomes a Semaphore(5), allowing\n5 concurrent accesses instead of 2. Guard against this with ownership tracking in application code if needed.\n"
+      "text": "A6: It is perfectly legal to call release() on a Semaphore before any acquire(). The permit count\nwill increase from 0 to 1 (or by n if release(n) is called). This is one of the key differences\nfrom locks — there is no \"ownership\" requirement.\n\nThis behavior is intentionally useful:\n1. The \"start gate\" pattern (Semaphore(0) + release to go) relies on it.\n2. A producer can release() to signal work availability before a consumer calls acquire().\n3. Cross-thread signaling where the signaler doesn't \"hold\" anything.\n\nContrast with ReentrantLock:\n  lock.unlock() without lock.lock() throws IllegalMonitorStateException.\n  semaphore.release() is always valid regardless of acquisition history.\n\nPotential bug: Calling release() too many times inflates the permit count beyond the intended maximum.\nIf a Semaphore(2) has release() called 3 times more than acquire(), it becomes a Semaphore(5), allowing\n5 concurrent accesses instead of 2. Guard against this with ownership tracking in application code if needed."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Legal and useful: release before acquire\nSemaphore sem = new Semaphore(0);\nSystem.out.println(\"Permits before: \" + sem.availablePermits()); // 0\n\nsem.release();\nSystem.out.println(\"Permits after release: \" + sem.availablePermits()); // 1\n\nsem.acquire(); // succeeds immediately\nSystem.out.println(\"Permits after acquire: \" + sem.availablePermits()); // 0\n\n// Permit inflation — usually a bug\nSemaphore bounded = new Semaphore(3);\nbounded.release(5); // INFLATES to 8 permits — any 8 threads can now acquire!\nSystem.out.println(\"Inflated permits: \" + bounded.availablePermits()); // 8\n"
+      "text": "// Legal and useful: release before acquire\nSemaphore sem = new Semaphore(0);\nSystem.out.println(\"Permits before: \" + sem.availablePermits()); // 0\n\nsem.release();\nSystem.out.println(\"Permits after release: \" + sem.availablePermits()); // 1\n\nsem.acquire(); // succeeds immediately\nSystem.out.println(\"Permits after acquire: \" + sem.availablePermits()); // 0\n\n// Permit inflation — usually a bug\nSemaphore bounded = new Semaphore(3);\nbounded.release(5); // INFLATES to 8 permits — any 8 threads can now acquire!\nSystem.out.println(\"Inflated permits: \" + bounded.availablePermits()); // 8"
     },
     {
       "type": "heading",
@@ -465,9 +442,9 @@
   "counts": {
     "headings": 14,
     "paras": 12,
-    "code": 19,
+    "code": 13,
     "tables": 2,
-    "lists": 15,
+    "lists": 10,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -475,5 +452,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "baab48131b6211149bc4717859a69411290980b167a686c396373e484fe7a7bf"
+  "content_sha256": "5a35a829a7b88c2ceec0fb7f2ce49250dabb853276c0641aa8d9197f6700f258"
 }

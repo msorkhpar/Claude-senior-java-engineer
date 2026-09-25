@@ -177,68 +177,43 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Over-tuning GC parameters**: Adding too many GC flags can prevent the JVM's adaptive sizing from working correctly."
+        [
+          "**Over-tuning GC parameters**: Adding too many GC flags can prevent the JVM's adaptive sizing from working correctly.",
+          {
+            "type": "code",
+            "lang": "bash",
+            "text": "# BAD: Over-specified GC tuning\njava -XX:NewRatio=3 -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=15 \\\n     -XX:ParallelGCThreads=8 -XX:ConcGCThreads=4 ...\n\n# GOOD: Let the JVM adapt, set only what's needed\njava -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xmx4g MyApp"
+          },
+          "**Solution**: Start with minimal tuning. Set the GC type, heap size, and pause time goal. Let the JVM adapt the rest."
+        ],
+        [
+          "**Ignoring GC logs in production**:",
+          {
+            "type": "code",
+            "lang": "bash",
+            "text": "# Always enable GC logging -- it has negligible overhead\njava -Xlog:gc*:file=gc.log:time,level,tags:filecount=5,filesize=100m MyApp"
+          },
+          "**Solution**: Enable GC logging in all environments. It's the first place to look when performance degrades."
+        ],
+        [
+          "**Using jmap -histo in production with Full GC**:",
+          {
+            "type": "code",
+            "lang": "bash",
+            "text": "# BAD: Forces a Full GC in production\njmap -histo:live <pid>\n\n# GOOD: Get histogram without GC (counts all objects, including unreachable ones)\njmap -histo <pid>\n\n# BETTER: Use jcmd -- note that it inspects only live objects (full GC) unless you pass -all\njcmd <pid> GC.class_histogram -all"
+          },
+          "**Solution**: Use `jcmd` instead of `jmap` when possible. Be aware that `jmap -histo:live` and a plain `jcmd <pid> GC.class_histogram` both trigger a full GC."
+        ],
+        [
+          "**Setting heap too large**: Larger heaps mean longer GC pauses (especially with G1 and Parallel GC).",
+          {
+            "type": "code",
+            "lang": "bash",
+            "text": "# 32GB heap with G1 can have multi-second pauses\njava -Xmx32g -XX:+UseG1GC MyApp\n\n# Consider ZGC for large heaps\njava -Xmx32g -XX:+UseZGC MyApp"
+          },
+          "**Solution**: For heaps larger than 8GB, strongly consider ZGC or Shenandoah."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "bash",
-      "text": "# BAD: Over-specified GC tuning\njava -XX:NewRatio=3 -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=15 \\\n     -XX:ParallelGCThreads=8 -XX:ConcGCThreads=4 ...\n\n# GOOD: Let the JVM adapt, set only what's needed\njava -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xmx4g MyApp\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Start with minimal tuning. Set the GC type, heap size, and pause time goal. Let the JVM adapt the rest."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Ignoring GC logs in production**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "bash",
-      "text": "# Always enable GC logging -- it has negligible overhead\njava -Xlog:gc*:file=gc.log:time,level,tags:filecount=5,filesize=100m MyApp\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Enable GC logging in all environments. It's the first place to look when performance degrades."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using jmap -histo in production with Full GC**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "bash",
-      "text": "# BAD: Forces a Full GC in production\njmap -histo:live <pid>\n\n# GOOD: Get histogram without GC (counts all objects, including unreachable ones)\njmap -histo <pid>\n\n# BETTER: Use jcmd -- note that it inspects only live objects (full GC) unless you pass -all\njcmd <pid> GC.class_histogram -all\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Use `jcmd` instead of `jmap` when possible. Be aware that `jmap -histo:live` and a plain `jcmd <pid> GC.class_histogram` both trigger a full GC."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Setting heap too large**: Larger heaps mean longer GC pauses (especially with G1 and Parallel GC)."
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "bash",
-      "text": "# 32GB heap with G1 can have multi-second pauses\njava -Xmx32g -XX:+UseG1GC MyApp\n\n# Consider ZGC for large heaps\njava -Xmx32g -XX:+UseZGC MyApp\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: For heaps larger than 8GB, strongly consider ZGC or Shenandoah."
     },
     {
       "type": "heading",
@@ -250,36 +225,26 @@
       "ordered": true,
       "items": [
         "**Start with defaults**: Modern JVMs have excellent defaults. Only tune when measurements indicate a need.",
-        "**Enable monitoring from day one**:"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "bash",
-      "text": "java -Xlog:gc*:file=gc.log:time,level,tags \\\n     -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/to/dumps \\\n     -XX:StartFlightRecording=duration=0,maxsize=500m,dumponexit=true,filename=app.jfr \\\n     MyApp\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Use container-aware settings** in Docker/Kubernetes:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "bash",
-      "text": "# JVM automatically detects container limits since Java 10\n# Fine-tune with:\njava -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 MyApp\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Enable monitoring from day one**:",
+          {
+            "type": "code",
+            "lang": "bash",
+            "text": "java -Xlog:gc*:file=gc.log:time,level,tags \\\n     -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/to/dumps \\\n     -XX:StartFlightRecording=duration=0,maxsize=500m,dumponexit=true,filename=app.jfr \\\n     MyApp"
+          }
+        ],
+        [
+          "**Use container-aware settings** in Docker/Kubernetes:",
+          {
+            "type": "code",
+            "lang": "bash",
+            "text": "# JVM automatically detects container limits since Java 10\n# Fine-tune with:\njava -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 MyApp"
+          }
+        ],
         "**Profile before tuning**: Use JFR + JMC or async-profiler to find real bottlenecks.",
         "**GC pause time goals**: Prefer `-XX:MaxGCPauseMillis=N` over manual generation sizing.",
         "**Monitor key metrics**: GC pause time, GC frequency, heap usage after GC, allocation rate, thread count."
-      ],
-      "start": 4
+      ]
     },
     {
       "type": "heading",
@@ -344,12 +309,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Memory leak diagnosis follows a systematic approach:\n\nStep 1: Detect the symptom\n- GC logs show increasing heap usage after Full GC over time\n- Application becomes slow or unresponsive\n- OutOfMemoryError: Java heap space\n\nStep 2: Gather evidence\n- Enable GC logging: -Xlog:gc*:file=gc.log:time,level,tags\n- Monitor heap usage trend: jstat -gcutil <pid> 1000\n- Check heap histogram: jcmd <pid> GC.class_histogram\n\nStep 3: Capture heap dump\n- jcmd <pid> GC.heap_dump /path/to/dump.hprof\n- Or automatically: -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/\n\nStep 4: Analyze heap dump\n- Open in Eclipse MAT (Memory Analyzer Tool) or VisualVM\n- Look for:\n  a. Leak Suspects Report (automated analysis)\n  b. Dominator tree (largest retained objects)\n  c. Histogram sorted by retained size\n  d. GC Roots paths for suspicious objects\n\nStep 5: Identify the root cause\n- Common causes:\n  a. Unbounded caches (Map without eviction)\n  b. Listeners/callbacks not deregistered\n  c. ThreadLocal variables not cleaned up\n  d. Static collections growing unboundedly\n  e. Unclosed resources (streams, connections)\n  f. ClassLoader leaks in web applications\n\nStep 6: Fix and verify\n- Fix the code to properly release references\n- Monitor with GC logs to confirm heap usage stabilizes\n"
+      "text": "A1: Memory leak diagnosis follows a systematic approach:\n\nStep 1: Detect the symptom\n- GC logs show increasing heap usage after Full GC over time\n- Application becomes slow or unresponsive\n- OutOfMemoryError: Java heap space\n\nStep 2: Gather evidence\n- Enable GC logging: -Xlog:gc*:file=gc.log:time,level,tags\n- Monitor heap usage trend: jstat -gcutil <pid> 1000\n- Check heap histogram: jcmd <pid> GC.class_histogram\n\nStep 3: Capture heap dump\n- jcmd <pid> GC.heap_dump /path/to/dump.hprof\n- Or automatically: -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/\n\nStep 4: Analyze heap dump\n- Open in Eclipse MAT (Memory Analyzer Tool) or VisualVM\n- Look for:\n  a. Leak Suspects Report (automated analysis)\n  b. Dominator tree (largest retained objects)\n  c. Histogram sorted by retained size\n  d. GC Roots paths for suspicious objects\n\nStep 5: Identify the root cause\n- Common causes:\n  a. Unbounded caches (Map without eviction)\n  b. Listeners/callbacks not deregistered\n  c. ThreadLocal variables not cleaned up\n  d. Static collections growing unboundedly\n  e. Unclosed resources (streams, connections)\n  f. ClassLoader leaks in web applications\n\nStep 6: Fix and verify\n- Fix the code to properly release references\n- Monitor with GC logs to confirm heap usage stabilizes"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Common memory leak patterns and fixes\nimport java.util.*;\n\npublic class MemoryLeakPatterns {\n    // LEAK: Unbounded cache\n    private static final Map<String, byte[]> cache = new HashMap<>();\n\n    public void leakyCache(String key, byte[] data) {\n        cache.put(key, data); // Never evicted!\n    }\n\n    // FIX: Use bounded cache or WeakHashMap\n    private static final Map<String, byte[]> boundedCache =\n        new LinkedHashMap<>(100, 0.75f, true) {\n            @Override\n            protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {\n                return size() > 1000; // Evict when over 1000 entries\n            }\n        };\n\n    // LEAK: ThreadLocal not cleaned up\n    private static final ThreadLocal<List<String>> threadData = new ThreadLocal<>();\n\n    public void leakyThreadLocal() {\n        threadData.set(new ArrayList<>()); // Never removed!\n    }\n\n    // FIX: Always clean up ThreadLocal in finally\n    public void fixedThreadLocal() {\n        try {\n            threadData.set(new ArrayList<>());\n            // ... use threadData\n        } finally {\n            threadData.remove(); // Always clean up\n        }\n    }\n\n    // LEAK: Listener not deregistered\n    interface DataListener { void onData(String data); }\n\n    private final List<DataListener> listeners = new ArrayList<>();\n\n    public void addListener(DataListener listener) {\n        listeners.add(listener); // Holds strong reference forever\n    }\n\n    // FIX: Provide removeListener() and use WeakReference if appropriate\n    public void removeListener(DataListener listener) {\n        listeners.remove(listener);\n    }\n}\n"
+      "text": "// Common memory leak patterns and fixes\nimport java.util.*;\n\npublic class MemoryLeakPatterns {\n    // LEAK: Unbounded cache\n    private static final Map<String, byte[]> cache = new HashMap<>();\n\n    public void leakyCache(String key, byte[] data) {\n        cache.put(key, data); // Never evicted!\n    }\n\n    // FIX: Use bounded cache or WeakHashMap\n    private static final Map<String, byte[]> boundedCache =\n        new LinkedHashMap<>(100, 0.75f, true) {\n            @Override\n            protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {\n                return size() > 1000; // Evict when over 1000 entries\n            }\n        };\n\n    // LEAK: ThreadLocal not cleaned up\n    private static final ThreadLocal<List<String>> threadData = new ThreadLocal<>();\n\n    public void leakyThreadLocal() {\n        threadData.set(new ArrayList<>()); // Never removed!\n    }\n\n    // FIX: Always clean up ThreadLocal in finally\n    public void fixedThreadLocal() {\n        try {\n            threadData.set(new ArrayList<>());\n            // ... use threadData\n        } finally {\n            threadData.remove(); // Always clean up\n        }\n    }\n\n    // LEAK: Listener not deregistered\n    interface DataListener { void onData(String data); }\n\n    private final List<DataListener> listeners = new ArrayList<>();\n\n    public void addListener(DataListener listener) {\n        listeners.add(listener); // Holds strong reference forever\n    }\n\n    // FIX: Provide removeListener() and use WeakReference if appropriate\n    public void removeListener(DataListener listener) {\n        listeners.remove(listener);\n    }\n}"
     },
     {
       "type": "para",
@@ -358,12 +323,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Each garbage collector is designed for different workload characteristics:\n\nG1 GC (Garbage-First):\n- Default since Java 9\n- Divides heap into equal-sized regions (1-32MB chosen by default; up to 512MB\n  can be set with -XX:G1HeapRegionSize since JDK 18)\n- Targets configurable pause time: -XX:MaxGCPauseMillis (default 200ms)\n- Mixed collections: collects both young and old regions\n- Best for: General-purpose workloads, heaps 4-16GB, pause times 100-500ms\n- Limitation: Pauses scale with heap size (though better than Parallel GC)\n\nZGC (Z Garbage Collector):\n- Production-ready since Java 15\n- Generational mode added in Java 21 as an opt-in (-XX:+ZGenerational); default since JDK 23\n- Pause times < 1ms regardless of heap size (even multi-TB heaps)\n- Uses colored pointers and load barriers\n- Concurrent almost entirely (marking, relocation, reference processing)\n- Best for: Low-latency applications, large heaps (16GB+), latency-sensitive services\n- Limitation: Slightly lower throughput than G1 for small heaps\n\nShenandoah:\n- Not available in Oracle JDK (OpenJDK only)\n- Similar goals to ZGC: very short pauses that do not grow with heap size\n- Uses load-reference barriers (the Brooks forwarding pointer of the first\n  version was removed in JDK 13)\n- Concurrent compaction\n- Best for: Low-latency needs on OpenJDK, similar use cases to ZGC\n- Limitation: Higher CPU overhead, not in Oracle JDK\n\nDecision matrix:\n- General web app with 4-8GB heap: G1 GC (default)\n- High-frequency trading / real-time: ZGC\n- Microservice with strict latency SLA: ZGC\n- Batch processing / data pipelines: Parallel GC or G1\n- Large heap (32GB+): ZGC\n- Containerized with limited CPU: G1 (lower CPU overhead)\n"
+      "text": "A2: Each garbage collector is designed for different workload characteristics:\n\nG1 GC (Garbage-First):\n- Default since Java 9\n- Divides heap into equal-sized regions (1-32MB chosen by default; up to 512MB\n  can be set with -XX:G1HeapRegionSize since JDK 18)\n- Targets configurable pause time: -XX:MaxGCPauseMillis (default 200ms)\n- Mixed collections: collects both young and old regions\n- Best for: General-purpose workloads, heaps 4-16GB, pause times 100-500ms\n- Limitation: Pauses scale with heap size (though better than Parallel GC)\n\nZGC (Z Garbage Collector):\n- Production-ready since Java 15\n- Generational mode added in Java 21 as an opt-in (-XX:+ZGenerational); default since JDK 23\n- Pause times < 1ms regardless of heap size (even multi-TB heaps)\n- Uses colored pointers and load barriers\n- Concurrent almost entirely (marking, relocation, reference processing)\n- Best for: Low-latency applications, large heaps (16GB+), latency-sensitive services\n- Limitation: Slightly lower throughput than G1 for small heaps\n\nShenandoah:\n- Not available in Oracle JDK (OpenJDK only)\n- Similar goals to ZGC: very short pauses that do not grow with heap size\n- Uses load-reference barriers (the Brooks forwarding pointer of the first\n  version was removed in JDK 13)\n- Concurrent compaction\n- Best for: Low-latency needs on OpenJDK, similar use cases to ZGC\n- Limitation: Higher CPU overhead, not in Oracle JDK\n\nDecision matrix:\n- General web app with 4-8GB heap: G1 GC (default)\n- High-frequency trading / real-time: ZGC\n- Microservice with strict latency SLA: ZGC\n- Batch processing / data pipelines: Parallel GC or G1\n- Large heap (32GB+): ZGC\n- Containerized with limited CPU: G1 (lower CPU overhead)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Demonstrating GC monitoring programmatically\nimport java.lang.management.GarbageCollectorMXBean;\nimport java.lang.management.ManagementFactory;\nimport java.lang.management.MemoryMXBean;\nimport java.lang.management.MemoryUsage;\n\npublic class GcMonitoringDemo {\n    public static void printGcInfo() {\n        // List all garbage collectors\n        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {\n            System.out.printf(\"GC Name: %s, Collections: %d, Time: %dms%n\",\n                gc.getName(), gc.getCollectionCount(), gc.getCollectionTime());\n        }\n\n        // Memory usage\n        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();\n        MemoryUsage heapUsage = memBean.getHeapMemoryUsage();\n        System.out.printf(\"Heap: used=%dMB, committed=%dMB, max=%dMB%n\",\n            heapUsage.getUsed() / 1024 / 1024,\n            heapUsage.getCommitted() / 1024 / 1024,\n            heapUsage.getMax() / 1024 / 1024);\n\n        MemoryUsage nonHeapUsage = memBean.getNonHeapMemoryUsage();\n        System.out.printf(\"Non-Heap: used=%dMB, committed=%dMB%n\",\n            nonHeapUsage.getUsed() / 1024 / 1024,\n            nonHeapUsage.getCommitted() / 1024 / 1024);\n    }\n}\n"
+      "text": "// Demonstrating GC monitoring programmatically\nimport java.lang.management.GarbageCollectorMXBean;\nimport java.lang.management.ManagementFactory;\nimport java.lang.management.MemoryMXBean;\nimport java.lang.management.MemoryUsage;\n\npublic class GcMonitoringDemo {\n    public static void printGcInfo() {\n        // List all garbage collectors\n        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {\n            System.out.printf(\"GC Name: %s, Collections: %d, Time: %dms%n\",\n                gc.getName(), gc.getCollectionCount(), gc.getCollectionTime());\n        }\n\n        // Memory usage\n        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();\n        MemoryUsage heapUsage = memBean.getHeapMemoryUsage();\n        System.out.printf(\"Heap: used=%dMB, committed=%dMB, max=%dMB%n\",\n            heapUsage.getUsed() / 1024 / 1024,\n            heapUsage.getCommitted() / 1024 / 1024,\n            heapUsage.getMax() / 1024 / 1024);\n\n        MemoryUsage nonHeapUsage = memBean.getNonHeapMemoryUsage();\n        System.out.printf(\"Non-Heap: used=%dMB, committed=%dMB%n\",\n            nonHeapUsage.getUsed() / 1024 / 1024,\n            nonHeapUsage.getCommitted() / 1024 / 1024);\n    }\n}"
     },
     {
       "type": "para",
@@ -372,12 +337,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: OOMKilled in Kubernetes means the container exceeded its memory limit. The JVM uses\nmore memory than just the heap, so -Xmx alone doesn't determine total memory usage.\n\nJVM Memory Components:\n1. Heap (-Xmx): Java objects and arrays\n2. Metaspace: Class metadata, method data\n3. Thread stacks: -Xss * number_of_threads\n4. Code cache: JIT-compiled code (~240MB default reserved)\n5. Direct byte buffers: NIO allocations\n6. Native memory: JNI, native libraries, internal JVM structures\n7. GC overhead: GC data structures (card tables, marking bitmaps)\n\nInvestigation steps:\n1. Check container memory limit vs. JVM memory settings:\n   kubectl describe pod <pod>\n   Compare spec.containers[].resources.limits.memory with -Xmx\n\n2. Calculate total JVM memory:\n   Total ≈ Heap + Metaspace + ThreadStacks + CodeCache + DirectMemory + GCOverhead\n   Rule of thumb: Set container limit to 1.5x-2x of -Xmx\n\n3. Enable Native Memory Tracking:\n   -XX:NativeMemoryTracking=summary\n   jcmd <pid> VM.native_memory summary\n\n4. Check thread count:\n   jcmd <pid> Thread.print | grep -c \"nid=\"\n   Each thread uses -Xss (default 1MB) of native memory\n\n5. Use container-aware settings:\n   java -XX:MaxRAMPercentage=75.0 (use 75% of container limit for heap)\n\nFixes:\n- Increase container memory limit\n- Reduce -Xmx to leave room for non-heap memory\n- Use -XX:MaxRAMPercentage instead of -Xmx\n- Reduce thread count (use virtual threads!)\n- Limit Metaspace: -XX:MaxMetaspaceSize\n- Limit code cache: -XX:ReservedCodeCacheSize\n- Limit direct memory: -XX:MaxDirectMemorySize\n"
+      "text": "A3: OOMKilled in Kubernetes means the container exceeded its memory limit. The JVM uses\nmore memory than just the heap, so -Xmx alone doesn't determine total memory usage.\n\nJVM Memory Components:\n1. Heap (-Xmx): Java objects and arrays\n2. Metaspace: Class metadata, method data\n3. Thread stacks: -Xss * number_of_threads\n4. Code cache: JIT-compiled code (~240MB default reserved)\n5. Direct byte buffers: NIO allocations\n6. Native memory: JNI, native libraries, internal JVM structures\n7. GC overhead: GC data structures (card tables, marking bitmaps)\n\nInvestigation steps:\n1. Check container memory limit vs. JVM memory settings:\n   kubectl describe pod <pod>\n   Compare spec.containers[].resources.limits.memory with -Xmx\n\n2. Calculate total JVM memory:\n   Total ≈ Heap + Metaspace + ThreadStacks + CodeCache + DirectMemory + GCOverhead\n   Rule of thumb: Set container limit to 1.5x-2x of -Xmx\n\n3. Enable Native Memory Tracking:\n   -XX:NativeMemoryTracking=summary\n   jcmd <pid> VM.native_memory summary\n\n4. Check thread count:\n   jcmd <pid> Thread.print | grep -c \"nid=\"\n   Each thread uses -Xss (default 1MB) of native memory\n\n5. Use container-aware settings:\n   java -XX:MaxRAMPercentage=75.0 (use 75% of container limit for heap)\n\nFixes:\n- Increase container memory limit\n- Reduce -Xmx to leave room for non-heap memory\n- Use -XX:MaxRAMPercentage instead of -Xmx\n- Reduce thread count (use virtual threads!)\n- Limit Metaspace: -XX:MaxMetaspaceSize\n- Limit code cache: -XX:ReservedCodeCacheSize\n- Limit direct memory: -XX:MaxDirectMemorySize"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Native Memory Tracking demonstration\n// Run with: java -XX:NativeMemoryTracking=summary NativeMemoryDemo\n// Then: jcmd <pid> VM.native_memory summary\n\npublic class NativeMemoryDemo {\n    public static void printMemoryBreakdown() {\n        Runtime runtime = Runtime.getRuntime();\n\n        // Heap information\n        long maxHeap = runtime.maxMemory();\n        long totalHeap = runtime.totalMemory();\n        long freeHeap = runtime.freeMemory();\n        long usedHeap = totalHeap - freeHeap;\n\n        System.out.printf(\"=== Heap Memory ===%n\");\n        System.out.printf(\"Max:  %d MB%n\", maxHeap / 1024 / 1024);\n        System.out.printf(\"Used: %d MB%n\", usedHeap / 1024 / 1024);\n        System.out.printf(\"Free: %d MB%n\", freeHeap / 1024 / 1024);\n\n        // Thread count (each uses ~1MB stack by default)\n        int threadCount = Thread.activeCount();\n        System.out.printf(\"%n=== Threads ===%n\");\n        System.out.printf(\"Active threads: %d%n\", threadCount);\n        System.out.printf(\"Estimated stack memory: ~%d MB%n\", threadCount);\n\n        // Available processors (important for container awareness)\n        System.out.printf(\"%n=== CPU ===%n\");\n        System.out.printf(\"Available processors: %d%n\",\n            runtime.availableProcessors());\n    }\n\n    public static void main(String[] args) {\n        printMemoryBreakdown();\n    }\n}\n"
+      "text": "// Native Memory Tracking demonstration\n// Run with: java -XX:NativeMemoryTracking=summary NativeMemoryDemo\n// Then: jcmd <pid> VM.native_memory summary\n\npublic class NativeMemoryDemo {\n    public static void printMemoryBreakdown() {\n        Runtime runtime = Runtime.getRuntime();\n\n        // Heap information\n        long maxHeap = runtime.maxMemory();\n        long totalHeap = runtime.totalMemory();\n        long freeHeap = runtime.freeMemory();\n        long usedHeap = totalHeap - freeHeap;\n\n        System.out.printf(\"=== Heap Memory ===%n\");\n        System.out.printf(\"Max:  %d MB%n\", maxHeap / 1024 / 1024);\n        System.out.printf(\"Used: %d MB%n\", usedHeap / 1024 / 1024);\n        System.out.printf(\"Free: %d MB%n\", freeHeap / 1024 / 1024);\n\n        // Thread count (each uses ~1MB stack by default)\n        int threadCount = Thread.activeCount();\n        System.out.printf(\"%n=== Threads ===%n\");\n        System.out.printf(\"Active threads: %d%n\", threadCount);\n        System.out.printf(\"Estimated stack memory: ~%d MB%n\", threadCount);\n\n        // Available processors (important for container awareness)\n        System.out.printf(\"%n=== CPU ===%n\");\n        System.out.printf(\"Available processors: %d%n\",\n            runtime.availableProcessors());\n    }\n\n    public static void main(String[] args) {\n        printMemoryBreakdown();\n    }\n}"
     },
     {
       "type": "para",
@@ -386,12 +351,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Java Flight Recorder (JFR) is a profiling and diagnostics framework built into the\nJVM since Java 11 (open-sourced). It has extremely low overhead (<2%) and is safe for\nproduction use.\n\nStarting JFR:\n\n1. At application startup:\n   java -XX:StartFlightRecording=duration=60s,filename=recording.jfr MyApp\n\n2. Continuous recording (ring buffer):\n   java -XX:StartFlightRecording=maxsize=500m,maxage=24h,\n        dumponexit=true,filename=app.jfr MyApp\n\n3. Attaching to running JVM:\n   jcmd <pid> JFR.start name=rec duration=60s filename=recording.jfr\n   jcmd <pid> JFR.dump name=rec filename=snapshot.jfr\n   jcmd <pid> JFR.stop name=rec     (JFR.stop needs the recording's name or id)\n\nKey event categories:\n- jdk.CPULoad: CPU utilization\n- jdk.GCPhasePause: GC pause details\n- jdk.ObjectAllocationInNewTLAB: Allocation hot spots\n- jdk.JavaMonitorEnter: Lock contention\n- jdk.ThreadPark: Thread parking (waiting)\n- jdk.ExecutionSample: Method profiling (CPU sampling)\n- jdk.FileRead/FileWrite: I/O operations\n- jdk.SocketRead/SocketWrite: Network operations\n- jdk.Compilation: JIT compilation events\n- jdk.VirtualThreadStart/End: Virtual thread lifecycle (Java 21)\n\nAnalyzing JFR recordings:\n- JDK Mission Control (JMC): GUI tool for visualizing JFR data\n- jfr tool: CLI for printing/summarizing recordings\n  jfr summary recording.jfr\n  jfr print --events jdk.GCPhasePause recording.jfr\n- Programmatic API: JFR streaming API (Java 14+) for real-time monitoring\n\nBest practices:\n- Always have continuous recording running in production\n- Use custom JFR events for application-specific metrics\n- Configure event thresholds to focus on significant events\n- Combine JFR with GC logs for comprehensive analysis\n"
+      "text": "A4: Java Flight Recorder (JFR) is a profiling and diagnostics framework built into the\nJVM since Java 11 (open-sourced). It has extremely low overhead (<2%) and is safe for\nproduction use.\n\nStarting JFR:\n\n1. At application startup:\n   java -XX:StartFlightRecording=duration=60s,filename=recording.jfr MyApp\n\n2. Continuous recording (ring buffer):\n   java -XX:StartFlightRecording=maxsize=500m,maxage=24h,\n        dumponexit=true,filename=app.jfr MyApp\n\n3. Attaching to running JVM:\n   jcmd <pid> JFR.start name=rec duration=60s filename=recording.jfr\n   jcmd <pid> JFR.dump name=rec filename=snapshot.jfr\n   jcmd <pid> JFR.stop name=rec     (JFR.stop needs the recording's name or id)\n\nKey event categories:\n- jdk.CPULoad: CPU utilization\n- jdk.GCPhasePause: GC pause details\n- jdk.ObjectAllocationInNewTLAB: Allocation hot spots\n- jdk.JavaMonitorEnter: Lock contention\n- jdk.ThreadPark: Thread parking (waiting)\n- jdk.ExecutionSample: Method profiling (CPU sampling)\n- jdk.FileRead/FileWrite: I/O operations\n- jdk.SocketRead/SocketWrite: Network operations\n- jdk.Compilation: JIT compilation events\n- jdk.VirtualThreadStart/End: Virtual thread lifecycle (Java 21)\n\nAnalyzing JFR recordings:\n- JDK Mission Control (JMC): GUI tool for visualizing JFR data\n- jfr tool: CLI for printing/summarizing recordings\n  jfr summary recording.jfr\n  jfr print --events jdk.GCPhasePause recording.jfr\n- Programmatic API: JFR streaming API (Java 14+) for real-time monitoring\n\nBest practices:\n- Always have continuous recording running in production\n- Use custom JFR events for application-specific metrics\n- Configure event thresholds to focus on significant events\n- Combine JFR with GC logs for comprehensive analysis"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Creating custom JFR events (Java 14+)\nimport jdk.jfr.*;\n\n@Name(\"com.example.DatabaseQuery\")\n@Label(\"Database Query\")\n@Category({\"Application\", \"Database\"})\n@StackTrace(true)\npublic class DatabaseQueryEvent extends jdk.jfr.Event {\n    @Label(\"SQL Query\")\n    String query;\n\n    @Label(\"Duration\")\n    @Timespan(Timespan.MILLISECONDS)\n    long durationMs;\n\n    @Label(\"Row Count\")\n    int rowCount;\n\n    @Label(\"Success\")\n    boolean success;\n}\n\n// Usage:\n// DatabaseQueryEvent event = new DatabaseQueryEvent();\n// event.begin();\n// try {\n//     ResultSet rs = stmt.executeQuery(sql);\n//     event.query = sql;\n//     event.rowCount = countRows(rs);\n//     event.success = true;\n// } catch (SQLException e) {\n//     event.success = false;\n// } finally {\n//     event.durationMs = ...;\n//     event.commit();\n// }\n"
+      "text": "// Creating custom JFR events (Java 14+)\nimport jdk.jfr.*;\n\n@Name(\"com.example.DatabaseQuery\")\n@Label(\"Database Query\")\n@Category({\"Application\", \"Database\"})\n@StackTrace(true)\npublic class DatabaseQueryEvent extends jdk.jfr.Event {\n    @Label(\"SQL Query\")\n    String query;\n\n    @Label(\"Duration\")\n    @Timespan(Timespan.MILLISECONDS)\n    long durationMs;\n\n    @Label(\"Row Count\")\n    int rowCount;\n\n    @Label(\"Success\")\n    boolean success;\n}\n\n// Usage:\n// DatabaseQueryEvent event = new DatabaseQueryEvent();\n// event.begin();\n// try {\n//     ResultSet rs = stmt.executeQuery(sql);\n//     event.query = sql;\n//     event.rowCount = countRows(rs);\n//     event.success = true;\n// } catch (SQLException e) {\n//     event.success = false;\n// } finally {\n//     event.durationMs = ...;\n//     event.commit();\n// }"
     },
     {
       "type": "para",
@@ -400,12 +365,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Here are the essential JVM flags for production applications:\n\nMemory Configuration:\n- -Xmx<size>: Maximum heap size (or -XX:MaxRAMPercentage for containers)\n- -Xms<size>: Initial heap size (set to -Xmx for predictable performance)\n- -XX:MaxMetaspaceSize=256m: Prevent unbounded Metaspace growth\n\nGC Configuration:\n- -XX:+UseG1GC (default) or -XX:+UseZGC for low latency\n- -XX:MaxGCPauseMillis=200: Target GC pause time for G1\n\nGC Logging (critical for diagnostics):\n- -Xlog:gc*:file=gc.log:time,level,tags:filecount=5,filesize=100m\n\nError Handling:\n- -XX:+HeapDumpOnOutOfMemoryError: Auto-capture heap dump on OOM\n- -XX:HeapDumpPath=/path/to/dumps: Where to store heap dumps\n- -XX:+ExitOnOutOfMemoryError: Exit on OOM (better for containers)\n  or -XX:+CrashOnOutOfMemoryError: Generate core dump on OOM\n\nMonitoring:\n- -XX:StartFlightRecording=maxsize=500m,dumponexit=true,filename=app.jfr\n- -XX:NativeMemoryTracking=summary (slight overhead, enable when needed)\n\nContainer-specific:\n- -XX:MaxRAMPercentage=75.0: Use percentage of container memory\n- -XX:ActiveProcessorCount=N: Override CPU detection if needed\n\nExample production command:\njava -Xmx4g -Xms4g \\\n     -XX:+UseG1GC -XX:MaxGCPauseMillis=200 \\\n     -XX:MaxMetaspaceSize=256m \\\n     -Xlog:gc*:file=/var/log/app/gc.log:time,level,tags:filecount=5,filesize=100m \\\n     -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/log/app/ \\\n     -XX:+ExitOnOutOfMemoryError \\\n     -XX:StartFlightRecording=maxsize=500m,dumponexit=true,filename=/var/log/app/app.jfr \\\n     -jar myapp.jar\n"
+      "text": "A5: Here are the essential JVM flags for production applications:\n\nMemory Configuration:\n- -Xmx<size>: Maximum heap size (or -XX:MaxRAMPercentage for containers)\n- -Xms<size>: Initial heap size (set to -Xmx for predictable performance)\n- -XX:MaxMetaspaceSize=256m: Prevent unbounded Metaspace growth\n\nGC Configuration:\n- -XX:+UseG1GC (default) or -XX:+UseZGC for low latency\n- -XX:MaxGCPauseMillis=200: Target GC pause time for G1\n\nGC Logging (critical for diagnostics):\n- -Xlog:gc*:file=gc.log:time,level,tags:filecount=5,filesize=100m\n\nError Handling:\n- -XX:+HeapDumpOnOutOfMemoryError: Auto-capture heap dump on OOM\n- -XX:HeapDumpPath=/path/to/dumps: Where to store heap dumps\n- -XX:+ExitOnOutOfMemoryError: Exit on OOM (better for containers)\n  or -XX:+CrashOnOutOfMemoryError: Generate core dump on OOM\n\nMonitoring:\n- -XX:StartFlightRecording=maxsize=500m,dumponexit=true,filename=app.jfr\n- -XX:NativeMemoryTracking=summary (slight overhead, enable when needed)\n\nContainer-specific:\n- -XX:MaxRAMPercentage=75.0: Use percentage of container memory\n- -XX:ActiveProcessorCount=N: Override CPU detection if needed\n\nExample production command:\njava -Xmx4g -Xms4g \\\n     -XX:+UseG1GC -XX:MaxGCPauseMillis=200 \\\n     -XX:MaxMetaspaceSize=256m \\\n     -Xlog:gc*:file=/var/log/app/gc.log:time,level,tags:filecount=5,filesize=100m \\\n     -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/var/log/app/ \\\n     -XX:+ExitOnOutOfMemoryError \\\n     -XX:StartFlightRecording=maxsize=500m,dumponexit=true,filename=/var/log/app/app.jfr \\\n     -jar myapp.jar"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Programmatic JVM monitoring\nimport java.lang.management.*;\nimport java.util.List;\n\npublic class JvmMonitoring {\n    public static void printFullDiagnostics() {\n        // Runtime info\n        RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();\n        System.out.println(\"JVM: \" + runtime.getVmName() + \" \" + runtime.getVmVersion());\n        System.out.println(\"Uptime: \" + runtime.getUptime() / 1000 + \"s\");\n        System.out.println(\"JVM Args: \" + runtime.getInputArguments());\n\n        // Memory\n        MemoryMXBean memory = ManagementFactory.getMemoryMXBean();\n        MemoryUsage heap = memory.getHeapMemoryUsage();\n        System.out.printf(\"Heap: used=%dMB, max=%dMB (%.1f%%)%n\",\n            heap.getUsed() / 1048576, heap.getMax() / 1048576,\n            100.0 * heap.getUsed() / heap.getMax());\n\n        // GC stats\n        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {\n            System.out.printf(\"GC [%s]: count=%d, time=%dms%n\",\n                gc.getName(), gc.getCollectionCount(), gc.getCollectionTime());\n        }\n\n        // Thread info\n        ThreadMXBean threads = ManagementFactory.getThreadMXBean();\n        System.out.println(\"Threads: \" + threads.getThreadCount());\n        System.out.println(\"Peak threads: \" + threads.getPeakThreadCount());\n\n        // Deadlock detection\n        long[] deadlocked = threads.findDeadlockedThreads();\n        if (deadlocked != null) {\n            System.out.println(\"DEADLOCK DETECTED! Thread IDs: \");\n            for (long id : deadlocked) {\n                ThreadInfo info = threads.getThreadInfo(id);\n                System.out.println(\"  \" + info.getThreadName());\n            }\n        } else {\n            System.out.println(\"No deadlocks detected.\");\n        }\n\n        // Memory pools\n        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {\n            MemoryUsage usage = pool.getUsage();\n            System.out.printf(\"Pool [%s]: used=%dMB, max=%dMB%n\",\n                pool.getName(),\n                usage.getUsed() / 1048576,\n                usage.getMax() > 0 ? usage.getMax() / 1048576 : -1);\n        }\n    }\n}\n"
+      "text": "// Programmatic JVM monitoring\nimport java.lang.management.*;\nimport java.util.List;\n\npublic class JvmMonitoring {\n    public static void printFullDiagnostics() {\n        // Runtime info\n        RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();\n        System.out.println(\"JVM: \" + runtime.getVmName() + \" \" + runtime.getVmVersion());\n        System.out.println(\"Uptime: \" + runtime.getUptime() / 1000 + \"s\");\n        System.out.println(\"JVM Args: \" + runtime.getInputArguments());\n\n        // Memory\n        MemoryMXBean memory = ManagementFactory.getMemoryMXBean();\n        MemoryUsage heap = memory.getHeapMemoryUsage();\n        System.out.printf(\"Heap: used=%dMB, max=%dMB (%.1f%%)%n\",\n            heap.getUsed() / 1048576, heap.getMax() / 1048576,\n            100.0 * heap.getUsed() / heap.getMax());\n\n        // GC stats\n        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {\n            System.out.printf(\"GC [%s]: count=%d, time=%dms%n\",\n                gc.getName(), gc.getCollectionCount(), gc.getCollectionTime());\n        }\n\n        // Thread info\n        ThreadMXBean threads = ManagementFactory.getThreadMXBean();\n        System.out.println(\"Threads: \" + threads.getThreadCount());\n        System.out.println(\"Peak threads: \" + threads.getPeakThreadCount());\n\n        // Deadlock detection\n        long[] deadlocked = threads.findDeadlockedThreads();\n        if (deadlocked != null) {\n            System.out.println(\"DEADLOCK DETECTED! Thread IDs: \");\n            for (long id : deadlocked) {\n                ThreadInfo info = threads.getThreadInfo(id);\n                System.out.println(\"  \" + info.getThreadName());\n            }\n        } else {\n            System.out.println(\"No deadlocks detected.\");\n        }\n\n        // Memory pools\n        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {\n            MemoryUsage usage = pool.getUsage();\n            System.out.printf(\"Pool [%s]: used=%dMB, max=%dMB%n\",\n                pool.getName(),\n                usage.getUsed() / 1048576,\n                usage.getMax() > 0 ? usage.getMax() / 1048576 : -1);\n        }\n    }\n}"
     },
     {
       "type": "heading",
@@ -426,10 +391,10 @@
   "attachments": [],
   "counts": {
     "headings": 15,
-    "paras": 14,
-    "code": 16,
+    "paras": 10,
+    "code": 10,
     "tables": 1,
-    "lists": 16,
+    "lists": 11,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -437,5 +402,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "8209993001c56967c2f3df9f7b70942bf7bfe963c999964d33fc60ce23368430"
+  "content_sha256": "55b35cdaa16edcc57c0635c4dcb46efe80411d5bd3fcd655d23ecb2e6e2c78c4"
 }

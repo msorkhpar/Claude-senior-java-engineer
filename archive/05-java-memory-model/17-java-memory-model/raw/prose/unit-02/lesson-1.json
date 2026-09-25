@@ -133,64 +133,42 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Reading a stale value from working memory**"
+        [
+          "**Reading a stale value from working memory**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN: 'running' may be cached in Thread B's working memory as 'true' forever\nclass BrokenFlag {\n    private boolean running = true;\n\n    void stop() { running = false; } // Thread A\n\n    void work() { // Thread B\n        while (running) { /* may spin forever */ }\n    }\n}"
+          },
+          "**Fix**: Use `volatile boolean running = true;` to force main-memory reads."
+        ],
+        [
+          "**Assuming writes propagate immediately**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN: Thread B may see counter as 0 even after Thread A increments it\nclass BrokenCounter {\n    private int counter = 0;\n\n    void increment() { counter++; } // Thread A\n    int get() { return counter; }   // Thread B\n}"
+          },
+          "**Fix**: Use `AtomicInteger` or `synchronized` methods."
+        ],
+        [
+          "**Treating local variables as shared** (false concern)",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// FINE: local variable 'sum' is on Thread A's stack — no sharing possible\npublic void processLocally(List<Integer> data) {\n    int sum = 0; // local — thread-local by definition\n    for (int v : data) sum += v;\n    System.out.println(sum);\n}"
+          }
+        ],
+        [
+          "**Unsafe publication through non-volatile fields**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN: other threads may see helper as null or partially constructed\nstatic Helper helper;\nstatic void init() { helper = new Helper(); }"
+          },
+          "**Fix**: Use `volatile static Helper helper;` or `static final Helper helper = new Helper();`."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN: 'running' may be cached in Thread B's working memory as 'true' forever\nclass BrokenFlag {\n    private boolean running = true;\n\n    void stop() { running = false; } // Thread A\n\n    void work() { // Thread B\n        while (running) { /* may spin forever */ }\n    }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use `volatile boolean running = true;` to force main-memory reads."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Assuming writes propagate immediately**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN: Thread B may see counter as 0 even after Thread A increments it\nclass BrokenCounter {\n    private int counter = 0;\n\n    void increment() { counter++; } // Thread A\n    int get() { return counter; }   // Thread B\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use `AtomicInteger` or `synchronized` methods."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Treating local variables as shared** (false concern)"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// FINE: local variable 'sum' is on Thread A's stack — no sharing possible\npublic void processLocally(List<Integer> data) {\n    int sum = 0; // local — thread-local by definition\n    for (int v : data) sum += v;\n    System.out.println(sum);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Unsafe publication through non-volatile fields**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN: other threads may see helper as null or partially constructed\nstatic Helper helper;\nstatic void init() { helper = new Helper(); }\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use `volatile static Helper helper;` or `static final Helper helper = new Helper();`."
     },
     {
       "type": "heading",
@@ -202,23 +180,18 @@
       "ordered": true,
       "items": [
         "**Minimize shared mutable state**: The fewer heap variables shared between threads, the fewer JMM concerns. Use thread-local data via `ThreadLocal<T>` or pass data through method parameters instead of shared fields.",
-        "**Use `ThreadLocal` for per-thread state**: `ThreadLocal<T>` gives each thread its own copy of a variable, eliminating sharing entirely:"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "private static final ThreadLocal<SimpleDateFormat> formatter =\n    ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Use `ThreadLocal` for per-thread state**: `ThreadLocal<T>` gives each thread its own copy of a variable, eliminating sharing entirely:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "private static final ThreadLocal<SimpleDateFormat> formatter =\n    ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));"
+          }
+        ],
         "**Prefer final fields for immutable data**: Final fields get special JMM publication guarantees at zero runtime cost. Design immutable value objects to maximize thread safety without synchronization.",
         "**Use `volatile` conservatively**: `volatile` has a cost (prevents certain compiler optimizations, requires memory barriers). Use it only where visibility across threads is truly needed.",
         "**Use `AtomicReference` for CAS-based publication**: When you need to atomically update an object reference, `AtomicReference.compareAndSet()` provides both atomicity and visibility."
-      ],
-      "start": 3
+      ]
     },
     {
       "type": "heading",
@@ -280,12 +253,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: In the JMM's conceptual model:\n\nSTACK MEMORY (thread-local):\n- Each thread has its own stack. Method calls push frames onto the stack, each containing local variables,\n  parameters, and return values.\n- Stack memory is NEVER shared between threads (each thread has its own stack).\n- Therefore, local variables are inherently thread-safe — no synchronization needed.\n\nHEAP MEMORY (shared):\n- All objects and their fields live on the heap, which is shared among all threads.\n- Instance fields, static fields, and array elements are all on the heap.\n- Because the heap is shared, concurrent access requires proper synchronization to ensure correct visibility.\n\nA common interview mistake is to confuse \"on the heap\" with \"thread-safe.\" Just because an object is on the heap\ndoesn't make it thread-safe — it means it CAN be shared and therefore MUST be protected if actually shared.\n\nObject references (the variables pointing to objects) can live on either the stack (if local) or the heap (if\nthey are fields of another object). The object's FIELDS always live on the heap.\n"
+      "text": "A1: In the JMM's conceptual model:\n\nSTACK MEMORY (thread-local):\n- Each thread has its own stack. Method calls push frames onto the stack, each containing local variables,\n  parameters, and return values.\n- Stack memory is NEVER shared between threads (each thread has its own stack).\n- Therefore, local variables are inherently thread-safe — no synchronization needed.\n\nHEAP MEMORY (shared):\n- All objects and their fields live on the heap, which is shared among all threads.\n- Instance fields, static fields, and array elements are all on the heap.\n- Because the heap is shared, concurrent access requires proper synchronization to ensure correct visibility.\n\nA common interview mistake is to confuse \"on the heap\" with \"thread-safe.\" Just because an object is on the heap\ndoesn't make it thread-safe — it means it CAN be shared and therefore MUST be protected if actually shared.\n\nObject references (the variables pointing to objects) can live on either the stack (if local) or the heap (if\nthey are fields of another object). The object's FIELDS always live on the heap."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class StackVsHeapDemo {\n    private int sharedField = 0; // Heap — shared, requires synchronization\n\n    public void threadSafeMethod() {\n        int localVar = 10;       // Stack — thread-local, no concern\n        String localStr = \"hi\";  // Stack reference — but the String object is on heap\n        // localStr is still effectively thread-local here (not shared with other threads)\n\n        sharedField = localVar;  // Writing to heap — potential visibility issue\n    }\n}\n"
+      "text": "public class StackVsHeapDemo {\n    private int sharedField = 0; // Heap — shared, requires synchronization\n\n    public void threadSafeMethod() {\n        int localVar = 10;       // Stack — thread-local, no concern\n        String localStr = \"hi\";  // Stack reference — but the String object is on heap\n        // localStr is still effectively thread-local here (not shared with other threads)\n\n        sharedField = localVar;  // Writing to heap — potential visibility issue\n    }\n}"
     },
     {
       "type": "para",
@@ -294,12 +267,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: When a field is declared volatile, the JMM mandates:\n\nIn the working-memory picture:\nWRITE: a write to a volatile field cannot stay in the thread's working memory — it behaves as if written to main\nmemory right away.\nREAD: a read of a volatile field cannot be served from a stale cached copy — it behaves as if read from main memory.\n\nWhat the JLS actually specifies (and what the picture approximates): volatile accesses are totally ordered, each\nvolatile read sees the last write to that field before it in that order, and a volatile write happens-before any\nsubsequent volatile read of the same variable. This means all writes the writer made before the volatile write\nare also visible to the reading thread. The JLS says nothing about caches or main memory.\n\nNon-volatile reads: The JVM is free to cache the value in the thread's working memory and return the\ncached copy on subsequent reads — even if another thread has updated main memory.\n\nCost of volatile: Volatile reads/writes are more expensive than non-volatile because they need memory barriers\n(on x86, a volatile write is followed by a locked instruction or mfence; volatile reads are almost free) and\nprevent certain compiler/JIT optimizations — not because they bypass CPU caches, which stay coherent. They are\nusually cheaper than synchronized blocks.\n"
+      "text": "A2: When a field is declared volatile, the JMM mandates:\n\nIn the working-memory picture:\nWRITE: a write to a volatile field cannot stay in the thread's working memory — it behaves as if written to main\nmemory right away.\nREAD: a read of a volatile field cannot be served from a stale cached copy — it behaves as if read from main memory.\n\nWhat the JLS actually specifies (and what the picture approximates): volatile accesses are totally ordered, each\nvolatile read sees the last write to that field before it in that order, and a volatile write happens-before any\nsubsequent volatile read of the same variable. This means all writes the writer made before the volatile write\nare also visible to the reading thread. The JLS says nothing about caches or main memory.\n\nNon-volatile reads: The JVM is free to cache the value in the thread's working memory and return the\ncached copy on subsequent reads — even if another thread has updated main memory.\n\nCost of volatile: Volatile reads/writes are more expensive than non-volatile because they need memory barriers\n(on x86, a volatile write is followed by a locked instruction or mfence; volatile reads are almost free) and\nprevent certain compiler/JIT optimizations — not because they bypass CPU caches, which stay coherent. They are\nusually cheaper than synchronized blocks."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class VolatileWorkingMemoryDemo {\n    private volatile boolean flag = false;\n    private int data = 0;\n\n    public void writer() {\n        data = 42;        // (1) may stay in writer's working memory temporarily\n        flag = true;      // (2) volatile write: publishes (1) too — (1) cannot move after (2)\n                          // happens-before any subsequent read of 'flag'\n    }\n\n    public void reader() {\n        if (flag) {       // (3) volatile read: sees latest main memory value\n            // By happens-before: (2) happened-before (3)\n            // By program order: (1) happened-before (2)\n            // Therefore: reader sees data = 42 (guaranteed)\n            System.out.println(data);\n        }\n    }\n}\n"
+      "text": "public class VolatileWorkingMemoryDemo {\n    private volatile boolean flag = false;\n    private int data = 0;\n\n    public void writer() {\n        data = 42;        // (1) may stay in writer's working memory temporarily\n        flag = true;      // (2) volatile write: publishes (1) too — (1) cannot move after (2)\n                          // happens-before any subsequent read of 'flag'\n    }\n\n    public void reader() {\n        if (flag) {       // (3) volatile read: sees latest main memory value\n            // By happens-before: (2) happened-before (3)\n            // By program order: (1) happened-before (2)\n            // Therefore: reader sees data = 42 (guaranteed)\n            System.out.println(data);\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -308,12 +281,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: ThreadLocal<T> is a Java utility class that provides per-thread storage — each thread that accesses\na ThreadLocal variable gets its own independently initialized copy of the variable.\n\nKey characteristics:\n- Eliminates sharing by giving each thread its own copy\n- The value is associated with the thread, not the ThreadLocal object\n- Automatically garbage-collected when the thread terminates (unless using thread pools)\n\nWhen to use:\n1. Per-thread state that must not be shared (e.g., SimpleDateFormat instances, database connections)\n2. Propagating context through call stacks without method signature changes (e.g., user session, transaction ID)\n3. Per-thread caching (e.g., reusing expensive-to-create objects across method calls within a single thread)\n\nWhen NOT to use:\n1. When you actually want to share state between threads (use concurrent collections instead)\n2. In thread pools without calling remove() — can cause memory leaks and state pollution between tasks\n3. As a substitute for proper design (hiding shared state in ThreadLocal is often a design smell)\n"
+      "text": "A3: ThreadLocal<T> is a Java utility class that provides per-thread storage — each thread that accesses\na ThreadLocal variable gets its own independently initialized copy of the variable.\n\nKey characteristics:\n- Eliminates sharing by giving each thread its own copy\n- The value is associated with the thread, not the ThreadLocal object\n- Automatically garbage-collected when the thread terminates (unless using thread pools)\n\nWhen to use:\n1. Per-thread state that must not be shared (e.g., SimpleDateFormat instances, database connections)\n2. Propagating context through call stacks without method signature changes (e.g., user session, transaction ID)\n3. Per-thread caching (e.g., reusing expensive-to-create objects across method calls within a single thread)\n\nWhen NOT to use:\n1. When you actually want to share state between threads (use concurrent collections instead)\n2. In thread pools without calling remove() — can cause memory leaks and state pollution between tasks\n3. As a substitute for proper design (hiding shared state in ThreadLocal is often a design smell)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ThreadLocalDemo {\n    // Each thread gets its own SimpleDateFormat (not thread-safe otherwise)\n    private static final ThreadLocal<SimpleDateFormat> dateFormat =\n        ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\n    // Context propagation\n    private static final ThreadLocal<String> requestId = new ThreadLocal<>();\n\n    public static void processRequest(String id) {\n        requestId.set(id); // set per-thread context\n        try {\n            doWork(); // downstream calls can read requestId without passing it as a param\n        } finally {\n            requestId.remove(); // CRITICAL in thread pools to prevent stale state\n        }\n    }\n\n    private static void doWork() {\n        String id = requestId.get(); // reads THIS thread's value\n        System.out.println(\"Processing request: \" + id);\n    }\n\n    public static String formatDate(java.util.Date date) {\n        return dateFormat.get().format(date); // thread-safe per-thread SDF\n    }\n}\n"
+      "text": "public class ThreadLocalDemo {\n    // Each thread gets its own SimpleDateFormat (not thread-safe otherwise)\n    private static final ThreadLocal<SimpleDateFormat> dateFormat =\n        ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\n    // Context propagation\n    private static final ThreadLocal<String> requestId = new ThreadLocal<>();\n\n    public static void processRequest(String id) {\n        requestId.set(id); // set per-thread context\n        try {\n            doWork(); // downstream calls can read requestId without passing it as a param\n        } finally {\n            requestId.remove(); // CRITICAL in thread pools to prevent stale state\n        }\n    }\n\n    private static void doWork() {\n        String id = requestId.get(); // reads THIS thread's value\n        System.out.println(\"Processing request: \" + id);\n    }\n\n    public static String formatDate(java.util.Date date) {\n        return dateFormat.get().format(date); // thread-safe per-thread SDF\n    }\n}"
     },
     {
       "type": "para",
@@ -322,12 +295,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Yes, with conditions:\n\nSAFE (no synchronization needed):\n1. The shared object is IMMUTABLE (all fields final, no mutating methods). Final fields get JMM\n   publication guarantees after construction completes.\n2. The object was safely published (via volatile, synchronized, final field, or static initializer)\n   and is never mutated after publication.\n3. Concurrent reads from java.util.concurrent classes designed for concurrent access (e.g., ConcurrentHashMap).\n\nUNSAFE:\n- If one thread is writing while another is reading (even if both are \"just reading a field\"), and the\n  field is not volatile/synchronized, the reading thread may see a stale value.\n- If the object was published unsafely (via a plain non-volatile field), even concurrent reads may see\n  a partially constructed object.\n\nThe JMM allows compilers to cache values aggressively. Even if the hardware cache is coherent, the\ncompiler may have placed the value in a register and never re-read from memory.\n"
+      "text": "A4: Yes, with conditions:\n\nSAFE (no synchronization needed):\n1. The shared object is IMMUTABLE (all fields final, no mutating methods). Final fields get JMM\n   publication guarantees after construction completes.\n2. The object was safely published (via volatile, synchronized, final field, or static initializer)\n   and is never mutated after publication.\n3. Concurrent reads from java.util.concurrent classes designed for concurrent access (e.g., ConcurrentHashMap).\n\nUNSAFE:\n- If one thread is writing while another is reading (even if both are \"just reading a field\"), and the\n  field is not volatile/synchronized, the reading thread may see a stale value.\n- If the object was published unsafely (via a plain non-volatile field), even concurrent reads may see\n  a partially constructed object.\n\nThe JMM allows compilers to cache values aggressively. Even if the hardware cache is coherent, the\ncompiler may have placed the value in a register and never re-read from memory."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ConcurrentReadDemo {\n    // SAFE: immutable, safely published via final field\n    private static final ImmutableConfig CONFIG = new ImmutableConfig(\"host\", 8080);\n\n    // UNSAFE: mutable, not safely published\n    private static MutableConfig mutableConfig;\n\n    static class ImmutableConfig {\n        private final String host; // final — JMM guaranteed\n        private final int port;\n\n        ImmutableConfig(String host, int port) {\n            this.host = host;\n            this.port = port;\n        }\n        public String getHost() { return host; }\n        public int getPort() { return port; }\n    }\n\n    static class MutableConfig {\n        String host;\n        int port;\n    }\n\n    // Multiple threads can safely read CONFIG concurrently\n    public static String getHost() { return CONFIG.getHost(); }\n\n    // Multiple threads reading mutableConfig: UNSAFE without synchronization\n    public static String getMutableHost() { return mutableConfig.host; }\n}\n"
+      "text": "public class ConcurrentReadDemo {\n    // SAFE: immutable, safely published via final field\n    private static final ImmutableConfig CONFIG = new ImmutableConfig(\"host\", 8080);\n\n    // UNSAFE: mutable, not safely published\n    private static MutableConfig mutableConfig;\n\n    static class ImmutableConfig {\n        private final String host; // final — JMM guaranteed\n        private final int port;\n\n        ImmutableConfig(String host, int port) {\n            this.host = host;\n            this.port = port;\n        }\n        public String getHost() { return host; }\n        public int getPort() { return port; }\n    }\n\n    static class MutableConfig {\n        String host;\n        int port;\n    }\n\n    // Multiple threads can safely read CONFIG concurrently\n    public static String getHost() { return CONFIG.getHost(); }\n\n    // Multiple threads reading mutableConfig: UNSAFE without synchronization\n    public static String getMutableHost() { return mutableConfig.host; }\n}"
     },
     {
       "type": "para",
@@ -336,12 +309,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: The JMM specification (JLS 17.7) states that writes to non-volatile long and double values are\nNOT required to be atomic. On 32-bit JVMs or 32-bit data buses, a 64-bit write may be split into\ntwo 32-bit writes. If one thread is writing and another is reading concurrently, the reader might\nsee a \"half-written\" value — the high 32 bits from the old value and the low 32 bits from the new\nvalue (or vice versa), resulting in a completely bogus number.\n\nIn practice:\n- Modern 64-bit JVMs (which are now the overwhelming majority) DO perform atomic 64-bit reads and writes,\n  so this is rarely seen in practice.\n- However, the JMM specification does NOT guarantee it, so technically any non-volatile long/double\n  access may tear on an implementation that uses this freedom — and such an implementation still conforms\n  to the specification.\n- For correctness and portability: always use volatile long/double or AtomicLong/AtomicReference for\n  shared 64-bit values.\n\nNote: volatile long and double ARE guaranteed to be atomically read/written per the JMM spec.\n"
+      "text": "A5: The JMM specification (JLS 17.7) states that writes to non-volatile long and double values are\nNOT required to be atomic. On 32-bit JVMs or 32-bit data buses, a 64-bit write may be split into\ntwo 32-bit writes. If one thread is writing and another is reading concurrently, the reader might\nsee a \"half-written\" value — the high 32 bits from the old value and the low 32 bits from the new\nvalue (or vice versa), resulting in a completely bogus number.\n\nIn practice:\n- Modern 64-bit JVMs (which are now the overwhelming majority) DO perform atomic 64-bit reads and writes,\n  so this is rarely seen in practice.\n- However, the JMM specification does NOT guarantee it, so technically any non-volatile long/double\n  access may tear on an implementation that uses this freedom — and such an implementation still conforms\n  to the specification.\n- For correctness and portability: always use volatile long/double or AtomicLong/AtomicReference for\n  shared 64-bit values.\n\nNote: volatile long and double ARE guaranteed to be atomically read/written per the JMM spec."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class LongDoubleAtomicityDemo {\n    // RISKY: on 32-bit JVMs, read/write may not be atomic\n    private long riskyLong = 0L;\n    private double riskyDouble = 0.0;\n\n    // SAFE: volatile guarantees atomic 64-bit read/write\n    private volatile long safeLong = 0L;\n    private volatile double safeDouble = 0.0;\n\n    // BEST: AtomicLong provides atomic CAS and increment operations\n    private final java.util.concurrent.atomic.AtomicLong atomicLong =\n        new java.util.concurrent.atomic.AtomicLong(0L);\n\n    public void demonstrateSafe() {\n        // Multiple threads can safely read/write these\n        safeLong = Long.MAX_VALUE;\n        long read = safeLong; // guaranteed to be atomic read\n\n        atomicLong.incrementAndGet(); // atomic increment (CAS-based)\n    }\n}\n"
+      "text": "public class LongDoubleAtomicityDemo {\n    // RISKY: on 32-bit JVMs, read/write may not be atomic\n    private long riskyLong = 0L;\n    private double riskyDouble = 0.0;\n\n    // SAFE: volatile guarantees atomic 64-bit read/write\n    private volatile long safeLong = 0L;\n    private volatile double safeDouble = 0.0;\n\n    // BEST: AtomicLong provides atomic CAS and increment operations\n    private final java.util.concurrent.atomic.AtomicLong atomicLong =\n        new java.util.concurrent.atomic.AtomicLong(0L);\n\n    public void demonstrateSafe() {\n        // Multiple threads can safely read/write these\n        safeLong = Long.MAX_VALUE;\n        long read = safeLong; // guaranteed to be atomic read\n\n        atomicLong.incrementAndGet(); // atomic increment (CAS-based)\n    }\n}"
     },
     {
       "type": "heading",
@@ -362,10 +335,10 @@
   "attachments": [],
   "counts": {
     "headings": 14,
-    "paras": 18,
-    "code": 15,
+    "paras": 15,
+    "code": 10,
     "tables": 0,
-    "lists": 14,
+    "lists": 10,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -373,5 +346,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "c20d024b02337db49786155ff9e57d1cc32faadf11224b9b670b69aa951c796a"
+  "content_sha256": "9010f7799fa0bfb8b7c92f07a04eba8cc1960d03b7c28430509956988fcff70e"
 }

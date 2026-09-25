@@ -56,7 +56,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "// From Collection\nList<String> list = List.of(\"a\", \"b\", \"c\");\nStream<String> fromList = list.stream();\n\n// From array\nString[] arr = {\"a\", \"b\", \"c\"};\nStream<String> fromArray = Arrays.stream(arr);\n\n// Stream.of (varargs)\nStream<String> ofStream = Stream.of(\"a\", \"b\", \"c\");\n\n// Empty stream (useful as a neutral element in stream composition)\nStream<String> empty = Stream.empty();\n\n// Nullable (Java 9) — returns empty stream if null, otherwise singleton stream\nStream<String> nullable = Stream.ofNullable(possiblyNull);\n\n// Infinite streams\nStream<Double> randoms = Stream.generate(Math::random);      // infinite\nStream<Integer> sequence = Stream.iterate(0, n -> n + 1);   // infinite: 0, 1, 2, ...\nStream<Integer> bounded = Stream.iterate(0, n -> n < 10, n -> n + 1); // Java 9: 0..9\n\n// Primitive ranges (no boxing)\nIntStream range = IntStream.range(0, 10);        // 0 to 9 (exclusive end)\nIntStream rangeClosed = IntStream.rangeClosed(1, 10); // 1 to 10 (inclusive end)\n\n// Files\nStream<String> lines = Files.lines(Path.of(\"file.txt\")); // AutoCloseable!\n"
+      "text": "// From Collection\nList<String> list = List.of(\"a\", \"b\", \"c\");\nStream<String> fromList = list.stream();\n\n// From array\nString[] arr = {\"a\", \"b\", \"c\"};\nStream<String> fromArray = Arrays.stream(arr);\n\n// Stream.of (varargs)\nStream<String> ofStream = Stream.of(\"a\", \"b\", \"c\");\n\n// Empty stream (useful as a neutral element in stream composition)\nStream<String> empty = Stream.empty();\n\n// Nullable (Java 9) — returns empty stream if null, otherwise singleton stream\nStream<String> nullable = Stream.ofNullable(possiblyNull);\n\n// Infinite streams\nStream<Double> randoms = Stream.generate(Math::random);      // infinite\nStream<Integer> sequence = Stream.iterate(0, n -> n + 1);   // infinite: 0, 1, 2, ...\nStream<Integer> bounded = Stream.iterate(0, n -> n < 10, n -> n + 1); // Java 9: 0..9\n\n// Primitive ranges (no boxing)\nIntStream range = IntStream.range(0, 10);        // 0 to 9 (exclusive end)\nIntStream rangeClosed = IntStream.rangeClosed(1, 10); // 1 to 10 (inclusive end)\n\n// Files\nStream<String> lines = Files.lines(Path.of(\"file.txt\")); // AutoCloseable!"
     },
     {
       "type": "heading",
@@ -104,105 +104,72 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Streaming a null array/collection without null check**:"
+        [
+          "**Streaming a null array/collection without null check**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN — NullPointerException\nString[] arr = null;\nArrays.stream(arr).forEach(System.out::println);"
+          },
+          "**Fix**: Guard against null before streaming.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Optional.ofNullable(arr)\n    .map(Arrays::stream)\n    .ifPresent(s -> s.forEach(System.out::println));"
+          }
+        ],
+        [
+          "**Forgetting to close resource-backed streams**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN — resource leak!\nStream<String> lines = Files.lines(path);\nlines.forEach(System.out::println);\n// File handle never closed!"
+          },
+          "**Fix**: Use try-with-resources.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "try (Stream<String> lines = Files.lines(path)) {\n    lines.forEach(System.out::println);\n}"
+          }
+        ],
+        [
+          "**Confusing `Stream.of((String) null)` with `Stream.ofNullable(null)`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN — creates a stream with ONE null element, not empty\nStream.of((String) null).count(); // Returns 1, not 0"
+          },
+          "**Fix**: Use `Stream.ofNullable()` for null-safe singleton streams.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Stream.ofNullable(null).count(); // Returns 0"
+          }
+        ],
+        [
+          "**Infinite stream without limit**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN — runs forever\nStream.generate(Math::random).forEach(System.out::println);"
+          },
+          "**Fix**: Always bound infinite streams.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Stream.generate(Math::random).limit(10).forEach(System.out::println);"
+          }
+        ],
+        [
+          "**Reusing a Stream.Builder after build()**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BROKEN — builder is in terminal state after build()\nStream.Builder<String> builder = Stream.builder();\nbuilder.add(\"a\");\nStream<String> s = builder.build();\nbuilder.add(\"b\"); // IllegalStateException!"
+          },
+          "**Fix**: Add all elements before calling `build()`."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN — NullPointerException\nString[] arr = null;\nArrays.stream(arr).forEach(System.out::println);\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Guard against null before streaming."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Optional.ofNullable(arr)\n    .map(Arrays::stream)\n    .ifPresent(s -> s.forEach(System.out::println));\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Forgetting to close resource-backed streams**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN — resource leak!\nStream<String> lines = Files.lines(path);\nlines.forEach(System.out::println);\n// File handle never closed!\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use try-with-resources."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "try (Stream<String> lines = Files.lines(path)) {\n    lines.forEach(System.out::println);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Confusing `Stream.of((String) null)` with `Stream.ofNullable(null)`**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN — creates a stream with ONE null element, not empty\nStream.of((String) null).count(); // Returns 1, not 0\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use `Stream.ofNullable()` for null-safe singleton streams."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Stream.ofNullable(null).count(); // Returns 0\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Infinite stream without limit**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN — runs forever\nStream.generate(Math::random).forEach(System.out::println);\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Always bound infinite streams."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Stream.generate(Math::random).limit(10).forEach(System.out::println);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Reusing a Stream.Builder after build()**:"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BROKEN — builder is in terminal state after build()\nStream.Builder<String> builder = Stream.builder();\nbuilder.add(\"a\");\nStream<String> s = builder.build();\nbuilder.add(\"b\"); // IllegalStateException!\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Add all elements before calling `build()`."
     },
     {
       "type": "heading",
@@ -282,12 +249,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Java provides many stream creation methods:\n\n1. From Collections: list.stream(), set.stream(), map.entrySet().stream()\n2. From arrays: Arrays.stream(arr), Arrays.stream(arr, start, end)\n3. Factory methods: Stream.of(elements...), Stream.empty(), Stream.ofNullable(value)\n4. Infinite streams: Stream.generate(supplier), Stream.iterate(seed, function)\n5. Bounded iterate (Java 9): Stream.iterate(seed, hasNextPredicate, nextFunction)\n6. Primitive ranges: IntStream.range(start, end), IntStream.rangeClosed(start, end)\n7. I/O: Files.lines(path), bufferedReader.lines()\n8. String operations: \"hello\".chars() (IntStream), Pattern.compile(\",\").splitAsStream(str)\n9. Stream.builder(): for dynamic element addition\n10. Stream.concat(stream1, stream2): merge two streams\n"
+      "text": "A1: Java provides many stream creation methods:\n\n1. From Collections: list.stream(), set.stream(), map.entrySet().stream()\n2. From arrays: Arrays.stream(arr), Arrays.stream(arr, start, end)\n3. Factory methods: Stream.of(elements...), Stream.empty(), Stream.ofNullable(value)\n4. Infinite streams: Stream.generate(supplier), Stream.iterate(seed, function)\n5. Bounded iterate (Java 9): Stream.iterate(seed, hasNextPredicate, nextFunction)\n6. Primitive ranges: IntStream.range(start, end), IntStream.rangeClosed(start, end)\n7. I/O: Files.lines(path), bufferedReader.lines()\n8. String operations: \"hello\".chars() (IntStream), Pattern.compile(\",\").splitAsStream(str)\n9. Stream.builder(): for dynamic element addition\n10. Stream.concat(stream1, stream2): merge two streams"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "import java.util.*;\nimport java.util.stream.*;\nimport java.nio.file.*;\n\n// 1. From collection\nList.of(\"a\",\"b\",\"c\").stream();\n\n// 2. From array\nArrays.stream(new int[]{1, 2, 3});         // IntStream — no boxing\nArrays.stream(new String[]{\"a\", \"b\"});     // Stream<String>\n\n// 3. Factory methods\nStream.of(\"x\", \"y\", \"z\");\nStream.empty();\nStream.ofNullable(null);    // Empty stream\nStream.ofNullable(\"value\"); // Stream with one element\n\n// 4. Infinite\nStream.generate(Math::random).limit(5);\nStream.iterate(1, n -> n * 2).limit(10); // 1, 2, 4, 8, ...\n\n// 5. Bounded iterate (Java 9)\nStream.iterate(0, n -> n < 5, n -> n + 1); // 0, 1, 2, 3, 4\n\n// 6. Primitive ranges\nIntStream.range(0, 5);        // 0, 1, 2, 3, 4\nIntStream.rangeClosed(1, 5);  // 1, 2, 3, 4, 5\n\n// 7. Files (must close!)\ntry (Stream<String> lines = Files.lines(Path.of(\"data.txt\"))) {\n    lines.forEach(System.out::println);\n}\n"
+      "text": "import java.util.*;\nimport java.util.stream.*;\nimport java.nio.file.*;\n\n// 1. From collection\nList.of(\"a\",\"b\",\"c\").stream();\n\n// 2. From array\nArrays.stream(new int[]{1, 2, 3});         // IntStream — no boxing\nArrays.stream(new String[]{\"a\", \"b\"});     // Stream<String>\n\n// 3. Factory methods\nStream.of(\"x\", \"y\", \"z\");\nStream.empty();\nStream.ofNullable(null);    // Empty stream\nStream.ofNullable(\"value\"); // Stream with one element\n\n// 4. Infinite\nStream.generate(Math::random).limit(5);\nStream.iterate(1, n -> n * 2).limit(10); // 1, 2, 4, 8, ...\n\n// 5. Bounded iterate (Java 9)\nStream.iterate(0, n -> n < 5, n -> n + 1); // 0, 1, 2, 3, 4\n\n// 6. Primitive ranges\nIntStream.range(0, 5);        // 0, 1, 2, 3, 4\nIntStream.rangeClosed(1, 5);  // 1, 2, 3, 4, 5\n\n// 7. Files (must close!)\ntry (Stream<String> lines = Files.lines(Path.of(\"data.txt\"))) {\n    lines.forEach(System.out::println);\n}"
     },
     {
       "type": "para",
@@ -296,12 +263,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Use primitive streams whenever you are working with primitive numeric values. The benefits are:\n\n1. No boxing/unboxing overhead: Stream<Integer> boxes each int into an Integer object. IntStream operates\n   on raw int values, which is faster and uses less memory.\n2. Specialized operations: sum(), average(), summaryStatistics(), and min()/max() without a Comparator are only\n   available on primitive streams. On Stream<Integer>, you would need reduce(), min/max(Comparator), or\n   Collectors.summarizingInt().\n3. Efficient range generation: IntStream.range() and IntStream.rangeClosed() provide efficient numeric\n   ranges without creating an intermediate collection.\n\nConversion between stream types:\n- Stream<T> to IntStream: stream.mapToInt(T::someIntMethod)\n- IntStream to Stream<Integer>: intStream.boxed()\n- IntStream to Stream<String>: intStream.mapToObj(Integer::toString)\n"
+      "text": "A2: Use primitive streams whenever you are working with primitive numeric values. The benefits are:\n\n1. No boxing/unboxing overhead: Stream<Integer> boxes each int into an Integer object. IntStream operates\n   on raw int values, which is faster and uses less memory.\n2. Specialized operations: sum(), average(), summaryStatistics(), and min()/max() without a Comparator are only\n   available on primitive streams. On Stream<Integer>, you would need reduce(), min/max(Comparator), or\n   Collectors.summarizingInt().\n3. Efficient range generation: IntStream.range() and IntStream.rangeClosed() provide efficient numeric\n   ranges without creating an intermediate collection.\n\nConversion between stream types:\n- Stream<T> to IntStream: stream.mapToInt(T::someIntMethod)\n- IntStream to Stream<Integer>: intStream.boxed()\n- IntStream to Stream<String>: intStream.mapToObj(Integer::toString)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Slow: boxing overhead\nint sum1 = Stream.of(1, 2, 3, 4, 5)\n    .mapToInt(Integer::intValue)  // Unboxes\n    .sum();\n\n// Fast: no boxing\nint sum2 = IntStream.of(1, 2, 3, 4, 5).sum();\nint sum3 = IntStream.rangeClosed(1, 5).sum(); // 15\n\n// Specialized statistics\nIntSummaryStatistics stats = IntStream.of(3, 1, 4, 1, 5, 9, 2, 6)\n    .summaryStatistics();\nSystem.out.println(\"Sum: \" + stats.getSum());         // 31\nSystem.out.println(\"Average: \" + stats.getAverage()); // 3.875\nSystem.out.println(\"Min: \" + stats.getMin());          // 1\nSystem.out.println(\"Max: \" + stats.getMax());          // 9\n\n// Conversions\nIntStream intStream = Stream.of(\"hello\", \"world\").mapToInt(String::length);\nStream<Integer> boxed = IntStream.range(0, 5).boxed();\nStream<String> asStrings = IntStream.range(0, 5).mapToObj(Integer::toString);\n"
+      "text": "// Slow: boxing overhead\nint sum1 = Stream.of(1, 2, 3, 4, 5)\n    .mapToInt(Integer::intValue)  // Unboxes\n    .sum();\n\n// Fast: no boxing\nint sum2 = IntStream.of(1, 2, 3, 4, 5).sum();\nint sum3 = IntStream.rangeClosed(1, 5).sum(); // 15\n\n// Specialized statistics\nIntSummaryStatistics stats = IntStream.of(3, 1, 4, 1, 5, 9, 2, 6)\n    .summaryStatistics();\nSystem.out.println(\"Sum: \" + stats.getSum());         // 31\nSystem.out.println(\"Average: \" + stats.getAverage()); // 3.875\nSystem.out.println(\"Min: \" + stats.getMin());          // 1\nSystem.out.println(\"Max: \" + stats.getMax());          // 9\n\n// Conversions\nIntStream intStream = Stream.of(\"hello\", \"world\").mapToInt(String::length);\nStream<Integer> boxed = IntStream.range(0, 5).boxed();\nStream<String> asStrings = IntStream.range(0, 5).mapToObj(Integer::toString);"
     },
     {
       "type": "para",
@@ -310,12 +277,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Use Files.lines() with try-with-resources. Files.lines() returns a Stream<String> that is backed by\nan I/O resource (a BufferedReader). If this stream is not closed, the file handle is leaked. Try-with-resources\nensures the stream (and thus the underlying reader) is closed when the block exits, even if an exception occurs.\n\nKey considerations:\n- The stream is lazy — file lines are read on demand, not all at once.\n- The charset defaults to UTF-8; specify another if needed: Files.lines(path, StandardCharsets.ISO_8859_1).\n- For very large files, this is memory-efficient (no need to load all lines into a List first).\n- Files.readAllLines() is an alternative that eagerly loads all lines into a List — suitable for small files.\n"
+      "text": "A3: Use Files.lines() with try-with-resources. Files.lines() returns a Stream<String> that is backed by\nan I/O resource (a BufferedReader). If this stream is not closed, the file handle is leaked. Try-with-resources\nensures the stream (and thus the underlying reader) is closed when the block exits, even if an exception occurs.\n\nKey considerations:\n- The stream is lazy — file lines are read on demand, not all at once.\n- The charset defaults to UTF-8; specify another if needed: Files.lines(path, StandardCharsets.ISO_8859_1).\n- For very large files, this is memory-efficient (no need to load all lines into a List first).\n- Files.readAllLines() is an alternative that eagerly loads all lines into a List — suitable for small files."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "import java.io.IOException;\nimport java.nio.file.*;\nimport java.util.stream.*;\n\n// Safe file streaming with try-with-resources\nPath path = Path.of(\"data.txt\");\ntry (Stream<String> lines = Files.lines(path)) {\n    long count = lines\n        .filter(line -> !line.isBlank())\n        .count();\n    System.out.println(\"Non-blank lines: \" + count);\n} catch (IOException e) {\n    throw new RuntimeException(\"Failed to read file: \" + path, e);\n}\n\n// Collecting all non-empty lines\nList<String> nonEmpty;\ntry (Stream<String> lines = Files.lines(path)) {\n    nonEmpty = lines.filter(l -> !l.isBlank()).toList();\n}\n"
+      "text": "import java.io.IOException;\nimport java.nio.file.*;\nimport java.util.stream.*;\n\n// Safe file streaming with try-with-resources\nPath path = Path.of(\"data.txt\");\ntry (Stream<String> lines = Files.lines(path)) {\n    long count = lines\n        .filter(line -> !line.isBlank())\n        .count();\n    System.out.println(\"Non-blank lines: \" + count);\n} catch (IOException e) {\n    throw new RuntimeException(\"Failed to read file: \" + path, e);\n}\n\n// Collecting all non-empty lines\nList<String> nonEmpty;\ntry (Stream<String> lines = Files.lines(path)) {\n    nonEmpty = lines.filter(l -> !l.isBlank()).toList();\n}"
     },
     {
       "type": "para",
@@ -324,12 +291,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Stream.Builder is a mutable builder for Stream objects. It allows you to add elements one at a time\nbefore creating the stream. Once build() is called, the builder enters a terminal state and cannot accept\nmore elements.\n\nUse cases:\n1. When you don't know all elements upfront and build them conditionally in a loop.\n2. When combining elements from different sources into a single stream without creating an intermediate collection.\n3. When you want to create a stream of a fixed, small set of elements where the elements are computed\n   programmatically (as opposed to Stream.of() which requires all elements at once).\n\nPrefer Stream.of() or collection.stream() when possible — Stream.Builder adds complexity without benefit\nfor straightforward cases.\n"
+      "text": "A4: Stream.Builder is a mutable builder for Stream objects. It allows you to add elements one at a time\nbefore creating the stream. Once build() is called, the builder enters a terminal state and cannot accept\nmore elements.\n\nUse cases:\n1. When you don't know all elements upfront and build them conditionally in a loop.\n2. When combining elements from different sources into a single stream without creating an intermediate collection.\n3. When you want to create a stream of a fixed, small set of elements where the elements are computed\n   programmatically (as opposed to Stream.of() which requires all elements at once).\n\nPrefer Stream.of() or collection.stream() when possible — Stream.Builder adds complexity without benefit\nfor straightforward cases."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Stream.Builder<String> builder = Stream.builder();\n\n// Conditionally add elements\nif (includeHeader) builder.add(\"HEADER\");\nfor (String item : items) {\n    if (item != null && !item.isBlank()) {\n        builder.add(item.trim());\n    }\n}\nif (includeFooter) builder.add(\"FOOTER\");\n\nStream<String> stream = builder.build();\n// builder.add(\"extra\"); // IllegalStateException — already built!\n\nstream.forEach(System.out::println);\n"
+      "text": "Stream.Builder<String> builder = Stream.builder();\n\n// Conditionally add elements\nif (includeHeader) builder.add(\"HEADER\");\nfor (String item : items) {\n    if (item != null && !item.isBlank()) {\n        builder.add(item.trim());\n    }\n}\nif (includeFooter) builder.add(\"FOOTER\");\n\nStream<String> stream = builder.build();\n// builder.add(\"extra\"); // IllegalStateException — already built!\n\nstream.forEach(System.out::println);"
     },
     {
       "type": "para",
@@ -338,12 +305,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Stream.concat(Stream<T> a, Stream<T> b) creates a lazily concatenated stream whose elements are all\nelements of the first stream followed by all elements of the second stream.\n\nLimitations:\n1. Only two streams at a time: to concat many streams, you must nest concat() calls or use flatMap().\n2. Ordered: the result is ordered if both input streams are ordered.\n3. Parallel: the result is parallel if either input stream is parallel.\n4. Both streams must share a compatible type T.\n5. Deeply nested concat() calls (for many streams) can cause StackOverflowError due to deep call chains.\n\nFor concatenating many streams, prefer:\n  Stream.of(stream1, stream2, stream3).flatMap(Function.identity())\nor collect all elements and stream the collection.\n"
+      "text": "A5: Stream.concat(Stream<T> a, Stream<T> b) creates a lazily concatenated stream whose elements are all\nelements of the first stream followed by all elements of the second stream.\n\nLimitations:\n1. Only two streams at a time: to concat many streams, you must nest concat() calls or use flatMap().\n2. Ordered: the result is ordered if both input streams are ordered.\n3. Parallel: the result is parallel if either input stream is parallel.\n4. Both streams must share a compatible type T.\n5. Deeply nested concat() calls (for many streams) can cause StackOverflowError due to deep call chains.\n\nFor concatenating many streams, prefer:\n  Stream.of(stream1, stream2, stream3).flatMap(Function.identity())\nor collect all elements and stream the collection."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Stream<String> first = Stream.of(\"a\", \"b\", \"c\");\nStream<String> second = Stream.of(\"d\", \"e\", \"f\");\nStream<String> combined = Stream.concat(first, second);\ncombined.forEach(System.out::println); // a, b, c, d, e, f\n\n// Concatenating many streams with flatMap (preferred for >2 streams)\nStream<String> merged = Stream.of(\n    Stream.of(\"a\", \"b\"),\n    Stream.of(\"c\", \"d\"),\n    Stream.of(\"e\", \"f\")\n).flatMap(s -> s);\n\nmerged.toList(); // [a, b, c, d, e, f]\n"
+      "text": "Stream<String> first = Stream.of(\"a\", \"b\", \"c\");\nStream<String> second = Stream.of(\"d\", \"e\", \"f\");\nStream<String> combined = Stream.concat(first, second);\ncombined.forEach(System.out::println); // a, b, c, d, e, f\n\n// Concatenating many streams with flatMap (preferred for >2 streams)\nStream<String> merged = Stream.of(\n    Stream.of(\"a\", \"b\"),\n    Stream.of(\"c\", \"d\"),\n    Stream.of(\"e\", \"f\")\n).flatMap(s -> s);\n\nmerged.toList(); // [a, b, c, d, e, f]"
     },
     {
       "type": "heading",
@@ -364,10 +331,10 @@
   "attachments": [],
   "counts": {
     "headings": 12,
-    "paras": 14,
-    "code": 20,
+    "paras": 9,
+    "code": 11,
     "tables": 0,
-    "lists": 13,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -375,5 +342,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "a9e0d504f2be61788524742fb383d82306e16bc03c263818c334cadc1141b019"
+  "content_sha256": "fbd95d6d7cf824c790a13fbdd1c99373c6efcc82286b464266fdd3539e64e438"
 }

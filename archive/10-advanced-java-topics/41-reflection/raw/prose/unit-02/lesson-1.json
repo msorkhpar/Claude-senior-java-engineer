@@ -116,65 +116,47 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Forgetting to call `setAccessible(true)` for private members**"
+        [
+          "**Forgetting to call `setAccessible(true)` for private members**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: throws IllegalAccessException\nField field = Person.class.getDeclaredField(\"name\");\nString name = (String) field.get(person);\n\n// CORRECT\nField field = Person.class.getDeclaredField(\"name\");\nfield.setAccessible(true);\nString name = (String) field.get(person);"
+          }
+        ],
+        [
+          "**Using `getField()` to find private fields**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: NoSuchFieldException for private field\nField field = Person.class.getField(\"name\"); // only finds public!\n\n// CORRECT: use getDeclaredField for private fields\nField field = Person.class.getDeclaredField(\"name\");"
+          }
+        ],
+        [
+          "**Not unwrapping `InvocationTargetException`**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: catching the wrong exception\ntry {\n    method.invoke(target, args);\n} catch (RuntimeException e) {\n    // Won't catch exceptions from the invoked method!\n}\n\n// CORRECT: unwrap InvocationTargetException\ntry {\n    method.invoke(target, args);\n} catch (InvocationTargetException e) {\n    Throwable cause = e.getCause(); // The actual exception\n    if (cause instanceof RuntimeException re) throw re;\n    throw new RuntimeException(cause);\n}"
+          }
+        ],
+        [
+          "**Confusing primitive and wrapper types in method lookup**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: NoSuchMethodException if method takes int, not Integer\nMethod m = clazz.getDeclaredMethod(\"add\", Integer.class, Integer.class);\n\n// CORRECT: use primitive type for primitive parameters\nMethod m = clazz.getDeclaredMethod(\"add\", int.class, int.class);"
+          }
+        ],
+        [
+          "**Modifying final fields and expecting consistent behavior**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// DANGEROUS: JVM may inline final field values\nField field = ImmutableConfig.class.getDeclaredField(\"host\");\nfield.setAccessible(true);\nfield.set(config, \"newhost\"); // May not be visible through getter due to inlining"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: throws IllegalAccessException\nField field = Person.class.getDeclaredField(\"name\");\nString name = (String) field.get(person);\n\n// CORRECT\nField field = Person.class.getDeclaredField(\"name\");\nfield.setAccessible(true);\nString name = (String) field.get(person);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using `getField()` to find private fields**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: NoSuchFieldException for private field\nField field = Person.class.getField(\"name\"); // only finds public!\n\n// CORRECT: use getDeclaredField for private fields\nField field = Person.class.getDeclaredField(\"name\");\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Not unwrapping `InvocationTargetException`**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: catching the wrong exception\ntry {\n    method.invoke(target, args);\n} catch (RuntimeException e) {\n    // Won't catch exceptions from the invoked method!\n}\n\n// CORRECT: unwrap InvocationTargetException\ntry {\n    method.invoke(target, args);\n} catch (InvocationTargetException e) {\n    Throwable cause = e.getCause(); // The actual exception\n    if (cause instanceof RuntimeException re) throw re;\n    throw new RuntimeException(cause);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Confusing primitive and wrapper types in method lookup**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: NoSuchMethodException if method takes int, not Integer\nMethod m = clazz.getDeclaredMethod(\"add\", Integer.class, Integer.class);\n\n// CORRECT: use primitive type for primitive parameters\nMethod m = clazz.getDeclaredMethod(\"add\", int.class, int.class);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Modifying final fields and expecting consistent behavior**"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// DANGEROUS: JVM may inline final field values\nField field = ImmutableConfig.class.getDeclaredField(\"host\");\nfield.setAccessible(true);\nfield.set(config, \"newhost\"); // May not be visible through getter due to inlining\n"
     },
     {
       "type": "heading",
@@ -205,24 +187,19 @@
       "ordered": true,
       "items": [
         "**Static fields**: Pass `null` as the object instance to `field.get(null)` and `field.set(null, value)`.",
-        "**Inherited fields**: `getDeclaredField()` does not find inherited fields. Walk the hierarchy:"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Field findField(Class<?> clazz, String name) throws NoSuchFieldException {\n    Class<?> current = clazz;\n    while (current != null) {\n        try { return current.getDeclaredField(name); }\n        catch (NoSuchFieldException e) { current = current.getSuperclass(); }\n    }\n    throw new NoSuchFieldException(name);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Inherited fields**: `getDeclaredField()` does not find inherited fields. Walk the hierarchy:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Field findField(Class<?> clazz, String name) throws NoSuchFieldException {\n    Class<?> current = clazz;\n    while (current != null) {\n        try { return current.getDeclaredField(name); }\n        catch (NoSuchFieldException e) { current = current.getSuperclass(); }\n    }\n    throw new NoSuchFieldException(name);\n}"
+          }
+        ],
         "**Varargs methods**: When invoking a varargs method via reflection, you must pass the varargs as an array.",
         "**Null field values**: `field.get(obj)` returns `null` for reference-type fields that have not been initialized. For primitive fields, it returns the zero value (0, false, etc.).",
         "**Overloaded methods**: `getDeclaredMethod()` requires exact parameter types. If the method is overloaded, you must specify the correct signature.",
         "**Private constructors** (e.g., singleton pattern): `setAccessible(true)` on the constructor lets you bypass the restriction, which is how testing frameworks create instances of such classes."
-      ],
-      "start": 3
+      ]
     },
     {
       "type": "heading",
@@ -270,12 +247,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: To access a private field via reflection:\n\n1. Obtain the Field object using getDeclaredField() (not getField(), which\n   only finds public fields).\n2. Call field.setAccessible(true) to bypass access control.\n3. Use field.get(instance) to read or field.set(instance, value) to write.\n\nFor static fields, pass null as the instance argument.\n\nImportant caveats:\n- In modules (Java 9+), setAccessible may throw InaccessibleObjectException\n  if the module does not open the package.\n- Modifying final fields is technically possible but unreliable due to JVM\n  inlining optimizations.\n- This is how frameworks like Hibernate, Jackson, and Spring access private\n  fields for ORM mapping, serialization, and dependency injection.\n"
+      "text": "A1: To access a private field via reflection:\n\n1. Obtain the Field object using getDeclaredField() (not getField(), which\n   only finds public fields).\n2. Call field.setAccessible(true) to bypass access control.\n3. Use field.get(instance) to read or field.set(instance, value) to write.\n\nFor static fields, pass null as the instance argument.\n\nImportant caveats:\n- In modules (Java 9+), setAccessible may throw InaccessibleObjectException\n  if the module does not open the package.\n- Modifying final fields is technically possible but unreliable due to JVM\n  inlining optimizations.\n- This is how frameworks like Hibernate, Jackson, and Spring access private\n  fields for ORM mapping, serialization, and dependency injection."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class PrivateFieldAccess {\n    private static class Secret {\n        private String code = \"original\";\n    }\n\n    public static void main(String[] args) throws Exception {\n        Secret secret = new Secret();\n\n        // Read private field\n        Field field = Secret.class.getDeclaredField(\"code\");\n        field.setAccessible(true);\n        String value = (String) field.get(secret);\n        System.out.println(\"Read: \" + value); // \"original\"\n\n        // Write private field\n        field.set(secret, \"modified\");\n        System.out.println(\"After write: \" + field.get(secret)); // \"modified\"\n    }\n}\n"
+      "text": "public class PrivateFieldAccess {\n    private static class Secret {\n        private String code = \"original\";\n    }\n\n    public static void main(String[] args) throws Exception {\n        Secret secret = new Secret();\n\n        // Read private field\n        Field field = Secret.class.getDeclaredField(\"code\");\n        field.setAccessible(true);\n        String value = (String) field.get(secret);\n        System.out.println(\"Read: \" + value); // \"original\"\n\n        // Write private field\n        field.set(secret, \"modified\");\n        System.out.println(\"After write: \" + field.get(secret)); // \"modified\"\n    }\n}"
     },
     {
       "type": "para",
@@ -284,12 +261,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Invoking a private method via reflection follows a similar pattern:\n\n1. Get the Method object using getDeclaredMethod(name, parameterTypes...).\n2. Call method.setAccessible(true).\n3. Call method.invoke(instance, arguments...).\n\nThe return value is Object (auto-boxed for primitives). For void methods,\ninvoke() returns null.\n\nIf the invoked method throws an exception, it is wrapped in\nInvocationTargetException. Always unwrap it to get the actual cause.\n\nFor static methods, pass null as the instance.\n"
+      "text": "A2: Invoking a private method via reflection follows a similar pattern:\n\n1. Get the Method object using getDeclaredMethod(name, parameterTypes...).\n2. Call method.setAccessible(true).\n3. Call method.invoke(instance, arguments...).\n\nThe return value is Object (auto-boxed for primitives). For void methods,\ninvoke() returns null.\n\nIf the invoked method throws an exception, it is wrapped in\nInvocationTargetException. Always unwrap it to get the actual cause.\n\nFor static methods, pass null as the instance."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class PrivateMethodInvocation {\n    private static class Calculator {\n        private int secretMultiply(int a, int b) {\n            return a * b;\n        }\n\n        private int secretDivide(int a, int b) {\n            return a / b;\n        }\n    }\n\n    public static void main(String[] args) throws Exception {\n        Calculator calc = new Calculator();\n\n        Method method = Calculator.class.getDeclaredMethod(\n                \"secretMultiply\", int.class, int.class);\n        method.setAccessible(true);\n\n        int result = (int) method.invoke(calc, 6, 7);\n        System.out.println(\"Result: \" + result); // 42\n\n        // Handle exception from invoked method\n        Method divide = Calculator.class.getDeclaredMethod(\"secretDivide\", int.class, int.class);\n        divide.setAccessible(true);\n        try {\n            divide.invoke(calc, 6, 0); // Throws ArithmeticException inside the method\n        } catch (InvocationTargetException e) {\n            System.out.println(\"Cause: \" + e.getCause().getClass().getSimpleName()); // ArithmeticException\n        }\n        // Note: invoke(calc, null, null) would NOT reach the method: null cannot be unboxed to int,\n        // so invoke() itself throws IllegalArgumentException, which is not wrapped.\n    }\n}\n"
+      "text": "public class PrivateMethodInvocation {\n    private static class Calculator {\n        private int secretMultiply(int a, int b) {\n            return a * b;\n        }\n\n        private int secretDivide(int a, int b) {\n            return a / b;\n        }\n    }\n\n    public static void main(String[] args) throws Exception {\n        Calculator calc = new Calculator();\n\n        Method method = Calculator.class.getDeclaredMethod(\n                \"secretMultiply\", int.class, int.class);\n        method.setAccessible(true);\n\n        int result = (int) method.invoke(calc, 6, 7);\n        System.out.println(\"Result: \" + result); // 42\n\n        // Handle exception from invoked method\n        Method divide = Calculator.class.getDeclaredMethod(\"secretDivide\", int.class, int.class);\n        divide.setAccessible(true);\n        try {\n            divide.invoke(calc, 6, 0); // Throws ArithmeticException inside the method\n        } catch (InvocationTargetException e) {\n            System.out.println(\"Cause: \" + e.getCause().getClass().getSimpleName()); // ArithmeticException\n        }\n        // Note: invoke(calc, null, null) would NOT reach the method: null cannot be unboxed to int,\n        // so invoke() itself throws IllegalArgumentException, which is not wrapped.\n    }\n}"
     },
     {
       "type": "para",
@@ -298,12 +275,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Class.newInstance() (deprecated since Java 9, but not removed -- it still exists in Java 21):\n- Only invokes the no-arg constructor.\n- Propagates checked exceptions directly, violating the compile-time checked\n  exception mechanism.\n- Cannot handle constructors that throw checked exceptions properly.\n\nConstructor.newInstance():\n- Can invoke any constructor (with any parameter combination).\n- Wraps all exceptions in InvocationTargetException, maintaining proper\n  exception handling semantics.\n- Works with setAccessible(true) for private constructors.\n- Is the recommended approach.\n\nAlways prefer Constructor.newInstance() over Class.newInstance().\n"
+      "text": "A3: Class.newInstance() (deprecated since Java 9, but not removed -- it still exists in Java 21):\n- Only invokes the no-arg constructor.\n- Propagates checked exceptions directly, violating the compile-time checked\n  exception mechanism.\n- Cannot handle constructors that throw checked exceptions properly.\n\nConstructor.newInstance():\n- Can invoke any constructor (with any parameter combination).\n- Wraps all exceptions in InvocationTargetException, maintaining proper\n  exception handling semantics.\n- Works with setAccessible(true) for private constructors.\n- Is the recommended approach.\n\nAlways prefer Constructor.newInstance() over Class.newInstance()."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ConstructorComparison {\n    private static class MyClass {\n        private final String name;\n\n        public MyClass() { this.name = \"default\"; }\n        public MyClass(String name) { this.name = name; }\n        private MyClass(String name, int id) { this.name = name + \"#\" + id; }\n    }\n\n    public static void main(String[] args) throws Exception {\n        // Using Constructor.newInstance() -- RECOMMENDED\n        Constructor<MyClass> noArg = MyClass.class.getDeclaredConstructor();\n        MyClass obj1 = noArg.newInstance();\n\n        Constructor<MyClass> paramCtor = MyClass.class.getDeclaredConstructor(String.class);\n        MyClass obj2 = paramCtor.newInstance(\"Alice\");\n\n        // Even private constructors\n        Constructor<MyClass> privateCtor = MyClass.class.getDeclaredConstructor(\n                String.class, int.class);\n        privateCtor.setAccessible(true);\n        MyClass obj3 = privateCtor.newInstance(\"Bob\", 42);\n    }\n}\n"
+      "text": "public class ConstructorComparison {\n    private static class MyClass {\n        private final String name;\n\n        public MyClass() { this.name = \"default\"; }\n        public MyClass(String name) { this.name = name; }\n        private MyClass(String name, int id) { this.name = name + \"#\" + id; }\n    }\n\n    public static void main(String[] args) throws Exception {\n        // Using Constructor.newInstance() -- RECOMMENDED\n        Constructor<MyClass> noArg = MyClass.class.getDeclaredConstructor();\n        MyClass obj1 = noArg.newInstance();\n\n        Constructor<MyClass> paramCtor = MyClass.class.getDeclaredConstructor(String.class);\n        MyClass obj2 = paramCtor.newInstance(\"Alice\");\n\n        // Even private constructors\n        Constructor<MyClass> privateCtor = MyClass.class.getDeclaredConstructor(\n                String.class, int.class);\n        privateCtor.setAccessible(true);\n        MyClass obj3 = privateCtor.newInstance(\"Bob\", 42);\n    }\n}"
     },
     {
       "type": "para",
@@ -312,12 +289,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: When looking up methods or constructors via reflection, you must specify\nthe EXACT parameter types. Java's auto-boxing does NOT apply during reflective\nlookups.\n\nA method declared as: void process(int x)\nMust be looked up as: getDeclaredMethod(\"process\", int.class)\nNOT as:              getDeclaredMethod(\"process\", Integer.class)\n\nThe latter will throw NoSuchMethodException because int.class != Integer.class.\n\nThis is a very common source of bugs in reflection code. The same applies to\nall primitive/wrapper pairs: boolean/Boolean, byte/Byte, char/Character,\nshort/Short, long/Long, float/Float, double/Double.\n\nFrameworks that use reflection (like Spring, Jackson) handle this by checking\nboth primitive and wrapper types when resolving methods.\n"
+      "text": "A4: When looking up methods or constructors via reflection, you must specify\nthe EXACT parameter types. Java's auto-boxing does NOT apply during reflective\nlookups.\n\nA method declared as: void process(int x)\nMust be looked up as: getDeclaredMethod(\"process\", int.class)\nNOT as:              getDeclaredMethod(\"process\", Integer.class)\n\nThe latter will throw NoSuchMethodException because int.class != Integer.class.\n\nThis is a very common source of bugs in reflection code. The same applies to\nall primitive/wrapper pairs: boolean/Boolean, byte/Byte, char/Character,\nshort/Short, long/Long, float/Float, double/Double.\n\nFrameworks that use reflection (like Spring, Jackson) handle this by checking\nboth primitive and wrapper types when resolving methods."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class PrimitiveVsWrapper {\n    public static class MathOps {\n        public int add(int a, int b) { return a + b; }\n        public Integer addBoxed(Integer a, Integer b) { return a + b; }\n    }\n\n    public static void main(String[] args) throws Exception {\n        // Primitive parameter types\n        Method m1 = MathOps.class.getDeclaredMethod(\"add\", int.class, int.class);\n        int result1 = (int) m1.invoke(new MathOps(), 3, 4); // Works: 7\n\n        // Wrapper parameter types\n        Method m2 = MathOps.class.getDeclaredMethod(\"addBoxed\", Integer.class, Integer.class);\n        int result2 = (int) m2.invoke(new MathOps(), 3, 4); // Auto-boxes args: 7\n\n        // WRONG: mixing them up\n        try {\n            MathOps.class.getDeclaredMethod(\"add\", Integer.class, Integer.class);\n        } catch (NoSuchMethodException e) {\n            System.out.println(\"Cannot find method with wrapper types for primitive params\");\n        }\n    }\n}\n"
+      "text": "public class PrimitiveVsWrapper {\n    public static class MathOps {\n        public int add(int a, int b) { return a + b; }\n        public Integer addBoxed(Integer a, Integer b) { return a + b; }\n    }\n\n    public static void main(String[] args) throws Exception {\n        // Primitive parameter types\n        Method m1 = MathOps.class.getDeclaredMethod(\"add\", int.class, int.class);\n        int result1 = (int) m1.invoke(new MathOps(), 3, 4); // Works: 7\n\n        // Wrapper parameter types\n        Method m2 = MathOps.class.getDeclaredMethod(\"addBoxed\", Integer.class, Integer.class);\n        int result2 = (int) m2.invoke(new MathOps(), 3, 4); // Auto-boxes args: 7\n\n        // WRONG: mixing them up\n        try {\n            MathOps.class.getDeclaredMethod(\"add\", Integer.class, Integer.class);\n        } catch (NoSuchMethodException e) {\n            System.out.println(\"Cannot find method with wrapper types for primitive params\");\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -326,12 +303,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Since Java 9, the module system restricts reflective access:\n\n1. Modules can declare which packages are \"exported\" (accessible for normal\n   compile-time use) and which are \"opened\" (accessible for deep reflection).\n\n2. setAccessible(true) will throw InaccessibleObjectException if:\n   - The target class is in a named module\n   - The package is not opened to the calling module\n   - You are trying to access non-public members\n\n3. To grant reflective access:\n   - Module declaration: opens com.example.pkg to framework.module;\n   - Command line: --add-opens com.example.module/com.example.pkg=ALL-UNNAMED\n   - Programmatic: Module.addOpens() (requires the caller to be in the module)\n\n4. The \"unnamed module\" (classpath code) gets reflective access to all open\n   packages by default. But accessing JDK internals (like java.lang) requires\n   explicit --add-opens.\n\n5. MethodHandles.privateLookupIn() provides a module-aware alternative that\n   requires the target module to open its package to the caller.\n\nIn JDK 9-15 the JVM allowed such access to JDK internals by default and printed\n\"illegal reflective access\" warnings; since JDK 16 (JEP 396) and JDK 17 (JEP 403)\nit fails with InaccessibleObjectException unless the package is opened. This is why\nmodule-aware alternatives (MethodHandle, VarHandle) are preferred.\n"
+      "text": "A5: Since Java 9, the module system restricts reflective access:\n\n1. Modules can declare which packages are \"exported\" (accessible for normal\n   compile-time use) and which are \"opened\" (accessible for deep reflection).\n\n2. setAccessible(true) will throw InaccessibleObjectException if:\n   - The target class is in a named module\n   - The package is not opened to the calling module\n   - You are trying to access non-public members\n\n3. To grant reflective access:\n   - Module declaration: opens com.example.pkg to framework.module;\n   - Command line: --add-opens com.example.module/com.example.pkg=ALL-UNNAMED\n   - Programmatic: Module.addOpens() (requires the caller to be in the module)\n\n4. The \"unnamed module\" (classpath code) gets reflective access to all open\n   packages by default. But accessing JDK internals (like java.lang) requires\n   explicit --add-opens.\n\n5. MethodHandles.privateLookupIn() provides a module-aware alternative that\n   requires the target module to open its package to the caller.\n\nIn JDK 9-15 the JVM allowed such access to JDK internals by default and printed\n\"illegal reflective access\" warnings; since JDK 16 (JEP 396) and JDK 17 (JEP 403)\nit fails with InaccessibleObjectException unless the package is opened. This is why\nmodule-aware alternatives (MethodHandle, VarHandle) are preferred."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// module-info.java\nmodule my.app {\n    requires my.framework;\n    opens com.myapp.model to my.framework; // Allow deep reflection\n}\n\n// Runtime flag alternative:\n// java --add-opens my.app/com.myapp.model=my.framework -m my.app/com.myapp.Main\n"
+      "text": "// module-info.java\nmodule my.app {\n    requires my.framework;\n    opens com.myapp.model to my.framework; // Allow deep reflection\n}\n\n// Runtime flag alternative:\n// java --add-opens my.app/com.myapp.model=my.framework -m my.app/com.myapp.Main"
     },
     {
       "type": "para",
@@ -340,12 +317,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: Spring uses reflection extensively for dependency injection:\n\n1. Bean Discovery: Spring scans packages for classes annotated with\n   @Component, @Service, @Repository, etc. using reflection and classpath\n   scanning.\n\n2. Constructor Injection: Spring inspects constructors using\n   Class.getDeclaredConstructors(), finds the appropriate one (annotated\n   with @Autowired or the single constructor), and invokes it via\n   Constructor.newInstance() with resolved dependencies.\n\n3. Field Injection: For @Autowired fields, Spring uses\n   Field.setAccessible(true) followed by Field.set() to inject the\n   dependency directly into private fields.\n\n4. Method Injection: For @Autowired setter methods, Spring uses\n   Method.invoke() to call the setter with the resolved dependency.\n\n5. Proxy Creation: Spring creates dynamic proxies (using\n   java.lang.reflect.Proxy for interfaces or CGLIB for classes) to add\n   AOP behavior like @Transactional, @Cacheable, etc.\n\nThis is why Spring applications often need --add-opens flags when running\non the module path.\n"
+      "text": "A6: Spring uses reflection extensively for dependency injection:\n\n1. Bean Discovery: Spring scans packages for classes annotated with\n   @Component, @Service, @Repository, etc. using reflection and classpath\n   scanning.\n\n2. Constructor Injection: Spring inspects constructors using\n   Class.getDeclaredConstructors(), finds the appropriate one (annotated\n   with @Autowired or the single constructor), and invokes it via\n   Constructor.newInstance() with resolved dependencies.\n\n3. Field Injection: For @Autowired fields, Spring uses\n   Field.setAccessible(true) followed by Field.set() to inject the\n   dependency directly into private fields.\n\n4. Method Injection: For @Autowired setter methods, Spring uses\n   Method.invoke() to call the setter with the resolved dependency.\n\n5. Proxy Creation: Spring creates dynamic proxies (using\n   java.lang.reflect.Proxy for interfaces or CGLIB for classes) to add\n   AOP behavior like @Transactional, @Cacheable, etc.\n\nThis is why Spring applications often need --add-opens flags when running\non the module path."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Simplified Spring-like field injection using reflection\npublic class SimpleDI {\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    @interface Inject {}\n\n    static class UserService {\n        @Inject\n        private UserRepository repository;\n\n        public String findUser() {\n            return repository.find();\n        }\n    }\n\n    static class UserRepository {\n        public String find() { return \"User found\"; }\n    }\n\n    public static void injectFields(Object target) throws Exception {\n        for (Field field : target.getClass().getDeclaredFields()) {\n            if (field.isAnnotationPresent(Inject.class)) {\n                field.setAccessible(true);\n                Object dependency = field.getType().getDeclaredConstructor().newInstance();\n                field.set(target, dependency);\n            }\n        }\n    }\n}\n"
+      "text": "// Simplified Spring-like field injection using reflection\npublic class SimpleDI {\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    @interface Inject {}\n\n    static class UserService {\n        @Inject\n        private UserRepository repository;\n\n        public String findUser() {\n            return repository.find();\n        }\n    }\n\n    static class UserRepository {\n        public String find() { return \"User found\"; }\n    }\n\n    public static void injectFields(Object target) throws Exception {\n        for (Field field : target.getClass().getDeclaredFields()) {\n            if (field.isAnnotationPresent(Inject.class)) {\n                field.setAccessible(true);\n                Object dependency = field.getType().getDeclaredConstructor().newInstance();\n                field.set(target, dependency);\n            }\n        }\n    }\n}"
     },
     {
       "type": "heading",
@@ -367,9 +344,9 @@
   "counts": {
     "headings": 10,
     "paras": 13,
-    "code": 18,
+    "code": 12,
     "tables": 1,
-    "lists": 14,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -377,5 +354,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "c996fe965298e3e0046aae4dfb9d887b96b5ab56949fda3458b3e101d74eaddc"
+  "content_sha256": "4d88b5696600950b748b828f98249afab89a0ec8f93135e2cbc03b29776305d8"
 }

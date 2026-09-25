@@ -111,53 +111,37 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Saturating the common pool with blocking operations**"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: blocking call inside parallel stream\nlist.parallelStream().map(url -> {\n    return httpClient.send(request, handler); // blocks a common pool thread\n}).collect(toList());\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use a custom pool or virtual threads for I/O:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ForkJoinPool customPool = new ForkJoinPool(16);\ncustomPool.submit(() ->\n    list.parallelStream().map(url -> httpClient.send(request, handler)).collect(toList())\n).join();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Forgetting to shut down custom pools**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ForkJoinPool pool = new ForkJoinPool(4);\nlong result = pool.invoke(task);\n// pool leaks threads!\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use try-finally:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ForkJoinPool pool = new ForkJoinPool(4);\ntry {\n    long result = pool.invoke(task);\n} finally {\n    pool.shutdown();\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Saturating the common pool with blocking operations**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: blocking call inside parallel stream\nlist.parallelStream().map(url -> {\n    return httpClient.send(request, handler); // blocks a common pool thread\n}).collect(toList());"
+          },
+          "**Fix**: Use a custom pool or virtual threads for I/O:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "ForkJoinPool customPool = new ForkJoinPool(16);\ncustomPool.submit(() ->\n    list.parallelStream().map(url -> httpClient.send(request, handler)).collect(toList())\n).join();"
+          }
+        ],
+        [
+          "**Forgetting to shut down custom pools**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "ForkJoinPool pool = new ForkJoinPool(4);\nlong result = pool.invoke(task);\n// pool leaks threads!"
+          },
+          "**Fix**: Use try-finally:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "ForkJoinPool pool = new ForkJoinPool(4);\ntry {\n    long result = pool.invoke(task);\n} finally {\n    pool.shutdown();\n}"
+          }
+        ],
         "**Assuming parallelism equals thread count**: The pool size can grow beyond parallelism when `ManagedBlocker` is used.",
         "**Using ForkJoinPool for inherently sequential problems**: Not all problems benefit from parallelism. The overhead of task creation and context switching may exceed the sequential cost for small inputs."
-      ],
-      "start": 3
+      ]
     },
     {
       "type": "heading",
@@ -219,12 +203,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: There are two main approaches:\n\n1. Use the common pool (recommended for most cases):\n   ForkJoinPool.commonPool().invoke(task);\n\n2. Create a custom pool:\n   ForkJoinPool pool = new ForkJoinPool(parallelism);\n   try {\n       result = pool.invoke(task);\n   } finally {\n       pool.shutdown();\n   }\n\nThe common pool is shared JVM-wide and used by parallel streams.\nA custom pool provides isolation and configurable parallelism.\n"
+      "text": "A1: There are two main approaches:\n\n1. Use the common pool (recommended for most cases):\n   ForkJoinPool.commonPool().invoke(task);\n\n2. Create a custom pool:\n   ForkJoinPool pool = new ForkJoinPool(parallelism);\n   try {\n       result = pool.invoke(task);\n   } finally {\n       pool.shutdown();\n   }\n\nThe common pool is shared JVM-wide and used by parallel streams.\nA custom pool provides isolation and configurable parallelism."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Common pool\nlong sum = ForkJoinPool.commonPool().invoke(new SumTask(array, 0, array.length));\n\n// Custom pool with 4 threads\nForkJoinPool customPool = new ForkJoinPool(4);\ntry {\n    long sum = customPool.invoke(new SumTask(array, 0, array.length));\n} finally {\n    customPool.shutdown();\n}\n"
+      "text": "// Common pool\nlong sum = ForkJoinPool.commonPool().invoke(new SumTask(array, 0, array.length));\n\n// Custom pool with 4 threads\nForkJoinPool customPool = new ForkJoinPool(4);\ntry {\n    long sum = customPool.invoke(new SumTask(array, 0, array.length));\n} finally {\n    customPool.shutdown();\n}"
     },
     {
       "type": "para",
@@ -233,12 +217,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: All three submit tasks to the pool, but differ in blocking behavior and return type:\n\n- invoke(task): Blocks until the task completes, returns the result directly.\n  Equivalent to submit(task).join(). Best for synchronous usage.\n\n- submit(task): Returns a ForkJoinTask<V> (a Future) immediately without blocking.\n  Call .join() or .get() later to retrieve the result. Best for asynchronous usage.\n\n- execute(task): Returns void immediately, like submit() but with no way to get\n  the result. Best for fire-and-forget RecursiveAction tasks.\n\nOnly invoke() throws the task's exception to the caller. After submit(), the exception\nsurfaces from join()/get(); after execute(), only if you keep the task object and call\njoin()/get() on it.\n"
+      "text": "A2: All three submit tasks to the pool, but differ in blocking behavior and return type:\n\n- invoke(task): Blocks until the task completes, returns the result directly.\n  Equivalent to submit(task).join(). Best for synchronous usage.\n\n- submit(task): Returns a ForkJoinTask<V> (a Future) immediately without blocking.\n  Call .join() or .get() later to retrieve the result. Best for asynchronous usage.\n\n- execute(task): Returns void immediately, like submit() but with no way to get\n  the result. Best for fire-and-forget RecursiveAction tasks.\n\nOnly invoke() throws the task's exception to the caller. After submit(), the exception\nsurfaces from join()/get(); after execute(), only if you keep the task object and call\njoin()/get() on it."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "ForkJoinPool pool = ForkJoinPool.commonPool();\nSumTask task = new SumTask(array, 0, array.length);\n\n// invoke -- blocks and returns result\nlong result = pool.invoke(task);\n\n// submit -- async, get result later\nForkJoinTask<Long> future = pool.submit(new SumTask(array, 0, array.length));\nlong result2 = future.join(); // blocks here\n\n// execute -- fire and forget\npool.execute(new IncrementAction(array, 1));\n"
+      "text": "ForkJoinPool pool = ForkJoinPool.commonPool();\nSumTask task = new SumTask(array, 0, array.length);\n\n// invoke -- blocks and returns result\nlong result = pool.invoke(task);\n\n// submit -- async, get result later\nForkJoinTask<Long> future = pool.submit(new SumTask(array, 0, array.length));\nlong result2 = future.join(); // blocks here\n\n// execute -- fire and forget\npool.execute(new IncrementAction(array, 1));"
     },
     {
       "type": "para",
@@ -247,12 +231,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: By default, parallel streams use the common ForkJoinPool. To use a custom pool,\nsubmit the stream operation as a task to your custom pool:\n\n  ForkJoinPool customPool = new ForkJoinPool(parallelism);\n  customPool.submit(() -> myStream.parallel().operation()).join();\n\nThis is useful when:\n- You want to isolate parallel stream work from the common pool\n- You need different parallelism than the common pool provides\n- You want to avoid starving other parallel operations\n\nCaveat: This technique is a practical pattern but not officially guaranteed by the\nspecification. It works reliably in all current JDK implementations.\n"
+      "text": "A3: By default, parallel streams use the common ForkJoinPool. To use a custom pool,\nsubmit the stream operation as a task to your custom pool:\n\n  ForkJoinPool customPool = new ForkJoinPool(parallelism);\n  customPool.submit(() -> myStream.parallel().operation()).join();\n\nThis is useful when:\n- You want to isolate parallel stream work from the common pool\n- You need different parallelism than the common pool provides\n- You want to avoid starving other parallel operations\n\nCaveat: This technique is a practical pattern but not officially guaranteed by the\nspecification. It works reliably in all current JDK implementations."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "ForkJoinPool customPool = new ForkJoinPool(8);\ntry {\n    long sum = customPool.submit(() ->\n        IntStream.range(0, array.length)\n            .parallel()\n            .mapToLong(i -> array[i])\n            .sum()\n    ).join();\n} finally {\n    customPool.shutdown();\n}\n"
+      "text": "ForkJoinPool customPool = new ForkJoinPool(8);\ntry {\n    long sum = customPool.submit(() ->\n        IntStream.range(0, array.length)\n            .parallel()\n            .mapToLong(i -> array[i])\n            .sum()\n    ).join();\n} finally {\n    customPool.shutdown();\n}"
     },
     {
       "type": "para",
@@ -261,12 +245,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: ManagedBlocker is an interface in ForkJoinPool that allows blocking operations\nto cooperate with the pool's thread management. When a thread is about to block,\nthe pool can compensate by creating additional threads to maintain parallelism.\n\nImplement ManagedBlocker when you must perform a blocking operation inside a\nForkJoinPool task (e.g., waiting on a lock, I/O, or a condition). Without it,\nthe blocked thread reduces effective parallelism.\n\nMethods to implement:\n- block(): Performs the blocking operation\n- isReleasable(): Returns true if blocking is no longer necessary\n\nUsage: ForkJoinPool.managedBlock(blocker);\n\nHowever, for I/O-bound work, virtual threads are a better choice in Java 21+.\n"
+      "text": "A4: ManagedBlocker is an interface in ForkJoinPool that allows blocking operations\nto cooperate with the pool's thread management. When a thread is about to block,\nthe pool can compensate by creating additional threads to maintain parallelism.\n\nImplement ManagedBlocker when you must perform a blocking operation inside a\nForkJoinPool task (e.g., waiting on a lock, I/O, or a condition). Without it,\nthe blocked thread reduces effective parallelism.\n\nMethods to implement:\n- block(): Performs the blocking operation\n- isReleasable(): Returns true if blocking is no longer necessary\n\nUsage: ForkJoinPool.managedBlock(blocker);\n\nHowever, for I/O-bound work, virtual threads are a better choice in Java 21+."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "class MyBlocker implements ForkJoinPool.ManagedBlocker {\n    private volatile boolean done = false;\n    private int result;\n\n    @Override\n    public boolean block() throws InterruptedException {\n        // Perform blocking operation\n        result = someBlockingCall();\n        done = true;\n        return true;\n    }\n\n    @Override\n    public boolean isReleasable() {\n        return done;\n    }\n}\n\n// Usage inside a ForkJoinTask\nMyBlocker blocker = new MyBlocker();\nForkJoinPool.managedBlock(blocker);\n"
+      "text": "class MyBlocker implements ForkJoinPool.ManagedBlocker {\n    private volatile boolean done = false;\n    private int result;\n\n    @Override\n    public boolean block() throws InterruptedException {\n        // Perform blocking operation\n        result = someBlockingCall();\n        done = true;\n        return true;\n    }\n\n    @Override\n    public boolean isReleasable() {\n        return done;\n    }\n}\n\n// Usage inside a ForkJoinTask\nMyBlocker blocker = new MyBlocker();\nForkJoinPool.managedBlock(blocker);"
     },
     {
       "type": "para",
@@ -275,12 +259,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: ForkJoinPool has several configuration options:\n\n1. parallelism: Number of worker threads (default: availableProcessors() - 1\n   for the common pool). This controls the maximum number of threads actively\n   executing tasks.\n\n2. ForkJoinPool.ForkJoinWorkerThreadFactory: Factory for creating worker threads.\n   Allows custom thread naming, priority, or daemon status.\n\n3. UncaughtExceptionHandler: Handler for exceptions thrown by worker threads\n   that are not caught by task code.\n\n4. asyncMode: If true, tasks are processed in FIFO order instead of LIFO.\n   Useful for event-style tasks that are never joined. Default is false.\n\nCommon pool can be configured via system properties:\n- java.util.concurrent.ForkJoinPool.common.parallelism\n- java.util.concurrent.ForkJoinPool.common.threadFactory\n- java.util.concurrent.ForkJoinPool.common.exceptionHandler\n"
+      "text": "A5: ForkJoinPool has several configuration options:\n\n1. parallelism: Number of worker threads (default: availableProcessors() - 1\n   for the common pool). This controls the maximum number of threads actively\n   executing tasks.\n\n2. ForkJoinPool.ForkJoinWorkerThreadFactory: Factory for creating worker threads.\n   Allows custom thread naming, priority, or daemon status.\n\n3. UncaughtExceptionHandler: Handler for exceptions thrown by worker threads\n   that are not caught by task code.\n\n4. asyncMode: If true, tasks are processed in FIFO order instead of LIFO.\n   Useful for event-style tasks that are never joined. Default is false.\n\nCommon pool can be configured via system properties:\n- java.util.concurrent.ForkJoinPool.common.parallelism\n- java.util.concurrent.ForkJoinPool.common.threadFactory\n- java.util.concurrent.ForkJoinPool.common.exceptionHandler"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Custom ForkJoinPool with full configuration\nForkJoinPool pool = new ForkJoinPool(\n    4,                                          // parallelism\n    ForkJoinPool.defaultForkJoinWorkerThreadFactory, // thread factory\n    null,                                       // exception handler\n    false                                       // asyncMode (LIFO)\n);\n\n// Query pool statistics\nSystem.out.println(\"Parallelism: \" + pool.getParallelism());\nSystem.out.println(\"Pool size: \" + pool.getPoolSize());\nSystem.out.println(\"Active threads: \" + pool.getActiveThreadCount());\nSystem.out.println(\"Steal count: \" + pool.getStealCount());\nSystem.out.println(\"Queued tasks: \" + pool.getQueuedTaskCount());\n"
+      "text": "// Custom ForkJoinPool with full configuration\nForkJoinPool pool = new ForkJoinPool(\n    4,                                          // parallelism\n    ForkJoinPool.defaultForkJoinWorkerThreadFactory, // thread factory\n    null,                                       // exception handler\n    false                                       // asyncMode (LIFO)\n);\n\n// Query pool statistics\nSystem.out.println(\"Parallelism: \" + pool.getParallelism());\nSystem.out.println(\"Pool size: \" + pool.getPoolSize());\nSystem.out.println(\"Active threads: \" + pool.getActiveThreadCount());\nSystem.out.println(\"Steal count: \" + pool.getStealCount());\nSystem.out.println(\"Queued tasks: \" + pool.getQueuedTaskCount());"
     },
     {
       "type": "heading",
@@ -301,10 +285,10 @@
   "attachments": [],
   "counts": {
     "headings": 12,
-    "paras": 11,
-    "code": 14,
+    "paras": 9,
+    "code": 10,
     "tables": 0,
-    "lists": 11,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -312,5 +296,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "27a702c68c92a7eed566002aa6432b4d8b5681690d23b74ceda43151827cb15f"
+  "content_sha256": "1bd6367e3a525d5d292e6498d79475379c0f7e9861fdf1015c33b6b9e74e80c2"
 }

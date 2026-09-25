@@ -62,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "class StoppableTask implements Runnable {\n    private volatile boolean running = true;\n\n    void stop() { running = false; } // volatile write — seen by the next read of 'running'\n\n    @Override\n    public void run() {\n        while (running) { // volatile read — always fresh\n            doWork();\n        }\n    }\n}\n"
+      "text": "class StoppableTask implements Runnable {\n    private volatile boolean running = true;\n\n    void stop() { running = false; } // volatile write — seen by the next read of 'running'\n\n    @Override\n    public void run() {\n        while (running) { // volatile read — always fresh\n            doWork();\n        }\n    }\n}"
     },
     {
       "type": "heading",
@@ -76,7 +76,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "// synchronized version\nclass SynchronizedCounter {\n    private int count = 0;\n    synchronized void increment() { count++; }\n    synchronized int get() { return count; }\n}\n\n// AtomicInteger version (lock-free, often faster under contention)\nclass AtomicCounter {\n    private final AtomicInteger count = new AtomicInteger();\n    void increment() { count.incrementAndGet(); }\n    int get() { return count.get(); }\n}\n"
+      "text": "// synchronized version\nclass SynchronizedCounter {\n    private int count = 0;\n    synchronized void increment() { count++; }\n    synchronized int get() { return count; }\n}\n\n// AtomicInteger version (lock-free, often faster under contention)\nclass AtomicCounter {\n    private final AtomicInteger count = new AtomicInteger();\n    void increment() { count.incrementAndGet(); }\n    int get() { return count.get(); }\n}"
     },
     {
       "type": "heading",
@@ -90,7 +90,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "// Producer\nvolatile ImmutableConfig config; // volatile for safe publication\n\nvoid updateConfig(String newHost, int newPort) {\n    config = new ImmutableConfig(newHost, newPort); // atomic reference replacement\n}\n\n// Consumer — no synchronization needed after reading the reference\nvoid useConfig() {\n    ImmutableConfig c = config; // one volatile read\n    connect(c.host(), c.port()); // all final fields are visible\n}\n"
+      "text": "// Producer\nvolatile ImmutableConfig config; // volatile for safe publication\n\nvoid updateConfig(String newHost, int newPort) {\n    config = new ImmutableConfig(newHost, newPort); // atomic reference replacement\n}\n\n// Consumer — no synchronization needed after reading the reference\nvoid useConfig() {\n    ImmutableConfig c = config; // one volatile read\n    connect(c.host(), c.port()); // all final fields are visible\n}"
     },
     {
       "type": "heading",
@@ -104,7 +104,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "CountDownLatch ready = new CountDownLatch(1);\nint[] result = {0};\n\nThread producer = new Thread(() -> {\n    result[0] = compute(); // writes result\n    ready.countDown();     // happens-before ready.await() returns\n});\n\nThread consumer = new Thread(() -> {\n    try {\n        ready.await();     // blocks until countdown; then all producer writes visible\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n        return;\n    }\n    System.out.println(result[0]); // guaranteed to see computed result\n});\n"
+      "text": "CountDownLatch ready = new CountDownLatch(1);\nint[] result = {0};\n\nThread producer = new Thread(() -> {\n    result[0] = compute(); // writes result\n    ready.countDown();     // happens-before ready.await() returns\n});\n\nThread consumer = new Thread(() -> {\n    try {\n        ready.await();     // blocks until countdown; then all producer writes visible\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n        return;\n    }\n    System.out.println(result[0]); // guaranteed to see computed result\n});"
     },
     {
       "type": "heading",
@@ -210,73 +210,60 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Partial synchronization** — Protecting writes but not reads (or vice versa) creates a data race."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: write is synchronized, read is not\nclass PartialSync {\n    private int value;\n    synchronized void write(int v) { value = v; }\n    int read() { return value; } // unsynchronized — data race!\n}\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: synchronize all accesses consistently\nclass FullSync {\n    private int value;\n    synchronized void write(int v) { value = v; }\n    synchronized int read() { return value; } // same lock, full visibility\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using thread-unsafe collections for shared state** — `ArrayList`, `HashMap`, `HashSet` are NOT thread-safe."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: ArrayList shared across threads without synchronization\nList<String> shared = new ArrayList<>();\nexecutor.submit(() -> shared.add(\"item\")); // may corrupt internal array\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: use thread-safe alternatives\nList<String> safe = new CopyOnWriteArrayList<>();           // or\nList<String> synced = Collections.synchronizedList(new ArrayList<>()); // or\nBlockingQueue<String> queue = new LinkedBlockingQueue<>();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Partial synchronization** — Protecting writes but not reads (or vice versa) creates a data race.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: write is synchronized, read is not\nclass PartialSync {\n    private int value;\n    synchronized void write(int v) { value = v; }\n    int read() { return value; } // unsynchronized — data race!\n}"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: synchronize all accesses consistently\nclass FullSync {\n    private int value;\n    synchronized void write(int v) { value = v; }\n    synchronized int read() { return value; } // same lock, full visibility\n}"
+          }
+        ],
+        [
+          "**Using thread-unsafe collections for shared state** — `ArrayList`, `HashMap`, `HashSet` are NOT thread-safe.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: ArrayList shared across threads without synchronization\nList<String> shared = new ArrayList<>();\nexecutor.submit(() -> shared.add(\"item\")); // may corrupt internal array"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: use thread-safe alternatives\nList<String> safe = new CopyOnWriteArrayList<>();           // or\nList<String> synced = Collections.synchronizedList(new ArrayList<>()); // or\nBlockingQueue<String> queue = new LinkedBlockingQueue<>();"
+          }
+        ],
         "**Locking but on different objects** — see 5.2.2 pitfall #1.",
-        "**Forgetting to declare volatile for publication** — A reference stored without synchronization may be seen partially (or not at all) by other threads."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: reference publication without happens-before\nclass BrokenPublisher {\n    MyObject obj;  // not volatile\n    void init() { obj = new MyObject(); } // Thread A\n    void use()  { obj.doWork(); }          // Thread B may see null or uninitialized\n}\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: volatile for the reference\nclass SafePublisher {\n    volatile MyObject obj;\n    void init() { obj = new MyObject(); }  // volatile write\n    void use()  { MyObject o = obj; if (o != null) o.doWork(); } // volatile read\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Spinning on non-volatile flags** — Without `volatile`, the JIT may hoist the flag read out of the loop, creating an infinite loop even after the flag is set by another thread."
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: JIT may optimize away the loop condition check\nclass BrokenStop {\n    boolean stop = false; // NOT volatile\n    void run() { while (!stop) { } } // JIT may compile to: if (!stop) while(true);\n    void stop() { stop = true; }\n}\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: volatile prevents hoisting\nclass CorrectStop {\n    volatile boolean stop = false;\n    void run() { while (!stop) { } } // re-reads stop every iteration\n    void stop() { stop = true; }\n}\n"
+        [
+          "**Forgetting to declare volatile for publication** — A reference stored without synchronization may be seen partially (or not at all) by other threads.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: reference publication without happens-before\nclass BrokenPublisher {\n    MyObject obj;  // not volatile\n    void init() { obj = new MyObject(); } // Thread A\n    void use()  { obj.doWork(); }          // Thread B may see null or uninitialized\n}"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: volatile for the reference\nclass SafePublisher {\n    volatile MyObject obj;\n    void init() { obj = new MyObject(); }  // volatile write\n    void use()  { MyObject o = obj; if (o != null) o.doWork(); } // volatile read\n}"
+          }
+        ],
+        [
+          "**Spinning on non-volatile flags** — Without `volatile`, the JIT may hoist the flag read out of the loop, creating an infinite loop even after the flag is set by another thread.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: JIT may optimize away the loop condition check\nclass BrokenStop {\n    boolean stop = false; // NOT volatile\n    void run() { while (!stop) { } } // JIT may compile to: if (!stop) while(true);\n    void stop() { stop = true; }\n}"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: volatile prevents hoisting\nclass CorrectStop {\n    volatile boolean stop = false;\n    void run() { while (!stop) { } } // re-reads stop every iteration\n    void stop() { stop = true; }\n}"
+          }
+        ]
+      ]
     },
     {
       "type": "heading",
@@ -358,12 +345,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The correct way to stop a thread is cooperative cancellation:\n1. Use a volatile boolean flag — the thread checks it periodically and exits when set.\n2. Use Thread.interrupt() — the thread checks isInterrupted() or catches InterruptedException.\n\nNEVER use Thread.stop() — it was deprecated in Java 1.2 because it releases all monitors held\nby the thread, potentially leaving objects in inconsistent state. Since Java 20 it no longer\nworks at all: it throws UnsupportedOperationException.\n\nThe volatile flag approach:\n- Works for threads in a computation loop.\n- Must be volatile to prevent JIT from caching the flag value.\n\nThe interrupt approach:\n- Also wakes threads blocked in wait(), sleep(), join(), and interruptible NIO channel I/O.\n  Classic java.io blocking reads (e.g. socket InputStream.read()) do NOT respond to interrupt.\n- The thread must cooperate: check isInterrupted() in loops, or catch InterruptedException.\n- Best practice: restore the interrupt flag with Thread.currentThread().interrupt() if you\n  catch InterruptedException but cannot propagate it.\n"
+      "text": "A1: The correct way to stop a thread is cooperative cancellation:\n1. Use a volatile boolean flag — the thread checks it periodically and exits when set.\n2. Use Thread.interrupt() — the thread checks isInterrupted() or catches InterruptedException.\n\nNEVER use Thread.stop() — it was deprecated in Java 1.2 because it releases all monitors held\nby the thread, potentially leaving objects in inconsistent state. Since Java 20 it no longer\nworks at all: it throws UnsupportedOperationException.\n\nThe volatile flag approach:\n- Works for threads in a computation loop.\n- Must be volatile to prevent JIT from caching the flag value.\n\nThe interrupt approach:\n- Also wakes threads blocked in wait(), sleep(), join(), and interruptible NIO channel I/O.\n  Classic java.io blocking reads (e.g. socket InputStream.read()) do NOT respond to interrupt.\n- The thread must cooperate: check isInterrupted() in loops, or catch InterruptedException.\n- Best practice: restore the interrupt flag with Thread.currentThread().interrupt() if you\n  catch InterruptedException but cannot propagate it."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Approach 1: volatile flag\nclass StoppableWorker implements Runnable {\n    private volatile boolean cancelled = false;\n\n    public void cancel() { cancelled = true; }\n\n    @Override\n    public void run() {\n        while (!cancelled) { // re-reads volatile every iteration\n            processNextItem();\n        }\n        cleanup();\n    }\n}\n\n// Approach 2: interrupt protocol (handles blocking operations)\nclass InterruptibleWorker implements Runnable {\n    @Override\n    public void run() {\n        try {\n            while (!Thread.currentThread().isInterrupted()) {\n                doWork();\n                Thread.sleep(100); // throws InterruptedException if interrupted\n            }\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt(); // restore interrupt status\n        } finally {\n            cleanup();\n        }\n    }\n}\n\n// Usage\nThread worker = new Thread(new InterruptibleWorker());\nworker.start();\n// ... later ...\nworker.interrupt(); // signal cancellation\nworker.join();      // wait for clean exit\n"
+      "text": "// Approach 1: volatile flag\nclass StoppableWorker implements Runnable {\n    private volatile boolean cancelled = false;\n\n    public void cancel() { cancelled = true; }\n\n    @Override\n    public void run() {\n        while (!cancelled) { // re-reads volatile every iteration\n            processNextItem();\n        }\n        cleanup();\n    }\n}\n\n// Approach 2: interrupt protocol (handles blocking operations)\nclass InterruptibleWorker implements Runnable {\n    @Override\n    public void run() {\n        try {\n            while (!Thread.currentThread().isInterrupted()) {\n                doWork();\n                Thread.sleep(100); // throws InterruptedException if interrupted\n            }\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt(); // restore interrupt status\n        } finally {\n            cleanup();\n        }\n    }\n}\n\n// Usage\nThread worker = new Thread(new InterruptibleWorker());\nworker.start();\n// ... later ...\nworker.interrupt(); // signal cancellation\nworker.join();      // wait for clean exit"
     },
     {
       "type": "rule"
@@ -375,12 +362,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Thread confinement means restricting access to mutable state so that only ONE thread ever\naccesses it at a time. No sharing means no synchronization needed.\n\nThree forms of thread confinement:\n1. Ad-hoc confinement: The programmer ensures by convention that only one thread accesses the\n   state. Fragile — relies on discipline, not enforced by the language.\n\n2. Stack confinement: Local variables inside a method are on the thread's stack and cannot be\n   accessed by other threads (unless you pass references elsewhere). This is the safest form.\n\n3. ThreadLocal<T>: Each thread gets its own independent copy of the variable. Used for\n   per-thread resources like database connections, SimpleDateFormat instances, or request contexts.\n\nWhen to use:\n- When the state is naturally per-thread (e.g., a JDBC connection, a random number generator seed).\n- When you want to avoid synchronization overhead entirely.\n- When implementing thread pools where each task has its own state.\n\nLimitations:\n- ThreadLocal values are tied to thread lifetime; in thread pools, they persist across tasks\n  unless explicitly cleared (threadLocal.remove()).\n- Can cause memory leaks if ThreadLocal references are held in ClassLoader hierarchies.\n"
+      "text": "A2: Thread confinement means restricting access to mutable state so that only ONE thread ever\naccesses it at a time. No sharing means no synchronization needed.\n\nThree forms of thread confinement:\n1. Ad-hoc confinement: The programmer ensures by convention that only one thread accesses the\n   state. Fragile — relies on discipline, not enforced by the language.\n\n2. Stack confinement: Local variables inside a method are on the thread's stack and cannot be\n   accessed by other threads (unless you pass references elsewhere). This is the safest form.\n\n3. ThreadLocal<T>: Each thread gets its own independent copy of the variable. Used for\n   per-thread resources like database connections, SimpleDateFormat instances, or request contexts.\n\nWhen to use:\n- When the state is naturally per-thread (e.g., a JDBC connection, a random number generator seed).\n- When you want to avoid synchronization overhead entirely.\n- When implementing thread pools where each task has its own state.\n\nLimitations:\n- ThreadLocal values are tied to thread lifetime; in thread pools, they persist across tasks\n  unless explicitly cleared (threadLocal.remove()).\n- Can cause memory leaks if ThreadLocal references are held in ClassLoader hierarchies."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Stack confinement — naturally safe\npublic List<String> processItems(List<String> input) {\n    List<String> result = new ArrayList<>(); // stack-confined (local variable)\n    for (String item : input) {\n        result.add(item.trim().toUpperCase()); // no synchronization needed\n    }\n    return result; // escapes here, but as a local reference, not shared\n}\n\n// ThreadLocal — per-thread copy\nclass DateParser {\n    // SimpleDateFormat is NOT thread-safe; ThreadLocal gives each thread its own copy\n    private static final ThreadLocal<SimpleDateFormat> FORMAT =\n        ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\n    public Date parse(String date) throws ParseException {\n        return FORMAT.get().parse(date); // each thread uses its own formatter\n    }\n\n    // IMPORTANT: in thread pools, remove when done to prevent leaks\n    public void cleanup() { FORMAT.remove(); }\n}\n\n// In a web framework context (Servlet per-request context)\nclass RequestContext {\n    private static final ThreadLocal<String> currentUserId = new ThreadLocal<>();\n\n    public static void setUserId(String id) { currentUserId.set(id); }\n    public static String getUserId() { return currentUserId.get(); }\n    public static void clear() { currentUserId.remove(); } // call in finally block\n}\n"
+      "text": "// Stack confinement — naturally safe\npublic List<String> processItems(List<String> input) {\n    List<String> result = new ArrayList<>(); // stack-confined (local variable)\n    for (String item : input) {\n        result.add(item.trim().toUpperCase()); // no synchronization needed\n    }\n    return result; // escapes here, but as a local reference, not shared\n}\n\n// ThreadLocal — per-thread copy\nclass DateParser {\n    // SimpleDateFormat is NOT thread-safe; ThreadLocal gives each thread its own copy\n    private static final ThreadLocal<SimpleDateFormat> FORMAT =\n        ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\n    public Date parse(String date) throws ParseException {\n        return FORMAT.get().parse(date); // each thread uses its own formatter\n    }\n\n    // IMPORTANT: in thread pools, remove when done to prevent leaks\n    public void cleanup() { FORMAT.remove(); }\n}\n\n// In a web framework context (Servlet per-request context)\nclass RequestContext {\n    private static final ThreadLocal<String> currentUserId = new ThreadLocal<>();\n\n    public static void setUserId(String id) { currentUserId.set(id); }\n    public static String getUserId() { return currentUserId.get(); }\n    public static void clear() { currentUserId.remove(); } // call in finally block\n}"
     },
     {
       "type": "rule"
@@ -392,12 +379,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Both provide thread-safe Map implementations, but they differ significantly in performance\nand granularity.\n\nCollections.synchronizedMap(map):\n- Wraps every method in synchronized(this) — one big lock for the entire map.\n- All concurrent operations are serialized — one thread at a time.\n- Simple iteration (entrySet().iterator()) is NOT thread-safe — you must synchronize externally.\n- Better when you need to iterate or perform compound operations under a single lock.\n\nConcurrentHashMap:\n- Uses fine-grained locking (Java 7: 16 segments; Java 8+: CAS + per-bucket synchronization).\n- Multiple threads can read and write to different buckets concurrently.\n- Reads (get) are non-blocking — no locking at all.\n- Provides atomic compound operations: putIfAbsent, computeIfAbsent, merge, compute.\n- Iteration (entrySet().iterator()) is weakly consistent — sees state at some point during iteration, no ConcurrentModificationException.\n- Higher throughput under concurrent access.\n\nRule of thumb: Prefer ConcurrentHashMap for high-concurrency scenarios. Use synchronizedMap\nonly when you need to wrap an existing non-thread-safe map or need external locking for\ncompound operations involving the map.\n"
+      "text": "A3: Both provide thread-safe Map implementations, but they differ significantly in performance\nand granularity.\n\nCollections.synchronizedMap(map):\n- Wraps every method in synchronized(this) — one big lock for the entire map.\n- All concurrent operations are serialized — one thread at a time.\n- Simple iteration (entrySet().iterator()) is NOT thread-safe — you must synchronize externally.\n- Better when you need to iterate or perform compound operations under a single lock.\n\nConcurrentHashMap:\n- Uses fine-grained locking (Java 7: 16 segments; Java 8+: CAS + per-bucket synchronization).\n- Multiple threads can read and write to different buckets concurrently.\n- Reads (get) are non-blocking — no locking at all.\n- Provides atomic compound operations: putIfAbsent, computeIfAbsent, merge, compute.\n- Iteration (entrySet().iterator()) is weakly consistent — sees state at some point during iteration, no ConcurrentModificationException.\n- Higher throughput under concurrent access.\n\nRule of thumb: Prefer ConcurrentHashMap for high-concurrency scenarios. Use synchronizedMap\nonly when you need to wrap an existing non-thread-safe map or need external locking for\ncompound operations involving the map."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// synchronizedMap: external lock required for compound operations\nMap<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());\n\n// Compound check-then-act: must synchronize externally\nsynchronized (syncMap) { // MUST synchronize manually for compound ops\n    if (!syncMap.containsKey(\"key\")) {\n        syncMap.put(\"key\", 1);\n    }\n}\n\n// Iteration: must synchronize on the map itself\nsynchronized (syncMap) {\n    for (Map.Entry<String, Integer> entry : syncMap.entrySet()) {\n        System.out.println(entry.getKey() + \"=\" + entry.getValue());\n    }\n}\n\n// ConcurrentHashMap: atomic compound operations built in\nMap<String, Integer> concMap = new ConcurrentHashMap<>();\n\n// Atomic putIfAbsent — no external lock needed\nconcMap.putIfAbsent(\"key\", 1);\n\n// Atomic computeIfAbsent — create value only if key absent\nconcMap.computeIfAbsent(\"counter\", k -> 0);\n\n// Atomic merge — combine existing and new value\nconcMap.merge(\"count\", 1, Integer::sum); // increment atomically\n\n// Weakly-consistent iteration — no ConcurrentModificationException\nfor (Map.Entry<String, Integer> entry : concMap.entrySet()) {\n    System.out.println(entry.getKey() + \"=\" + entry.getValue());\n}\n"
+      "text": "// synchronizedMap: external lock required for compound operations\nMap<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());\n\n// Compound check-then-act: must synchronize externally\nsynchronized (syncMap) { // MUST synchronize manually for compound ops\n    if (!syncMap.containsKey(\"key\")) {\n        syncMap.put(\"key\", 1);\n    }\n}\n\n// Iteration: must synchronize on the map itself\nsynchronized (syncMap) {\n    for (Map.Entry<String, Integer> entry : syncMap.entrySet()) {\n        System.out.println(entry.getKey() + \"=\" + entry.getValue());\n    }\n}\n\n// ConcurrentHashMap: atomic compound operations built in\nMap<String, Integer> concMap = new ConcurrentHashMap<>();\n\n// Atomic putIfAbsent — no external lock needed\nconcMap.putIfAbsent(\"key\", 1);\n\n// Atomic computeIfAbsent — create value only if key absent\nconcMap.computeIfAbsent(\"counter\", k -> 0);\n\n// Atomic merge — combine existing and new value\nconcMap.merge(\"count\", 1, Integer::sum); // increment atomically\n\n// Weakly-consistent iteration — no ConcurrentModificationException\nfor (Map.Entry<String, Integer> entry : concMap.entrySet()) {\n    System.out.println(entry.getKey() + \"=\" + entry.getValue());\n}"
     },
     {
       "type": "rule"
@@ -409,12 +396,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Both are synchronization utilities in java.util.concurrent that allow threads to wait for\neach other at specific points. They differ in reusability and direction of waiting.\n\nCountDownLatch:\n- One-shot barrier: initialized with a count; decremented by countDown(), awaited by await().\n- The latch CANNOT be reset; use for one-time events (initialization complete, signal to start).\n- Happens-before: all countDown() calls hb await() returning.\n- Use cases: start signal (count=1, start when latch opens), wait for N tasks to complete.\n\nCyclicBarrier:\n- Reusable: automatically resets after all parties reach the barrier.\n- All parties call await(); the last arrival triggers the optional barrier action.\n- Happens-before: actions before each party's await() hb the barrier action, which hb the\n  actions after await() returns in every party.\n- Use cases: iterative algorithms where all threads must complete phase N before starting N+1.\n"
+      "text": "A4: Both are synchronization utilities in java.util.concurrent that allow threads to wait for\neach other at specific points. They differ in reusability and direction of waiting.\n\nCountDownLatch:\n- One-shot barrier: initialized with a count; decremented by countDown(), awaited by await().\n- The latch CANNOT be reset; use for one-time events (initialization complete, signal to start).\n- Happens-before: all countDown() calls hb await() returning.\n- Use cases: start signal (count=1, start when latch opens), wait for N tasks to complete.\n\nCyclicBarrier:\n- Reusable: automatically resets after all parties reach the barrier.\n- All parties call await(); the last arrival triggers the optional barrier action.\n- Happens-before: actions before each party's await() hb the barrier action, which hb the\n  actions after await() returns in every party.\n- Use cases: iterative algorithms where all threads must complete phase N before starting N+1."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// CountDownLatch: parallel task initialization then start\nclass ParallelInit {\n    void run() throws InterruptedException {\n        int workers = 4;\n        CountDownLatch initDone = new CountDownLatch(workers); // count = 4\n        CountDownLatch startSignal = new CountDownLatch(1);    // count = 1\n\n        for (int i = 0; i < workers; i++) {\n            new Thread(() -> {\n                try {\n                    initializeWorker();      // do setup\n                    initDone.countDown();    // signal: I am ready\n                    startSignal.await();     // wait for start signal\n                    doWork();\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }).start();\n        }\n\n        initDone.await();        // wait until all workers are initialized\n        System.out.println(\"All workers ready, starting...\");\n        startSignal.countDown(); // release all workers simultaneously\n    }\n}\n\n// CyclicBarrier: phased computation\nclass PhasedComputation {\n    private final CyclicBarrier barrier;\n    private final int[][] data;\n\n    PhasedComputation(int threads, int[][] data) {\n        this.data = data;\n        this.barrier = new CyclicBarrier(threads, () -> {\n            // Barrier action: runs once all threads arrive, before next phase\n            System.out.println(\"Phase complete, starting next...\");\n        });\n    }\n\n    void runPhase(int threadId) throws Exception {\n        for (int phase = 0; phase < 3; phase++) {\n            processPartition(threadId, phase); // do phase N work\n            barrier.await(); // wait for all threads to finish phase N\n            // barrier action has run; all writes from phase N are visible\n            // safe to read other threads' phase N results in phase N+1\n        }\n    }\n}\n"
+      "text": "// CountDownLatch: parallel task initialization then start\nclass ParallelInit {\n    void run() throws InterruptedException {\n        int workers = 4;\n        CountDownLatch initDone = new CountDownLatch(workers); // count = 4\n        CountDownLatch startSignal = new CountDownLatch(1);    // count = 1\n\n        for (int i = 0; i < workers; i++) {\n            new Thread(() -> {\n                try {\n                    initializeWorker();      // do setup\n                    initDone.countDown();    // signal: I am ready\n                    startSignal.await();     // wait for start signal\n                    doWork();\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            }).start();\n        }\n\n        initDone.await();        // wait until all workers are initialized\n        System.out.println(\"All workers ready, starting...\");\n        startSignal.countDown(); // release all workers simultaneously\n    }\n}\n\n// CyclicBarrier: phased computation\nclass PhasedComputation {\n    private final CyclicBarrier barrier;\n    private final int[][] data;\n\n    PhasedComputation(int threads, int[][] data) {\n        this.data = data;\n        this.barrier = new CyclicBarrier(threads, () -> {\n            // Barrier action: runs once all threads arrive, before next phase\n            System.out.println(\"Phase complete, starting next...\");\n        });\n    }\n\n    void runPhase(int threadId) throws Exception {\n        for (int phase = 0; phase < 3; phase++) {\n            processPartition(threadId, phase); // do phase N work\n            barrier.await(); // wait for all threads to finish phase N\n            // barrier action has run; all writes from phase N are visible\n            // safe to read other threads' phase N results in phase N+1\n        }\n    }\n}"
     },
     {
       "type": "rule"
@@ -426,12 +413,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Safe publication means making an object reference visible to other threads in a way that\nguarantees they see the object's complete, fully initialized state.\n\nWithout safe publication, the JIT compiler and CPU can reorder:\n1. The writes to the object's fields (inside the constructor).\n2. The write of the reference to the shared variable.\n\nA reading thread may see the reference (non-null) before the fields are initialized,\ncausing it to observe partially initialized state — a very subtle and hard-to-reproduce bug.\n\nThe four safe publication mechanisms:\n1. Static initializer: class loading lock guarantees initialization hb first access.\n2. volatile field for the reference: volatile write of reference hb volatile reads.\n3. final field: a thread that gets the reference after construction sees the constructor's\n   final-field values (JLS 17.5 — its own guarantee, not happens-before).\n4. synchronized: monitor lock rule ensures visibility.\n\nUnsafely published objects: using a plain field (not volatile, not final, not set in a static\ninitializer, not guarded by a lock) to share an object reference between threads. The reading thread may see null or a\npartially initialized object.\n\nBest practice: prefer immutable objects (all final fields) + safe publication of the reference.\nOnce published, they require ZERO synchronization on the read path.\n"
+      "text": "A5: Safe publication means making an object reference visible to other threads in a way that\nguarantees they see the object's complete, fully initialized state.\n\nWithout safe publication, the JIT compiler and CPU can reorder:\n1. The writes to the object's fields (inside the constructor).\n2. The write of the reference to the shared variable.\n\nA reading thread may see the reference (non-null) before the fields are initialized,\ncausing it to observe partially initialized state — a very subtle and hard-to-reproduce bug.\n\nThe four safe publication mechanisms:\n1. Static initializer: class loading lock guarantees initialization hb first access.\n2. volatile field for the reference: volatile write of reference hb volatile reads.\n3. final field: a thread that gets the reference after construction sees the constructor's\n   final-field values (JLS 17.5 — its own guarantee, not happens-before).\n4. synchronized: monitor lock rule ensures visibility.\n\nUnsafely published objects: using a plain field (not volatile, not final, not set in a static\ninitializer, not guarded by a lock) to share an object reference between threads. The reading thread may see null or a\npartially initialized object.\n\nBest practice: prefer immutable objects (all final fields) + safe publication of the reference.\nOnce published, they require ZERO synchronization on the read path."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Unsafe publication — data race on 'obj' reference\nclass UnsafePublisher {\n    Object obj;                         // plain field, no synchronization\n\n    void publish() { obj = new Object(); }  // Thread A writes\n    void consume() { obj.hashCode(); }      // Thread B reads — MAY SEE null!\n}\n\n// Safe publication pattern 1: volatile reference\nclass SafePublisherVolatile {\n    volatile Object obj;                     // volatile reference\n\n    void publish() { obj = new Object(); }   // volatile write: hb any subsequent read\n    void consume() {\n        Object ref = obj;                    // volatile read\n        if (ref != null) ref.hashCode();     // safe — sees initialized object\n    }\n}\n\n// Safe publication pattern 2: synchronized\nclass SafePublisherSynchronized {\n    Object obj;\n\n    synchronized void publish() { obj = new Object(); } // lock hb subsequent lock\n    synchronized void consume() { if (obj != null) obj.hashCode(); }\n}\n\n// Safe publication pattern 3: final + immutable + static\nclass SafePublisherStatic {\n    // Static initializer: class loading lock ensures this is safe\n    private static final Object SHARED = new Object();\n\n    static Object get() { return SHARED; } // always safely initialized\n}\n\n// Safe publication pattern 4: final field (best for immutable objects)\nfinal class SafeImmutable {\n    final String name;\n    final int value;\n\n    SafeImmutable(String name, int value) {\n        this.name = name;\n        this.value = value;\n    }\n    // Once a thread has the reference, name and value are visible without additional\n    // synchronization — the final-field guarantee holds even if the reference was\n    // shared through a data race (patterns 1-3 are still needed for the reference itself).\n}\n"
+      "text": "// Unsafe publication — data race on 'obj' reference\nclass UnsafePublisher {\n    Object obj;                         // plain field, no synchronization\n\n    void publish() { obj = new Object(); }  // Thread A writes\n    void consume() { obj.hashCode(); }      // Thread B reads — MAY SEE null!\n}\n\n// Safe publication pattern 1: volatile reference\nclass SafePublisherVolatile {\n    volatile Object obj;                     // volatile reference\n\n    void publish() { obj = new Object(); }   // volatile write: hb any subsequent read\n    void consume() {\n        Object ref = obj;                    // volatile read\n        if (ref != null) ref.hashCode();     // safe — sees initialized object\n    }\n}\n\n// Safe publication pattern 2: synchronized\nclass SafePublisherSynchronized {\n    Object obj;\n\n    synchronized void publish() { obj = new Object(); } // lock hb subsequent lock\n    synchronized void consume() { if (obj != null) obj.hashCode(); }\n}\n\n// Safe publication pattern 3: final + immutable + static\nclass SafePublisherStatic {\n    // Static initializer: class loading lock ensures this is safe\n    private static final Object SHARED = new Object();\n\n    static Object get() { return SHARED; } // always safely initialized\n}\n\n// Safe publication pattern 4: final field (best for immutable objects)\nfinal class SafeImmutable {\n    final String name;\n    final int value;\n\n    SafeImmutable(String name, int value) {\n        this.name = name;\n        this.value = value;\n    }\n    // Once a thread has the reference, name and value are visible without additional\n    // synchronization — the final-field guarantee holds even if the reference was\n    // shared through a data race (patterns 1-3 are still needed for the reference itself).\n}"
     },
     {
       "type": "rule"
@@ -443,12 +430,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: A systematic framework for analyzing thread safety:\n\nStep 1 — Identify shared mutable state.\n  - Instance fields accessed from multiple threads.\n  - Static fields. Mutable objects reachable from those fields.\n  - Exclude: local variables (stack-confined), ThreadLocal, immutable fields.\n\nStep 2 — Identify the invariants that must hold.\n  - E.g., for a BoundedList: size >= 0 && size <= capacity.\n  - Invariants that span multiple fields need atomic enforcement.\n\nStep 3 — Check that every access to shared mutable state is properly synchronized.\n  - Every read AND write must be protected by the same lock (or volatile, Atomic, etc.).\n  - Partial protection (sync writes, unsync reads) still creates data races.\n\nStep 4 — Check for compound actions that need atomicity.\n  - check-then-act (if(x==null) x = new Foo())\n  - read-modify-write (x++)\n  - These require a single synchronized block, not separate synchronized methods.\n\nStep 5 — Check for safe publication.\n  - How does the object reference reach other threads?\n  - Is it via volatile field, static init, synchronized, or final field?\n\nStep 6 — Check for liveness issues.\n  - Could deadlock occur (two threads waiting for each other's locks)?\n  - Could starvation occur (a thread never gets the lock)?\n  - Could livelock occur (threads keep retrying but make no progress)?\n"
+      "text": "A6: A systematic framework for analyzing thread safety:\n\nStep 1 — Identify shared mutable state.\n  - Instance fields accessed from multiple threads.\n  - Static fields. Mutable objects reachable from those fields.\n  - Exclude: local variables (stack-confined), ThreadLocal, immutable fields.\n\nStep 2 — Identify the invariants that must hold.\n  - E.g., for a BoundedList: size >= 0 && size <= capacity.\n  - Invariants that span multiple fields need atomic enforcement.\n\nStep 3 — Check that every access to shared mutable state is properly synchronized.\n  - Every read AND write must be protected by the same lock (or volatile, Atomic, etc.).\n  - Partial protection (sync writes, unsync reads) still creates data races.\n\nStep 4 — Check for compound actions that need atomicity.\n  - check-then-act (if(x==null) x = new Foo())\n  - read-modify-write (x++)\n  - These require a single synchronized block, not separate synchronized methods.\n\nStep 5 — Check for safe publication.\n  - How does the object reference reach other threads?\n  - Is it via volatile field, static init, synchronized, or final field?\n\nStep 6 — Check for liveness issues.\n  - Could deadlock occur (two threads waiting for each other's locks)?\n  - Could starvation occur (a thread never gets the lock)?\n  - Could livelock occur (threads keep retrying but make no progress)?"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Full example — analyzing and fixing a thread-safety issue\n// BROKEN: not thread-safe\nclass UnsafeStack<T> {\n    private Object[] elements = new Object[16]; // Step 1: shared mutable state\n    private int size = 0;                       // Step 1: shared mutable state\n\n    @SuppressWarnings(\"unchecked\")\n    T pop() {\n        // Step 4: compound action — check size THEN access element\n        // Without atomicity: another thread may pop between our check and access\n        if (size == 0) throw new EmptyStackException();\n        T result = (T) elements[--size]; // read-modify-write on size\n        elements[size] = null;\n        return result;\n    }\n\n    void push(T item) {\n        ensureCapacity();\n        elements[size++] = item; // read-modify-write on size\n    }\n\n    private void ensureCapacity() {\n        if (elements.length == size) elements = Arrays.copyOf(elements, size * 2);\n    }\n}\n\n// FIXED: synchronized methods ensure atomicity + visibility\nclass SafeStack<T> {\n    private Object[] elements = new Object[16];\n    private int size = 0;\n\n    @SuppressWarnings(\"unchecked\")\n    synchronized T pop() {\n        if (size == 0) throw new EmptyStackException();\n        T result = (T) elements[--size];\n        elements[size] = null;\n        return result;\n    }\n\n    synchronized void push(T item) {\n        ensureCapacity();\n        elements[size++] = item;\n    }\n\n    synchronized int size() { return size; }\n\n    private void ensureCapacity() {\n        if (elements.length == size)\n            elements = Arrays.copyOf(elements, size * 2);\n    }\n}\n"
+      "text": "// Full example — analyzing and fixing a thread-safety issue\n// BROKEN: not thread-safe\nclass UnsafeStack<T> {\n    private Object[] elements = new Object[16]; // Step 1: shared mutable state\n    private int size = 0;                       // Step 1: shared mutable state\n\n    @SuppressWarnings(\"unchecked\")\n    T pop() {\n        // Step 4: compound action — check size THEN access element\n        // Without atomicity: another thread may pop between our check and access\n        if (size == 0) throw new EmptyStackException();\n        T result = (T) elements[--size]; // read-modify-write on size\n        elements[size] = null;\n        return result;\n    }\n\n    void push(T item) {\n        ensureCapacity();\n        elements[size++] = item; // read-modify-write on size\n    }\n\n    private void ensureCapacity() {\n        if (elements.length == size) elements = Arrays.copyOf(elements, size * 2);\n    }\n}\n\n// FIXED: synchronized methods ensure atomicity + visibility\nclass SafeStack<T> {\n    private Object[] elements = new Object[16];\n    private int size = 0;\n\n    @SuppressWarnings(\"unchecked\")\n    synchronized T pop() {\n        if (size == 0) throw new EmptyStackException();\n        T result = (T) elements[--size];\n        elements[size] = null;\n        return result;\n    }\n\n    synchronized void push(T item) {\n        ensureCapacity();\n        elements[size++] = item;\n    }\n\n    synchronized int size() { return size; }\n\n    private void ensureCapacity() {\n        if (elements.length == size)\n            elements = Arrays.copyOf(elements, size * 2);\n    }\n}"
     },
     {
       "type": "heading",
@@ -470,9 +457,9 @@
   "counts": {
     "headings": 18,
     "paras": 15,
-    "code": 24,
+    "code": 16,
     "tables": 1,
-    "lists": 12,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 5,
@@ -480,5 +467,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "7a83d2bc017f290fcc1ab91c53db1bcc5b805c02c34a8fe7bcea76555fde5613"
+  "content_sha256": "7c6d908522a66c82790a5dacb8f3fa6424c0932385236d7aa0c4cdd381a243c0"
 }

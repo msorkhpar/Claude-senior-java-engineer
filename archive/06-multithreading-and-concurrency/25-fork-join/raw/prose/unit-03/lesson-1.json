@@ -49,8 +49,8 @@
     },
     {
       "type": "code",
-      "lang": "text",
-      "text": "ForkJoinTask<V>       (abstract, implements Future<V>)\n  |\n  +-- RecursiveTask<V>    (abstract, for result-bearing tasks)\n  +-- RecursiveAction     (abstract, for void tasks)\n  +-- CountedCompleter<V> (for tasks with completion triggers)\n"
+      "lang": "",
+      "text": "ForkJoinTask<V>       (abstract, implements Future<V>)\n  |\n  +-- RecursiveTask<V>    (abstract, for result-bearing tasks)\n  +-- RecursiveAction     (abstract, for void tasks)\n  +-- CountedCompleter<V> (for tasks with completion triggers)"
     },
     {
       "type": "heading",
@@ -104,66 +104,45 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Returning mutable shared state from compute()**"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: shared mutable list\nprivate List<Integer> sharedResults = new ArrayList<>();\nprotected Long compute() {\n    sharedResults.add(partialResult); // race condition!\n    return sum;\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Each task should compute and return its own result; combine at join:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "protected Long compute() {\n    if (small) return sequentialSum();\n    left.fork();\n    long rightResult = right.compute();\n    return left.join() + rightResult; // combine immutably\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Not handling exceptions from join()**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: nothing here expects join() to throw\nleft.fork();\nlong rightResult = right.compute();\nlong leftResult = left.join(); // rethrows the subtask's RuntimeException or Error\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Let exceptions propagate, or catch the exception type the subtask throws. `join()` does not wrap it in `ExecutionException` or `CompletionException`; if the subtask ran in another thread, the exception may be a copy of the same type whose `getCause()` is the original:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "try {\n    long leftResult = left.join();\n} catch (ArithmeticException e) {\n    // handle the subtask's failure\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Returning mutable shared state from compute()**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: shared mutable list\nprivate List<Integer> sharedResults = new ArrayList<>();\nprotected Long compute() {\n    sharedResults.add(partialResult); // race condition!\n    return sum;\n}"
+          },
+          "**Fix**: Each task should compute and return its own result; combine at join:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "protected Long compute() {\n    if (small) return sequentialSum();\n    left.fork();\n    long rightResult = right.compute();\n    return left.join() + rightResult; // combine immutably\n}"
+          }
+        ],
+        [
+          "**Not handling exceptions from join()**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: nothing here expects join() to throw\nleft.fork();\nlong rightResult = right.compute();\nlong leftResult = left.join(); // rethrows the subtask's RuntimeException or Error"
+          },
+          "**Fix**: Let exceptions propagate, or catch the exception type the subtask throws. `join()` does not wrap it in `ExecutionException` or `CompletionException`; if the subtask ran in another thread, the exception may be a copy of the same type whose `getCause()` is the original:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "try {\n    long leftResult = left.join();\n} catch (ArithmeticException e) {\n    // handle the subtask's failure\n}"
+          }
+        ],
         "**Using RecursiveTask for I/O-bound operations**: Fork/Join is for CPU work. I/O in `compute()` blocks worker threads.",
-        "**Forgetting the base case**: Without a proper threshold, recursion never stops."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: infinite recursion\nprotected Long compute() {\n    // missing threshold check!\n    left.fork();\n    return right.compute() + left.join();\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Forgetting the base case**: Without a proper threshold, recursion never stops.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: infinite recursion\nprotected Long compute() {\n    // missing threshold check!\n    left.fork();\n    return right.compute() + left.join();\n}"
+          }
+        ],
         "**Threshold too small for Fibonacci-style tasks**: Naive recursive Fibonacci creates an exponential number of tasks. Use a sequential cutoff of at least 20."
-      ],
-      "start": 5
+      ]
     },
     {
       "type": "heading",
@@ -227,12 +206,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: A SumTask extends RecursiveTask<Long> and takes an array with start/end indices:\n\n1. Base case: If (end - start) <= THRESHOLD, sum elements sequentially.\n2. Recursive case:\n   a. Calculate midpoint: mid = start + (end - start) / 2\n   b. Create left subtask: SumTask(array, start, mid)\n   c. Create right subtask: SumTask(array, mid, end)\n   d. Fork left subtask\n   e. Compute right subtask in current thread\n   f. Join left subtask\n   g. Return leftResult + rightResult\n\nThe threshold prevents excessive task creation. For an array of 10,000 elements\nwith a threshold of 1,000, halving creates 31 tasks: 16 leaves of 625 elements\n(a binary tree of depth 4).\n"
+      "text": "A1: A SumTask extends RecursiveTask<Long> and takes an array with start/end indices:\n\n1. Base case: If (end - start) <= THRESHOLD, sum elements sequentially.\n2. Recursive case:\n   a. Calculate midpoint: mid = start + (end - start) / 2\n   b. Create left subtask: SumTask(array, start, mid)\n   c. Create right subtask: SumTask(array, mid, end)\n   d. Fork left subtask\n   e. Compute right subtask in current thread\n   f. Join left subtask\n   g. Return leftResult + rightResult\n\nThe threshold prevents excessive task creation. For an array of 10,000 elements\nwith a threshold of 1,000, halving creates 31 tasks: 16 leaves of 625 elements\n(a binary tree of depth 4)."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class SumTask extends RecursiveTask<Long> {\n    private static final int THRESHOLD = 1000;\n    private final int[] array;\n    private final int start, end;\n\n    public SumTask(int[] array, int start, int end) {\n        this.array = array;\n        this.start = start;\n        this.end = end;\n    }\n\n    @Override\n    protected Long compute() {\n        int length = end - start;\n        if (length <= THRESHOLD) {\n            long sum = 0;\n            for (int i = start; i < end; i++) sum += array[i];\n            return sum;\n        }\n        int mid = start + length / 2;\n        SumTask left = new SumTask(array, start, mid);\n        SumTask right = new SumTask(array, mid, end);\n        left.fork();\n        long rightResult = right.compute();\n        long leftResult = left.join();\n        return leftResult + rightResult;\n    }\n}\n"
+      "text": "public class SumTask extends RecursiveTask<Long> {\n    private static final int THRESHOLD = 1000;\n    private final int[] array;\n    private final int start, end;\n\n    public SumTask(int[] array, int start, int end) {\n        this.array = array;\n        this.start = start;\n        this.end = end;\n    }\n\n    @Override\n    protected Long compute() {\n        int length = end - start;\n        if (length <= THRESHOLD) {\n            long sum = 0;\n            for (int i = start; i < end; i++) sum += array[i];\n            return sum;\n        }\n        int mid = start + length / 2;\n        SumTask left = new SumTask(array, start, mid);\n        SumTask right = new SumTask(array, mid, end);\n        left.fork();\n        long rightResult = right.compute();\n        long leftResult = left.join();\n        return leftResult + rightResult;\n    }\n}"
     },
     {
       "type": "para",
@@ -241,12 +220,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: MergeSortTask extends RecursiveTask<int[]> and returns the sorted subarray:\n\n1. Base case: If array.length <= THRESHOLD, use Arrays.sort() on a copy.\n2. Recursive case:\n   a. Split array into left and right halves\n   b. Create MergeSortTask for each half\n   c. Fork left, compute right, join left\n   d. Merge the two sorted halves into one array\n\nKey design decisions:\n- Copy subarrays for each task (simpler but uses more memory)\n- OR use index-based ranges with an auxiliary array (more efficient)\n- The merge step is O(n) and must be done sequentially for each level\n\nThe merge sort is stable (preserves order of equal elements) and the fork/join\nversion maintains this property because each subtask operates on disjoint ranges.\n"
+      "text": "A2: MergeSortTask extends RecursiveTask<int[]> and returns the sorted subarray:\n\n1. Base case: If array.length <= THRESHOLD, use Arrays.sort() on a copy.\n2. Recursive case:\n   a. Split array into left and right halves\n   b. Create MergeSortTask for each half\n   c. Fork left, compute right, join left\n   d. Merge the two sorted halves into one array\n\nKey design decisions:\n- Copy subarrays for each task (simpler but uses more memory)\n- OR use index-based ranges with an auxiliary array (more efficient)\n- The merge step is O(n) and must be done sequentially for each level\n\nThe merge sort is stable (preserves order of equal elements) and the fork/join\nversion maintains this property because each subtask operates on disjoint ranges."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class MergeSortTask extends RecursiveTask<int[]> {\n    private static final int THRESHOLD = 64;\n    private final int[] array;\n\n    public MergeSortTask(int[] array) {\n        this.array = array;\n    }\n\n    @Override\n    protected int[] compute() {\n        if (array.length <= THRESHOLD) {\n            int[] copy = Arrays.copyOf(array, array.length);\n            Arrays.sort(copy);\n            return copy;\n        }\n        int mid = array.length / 2;\n        MergeSortTask left = new MergeSortTask(Arrays.copyOfRange(array, 0, mid));\n        MergeSortTask right = new MergeSortTask(Arrays.copyOfRange(array, mid, array.length));\n        left.fork();\n        int[] rightSorted = right.compute();\n        int[] leftSorted = left.join();\n        return merge(leftSorted, rightSorted);\n    }\n\n    private int[] merge(int[] a, int[] b) {\n        int[] result = new int[a.length + b.length];\n        int i = 0, j = 0, k = 0;\n        while (i < a.length && j < b.length)\n            result[k++] = (a[i] <= b[j]) ? a[i++] : b[j++];\n        while (i < a.length) result[k++] = a[i++];\n        while (j < b.length) result[k++] = b[j++];\n        return result;\n    }\n}\n"
+      "text": "public class MergeSortTask extends RecursiveTask<int[]> {\n    private static final int THRESHOLD = 64;\n    private final int[] array;\n\n    public MergeSortTask(int[] array) {\n        this.array = array;\n    }\n\n    @Override\n    protected int[] compute() {\n        if (array.length <= THRESHOLD) {\n            int[] copy = Arrays.copyOf(array, array.length);\n            Arrays.sort(copy);\n            return copy;\n        }\n        int mid = array.length / 2;\n        MergeSortTask left = new MergeSortTask(Arrays.copyOfRange(array, 0, mid));\n        MergeSortTask right = new MergeSortTask(Arrays.copyOfRange(array, mid, array.length));\n        left.fork();\n        int[] rightSorted = right.compute();\n        int[] leftSorted = left.join();\n        return merge(leftSorted, rightSorted);\n    }\n\n    private int[] merge(int[] a, int[] b) {\n        int[] result = new int[a.length + b.length];\n        int i = 0, j = 0, k = 0;\n        while (i < a.length && j < b.length)\n            result[k++] = (a[i] <= b[j]) ? a[i++] : b[j++];\n        while (i < a.length) result[k++] = a[i++];\n        while (j < b.length) result[k++] = b[j++];\n        return result;\n    }\n}"
     },
     {
       "type": "para",
@@ -255,12 +234,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Exceptions in RecursiveTask are handled as follows:\n\n1. If compute() throws an unchecked exception, it is captured by the ForkJoinTask.\n2. The exception is re-thrown when join() or get() is called on the task:\n   - join() rethrows it unwrapped (the same RuntimeException or Error type)\n   - get() wraps it in an ExecutionException (checked)\n3. invoke() on the pool also rethrows it unwrapped.\n\nIf the task failed in a different thread from the one calling join()/invoke(), the\nthrown exception may be a fresh copy of the same type, with the original as its cause\n(so the stack trace shows both threads). Use getCause() to reach the original message.\n\nIf a subtask fails, the parent task that calls join() will receive the exception.\nThe other subtask may still complete normally (it is not automatically cancelled).\n\nTo cancel a subtask programmatically, call task.cancel(true). For a ForkJoinTask the\nargument has no effect: a task that is already running is not interrupted.\nTo check if a task completed with an exception, use task.isCompletedAbnormally().\n"
+      "text": "A3: Exceptions in RecursiveTask are handled as follows:\n\n1. If compute() throws an unchecked exception, it is captured by the ForkJoinTask.\n2. The exception is re-thrown when join() or get() is called on the task:\n   - join() rethrows it unwrapped (the same RuntimeException or Error type)\n   - get() wraps it in an ExecutionException (checked)\n3. invoke() on the pool also rethrows it unwrapped.\n\nIf the task failed in a different thread from the one calling join()/invoke(), the\nthrown exception may be a fresh copy of the same type, with the original as its cause\n(so the stack trace shows both threads). Use getCause() to reach the original message.\n\nIf a subtask fails, the parent task that calls join() will receive the exception.\nThe other subtask may still complete normally (it is not automatically cancelled).\n\nTo cancel a subtask programmatically, call task.cancel(true). For a ForkJoinTask the\nargument has no effect: a task that is already running is not interrupted.\nTo check if a task completed with an exception, use task.isCompletedAbnormally()."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "RecursiveTask<Long> faultyTask = new RecursiveTask<>() {\n    @Override\n    protected Long compute() {\n        throw new ArithmeticException(\"Division by zero\");\n    }\n};\n\ntry {\n    ForkJoinPool.commonPool().invoke(faultyTask);\n} catch (ArithmeticException e) {\n    // thrown in a pool worker, so this is a copy whose cause is the original\n    Throwable original = e.getCause() != null ? e.getCause() : e;\n    System.out.println(\"Caught: \" + original.getMessage()); // Caught: Division by zero\n}\n\n// Or with submit + join: join() also rethrows the ArithmeticException itself\nvar future = ForkJoinPool.commonPool().submit(faultyTask);\ntry {\n    future.join();\n} catch (ArithmeticException e) {\n    System.out.println(\"join() rethrew: \" + e.getClass().getSimpleName()); // ArithmeticException\n}\n"
+      "text": "RecursiveTask<Long> faultyTask = new RecursiveTask<>() {\n    @Override\n    protected Long compute() {\n        throw new ArithmeticException(\"Division by zero\");\n    }\n};\n\ntry {\n    ForkJoinPool.commonPool().invoke(faultyTask);\n} catch (ArithmeticException e) {\n    // thrown in a pool worker, so this is a copy whose cause is the original\n    Throwable original = e.getCause() != null ? e.getCause() : e;\n    System.out.println(\"Caught: \" + original.getMessage()); // Caught: Division by zero\n}\n\n// Or with submit + join: join() also rethrows the ArithmeticException itself\nvar future = ForkJoinPool.commonPool().submit(faultyTask);\ntry {\n    future.join();\n} catch (ArithmeticException e) {\n    System.out.println(\"join() rethrew: \" + e.getClass().getSimpleName()); // ArithmeticException\n}"
     },
     {
       "type": "para",
@@ -269,12 +248,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: RecursiveTask is NOT a good fit in these scenarios:\n\n1. I/O-bound operations: Reading files, network calls, database queries.\n   Fork/Join threads that block on I/O reduce parallelism. Use virtual threads.\n\n2. Small datasets: The overhead of task creation, forking, and joining exceeds\n   the benefit of parallelism. Profile to find the break-even point.\n\n3. Tasks with heavy inter-dependencies: If subtasks need to communicate\n   during execution, Fork/Join's divide-and-conquer model breaks down.\n\n4. Non-decomposable problems: If the problem cannot be split into independent\n   subproblems (e.g., iterative algorithms with loop-carried dependencies),\n   Fork/Join cannot help.\n\n5. Simple embarrassingly parallel problems: For map-style operations without\n   reduction, parallel streams or a simple ExecutorService may be simpler.\n\n6. Tasks requiring ordered execution: Fork/Join tasks execute in unpredictable\n   order. Use a sequential executor if order matters.\n"
+      "text": "A4: RecursiveTask is NOT a good fit in these scenarios:\n\n1. I/O-bound operations: Reading files, network calls, database queries.\n   Fork/Join threads that block on I/O reduce parallelism. Use virtual threads.\n\n2. Small datasets: The overhead of task creation, forking, and joining exceeds\n   the benefit of parallelism. Profile to find the break-even point.\n\n3. Tasks with heavy inter-dependencies: If subtasks need to communicate\n   during execution, Fork/Join's divide-and-conquer model breaks down.\n\n4. Non-decomposable problems: If the problem cannot be split into independent\n   subproblems (e.g., iterative algorithms with loop-carried dependencies),\n   Fork/Join cannot help.\n\n5. Simple embarrassingly parallel problems: For map-style operations without\n   reduction, parallel streams or a simple ExecutorService may be simpler.\n\n6. Tasks requiring ordered execution: Fork/Join tasks execute in unpredictable\n   order. Use a sequential executor if order matters."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// BAD: I/O-bound task in ForkJoinPool\nclass FetchTask extends RecursiveTask<String> {\n    protected String compute() {\n        return httpClient.send(request, handler).body(); // blocks!\n    }\n}\n\n// GOOD: Use virtual threads for I/O\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<String>> futures = urls.stream()\n        .map(url -> executor.submit(() -> httpClient.send(request, handler).body()))\n        .toList();\n}\n"
+      "text": "// BAD: I/O-bound task in ForkJoinPool\nclass FetchTask extends RecursiveTask<String> {\n    protected String compute() {\n        return httpClient.send(request, handler).body(); // blocks!\n    }\n}\n\n// GOOD: Use virtual threads for I/O\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<String>> futures = urls.stream()\n        .map(url -> executor.submit(() -> httpClient.send(request, handler).body()))\n        .toList();\n}"
     },
     {
       "type": "para",
@@ -283,12 +262,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: For a binary split at the midpoint (the standard approach), every level halves the\nrange until it is <= T, so:\n\n- Depth: d = ceil(log2(N / T))\n- Leaf tasks (base cases): 2^d  (between N/T and 2N/T)\n- Internal tasks (recursive splits): 2^d - 1\n- Total tasks: 2^(d+1) - 1\n\nFor example, N = 10,000 and T = 1,000:\n- Depth: ceil(log2(10)) = 4\n- Leaf tasks: 16 (of 625 elements each)\n- Internal tasks: 15\n- Total: 31 tasks\n\nThis is important for tuning:\n- Too many tasks (small T): excessive overhead from task creation and scheduling\n- Too few tasks (large T): insufficient parallelism, some cores may be idle\n- Guideline: aim for at least parallelism * 4 leaf tasks for good load balancing\n\nThe work-stealing algorithm handles slight imbalances well, so exact balance\nis not required.\n"
+      "text": "A5: For a binary split at the midpoint (the standard approach), every level halves the\nrange until it is <= T, so:\n\n- Depth: d = ceil(log2(N / T))\n- Leaf tasks (base cases): 2^d  (between N/T and 2N/T)\n- Internal tasks (recursive splits): 2^d - 1\n- Total tasks: 2^(d+1) - 1\n\nFor example, N = 10,000 and T = 1,000:\n- Depth: ceil(log2(10)) = 4\n- Leaf tasks: 16 (of 625 elements each)\n- Internal tasks: 15\n- Total: 31 tasks\n\nThis is important for tuning:\n- Too many tasks (small T): excessive overhead from task creation and scheduling\n- Too few tasks (large T): insufficient parallelism, some cores may be idle\n- Guideline: aim for at least parallelism * 4 leaf tasks for good load balancing\n\nThe work-stealing algorithm handles slight imbalances well, so exact balance\nis not required."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Estimating task count\nint n = 10_000;\nint threshold = 1_000;\nint depth = (int) Math.ceil(Math.log((double) n / threshold) / Math.log(2)); // 4\nint leafTasks = 1 << depth; // 16\nint totalTasks = 2 * leafTasks - 1; // 31\n\nSystem.out.printf(\"Array: %d, Threshold: %d%n\", n, threshold);\nSystem.out.printf(\"Leaf tasks: %d, Total tasks: %d, Depth: %d%n\",\n    leafTasks, totalTasks, depth);\n"
+      "text": "// Estimating task count\nint n = 10_000;\nint threshold = 1_000;\nint depth = (int) Math.ceil(Math.log((double) n / threshold) / Math.log(2)); // 4\nint leafTasks = 1 << depth; // 16\nint totalTasks = 2 * leafTasks - 1; // 31\n\nSystem.out.printf(\"Array: %d, Threshold: %d%n\", n, threshold);\nSystem.out.printf(\"Leaf tasks: %d, Total tasks: %d, Depth: %d%n\",\n    leafTasks, totalTasks, depth);"
     },
     {
       "type": "heading",
@@ -309,10 +288,10 @@
   "attachments": [],
   "counts": {
     "headings": 11,
-    "paras": 10,
-    "code": 16,
+    "paras": 8,
+    "code": 11,
     "tables": 0,
-    "lists": 11,
+    "lists": 8,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -320,5 +299,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "7f325cf45d6fc14feb24aa84eb09f2b4f0cfe7c796ca7f0091f84a0b8782ee89"
+  "content_sha256": "a277c7aa816dd5dbcd8e5cf4745c010d6cbba72926bb7cb4b652219e551af9b3"
 }

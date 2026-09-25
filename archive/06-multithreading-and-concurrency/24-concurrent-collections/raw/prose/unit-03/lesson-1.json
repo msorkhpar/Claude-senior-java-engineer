@@ -121,52 +121,39 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Modifying a collection inside a for-each loop**"
+        [
+          "**Modifying a collection inside a for-each loop**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BAD: Throws ConcurrentModificationException\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nfor (String s : list) {\n    if (s.equals(\"a\")) {\n        list.remove(s); // Structural modification during iteration!\n    }\n}\n\n// FIX 1: Use Iterator.remove()\nIterator<String> it = list.iterator();\nwhile (it.hasNext()) {\n    if (it.next().equals(\"b\")) {\n        it.remove();\n    }\n}\n\n// FIX 2: Use removeIf() (preferred)\nlist.removeIf(s -> s.equals(\"b\"));"
+          }
+        ],
+        [
+          "**Assuming CopyOnWriteArrayList iterator reflects live changes**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// The iterator works on a SNAPSHOT\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\"));\nIterator<String> it = cowList.iterator();\ncowList.add(\"c\"); // Added AFTER iterator creation\nwhile (it.hasNext()) {\n    System.out.println(it.next()); // Prints \"a\", \"b\" - NOT \"c\"\n}"
+          }
+        ],
+        [
+          "**Trying to use Iterator.remove() on CopyOnWriteArrayList**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BAD: Throws UnsupportedOperationException\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\"));\nIterator<String> it = cowList.iterator();\nit.next();\nit.remove(); // UnsupportedOperationException!\n\n// FIX: Use the list's own remove method or removeIf\ncowList.remove(\"a\");"
+          }
+        ],
+        [
+          "**Relying on ConcurrentModificationException for control flow**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BAD: Using exception for flow control\ntry {\n    for (String s : list) {\n        if (shouldRemove(s)) list.remove(s);\n    }\n} catch (ConcurrentModificationException e) {\n    // \"Handle\" the situation - this is terrible practice\n}\n\n// FIX: Use proper removal techniques\nlist.removeIf(this::shouldRemove);"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: Throws ConcurrentModificationException\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nfor (String s : list) {\n    if (s.equals(\"a\")) {\n        list.remove(s); // Structural modification during iteration!\n    }\n}\n\n// FIX 1: Use Iterator.remove()\nIterator<String> it = list.iterator();\nwhile (it.hasNext()) {\n    if (it.next().equals(\"b\")) {\n        it.remove();\n    }\n}\n\n// FIX 2: Use removeIf() (preferred)\nlist.removeIf(s -> s.equals(\"b\"));\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Assuming CopyOnWriteArrayList iterator reflects live changes**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// The iterator works on a SNAPSHOT\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\"));\nIterator<String> it = cowList.iterator();\ncowList.add(\"c\"); // Added AFTER iterator creation\nwhile (it.hasNext()) {\n    System.out.println(it.next()); // Prints \"a\", \"b\" - NOT \"c\"\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Trying to use Iterator.remove() on CopyOnWriteArrayList**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: Throws UnsupportedOperationException\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\"));\nIterator<String> it = cowList.iterator();\nit.next();\nit.remove(); // UnsupportedOperationException!\n\n// FIX: Use the list's own remove method or removeIf\ncowList.remove(\"a\");\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Relying on ConcurrentModificationException for control flow**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: Using exception for flow control\ntry {\n    for (String s : list) {\n        if (shouldRemove(s)) list.remove(s);\n    }\n} catch (ConcurrentModificationException e) {\n    // \"Handle\" the situation - this is terrible practice\n}\n\n// FIX: Use proper removal techniques\nlist.removeIf(this::shouldRemove);\n"
     },
     {
       "type": "heading",
@@ -232,12 +219,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: These are the two main iterator behaviors in Java collections:\n\nFail-fast iterators (ArrayList, HashMap, HashSet):\n- Detect structural modifications after iterator creation\n- Throw ConcurrentModificationException on detection\n- Use an internal modification counter (modCount) for detection\n- Best-effort: NOT guaranteed to detect all concurrent modifications\n- Single-threaded scenario: Modifying collection during for-each throws CME\n- Multi-threaded: May detect modification, may not, may corrupt data first\n\nWeakly consistent iterators (ConcurrentHashMap, CopyOnWriteArrayList, ConcurrentSkipListSet):\n- NEVER throw ConcurrentModificationException\n- May or may not reflect modifications made after iterator creation\n- Guarantee each element is returned at most once\n- CopyOnWriteArrayList: iterates over a snapshot (frozen at creation time)\n- ConcurrentHashMap: may reflect some concurrent changes (not snapshot-based)\n\nImportant: The term \"fail-safe\" is commonly used but technically incorrect for Java concurrent \ncollections. The official term is \"weakly consistent.\"\n"
+      "text": "A1: These are the two main iterator behaviors in Java collections:\n\nFail-fast iterators (ArrayList, HashMap, HashSet):\n- Detect structural modifications after iterator creation\n- Throw ConcurrentModificationException on detection\n- Use an internal modification counter (modCount) for detection\n- Best-effort: NOT guaranteed to detect all concurrent modifications\n- Single-threaded scenario: Modifying collection during for-each throws CME\n- Multi-threaded: May detect modification, may not, may corrupt data first\n\nWeakly consistent iterators (ConcurrentHashMap, CopyOnWriteArrayList, ConcurrentSkipListSet):\n- NEVER throw ConcurrentModificationException\n- May or may not reflect modifications made after iterator creation\n- Guarantee each element is returned at most once\n- CopyOnWriteArrayList: iterates over a snapshot (frozen at creation time)\n- ConcurrentHashMap: may reflect some concurrent changes (not snapshot-based)\n\nImportant: The term \"fail-safe\" is commonly used but technically incorrect for Java concurrent \ncollections. The official term is \"weakly consistent.\""
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Fail-fast: ArrayList\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\ntry {\n    for (String s : list) {\n        list.add(\"d\"); // ConcurrentModificationException!\n    }\n} catch (ConcurrentModificationException e) {\n    System.out.println(\"Fail-fast detected modification\");\n}\n\n// Weakly consistent: ConcurrentHashMap\nConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();\nmap.put(\"a\", 1); map.put(\"b\", 2); map.put(\"c\", 3);\nfor (Map.Entry<String, Integer> entry : map.entrySet()) {\n    map.put(\"d\", 4); // No exception - weakly consistent\n    System.out.println(entry); // May or may not see \"d\"\n}\n\n// Snapshot: CopyOnWriteArrayList\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"x\", \"y\"));\nfor (String s : cowList) {\n    cowList.add(\"z\"); // No exception - iterating over snapshot\n    // Will NOT print \"z\"\n    System.out.println(s);\n}\n"
+      "text": "// Fail-fast: ArrayList\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\ntry {\n    for (String s : list) {\n        list.add(\"d\"); // ConcurrentModificationException!\n    }\n} catch (ConcurrentModificationException e) {\n    System.out.println(\"Fail-fast detected modification\");\n}\n\n// Weakly consistent: ConcurrentHashMap\nConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();\nmap.put(\"a\", 1); map.put(\"b\", 2); map.put(\"c\", 3);\nfor (Map.Entry<String, Integer> entry : map.entrySet()) {\n    map.put(\"d\", 4); // No exception - weakly consistent\n    System.out.println(entry); // May or may not see \"d\"\n}\n\n// Snapshot: CopyOnWriteArrayList\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"x\", \"y\"));\nfor (String s : cowList) {\n    cowList.add(\"z\"); // No exception - iterating over snapshot\n    // Will NOT print \"z\"\n    System.out.println(s);\n}"
     },
     {
       "type": "para",
@@ -246,12 +233,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: There are several safe approaches, from most to least preferred:\n\n1. removeIf() (Java 8+) - BEST approach:\n   - Clean, functional, single method call\n   - The default Collection.removeIf() uses Iterator.remove(); ArrayList overrides it with a single O(n) pass\n   - Works on all Collection types\n\n2. Iterator.remove():\n   - The only safe way to remove during explicit iteration\n   - Must call next() before each remove()\n   - Only removes the last element returned by next()\n\n3. Stream filtering:\n   - Creates a new collection, does not modify the original\n   - Ideal when you want to produce a filtered copy\n\n4. Collect-then-remove:\n   - Iterate, collecting the elements to remove into a separate list, then call removeAll() after the loop\n   - Higher memory usage but simple to understand\n\n5. Indexed reverse iteration:\n   - Iterate backwards by index, remove by index\n   - Works only with indexed lists (ArrayList)\n   - Avoids shifting issues since removed elements are behind the cursor\n"
+      "text": "A2: There are several safe approaches, from most to least preferred:\n\n1. removeIf() (Java 8+) - BEST approach:\n   - Clean, functional, single method call\n   - The default Collection.removeIf() uses Iterator.remove(); ArrayList overrides it with a single O(n) pass\n   - Works on all Collection types\n\n2. Iterator.remove():\n   - The only safe way to remove during explicit iteration\n   - Must call next() before each remove()\n   - Only removes the last element returned by next()\n\n3. Stream filtering:\n   - Creates a new collection, does not modify the original\n   - Ideal when you want to produce a filtered copy\n\n4. Collect-then-remove:\n   - Iterate, collecting the elements to remove into a separate list, then call removeAll() after the loop\n   - Higher memory usage but simple to understand\n\n5. Indexed reverse iteration:\n   - Iterate backwards by index, remove by index\n   - Works only with indexed lists (ArrayList)\n   - Avoids shifting issues since removed elements are behind the cursor"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "List<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"b\", \"d\"));\n\n// 1. removeIf() - PREFERRED\nlist.removeIf(s -> s.equals(\"b\"));\n// list = [a, c, d]\n\n// 2. Iterator.remove()\nlist = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"b\", \"d\"));\nIterator<String> it = list.iterator();\nwhile (it.hasNext()) {\n    if (it.next().equals(\"b\")) {\n        it.remove();\n    }\n}\n\n// 3. Stream filtering (new list)\nList<String> filtered = list.stream()\n    .filter(s -> !s.equals(\"b\"))\n    .toList();\n\n// 4. Collect-then-remove\nList<String> toRemove = new ArrayList<>();\nfor (String s : list) {\n    if (s.equals(\"b\")) toRemove.add(s);\n}\nlist.removeAll(toRemove);\n\n// 5. Reverse index iteration\nlist = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"b\", \"d\"));\nfor (int i = list.size() - 1; i >= 0; i--) {\n    if (list.get(i).equals(\"b\")) {\n        list.remove(i);\n    }\n}\n"
+      "text": "List<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"b\", \"d\"));\n\n// 1. removeIf() - PREFERRED\nlist.removeIf(s -> s.equals(\"b\"));\n// list = [a, c, d]\n\n// 2. Iterator.remove()\nlist = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"b\", \"d\"));\nIterator<String> it = list.iterator();\nwhile (it.hasNext()) {\n    if (it.next().equals(\"b\")) {\n        it.remove();\n    }\n}\n\n// 3. Stream filtering (new list)\nList<String> filtered = list.stream()\n    .filter(s -> !s.equals(\"b\"))\n    .toList();\n\n// 4. Collect-then-remove\nList<String> toRemove = new ArrayList<>();\nfor (String s : list) {\n    if (s.equals(\"b\")) toRemove.add(s);\n}\nlist.removeAll(toRemove);\n\n// 5. Reverse index iteration\nlist = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"b\", \"d\"));\nfor (int i = list.size() - 1; i >= 0; i--) {\n    if (list.get(i).equals(\"b\")) {\n        list.remove(i);\n    }\n}"
     },
     {
       "type": "para",
@@ -260,12 +247,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: When you create an iterator (or use a for-each loop) on a CopyOnWriteArrayList, the iterator \nreceives a reference to the CURRENT underlying array at that moment in time. This is the \"snapshot.\"\n\nKey behaviors:\n1. The iterator will traverse exactly the elements that existed when it was created.\n2. Any add/remove/set operations after iterator creation create a NEW array (copy-on-write), but \n   the iterator still references the OLD array.\n3. The iterator NEVER throws ConcurrentModificationException.\n4. The iterator does NOT support remove(), set(), or add() - these throw UnsupportedOperationException.\n5. Multiple iterators created at different times may see different snapshots.\n\nThis design is excellent for scenarios where:\n- Consistency during iteration is important\n- Reads vastly outnumber writes\n- You want zero-cost reads (no synchronization)\n\nThe trade-off is memory: during a write, both the old array (held by existing iterators) and the \nnew array (the current list) exist in memory simultaneously.\n"
+      "text": "A3: When you create an iterator (or use a for-each loop) on a CopyOnWriteArrayList, the iterator \nreceives a reference to the CURRENT underlying array at that moment in time. This is the \"snapshot.\"\n\nKey behaviors:\n1. The iterator will traverse exactly the elements that existed when it was created.\n2. Any add/remove/set operations after iterator creation create a NEW array (copy-on-write), but \n   the iterator still references the OLD array.\n3. The iterator NEVER throws ConcurrentModificationException.\n4. The iterator does NOT support remove(), set(), or add() - these throw UnsupportedOperationException.\n5. Multiple iterators created at different times may see different snapshots.\n\nThis design is excellent for scenarios where:\n- Consistency during iteration is important\n- Reads vastly outnumber writes\n- You want zero-cost reads (no synchronization)\n\nThe trade-off is memory: during a write, both the old array (held by existing iterators) and the \nnew array (the current list) exist in memory simultaneously."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "CopyOnWriteArrayList<String> list = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\", \"c\"));\n\n// Create iterator - captures snapshot [a, b, c]\nIterator<String> iter1 = list.iterator();\n\n// Modify the list - creates new array\nlist.add(\"d\");\nlist.remove(\"a\");\n\n// Create another iterator - captures snapshot [b, c, d]\nIterator<String> iter2 = list.iterator();\n\n// iter1 still sees the original snapshot\nList<String> fromIter1 = new ArrayList<>();\niter1.forEachRemaining(fromIter1::add);\nSystem.out.println(fromIter1); // [a, b, c]\n\n// iter2 sees the modified snapshot\nList<String> fromIter2 = new ArrayList<>();\niter2.forEachRemaining(fromIter2::add);\nSystem.out.println(fromIter2); // [b, c, d]\n\n// Iterator.remove() is not supported\nIterator<String> iter3 = list.iterator();\niter3.next();\n// iter3.remove(); // Throws UnsupportedOperationException!\n"
+      "text": "CopyOnWriteArrayList<String> list = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\", \"c\"));\n\n// Create iterator - captures snapshot [a, b, c]\nIterator<String> iter1 = list.iterator();\n\n// Modify the list - creates new array\nlist.add(\"d\");\nlist.remove(\"a\");\n\n// Create another iterator - captures snapshot [b, c, d]\nIterator<String> iter2 = list.iterator();\n\n// iter1 still sees the original snapshot\nList<String> fromIter1 = new ArrayList<>();\niter1.forEachRemaining(fromIter1::add);\nSystem.out.println(fromIter1); // [a, b, c]\n\n// iter2 sees the modified snapshot\nList<String> fromIter2 = new ArrayList<>();\niter2.forEachRemaining(fromIter2::add);\nSystem.out.println(fromIter2); // [b, c, d]\n\n// Iterator.remove() is not supported\nIterator<String> iter3 = list.iterator();\niter3.next();\n// iter3.remove(); // Throws UnsupportedOperationException!"
     },
     {
       "type": "para",
@@ -274,12 +261,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Modifying a HashMap (or any non-concurrent collection) while processing it with a stream \nwill result in undefined behavior, and the stream may throw ConcurrentModificationException.\n\nStreams use Spliterators internally, which have the same fail-fast detection as iterators. The \nstream pipeline checks the modification count at various stages, and if it detects a change, it \nthrows ConcurrentModificationException.\n\nThis applies to:\n- stream().filter().collect() - if the source is modified during execution\n- parallelStream() - even more dangerous because modifications from any thread can corrupt state\n- forEach() on streams - if the lambda modifies the source collection\n\nThe safe approach is to collect results into a new collection rather than modifying the source.\nNote: ConcurrentHashMap streams are weakly consistent and will NOT throw CME.\n"
+      "text": "A4: Modifying a HashMap (or any non-concurrent collection) while processing it with a stream \nwill result in undefined behavior, and the stream may throw ConcurrentModificationException.\n\nStreams use Spliterators internally, which have the same fail-fast detection as iterators. The \nstream pipeline checks the modification count at various stages, and if it detects a change, it \nthrows ConcurrentModificationException.\n\nThis applies to:\n- stream().filter().collect() - if the source is modified during execution\n- parallelStream() - even more dangerous because modifications from any thread can corrupt state\n- forEach() on streams - if the lambda modifies the source collection\n\nThe safe approach is to collect results into a new collection rather than modifying the source.\nNote: ConcurrentHashMap streams are weakly consistent and will NOT throw CME."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// DANGEROUS: Modifying source during stream processing\nMap<String, Integer> map = new HashMap<>();\nmap.put(\"a\", 1); map.put(\"b\", 2); map.put(\"c\", 3);\n\n// BAD: This may throw ConcurrentModificationException\n// map.entrySet().stream().forEach(e -> {\n//     if (e.getValue() < 2) map.remove(e.getKey());\n// });\n\n// SAFE: Collect keys to remove, then remove them\nList<String> toRemove = map.entrySet().stream()\n    .filter(e -> e.getValue() < 2)\n    .map(Map.Entry::getKey)\n    .toList();\ntoRemove.forEach(map::remove);\n\n// SAFE: Create a new filtered map\nMap<String, Integer> filtered = map.entrySet().stream()\n    .filter(e -> e.getValue() >= 2)\n    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));\n\n// SAFE: ConcurrentHashMap - weakly consistent streams\nConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>(map);\nconcMap.entrySet().removeIf(e -> e.getValue() < 2); // Safe and atomic per-entry\n"
+      "text": "// DANGEROUS: Modifying source during stream processing\nMap<String, Integer> map = new HashMap<>();\nmap.put(\"a\", 1); map.put(\"b\", 2); map.put(\"c\", 3);\n\n// BAD: This may throw ConcurrentModificationException\n// map.entrySet().stream().forEach(e -> {\n//     if (e.getValue() < 2) map.remove(e.getKey());\n// });\n\n// SAFE: Collect keys to remove, then remove them\nList<String> toRemove = map.entrySet().stream()\n    .filter(e -> e.getValue() < 2)\n    .map(Map.Entry::getKey)\n    .toList();\ntoRemove.forEach(map::remove);\n\n// SAFE: Create a new filtered map\nMap<String, Integer> filtered = map.entrySet().stream()\n    .filter(e -> e.getValue() >= 2)\n    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));\n\n// SAFE: ConcurrentHashMap - weakly consistent streams\nConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>(map);\nconcMap.entrySet().removeIf(e -> e.getValue() < 2); // Safe and atomic per-entry"
     },
     {
       "type": "para",
@@ -288,12 +275,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Yes! Calling entry.setValue() during HashMap iteration is SAFE and does NOT throw \nConcurrentModificationException. This is because setValue() modifies the VALUE of an existing \nentry, which is NOT a structural modification.\n\nStructural modifications are operations that change the MAP'S STRUCTURE:\n- Adding a new key (put with a new key)\n- Removing a key (remove)\n- Clearing the map (clear)\n\nNon-structural modifications that are SAFE during iteration:\n- entry.setValue() - changes value of existing entry\n- put() with an EXISTING key - replaces value without structural change\n- replace(key, value) - replaces value of existing key\n\nHowever, be cautious: put() with a NEW key IS a structural modification and WILL trigger CME.\n"
+      "text": "A5: Yes! Calling entry.setValue() during HashMap iteration is SAFE and does NOT throw \nConcurrentModificationException. This is because setValue() modifies the VALUE of an existing \nentry, which is NOT a structural modification.\n\nStructural modifications are operations that change the MAP'S STRUCTURE:\n- Adding a new key (put with a new key)\n- Removing a key (remove)\n- Clearing the map (clear)\n\nNon-structural modifications that are SAFE during iteration:\n- entry.setValue() - changes value of existing entry\n- put() with an EXISTING key - replaces value without structural change\n- replace(key, value) - replaces value of existing key\n\nHowever, be cautious: put() with a NEW key IS a structural modification and WILL trigger CME."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Map<String, Integer> map = new HashMap<>();\nmap.put(\"a\", 1); map.put(\"b\", 2); map.put(\"c\", 3);\n\n// SAFE: setValue() during iteration\nfor (Map.Entry<String, Integer> entry : map.entrySet()) {\n    entry.setValue(entry.getValue() * 10); // Safe! Not structural modification\n}\n// map = {a=10, b=20, c=30}\n\n// SAFE: replaceAll() - applies a function to all values\nmap.replaceAll((key, value) -> value + 1);\n// map = {a=11, b=21, c=31}\n\n// DANGEROUS: put() with NEW key during iteration\n// for (Map.Entry<String, Integer> entry : map.entrySet()) {\n//     map.put(\"new_\" + entry.getKey(), entry.getValue()); // CME!\n// }\n"
+      "text": "Map<String, Integer> map = new HashMap<>();\nmap.put(\"a\", 1); map.put(\"b\", 2); map.put(\"c\", 3);\n\n// SAFE: setValue() during iteration\nfor (Map.Entry<String, Integer> entry : map.entrySet()) {\n    entry.setValue(entry.getValue() * 10); // Safe! Not structural modification\n}\n// map = {a=10, b=20, c=30}\n\n// SAFE: replaceAll() - applies a function to all values\nmap.replaceAll((key, value) -> value + 1);\n// map = {a=11, b=21, c=31}\n\n// DANGEROUS: put() with NEW key during iteration\n// for (Map.Entry<String, Integer> entry : map.entrySet()) {\n//     map.put(\"new_\" + entry.getKey(), entry.getValue()); // CME!\n// }"
     },
     {
       "type": "para",
@@ -302,12 +289,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: The modCount mechanism is a simple counter-based detection system:\n\n1. Every collection that supports fail-fast maintains an int field called modCount (modification count).\n2. modCount is incremented on every structural modification (add, remove, clear).\n3. When an iterator is created, it copies the current modCount into an expectedModCount field.\n4. Before each iterator operation (next(), remove()), the iterator checks:\n   if (modCount != expectedModCount) throw new ConcurrentModificationException();\n5. Iterator.remove() is safe because it increments BOTH modCount AND expectedModCount.\n\nLimitations:\n- modCount is NOT volatile or synchronized, so in multi-threaded scenarios, the check may not \n  detect concurrent modifications due to memory visibility issues.\n- Integer overflow: After 2^31 modifications, modCount wraps around. If it happens to match \n  expectedModCount after wrapping, the detection fails silently.\n- It detects structural modifications only, not value changes.\n\nThis is why the Javadoc says: \"the fail-fast behavior of iterators should be used only to detect bugs.\"\n"
+      "text": "A6: The modCount mechanism is a simple counter-based detection system:\n\n1. Every collection that supports fail-fast maintains an int field called modCount (modification count).\n2. modCount is incremented on every structural modification (add, remove, clear).\n3. When an iterator is created, it copies the current modCount into an expectedModCount field.\n4. Before each iterator operation (next(), remove()), the iterator checks:\n   if (modCount != expectedModCount) throw new ConcurrentModificationException();\n5. Iterator.remove() is safe because it increments BOTH modCount AND expectedModCount.\n\nLimitations:\n- modCount is NOT volatile or synchronized, so in multi-threaded scenarios, the check may not \n  detect concurrent modifications due to memory visibility issues.\n- Integer overflow: After 2^31 modifications, modCount wraps around. If it happens to match \n  expectedModCount after wrapping, the detection fails silently.\n- It detects structural modifications only, not value changes.\n\nThis is why the Javadoc says: \"the fail-fast behavior of iterators should be used only to detect bugs.\""
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Conceptual illustration of modCount behavior\n// (simplified from actual ArrayList source)\n\n// ArrayList internal state:\n// int modCount = 0;\n\n// list.add(\"a\") -> modCount becomes 1\n// list.add(\"b\") -> modCount becomes 2\n\n// Iterator creation:\n// expectedModCount = modCount (= 2)\n\n// Iterator.next():\n// check: modCount (2) == expectedModCount (2) -> OK\n\n// list.add(\"c\") -> modCount becomes 3\n\n// Iterator.next():\n// check: modCount (3) != expectedModCount (2) -> THROW ConcurrentModificationException\n\n// Iterator.remove() is special:\n// It calls list.remove() which increments modCount (to 4)\n// Then it sets expectedModCount = modCount (to 4)\n// So the next check passes: modCount (4) == expectedModCount (4)\n"
+      "text": "// Conceptual illustration of modCount behavior\n// (simplified from actual ArrayList source)\n\n// ArrayList internal state:\n// int modCount = 0;\n\n// list.add(\"a\") -> modCount becomes 1\n// list.add(\"b\") -> modCount becomes 2\n\n// Iterator creation:\n// expectedModCount = modCount (= 2)\n\n// Iterator.next():\n// check: modCount (2) == expectedModCount (2) -> OK\n\n// list.add(\"c\") -> modCount becomes 3\n\n// Iterator.next():\n// check: modCount (3) != expectedModCount (2) -> THROW ConcurrentModificationException\n\n// Iterator.remove() is special:\n// It calls list.remove() which increments modCount (to 4)\n// Then it sets expectedModCount = modCount (to 4)\n// So the next check passes: modCount (4) == expectedModCount (4)"
     },
     {
       "type": "heading",
@@ -329,9 +316,9 @@
   "counts": {
     "headings": 13,
     "paras": 13,
-    "code": 16,
+    "code": 12,
     "tables": 0,
-    "lists": 12,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -339,5 +326,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "31af8356da1cfd4b20bf2014932726750b0900ec27d7afaf6ec6fe8f3100fb74"
+  "content_sha256": "d9067588c3d5e8b03b6cb346e6cd72ae0720fe582c1e1b6d525f4d3d7b507237"
 }

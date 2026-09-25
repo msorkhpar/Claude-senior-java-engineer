@@ -77,52 +77,39 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Forgetting timezone when converting `Date` to `LocalDate`**:"
+        [
+          "**Forgetting timezone when converting `Date` to `LocalDate`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Date is UTC-based, LocalDate needs a timezone context\nDate date = new Date();\n// Can't directly convert: date has no toLocalDate() method\n\n// Fix: Go through Instant and specify a timezone\nLocalDate localDate = date.toInstant()\n        .atZone(ZoneId.systemDefault())\n        .toLocalDate();"
+          }
+        ],
+        [
+          "**Using `java.sql.Date` for time information**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: java.sql.Date deliberately zeros out time components\njava.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.now());\nsqlDate.getHours(); // Throws IllegalArgumentException -- java.sql.Date has no time part\n\n// Fix: Use Timestamp for date+time, or java.sql.Date only for dates"
+          }
+        ],
+        [
+          "**Losing nanosecond precision in conversion**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: java.util.Date has only millisecond precision\nInstant precise = Instant.ofEpochSecond(100, 123_456_789);\nDate date = Date.from(precise); // Truncated to milliseconds\nInstant back = date.toInstant(); // nano = 123_000_000 (lost precision)\n\n// Fix: Use Timestamp for nanosecond preservation\nTimestamp ts = Timestamp.from(precise); // Preserves nanoseconds\nInstant restored = ts.toInstant(); // nano = 123_456_789"
+          }
+        ],
+        [
+          "**System default timezone dependency**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Using ZoneId.systemDefault() makes code timezone-dependent\nLocalDate ld = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();\n// Result changes if JVM timezone changes!\n\n// Fix: Use an explicit timezone\nLocalDate ld = date.toInstant().atZone(ZoneId.of(\"UTC\")).toLocalDate();"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Date is UTC-based, LocalDate needs a timezone context\nDate date = new Date();\n// Can't directly convert: date has no toLocalDate() method\n\n// Fix: Go through Instant and specify a timezone\nLocalDate localDate = date.toInstant()\n        .atZone(ZoneId.systemDefault())\n        .toLocalDate();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using `java.sql.Date` for time information**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: java.sql.Date deliberately zeros out time components\njava.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.now());\nsqlDate.getHours(); // Throws IllegalArgumentException -- java.sql.Date has no time part\n\n// Fix: Use Timestamp for date+time, or java.sql.Date only for dates\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Losing nanosecond precision in conversion**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: java.util.Date has only millisecond precision\nInstant precise = Instant.ofEpochSecond(100, 123_456_789);\nDate date = Date.from(precise); // Truncated to milliseconds\nInstant back = date.toInstant(); // nano = 123_000_000 (lost precision)\n\n// Fix: Use Timestamp for nanosecond preservation\nTimestamp ts = Timestamp.from(precise); // Preserves nanoseconds\nInstant restored = ts.toInstant(); // nano = 123_456_789\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**System default timezone dependency**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Using ZoneId.systemDefault() makes code timezone-dependent\nLocalDate ld = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();\n// Result changes if JVM timezone changes!\n\n// Fix: Use an explicit timezone\nLocalDate ld = date.toInstant().atZone(ZoneId.of(\"UTC\")).toLocalDate();\n"
     },
     {
       "type": "heading",
@@ -188,12 +175,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The primary conversion path goes through Instant:\n\nDate -> Instant: date.toInstant()\nInstant -> Date: Date.from(instant)\n\nFor LocalDate/LocalDateTime, you need a timezone:\nDate -> LocalDate: date.toInstant().atZone(zoneId).toLocalDate()\nDate -> LocalDateTime: date.toInstant().atZone(zoneId).toLocalDateTime()\nLocalDate -> Date: Date.from(localDate.atStartOfDay(zoneId).toInstant())\nLocalDateTime -> Date: Date.from(localDateTime.atZone(zoneId).toInstant())\n\nThe timezone requirement exists because Date stores UTC milliseconds, while \nLocalDate/LocalDateTime have no timezone. You must specify which timezone to \nuse for the interpretation.\n"
+      "text": "A1: The primary conversion path goes through Instant:\n\nDate -> Instant: date.toInstant()\nInstant -> Date: Date.from(instant)\n\nFor LocalDate/LocalDateTime, you need a timezone:\nDate -> LocalDate: date.toInstant().atZone(zoneId).toLocalDate()\nDate -> LocalDateTime: date.toInstant().atZone(zoneId).toLocalDateTime()\nLocalDate -> Date: Date.from(localDate.atStartOfDay(zoneId).toInstant())\nLocalDateTime -> Date: Date.from(localDateTime.atZone(zoneId).toInstant())\n\nThe timezone requirement exists because Date stores UTC milliseconds, while \nLocalDate/LocalDateTime have no timezone. You must specify which timezone to \nuse for the interpretation."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Date to Instant (direct)\nDate date = new Date();\nInstant instant = date.toInstant();\n\n// Instant to Date (direct)\nDate backToDate = Date.from(instant);\n\n// Date to LocalDate (requires timezone)\nLocalDate localDate = date.toInstant()\n        .atZone(ZoneId.of(\"America/New_York\"))\n        .toLocalDate();\n\n// LocalDate to Date (requires timezone)\nDate fromLocalDate = Date.from(\n        localDate.atStartOfDay(ZoneId.of(\"America/New_York\")).toInstant());\n\n// Date to LocalDateTime (requires timezone)\nLocalDateTime localDateTime = date.toInstant()\n        .atZone(ZoneId.of(\"UTC\"))\n        .toLocalDateTime();\n"
+      "text": "// Date to Instant (direct)\nDate date = new Date();\nInstant instant = date.toInstant();\n\n// Instant to Date (direct)\nDate backToDate = Date.from(instant);\n\n// Date to LocalDate (requires timezone)\nLocalDate localDate = date.toInstant()\n        .atZone(ZoneId.of(\"America/New_York\"))\n        .toLocalDate();\n\n// LocalDate to Date (requires timezone)\nDate fromLocalDate = Date.from(\n        localDate.atStartOfDay(ZoneId.of(\"America/New_York\")).toInstant());\n\n// Date to LocalDateTime (requires timezone)\nLocalDateTime localDateTime = date.toInstant()\n        .atZone(ZoneId.of(\"UTC\"))\n        .toLocalDateTime();"
     },
     {
       "type": "para",
@@ -202,12 +189,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: For GregorianCalendar (the most common Calendar implementation):\n\nGregorianCalendar -> ZonedDateTime: gc.toZonedDateTime()\nZonedDateTime -> GregorianCalendar: GregorianCalendar.from(zonedDateTime)\n\nFor other Calendar implementations (rare):\nCalendar -> Instant: calendar.toInstant()\nThen: instant.atZone(calendar.getTimeZone().toZoneId())\n\nThe GregorianCalendar bridge is the most complete because ZonedDateTime uses \nthe same calendar system (ISO/Gregorian).\n"
+      "text": "A2: For GregorianCalendar (the most common Calendar implementation):\n\nGregorianCalendar -> ZonedDateTime: gc.toZonedDateTime()\nZonedDateTime -> GregorianCalendar: GregorianCalendar.from(zonedDateTime)\n\nFor other Calendar implementations (rare):\nCalendar -> Instant: calendar.toInstant()\nThen: instant.atZone(calendar.getTimeZone().toZoneId())\n\nThe GregorianCalendar bridge is the most complete because ZonedDateTime uses \nthe same calendar system (ISO/Gregorian)."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// GregorianCalendar to ZonedDateTime\nGregorianCalendar gc = new GregorianCalendar(2024, Calendar.MARCH, 15);\ngc.setTimeZone(TimeZone.getTimeZone(\"America/New_York\"));\nZonedDateTime zdt = gc.toZonedDateTime();\n// 2024-03-15T00:00-04:00[America/New_York]\n\n// ZonedDateTime to GregorianCalendar\nZonedDateTime zdt2 = ZonedDateTime.of(2024, 6, 15, 14, 30, 0, 0,\n        ZoneId.of(\"Europe/London\"));\nGregorianCalendar gc2 = GregorianCalendar.from(zdt2);\n\n// Generic Calendar to java.time (through Instant)\nCalendar cal = Calendar.getInstance();\nInstant instant = cal.toInstant();\nZoneId zone = cal.getTimeZone().toZoneId();\nZonedDateTime fromCal = instant.atZone(zone);\n"
+      "text": "// GregorianCalendar to ZonedDateTime\nGregorianCalendar gc = new GregorianCalendar(2024, Calendar.MARCH, 15);\ngc.setTimeZone(TimeZone.getTimeZone(\"America/New_York\"));\nZonedDateTime zdt = gc.toZonedDateTime();\n// 2024-03-15T00:00-04:00[America/New_York]\n\n// ZonedDateTime to GregorianCalendar\nZonedDateTime zdt2 = ZonedDateTime.of(2024, 6, 15, 14, 30, 0, 0,\n        ZoneId.of(\"Europe/London\"));\nGregorianCalendar gc2 = GregorianCalendar.from(zdt2);\n\n// Generic Calendar to java.time (through Instant)\nCalendar cal = Calendar.getInstance();\nInstant instant = cal.toInstant();\nZoneId zone = cal.getTimeZone().toZoneId();\nZonedDateTime fromCal = instant.atZone(zone);"
     },
     {
       "type": "para",
@@ -216,12 +203,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Modern JDBC (4.2+, since Java 8) supports java.time types directly:\n\nWriting:\n- preparedStatement.setObject(1, localDate)       // DATE column\n- preparedStatement.setObject(1, localTime)        // TIME column\n- preparedStatement.setObject(1, localDateTime)    // TIMESTAMP column\n- preparedStatement.setObject(1, offsetDateTime)   // TIMESTAMP WITH TIME ZONE\n\nReading:\n- resultSet.getObject(1, LocalDate.class)\n- resultSet.getObject(1, LocalTime.class)\n- resultSet.getObject(1, LocalDateTime.class)\n- resultSet.getObject(1, OffsetDateTime.class)\n\nIf using older drivers, convert at the boundary:\n- java.sql.Date.valueOf(localDate) / sqlDate.toLocalDate()\n- Timestamp.valueOf(localDateTime) / timestamp.toLocalDateTime()\n\nFor JPA/Hibernate: java.time types are supported natively since Hibernate 5+ \nand JPA 2.2+. No converter needed.\n"
+      "text": "A3: Modern JDBC (4.2+, since Java 8) supports java.time types directly:\n\nWriting:\n- preparedStatement.setObject(1, localDate)       // DATE column\n- preparedStatement.setObject(1, localTime)        // TIME column\n- preparedStatement.setObject(1, localDateTime)    // TIMESTAMP column\n- preparedStatement.setObject(1, offsetDateTime)   // TIMESTAMP WITH TIME ZONE\n\nReading:\n- resultSet.getObject(1, LocalDate.class)\n- resultSet.getObject(1, LocalTime.class)\n- resultSet.getObject(1, LocalDateTime.class)\n- resultSet.getObject(1, OffsetDateTime.class)\n\nIf using older drivers, convert at the boundary:\n- java.sql.Date.valueOf(localDate) / sqlDate.toLocalDate()\n- Timestamp.valueOf(localDateTime) / timestamp.toLocalDateTime()\n\nFor JPA/Hibernate: java.time types are supported natively since Hibernate 5+ \nand JPA 2.2+. No converter needed."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Modern JDBC: direct java.time support\ntry (PreparedStatement ps = conn.prepareStatement(\n        \"INSERT INTO events (name, event_date, event_time) VALUES (?, ?, ?)\")) {\n    ps.setString(1, \"Meeting\");\n    ps.setObject(2, LocalDate.of(2024, 3, 15));           // Direct\n    ps.setObject(3, LocalDateTime.of(2024, 3, 15, 14, 30)); // Direct\n    ps.executeUpdate();\n}\n\n// Reading\ntry (ResultSet rs = stmt.executeQuery(\"SELECT * FROM events\")) {\n    LocalDate date = rs.getObject(\"event_date\", LocalDate.class);\n    LocalDateTime dateTime = rs.getObject(\"event_time\", LocalDateTime.class);\n}\n\n// Legacy JDBC: manual conversion\njava.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.of(2024, 3, 15));\nTimestamp sqlTs = Timestamp.valueOf(LocalDateTime.of(2024, 3, 15, 14, 30));\n"
+      "text": "// Modern JDBC: direct java.time support\ntry (PreparedStatement ps = conn.prepareStatement(\n        \"INSERT INTO events (name, event_date, event_time) VALUES (?, ?, ?)\")) {\n    ps.setString(1, \"Meeting\");\n    ps.setObject(2, LocalDate.of(2024, 3, 15));           // Direct\n    ps.setObject(3, LocalDateTime.of(2024, 3, 15, 14, 30)); // Direct\n    ps.executeUpdate();\n}\n\n// Reading\ntry (ResultSet rs = stmt.executeQuery(\"SELECT * FROM events\")) {\n    LocalDate date = rs.getObject(\"event_date\", LocalDate.class);\n    LocalDateTime dateTime = rs.getObject(\"event_time\", LocalDateTime.class);\n}\n\n// Legacy JDBC: manual conversion\njava.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.of(2024, 3, 15));\nTimestamp sqlTs = Timestamp.valueOf(LocalDateTime.of(2024, 3, 15, 14, 30));"
     },
     {
       "type": "para",
@@ -230,12 +217,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Precision differs across types:\n\njava.util.Date: millisecond precision (10^-3 seconds)\njava.sql.Timestamp: nanosecond precision (10^-9 seconds)\njava.time.Instant: nanosecond precision (10^-9 seconds)\n\nConversions and precision loss:\n- Instant -> Date -> Instant: loses sub-millisecond precision\n- Instant -> Timestamp -> Instant: preserves nanosecond precision\n- LocalDateTime -> Timestamp -> LocalDateTime: preserves nanoseconds\n- LocalDate -> java.sql.Date -> LocalDate: no precision issue (date-only)\n\nBest practice: Use Timestamp (not Date) as the bridge type when nanosecond \nprecision matters.\n"
+      "text": "A4: Precision differs across types:\n\njava.util.Date: millisecond precision (10^-3 seconds)\njava.sql.Timestamp: nanosecond precision (10^-9 seconds)\njava.time.Instant: nanosecond precision (10^-9 seconds)\n\nConversions and precision loss:\n- Instant -> Date -> Instant: loses sub-millisecond precision\n- Instant -> Timestamp -> Instant: preserves nanosecond precision\n- LocalDateTime -> Timestamp -> LocalDateTime: preserves nanoseconds\n- LocalDate -> java.sql.Date -> LocalDate: no precision issue (date-only)\n\nBest practice: Use Timestamp (not Date) as the bridge type when nanosecond \nprecision matters."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Nanosecond precision test\nInstant precise = Instant.ofEpochSecond(1710523800, 123_456_789);\n\n// Through Date: LOSES nanosecond precision\nDate date = Date.from(precise);\nInstant fromDate = date.toInstant();\nSystem.out.println(fromDate.getNano()); // 123_000_000 (lost 456_789 nanos)\n\n// Through Timestamp: PRESERVES nanosecond precision\nTimestamp ts = Timestamp.from(precise);\nInstant fromTs = ts.toInstant();\nSystem.out.println(fromTs.getNano()); // 123_456_789 (fully preserved)\n"
+      "text": "// Nanosecond precision test\nInstant precise = Instant.ofEpochSecond(1710523800, 123_456_789);\n\n// Through Date: LOSES nanosecond precision\nDate date = Date.from(precise);\nInstant fromDate = date.toInstant();\nSystem.out.println(fromDate.getNano()); // 123_000_000 (lost 456_789 nanos)\n\n// Through Timestamp: PRESERVES nanosecond precision\nTimestamp ts = Timestamp.from(precise);\nInstant fromTs = ts.toInstant();\nSystem.out.println(fromTs.getNano()); // 123_456_789 (fully preserved)"
     },
     {
       "type": "para",
@@ -244,12 +231,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: A phased migration approach works best:\n\nPhase 1 - Boundary conversion:\n- Add conversion methods at API boundaries\n- Keep internal logic using java.time\n- Legacy types only at integration points (JDBC, old libraries)\n\nPhase 2 - Internal migration:\n- Replace Date/Calendar fields with java.time types\n- Update method signatures to accept/return java.time types\n- Keep legacy-compatible overloads for backward compatibility\n\nPhase 3 - API migration:\n- Update public APIs to use java.time types\n- Deprecate legacy-type methods\n- Update database column types if applicable\n\nPhase 4 - Cleanup:\n- Remove deprecated legacy-type methods\n- Remove conversion utilities no longer needed\n\nKey principles:\n1. Never mix legacy and modern types in the same method\n2. Convert as early as possible (at the boundary)\n3. Use java.time types for all new code\n4. Test timezone behavior explicitly during migration\n"
+      "text": "A5: A phased migration approach works best:\n\nPhase 1 - Boundary conversion:\n- Add conversion methods at API boundaries\n- Keep internal logic using java.time\n- Legacy types only at integration points (JDBC, old libraries)\n\nPhase 2 - Internal migration:\n- Replace Date/Calendar fields with java.time types\n- Update method signatures to accept/return java.time types\n- Keep legacy-compatible overloads for backward compatibility\n\nPhase 3 - API migration:\n- Update public APIs to use java.time types\n- Deprecate legacy-type methods\n- Update database column types if applicable\n\nPhase 4 - Cleanup:\n- Remove deprecated legacy-type methods\n- Remove conversion utilities no longer needed\n\nKey principles:\n1. Never mix legacy and modern types in the same method\n2. Convert as early as possible (at the boundary)\n3. Use java.time types for all new code\n4. Test timezone behavior explicitly during migration"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Phase 1: Boundary conversion pattern\npublic class EventService {\n    // Modern internal representation\n    private final Instant createdAt;\n\n    // Legacy-compatible getter (for old callers)\n    @Deprecated\n    public Date getCreatedAtLegacy() {\n        return Date.from(createdAt);\n    }\n\n    // Modern getter\n    public Instant getCreatedAt() {\n        return createdAt;\n    }\n\n    // Legacy-compatible factory (for old callers)\n    @Deprecated\n    public static EventService fromDate(Date date) {\n        return new EventService(date.toInstant());\n    }\n\n    // Modern factory\n    public static EventService create() {\n        return new EventService(Instant.now());\n    }\n\n    private EventService(Instant createdAt) {\n        this.createdAt = createdAt;\n    }\n}\n"
+      "text": "// Phase 1: Boundary conversion pattern\npublic class EventService {\n    // Modern internal representation\n    private final Instant createdAt;\n\n    // Legacy-compatible getter (for old callers)\n    @Deprecated\n    public Date getCreatedAtLegacy() {\n        return Date.from(createdAt);\n    }\n\n    // Modern getter\n    public Instant getCreatedAt() {\n        return createdAt;\n    }\n\n    // Legacy-compatible factory (for old callers)\n    @Deprecated\n    public static EventService fromDate(Date date) {\n        return new EventService(date.toInstant());\n    }\n\n    // Modern factory\n    public static EventService create() {\n        return new EventService(Instant.now());\n    }\n\n    private EventService(Instant createdAt) {\n        this.createdAt = createdAt;\n    }\n}"
     },
     {
       "type": "heading",
@@ -271,9 +258,9 @@
   "counts": {
     "headings": 10,
     "paras": 9,
-    "code": 14,
+    "code": 10,
     "tables": 0,
-    "lists": 10,
+    "lists": 7,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -281,5 +268,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "8a0f4c43786d81d5e7a452c309356d35ae64ad6cfab873ba1a0aa09e40ee9bb1"
+  "content_sha256": "7e53b384d95e0f66a2f3e3fa15b85274d5017fe2727a112d97e024c55a4d17b9"
 }

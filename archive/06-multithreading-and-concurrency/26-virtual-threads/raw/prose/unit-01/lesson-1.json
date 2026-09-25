@@ -165,65 +165,47 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Pooling virtual threads**: Developers accustomed to platform thread pools may try to pool virtual threads. This is unnecessary and counterproductive."
+        [
+          "**Pooling virtual threads**: Developers accustomed to platform thread pools may try to pool virtual threads. This is unnecessary and counterproductive.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: Don't pool virtual threads\nExecutorService pool = Executors.newFixedThreadPool(100,\n    Thread.ofVirtual().factory());\n\n// CORRECT: Use virtual-thread-per-task executor\nExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();"
+          }
+        ],
+        [
+          "**Using virtual threads for CPU-bound tasks**: Virtual threads provide no benefit for CPU-intensive work because there's no blocking point where they can unmount.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: CPU-bound work in virtual threads\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 1000; i++) {\n        executor.submit(() -> computeIntensiveTask()); // No benefit\n    }\n}\n\n// CORRECT: Use platform thread pool for CPU-bound work\ntry (var executor = Executors.newFixedThreadPool(\n        Runtime.getRuntime().availableProcessors())) {\n    for (int i = 0; i < 1000; i++) {\n        executor.submit(() -> computeIntensiveTask());\n    }\n}"
+          }
+        ],
+        [
+          "**Heavy thread-local usage**: If each virtual thread allocates expensive thread-local state, millions of virtual threads can consume significant memory.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// PROBLEMATIC: Each of 1 million virtual threads gets its own heavy ThreadLocal\nThreadLocal<byte[]> buffer = ThreadLocal.withInitial(() -> new byte[1024 * 1024]);\n\n// BETTER: Use ScopedValue (preview) or pass state explicitly"
+          }
+        ],
+        [
+          "**Forgetting that virtual threads are daemon threads**: If the main thread exits, virtual threads are terminated.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: Main thread may exit before virtual threads finish\nfor (int i = 0; i < 100; i++) {\n    Thread.startVirtualThread(() -> doWork());\n}\n// Program may exit immediately!\n\n// CORRECT: Wait for completion\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 100; i++) {\n        executor.submit(() -> doWork());\n    }\n} // AutoCloseable: waits for all tasks to complete"
+          }
+        ],
+        [
+          "**Not handling InterruptedException**: Virtual threads support cooperative cancellation via interruption. Swallowing `InterruptedException` without re-interrupting the thread breaks cancellation.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: Swallowing interrupt\ntry {\n    Thread.sleep(1000);\n} catch (InterruptedException e) {\n    // Silently ignored - BAD\n}\n\n// CORRECT: Restore interrupt status\ntry {\n    Thread.sleep(1000);\n} catch (InterruptedException e) {\n    Thread.currentThread().interrupt();\n    throw new RuntimeException(\"Task was interrupted\", e);\n}"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: Don't pool virtual threads\nExecutorService pool = Executors.newFixedThreadPool(100,\n    Thread.ofVirtual().factory());\n\n// CORRECT: Use virtual-thread-per-task executor\nExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using virtual threads for CPU-bound tasks**: Virtual threads provide no benefit for CPU-intensive work because there's no blocking point where they can unmount."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: CPU-bound work in virtual threads\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 1000; i++) {\n        executor.submit(() -> computeIntensiveTask()); // No benefit\n    }\n}\n\n// CORRECT: Use platform thread pool for CPU-bound work\ntry (var executor = Executors.newFixedThreadPool(\n        Runtime.getRuntime().availableProcessors())) {\n    for (int i = 0; i < 1000; i++) {\n        executor.submit(() -> computeIntensiveTask());\n    }\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Heavy thread-local usage**: If each virtual thread allocates expensive thread-local state, millions of virtual threads can consume significant memory."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// PROBLEMATIC: Each of 1 million virtual threads gets its own heavy ThreadLocal\nThreadLocal<byte[]> buffer = ThreadLocal.withInitial(() -> new byte[1024 * 1024]);\n\n// BETTER: Use ScopedValue (preview) or pass state explicitly\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Forgetting that virtual threads are daemon threads**: If the main thread exits, virtual threads are terminated."
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: Main thread may exit before virtual threads finish\nfor (int i = 0; i < 100; i++) {\n    Thread.startVirtualThread(() -> doWork());\n}\n// Program may exit immediately!\n\n// CORRECT: Wait for completion\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 100; i++) {\n        executor.submit(() -> doWork());\n    }\n} // AutoCloseable: waits for all tasks to complete\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Not handling InterruptedException**: Virtual threads support cooperative cancellation via interruption. Swallowing `InterruptedException` without re-interrupting the thread breaks cancellation."
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: Swallowing interrupt\ntry {\n    Thread.sleep(1000);\n} catch (InterruptedException e) {\n    // Silently ignored - BAD\n}\n\n// CORRECT: Restore interrupt status\ntry {\n    Thread.sleep(1000);\n} catch (InterruptedException e) {\n    Thread.currentThread().interrupt();\n    throw new RuntimeException(\"Task was interrupted\", e);\n}\n"
     },
     {
       "type": "heading",
@@ -237,28 +219,25 @@
         "**Prefer `Executors.newVirtualThreadPerTaskExecutor()`** over raw `Thread.startVirtualThread()` for task management. The executor handles lifecycle and provides a clean `try-with-resources` pattern.",
         "**Write blocking code naturally** — The whole point of virtual threads is to write simple, synchronous code that scales. Don't add async complexity.",
         "**Use `ReentrantLock` instead of `synchronized`** when blocking inside critical sections to avoid carrier thread pinning (covered in detail in section 6.7.2).",
-        "**Name your virtual threads** for debugging and monitoring:"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Thread.ofVirtual().name(\"http-handler-\", 0).factory();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Name your virtual threads** for debugging and monitoring:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Thread.ofVirtual().name(\"http-handler-\", 0).factory();"
+          }
+        ],
         "**Use structured concurrency** (when stable) to manage groups of virtual threads as a single unit of work.",
         "**Monitor with JFR (Java Flight Recorder)** — Virtual thread events are integrated with JFR for observability.",
-        "**Limit concurrent access to shared resources** using semaphores rather than reducing thread count:"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Semaphore dbPool = new Semaphore(20); // Limit to 20 concurrent DB connections\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var request : requests) {\n        executor.submit(() -> {\n            dbPool.acquire(); // may throw InterruptedException: fine in a Callable\n            try {\n                queryDatabase(request);\n            } finally {\n                dbPool.release();\n            }\n            return null;      // returning a value makes the lambda a Callable\n        });\n    }\n}\n"
+        [
+          "**Limit concurrent access to shared resources** using semaphores rather than reducing thread count:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Semaphore dbPool = new Semaphore(20); // Limit to 20 concurrent DB connections\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var request : requests) {\n        executor.submit(() -> {\n            dbPool.acquire(); // may throw InterruptedException: fine in a Callable\n            try {\n                queryDatabase(request);\n            } finally {\n                dbPool.release();\n            }\n            return null;      // returning a value makes the lambda a Callable\n        });\n    }\n}"
+          }
+        ]
+      ]
     },
     {
       "type": "heading",
@@ -322,12 +301,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Virtual threads are lightweight threads managed by the JVM rather than the operating system.\nThey were introduced to solve a fundamental scalability problem in Java: the thread-per-request\nprogramming model is simple and natural, but OS threads are expensive resources. Each OS thread\nconsumes about 1 MB of stack memory and involves kernel-level scheduling overhead, limiting\napplications to a few thousand concurrent threads.\n\nVirtual threads decouple the Java Thread abstraction from OS threads. A virtual thread is\nmounted onto a carrier (platform) thread only while it executes CPU work. When it blocks\n(I/O, sleep, lock contention), it unmounts, freeing the carrier for other virtual threads.\nThis means you can have millions of concurrent virtual threads without proportional OS resource\nconsumption.\n\nThe key benefit is throughput improvement for I/O-bound workloads (web servers, microservices,\ndatabase-intensive applications) without requiring developers to adopt complex asynchronous\nprogramming models like reactive streams or callback chains.\n"
+      "text": "A1: Virtual threads are lightweight threads managed by the JVM rather than the operating system.\nThey were introduced to solve a fundamental scalability problem in Java: the thread-per-request\nprogramming model is simple and natural, but OS threads are expensive resources. Each OS thread\nconsumes about 1 MB of stack memory and involves kernel-level scheduling overhead, limiting\napplications to a few thousand concurrent threads.\n\nVirtual threads decouple the Java Thread abstraction from OS threads. A virtual thread is\nmounted onto a carrier (platform) thread only while it executes CPU work. When it blocks\n(I/O, sleep, lock contention), it unmounts, freeing the carrier for other virtual threads.\nThis means you can have millions of concurrent virtual threads without proportional OS resource\nconsumption.\n\nThe key benefit is throughput improvement for I/O-bound workloads (web servers, microservices,\ndatabase-intensive applications) without requiring developers to adopt complex asynchronous\nprogramming models like reactive streams or callback chains."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Before virtual threads: limited by thread pool size\nExecutorService pool = Executors.newFixedThreadPool(200);\nfor (var request : requests) {\n    pool.submit(() -> handleRequest(request)); // Max 200 concurrent\n}\n\n// With virtual threads: unlimited concurrency\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var request : requests) {\n        executor.submit(() -> handleRequest(request)); // Millions possible\n    }\n}\n"
+      "text": "// Before virtual threads: limited by thread pool size\nExecutorService pool = Executors.newFixedThreadPool(200);\nfor (var request : requests) {\n    pool.submit(() -> handleRequest(request)); // Max 200 concurrent\n}\n\n// With virtual threads: unlimited concurrency\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var request : requests) {\n        executor.submit(() -> handleRequest(request)); // Millions possible\n    }\n}"
     },
     {
       "type": "para",
@@ -336,12 +315,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Java 21 provides several ways to create virtual threads:\n\n1. Thread.startVirtualThread(Runnable) - Simplest; creates and starts immediately\n2. Thread.ofVirtual().start(Runnable) - Builder pattern; allows setting name, etc.\n3. Thread.ofVirtual().unstarted(Runnable) - Creates without starting\n4. Thread.ofVirtual().factory() - Creates a ThreadFactory for use with executors\n5. Executors.newVirtualThreadPerTaskExecutor() - Best for most applications\n\nThe recommended approach for production code is using\nExecutors.newVirtualThreadPerTaskExecutor() because:\n- It provides lifecycle management via ExecutorService\n- It supports try-with-resources for clean shutdown\n- It integrates with existing Callable/Future patterns\n- It creates one virtual thread per submitted task\n"
+      "text": "A2: Java 21 provides several ways to create virtual threads:\n\n1. Thread.startVirtualThread(Runnable) - Simplest; creates and starts immediately\n2. Thread.ofVirtual().start(Runnable) - Builder pattern; allows setting name, etc.\n3. Thread.ofVirtual().unstarted(Runnable) - Creates without starting\n4. Thread.ofVirtual().factory() - Creates a ThreadFactory for use with executors\n5. Executors.newVirtualThreadPerTaskExecutor() - Best for most applications\n\nThe recommended approach for production code is using\nExecutors.newVirtualThreadPerTaskExecutor() because:\n- It provides lifecycle management via ExecutorService\n- It supports try-with-resources for clean shutdown\n- It integrates with existing Callable/Future patterns\n- It creates one virtual thread per submitted task"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Method 1: Simplest\nThread vt1 = Thread.startVirtualThread(() -> System.out.println(\"Hello\"));\n\n// Method 2: Builder with name\nThread vt2 = Thread.ofVirtual()\n        .name(\"my-virtual-thread\")\n        .start(() -> System.out.println(\"Named thread\"));\n\n// Method 3: Unstarted\nThread vt3 = Thread.ofVirtual().unstarted(() -> System.out.println(\"Not yet\"));\nvt3.start(); // Start when ready\n\n// Method 4: Factory for custom executors\nThreadFactory factory = Thread.ofVirtual().name(\"worker-\", 0).factory();\nExecutorService executor = Executors.newThreadPerTaskExecutor(factory);\n\n// Method 5: Recommended for most use cases\ntry (var exec = Executors.newVirtualThreadPerTaskExecutor()) {\n    Future<String> future = exec.submit(() -> {\n        Thread.sleep(100);\n        return \"result\";\n    });\n    System.out.println(future.get());\n}\n"
+      "text": "// Method 1: Simplest\nThread vt1 = Thread.startVirtualThread(() -> System.out.println(\"Hello\"));\n\n// Method 2: Builder with name\nThread vt2 = Thread.ofVirtual()\n        .name(\"my-virtual-thread\")\n        .start(() -> System.out.println(\"Named thread\"));\n\n// Method 3: Unstarted\nThread vt3 = Thread.ofVirtual().unstarted(() -> System.out.println(\"Not yet\"));\nvt3.start(); // Start when ready\n\n// Method 4: Factory for custom executors\nThreadFactory factory = Thread.ofVirtual().name(\"worker-\", 0).factory();\nExecutorService executor = Executors.newThreadPerTaskExecutor(factory);\n\n// Method 5: Recommended for most use cases\ntry (var exec = Executors.newVirtualThreadPerTaskExecutor()) {\n    Future<String> future = exec.submit(() -> {\n        Thread.sleep(100);\n        return \"result\";\n    });\n    System.out.println(future.get());\n}"
     },
     {
       "type": "para",
@@ -350,12 +329,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Both create virtual threads, but they serve different purposes:\n\nThread.startVirtualThread(Runnable):\n- Creates and immediately starts a single virtual thread\n- Returns the Thread object directly\n- No built-in lifecycle management\n- You must manually join() or track the thread\n- Best for ad-hoc, fire-and-forget tasks\n\nExecutors.newVirtualThreadPerTaskExecutor():\n- Creates an ExecutorService that spawns a new virtual thread per task\n- Returns an ExecutorService with full lifecycle support\n- Supports submit(Callable), submit(Runnable), and invokeAll()\n- Implements AutoCloseable (close() waits for all tasks)\n- Best for structured task management in production code\n\nKey insight: The executor approach is preferred because it integrates with\ntry-with-resources, ensuring all tasks complete before proceeding. The raw\nThread approach requires manual coordination with join().\n"
+      "text": "A3: Both create virtual threads, but they serve different purposes:\n\nThread.startVirtualThread(Runnable):\n- Creates and immediately starts a single virtual thread\n- Returns the Thread object directly\n- No built-in lifecycle management\n- You must manually join() or track the thread\n- Best for ad-hoc, fire-and-forget tasks\n\nExecutors.newVirtualThreadPerTaskExecutor():\n- Creates an ExecutorService that spawns a new virtual thread per task\n- Returns an ExecutorService with full lifecycle support\n- Supports submit(Callable), submit(Runnable), and invokeAll()\n- Implements AutoCloseable (close() waits for all tasks)\n- Best for structured task management in production code\n\nKey insight: The executor approach is preferred because it integrates with\ntry-with-resources, ensuring all tasks complete before proceeding. The raw\nThread approach requires manual coordination with join()."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Raw approach: must manage threads manually\nList<Thread> threads = new ArrayList<>();\nfor (int i = 0; i < 1000; i++) {\n    threads.add(Thread.startVirtualThread(() -> doWork()));\n}\nfor (Thread t : threads) {\n    t.join(); // Must join each thread\n}\n\n// Executor approach: clean lifecycle management\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<Result>> futures = new ArrayList<>();\n    for (int i = 0; i < 1000; i++) {\n        futures.add(executor.submit(() -> doWork()));\n    }\n    for (Future<Result> f : futures) {\n        Result result = f.get(); // Get results, handle exceptions\n    }\n} // close() blocks until all tasks are done\n"
+      "text": "// Raw approach: must manage threads manually\nList<Thread> threads = new ArrayList<>();\nfor (int i = 0; i < 1000; i++) {\n    threads.add(Thread.startVirtualThread(() -> doWork()));\n}\nfor (Thread t : threads) {\n    t.join(); // Must join each thread\n}\n\n// Executor approach: clean lifecycle management\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<Result>> futures = new ArrayList<>();\n    for (int i = 0; i < 1000; i++) {\n        futures.add(executor.submit(() -> doWork()));\n    }\n    for (Future<Result> f : futures) {\n        Result result = f.get(); // Get results, handle exceptions\n    }\n} // close() blocks until all tasks are done"
     },
     {
       "type": "para",
@@ -364,12 +343,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: No, you should never pool virtual threads. This is one of the most common\nmisconceptions when developers first encounter virtual threads.\n\nWhy pooling platform threads makes sense:\n- Platform threads are expensive to create (~1 MB stack, OS-level allocation)\n- Reusing them amortizes creation cost\n- Pool size limits resource consumption\n\nWhy pooling virtual threads is counterproductive:\n- Virtual threads are extremely cheap to create (a few hundred bytes initially)\n- Their purpose is one-per-task concurrency without resource exhaustion\n- Putting them in a fixed pool reintroduces the exact bottleneck they eliminate\n- A fixed pool of virtual threads behaves identically to a fixed pool of\n  platform threads — you lose all benefits\n\nIf you need to limit concurrency (e.g., to protect a database connection pool),\nuse a Semaphore to throttle access to the resource, not a thread pool to\nthrottle the threads.\n"
+      "text": "A4: No, you should never pool virtual threads. This is one of the most common\nmisconceptions when developers first encounter virtual threads.\n\nWhy pooling platform threads makes sense:\n- Platform threads are expensive to create (~1 MB stack, OS-level allocation)\n- Reusing them amortizes creation cost\n- Pool size limits resource consumption\n\nWhy pooling virtual threads is counterproductive:\n- Virtual threads are extremely cheap to create (a few hundred bytes initially)\n- Their purpose is one-per-task concurrency without resource exhaustion\n- Putting them in a fixed pool reintroduces the exact bottleneck they eliminate\n- A fixed pool of virtual threads behaves identically to a fixed pool of\n  platform threads — you lose all benefits\n\nIf you need to limit concurrency (e.g., to protect a database connection pool),\nuse a Semaphore to throttle access to the resource, not a thread pool to\nthrottle the threads."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// WRONG: Pooling virtual threads (defeats the purpose)\nExecutorService pool = Executors.newFixedThreadPool(50,\n        Thread.ofVirtual().factory());\n\n// CORRECT: Virtual thread per task\nExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();\n\n// To limit concurrent resource access, use Semaphore:\nSemaphore connectionLimit = new Semaphore(50);\ntry (var exec = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var request : requests) {\n        exec.submit(() -> {\n            connectionLimit.acquire();\n            try {\n                return queryDatabase(request);\n            } finally {\n                connectionLimit.release();\n            }\n        });\n    }\n}\n"
+      "text": "// WRONG: Pooling virtual threads (defeats the purpose)\nExecutorService pool = Executors.newFixedThreadPool(50,\n        Thread.ofVirtual().factory());\n\n// CORRECT: Virtual thread per task\nExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();\n\n// To limit concurrent resource access, use Semaphore:\nSemaphore connectionLimit = new Semaphore(50);\ntry (var exec = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (var request : requests) {\n        exec.submit(() -> {\n            connectionLimit.acquire();\n            try {\n                return queryDatabase(request);\n            } finally {\n                connectionLimit.release();\n            }\n        });\n    }\n}"
     },
     {
       "type": "para",
@@ -378,12 +357,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Virtual threads fully support the cooperative interruption mechanism, just\nlike platform threads. The key difference is that interrupting a virtual thread\nis even more important because virtual threads are designed for high-concurrency\nscenarios where timely cancellation is critical.\n\nHow it works:\n1. Call thread.interrupt() to set the interrupt flag\n2. If the thread is in a blocking operation such as sleep(), wait(), join(),\n   BlockingQueue.take() or Lock.lockInterruptibly(), it throws InterruptedException\n   immediately. Blocking I/O reports interruption differently: an interruptible\n   NIO channel is closed and ClosedByInterruptException is thrown, and in a\n   virtual thread a blocking java.net socket operation is also interruptible (the\n   socket is closed and a SocketException is thrown)\n3. If the thread is running, it must check Thread.interrupted() or\n   isInterrupted() periodically\n\nBest practices:\n- Always handle InterruptedException properly — either propagate it or\n  re-interrupt the current thread\n- Design long-running virtual thread tasks with interrupt checks\n- Use structured concurrency (when stable) for coordinated cancellation of\n  task groups\n\nVirtual threads respond to interrupt at all standard blocking points:\nThread.sleep(), Object.wait(), BlockingQueue.take(), Lock.lockInterruptibly(),\nand (with the exceptions above) java.nio channel and java.net socket I/O.\n"
+      "text": "A5: Virtual threads fully support the cooperative interruption mechanism, just\nlike platform threads. The key difference is that interrupting a virtual thread\nis even more important because virtual threads are designed for high-concurrency\nscenarios where timely cancellation is critical.\n\nHow it works:\n1. Call thread.interrupt() to set the interrupt flag\n2. If the thread is in a blocking operation such as sleep(), wait(), join(),\n   BlockingQueue.take() or Lock.lockInterruptibly(), it throws InterruptedException\n   immediately. Blocking I/O reports interruption differently: an interruptible\n   NIO channel is closed and ClosedByInterruptException is thrown, and in a\n   virtual thread a blocking java.net socket operation is also interruptible (the\n   socket is closed and a SocketException is thrown)\n3. If the thread is running, it must check Thread.interrupted() or\n   isInterrupted() periodically\n\nBest practices:\n- Always handle InterruptedException properly — either propagate it or\n  re-interrupt the current thread\n- Design long-running virtual thread tasks with interrupt checks\n- Use structured concurrency (when stable) for coordinated cancellation of\n  task groups\n\nVirtual threads respond to interrupt at all standard blocking points:\nThread.sleep(), Object.wait(), BlockingQueue.take(), Lock.lockInterruptibly(),\nand (with the exceptions above) java.nio channel and java.net socket I/O."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Creating a virtual thread that respects interruption\nThread worker = Thread.startVirtualThread(() -> {\n    while (!Thread.currentThread().isInterrupted()) {\n        try {\n            // Simulate work with blocking I/O\n            String data = fetchFromNetwork();\n            process(data);\n        } catch (InterruptedException e) {\n            // Restore interrupt status and exit gracefully\n            Thread.currentThread().interrupt();\n            System.out.println(\"Worker interrupted, cleaning up...\");\n            break;\n        }\n    }\n});\n\n// Later, cancel the work\nThread.sleep(5000);\nworker.interrupt(); // Signals the virtual thread to stop\nworker.join(1000);  // Wait for it to finish (with timeout)\n"
+      "text": "// Creating a virtual thread that respects interruption\nThread worker = Thread.startVirtualThread(() -> {\n    while (!Thread.currentThread().isInterrupted()) {\n        try {\n            // Simulate work with blocking I/O\n            String data = fetchFromNetwork();\n            process(data);\n        } catch (InterruptedException e) {\n            // Restore interrupt status and exit gracefully\n            Thread.currentThread().interrupt();\n            System.out.println(\"Worker interrupted, cleaning up...\");\n            break;\n        }\n    }\n});\n\n// Later, cancel the work\nThread.sleep(5000);\nworker.interrupt(); // Signals the virtual thread to stop\nworker.join(1000);  // Wait for it to finish (with timeout)"
     },
     {
       "type": "para",
@@ -392,12 +371,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: Virtual threads use a ForkJoinPool as their scheduler (carrier thread pool).\nBy default, the JVM creates a dedicated ForkJoinPool for scheduling virtual\nthreads, separate from the common pool used by parallel streams.\n\nKey details:\n- The default carrier pool size equals the number of available processors\n  (Runtime.getRuntime().availableProcessors())\n- This can be configured via: -Djdk.virtualThreadScheduler.parallelism=N\n- The maximum pool size can be set via: -Djdk.virtualThreadScheduler.maxPoolSize=N\n- Virtual threads are automatically scheduled onto carrier threads from this pool\n\nThe carrier pool is an implementation detail that developers generally don't need\nto worry about. The JVM handles mounting and unmounting virtual threads onto\ncarrier threads transparently.\n\nWhen a virtual thread blocks (I/O, sleep, lock wait), it unmounts from its\ncarrier thread, allowing the carrier to pick up another runnable virtual thread.\nWhen the blocking operation completes, the virtual thread is scheduled to resume\non any available carrier thread (not necessarily the same one).\n"
+      "text": "A6: Virtual threads use a ForkJoinPool as their scheduler (carrier thread pool).\nBy default, the JVM creates a dedicated ForkJoinPool for scheduling virtual\nthreads, separate from the common pool used by parallel streams.\n\nKey details:\n- The default carrier pool size equals the number of available processors\n  (Runtime.getRuntime().availableProcessors())\n- This can be configured via: -Djdk.virtualThreadScheduler.parallelism=N\n- The maximum pool size can be set via: -Djdk.virtualThreadScheduler.maxPoolSize=N\n- Virtual threads are automatically scheduled onto carrier threads from this pool\n\nThe carrier pool is an implementation detail that developers generally don't need\nto worry about. The JVM handles mounting and unmounting virtual threads onto\ncarrier threads transparently.\n\nWhen a virtual thread blocks (I/O, sleep, lock wait), it unmounts from its\ncarrier thread, allowing the carrier to pick up another runnable virtual thread.\nWhen the blocking operation completes, the virtual thread is scheduled to resume\non any available carrier thread (not necessarily the same one)."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Virtual threads use a ForkJoinPool as their carrier pool\n// The parallelism defaults to available processors\n// You can observe this through thread names:\n\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 100; i++) {\n        executor.submit(() -> {\n            // The carrier thread name is visible in the virtual thread's toString()\n            System.out.println(Thread.currentThread());\n            // Output like: VirtualThread[#23]/runnable@ForkJoinPool-1-worker-3\n            try {\n                Thread.sleep(10);\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        });\n    }\n}\n"
+      "text": "// Virtual threads use a ForkJoinPool as their carrier pool\n// The parallelism defaults to available processors\n// You can observe this through thread names:\n\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 100; i++) {\n        executor.submit(() -> {\n            // The carrier thread name is visible in the virtual thread's toString()\n            System.out.println(Thread.currentThread());\n            // Output like: VirtualThread[#23]/runnable@ForkJoinPool-1-worker-3\n            try {\n                Thread.sleep(10);\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        });\n    }\n}"
     },
     {
       "type": "para",
@@ -406,12 +385,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A7: Yes, thread-local variables work with virtual threads, but they should be\nused carefully. Each virtual thread gets its own copy of a ThreadLocal value,\njust like platform threads.\n\nThe concern is scale: if you have 1 million virtual threads and each one\ninitializes a ThreadLocal with a 1 KB buffer, that's 1 GB of memory just for\nthread-local storage. With platform threads, you might have had 200 threads,\nconsuming only 200 KB.\n\nJava 21 introduces ScopedValue (preview) as a more efficient alternative:\n- ScopedValues are immutable and automatically cleaned up\n- They are inherited by subtasks forked in a StructuredTaskScope (not by arbitrary new threads)\n- No need for explicit remove() calls\n- Better memory efficiency with virtual threads\n\nBest practices for thread-locals with virtual threads:\n1. Avoid large or expensive ThreadLocal values\n2. Always call ThreadLocal.remove() when done\n3. Consider using ScopedValue for new code\n4. Audit existing thread-local usage before migrating to virtual threads\n"
+      "text": "A7: Yes, thread-local variables work with virtual threads, but they should be\nused carefully. Each virtual thread gets its own copy of a ThreadLocal value,\njust like platform threads.\n\nThe concern is scale: if you have 1 million virtual threads and each one\ninitializes a ThreadLocal with a 1 KB buffer, that's 1 GB of memory just for\nthread-local storage. With platform threads, you might have had 200 threads,\nconsuming only 200 KB.\n\nJava 21 introduces ScopedValue (preview) as a more efficient alternative:\n- ScopedValues are immutable and automatically cleaned up\n- They are inherited by subtasks forked in a StructuredTaskScope (not by arbitrary new threads)\n- No need for explicit remove() calls\n- Better memory efficiency with virtual threads\n\nBest practices for thread-locals with virtual threads:\n1. Avoid large or expensive ThreadLocal values\n2. Always call ThreadLocal.remove() when done\n3. Consider using ScopedValue for new code\n4. Audit existing thread-local usage before migrating to virtual threads"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// ThreadLocal works but be mindful of memory at scale\nThreadLocal<SimpleDateFormat> formatter = ThreadLocal.withInitial(\n        () -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 1_000_000; i++) {\n        executor.submit(() -> {\n            try {\n                String date = formatter.get().format(new java.util.Date());\n                process(date);\n            } finally {\n                formatter.remove(); // Important! Clean up to avoid leaks\n            }\n        });\n    }\n}\n\n// Better approach with ScopedValue (Preview in Java 21)\n// static final ScopedValue<String> USER = ScopedValue.newInstance();\n// ScopedValue.where(USER, \"alice\").run(() -> {\n//     System.out.println(USER.get()); // \"alice\"\n// });\n"
+      "text": "// ThreadLocal works but be mindful of memory at scale\nThreadLocal<SimpleDateFormat> formatter = ThreadLocal.withInitial(\n        () -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 1_000_000; i++) {\n        executor.submit(() -> {\n            try {\n                String date = formatter.get().format(new java.util.Date());\n                process(date);\n            } finally {\n                formatter.remove(); // Important! Clean up to avoid leaks\n            }\n        });\n    }\n}\n\n// Better approach with ScopedValue (Preview in Java 21)\n// static final ScopedValue<String> USER = ScopedValue.newInstance();\n// ScopedValue.where(USER, \"alice\").run(() -> {\n//     System.out.println(USER.get()); // \"alice\"\n// });"
     },
     {
       "type": "heading",
@@ -433,9 +412,9 @@
   "counts": {
     "headings": 13,
     "paras": 16,
-    "code": 21,
+    "code": 14,
     "tables": 1,
-    "lists": 15,
+    "lists": 10,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -443,5 +422,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "17cc939625b57acf7c5a2f24642c23fd319b9bfda13e081852673afa07aa396d"
+  "content_sha256": "0ef39ecccc9b9b2bc3b5606d39dafc69bb76c0ebf4dbec4b89affe2541de951a"
 }

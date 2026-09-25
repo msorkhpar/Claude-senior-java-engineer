@@ -105,18 +105,14 @@
       "items": [
         "**Virtual threads**: Eliminate the performance argument for complex asynchronous code. Simple blocking code is now efficient.",
         "**Records**: Create immutable data objects trivially, eliminating thread-safety concerns for data transfer objects.",
-        "**Pattern matching for switch**: Simplify state machine logic, making concurrent state transitions clearer."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public String describeState(State state) {\n    return switch (state) {\n        case IDLE -> \"Waiting for work\";\n        case RUNNING -> \"Processing task\";\n        case COMPLETED -> \"Task finished successfully\";\n        case FAILED -> \"Task encountered an error\";\n    };\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
+        [
+          "**Pattern matching for switch**: Simplify state machine logic, making concurrent state transitions clearer.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "public String describeState(State state) {\n    return switch (state) {\n        case IDLE -> \"Waiting for work\";\n        case RUNNING -> \"Processing task\";\n        case COMPLETED -> \"Task finished successfully\";\n        case FAILED -> \"Task encountered an error\";\n    };\n}"
+          }
+        ],
         "**Sealed classes**: Constrain state hierarchies to known subtypes, making exhaustive handling verifiable at compile time."
       ]
     },
@@ -130,63 +126,37 @@
       "ordered": true,
       "items": [
         [
-          "**Mixing synchronization mechanisms in one class**",
-          "Problem: Using both `synchronized` and `ReentrantLock` in the same class, or mixing `volatile` with explicit locks."
-        ]
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// VIOLATION: Mixed synchronization\nprivate volatile int count;\nprivate final ReentrantLock lock = new ReentrantLock();\n\npublic synchronized void methodA() { count++; }\npublic void methodB() {\n    lock.lock();\n    try { count++; } finally { lock.unlock(); }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "Fix: Pick one mechanism and use it consistently."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// KISS: Consistent use of AtomicInteger\nprivate final AtomicInteger count = new AtomicInteger(0);\n\npublic void methodA() { count.incrementAndGet(); }\npublic void methodB() { count.incrementAndGet(); }\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Over-complicating state transitions**",
-          "Problem: Building a state machine with many intermediate states, nested locks, and complex transition rules.",
-          "Fix: Use `AtomicReference` with `compareAndSet` for simple state machines. Keep the number of states minimal."
-        ]
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\npublic boolean start() {\n    return state.compareAndSet(State.IDLE, State.RUNNING);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Creating custom thread-safe wrappers when concurrent collections exist**",
-          "Problem: Writing a synchronized wrapper around `ArrayList` when `CopyOnWriteArrayList` or `ConcurrentLinkedQueue` would work.",
-          "Fix: Use the appropriate concurrent collection from `java.util.concurrent`."
+          "**Mixing synchronization mechanisms in one class** Problem: Using both `synchronized` and `ReentrantLock` in the same class, or mixing `volatile` with explicit locks.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// VIOLATION: Mixed synchronization\nprivate volatile int count;\nprivate final ReentrantLock lock = new ReentrantLock();\n\npublic synchronized void methodA() { count++; }\npublic void methodB() {\n    lock.lock();\n    try { count++; } finally { lock.unlock(); }\n}"
+          },
+          "Fix: Pick one mechanism and use it consistently.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// KISS: Consistent use of AtomicInteger\nprivate final AtomicInteger count = new AtomicInteger(0);\n\npublic void methodA() { count.incrementAndGet(); }\npublic void methodB() { count.incrementAndGet(); }"
+          }
         ],
         [
-          "**Not using try-with-resources for ExecutorService**",
-          "Problem: Forgetting to shut down an executor, causing resource leaks.",
-          "Fix: Since Java 19, `ExecutorService` implements `AutoCloseable`."
+          "**Over-complicating state transitions** Problem: Building a state machine with many intermediate states, nested locks, and complex transition rules. Fix: Use `AtomicReference` with `compareAndSet` for simple state machines. Keep the number of states minimal.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\npublic boolean start() {\n    return state.compareAndSet(State.IDLE, State.RUNNING);\n}"
+          }
+        ],
+        "**Creating custom thread-safe wrappers when concurrent collections exist** Problem: Writing a synchronized wrapper around `ArrayList` when `CopyOnWriteArrayList` or `ConcurrentLinkedQueue` would work. Fix: Use the appropriate concurrent collection from `java.util.concurrent`.",
+        [
+          "**Not using try-with-resources for ExecutorService** Problem: Forgetting to shut down an executor, causing resource leaks. Fix: Since Java 19, `ExecutorService` implements `AutoCloseable`.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    // submit tasks\n} // Automatically shuts down"
+          }
         ]
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    // submit tasks\n} // Automatically shuts down\n"
+      ]
     },
     {
       "type": "heading",
@@ -198,36 +168,26 @@
       "ordered": true,
       "items": [
         "**Design for debuggability.** When choosing between two equally correct approaches, pick the one that will be easier to debug at 3 AM when production is down.",
-        "**Log state transitions.** In concurrent state machines, logging each transition with the thread name helps enormously during debugging."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public boolean start() {\n    boolean success = state.compareAndSet(State.IDLE, State.RUNNING);\n    if (success) {\n        logger.info(\"State transition: IDLE -> RUNNING [{}]\",\n                    Thread.currentThread().getName());\n    }\n    return success;\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Return immutable snapshots from concurrent collections.** This prevents callers from accidentally modifying shared state."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public List<String> getEvents() {\n    return Collections.unmodifiableList(new ArrayList<>(events));\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Log state transitions.** In concurrent state machines, logging each transition with the thread name helps enormously during debugging.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "public boolean start() {\n    boolean success = state.compareAndSet(State.IDLE, State.RUNNING);\n    if (success) {\n        logger.info(\"State transition: IDLE -> RUNNING [{}]\",\n                    Thread.currentThread().getName());\n    }\n    return success;\n}"
+          }
+        ],
+        [
+          "**Return immutable snapshots from concurrent collections.** This prevents callers from accidentally modifying shared state.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "public List<String> getEvents() {\n    return Collections.unmodifiableList(new ArrayList<>(events));\n}"
+          }
+        ],
         "**Use pipeline patterns for data transformation.** A linear pipeline is easier to reason about than a complex graph of concurrent operations.",
         "**Prefer `Semaphore` for resource limiting.** It is simpler and more intuitive than custom counting logic with locks and conditions.",
         "**Test concurrent code with multiple iterations.** Run concurrent tests many times to increase the chance of exposing race conditions."
-      ],
-      "start": 4
+      ]
     },
     {
       "type": "heading",
@@ -291,12 +251,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Concurrency bugs are harder to debug for several reasons:\n\n1. Non-determinism: Thread scheduling varies between runs, so bugs are intermittent\n2. Heisenbugs: Adding debugging code (print statements, breakpoints) can change\n   the timing and make the bug disappear\n3. State explosion: With N threads and M shared variables, the number of possible\n   states is exponentially larger than in sequential code\n4. Causality is unclear: In sequential code, the bug's cause precedes it in the\n   code. In concurrent code, the cause might be in a different thread entirely\n\nKISS helps because:\n- Fewer shared mutable variables = fewer race condition opportunities\n- Using proven concurrent utilities = fewer custom bugs to introduce\n- Simpler synchronization = easier to reason about thread interleavings\n- Clearer code = code reviews catch more concurrency issues\n- Simpler thread dumps = faster root cause analysis during incidents\n\nThe most effective debugging strategy for concurrent code is prevention:\nwrite simple code that has fewer possible bugs in the first place.\n"
+      "text": "A1: Concurrency bugs are harder to debug for several reasons:\n\n1. Non-determinism: Thread scheduling varies between runs, so bugs are intermittent\n2. Heisenbugs: Adding debugging code (print statements, breakpoints) can change\n   the timing and make the bug disappear\n3. State explosion: With N threads and M shared variables, the number of possible\n   states is exponentially larger than in sequential code\n4. Causality is unclear: In sequential code, the bug's cause precedes it in the\n   code. In concurrent code, the cause might be in a different thread entirely\n\nKISS helps because:\n- Fewer shared mutable variables = fewer race condition opportunities\n- Using proven concurrent utilities = fewer custom bugs to introduce\n- Simpler synchronization = easier to reason about thread interleavings\n- Clearer code = code reviews catch more concurrency issues\n- Simpler thread dumps = faster root cause analysis during incidents\n\nThe most effective debugging strategy for concurrent code is prevention:\nwrite simple code that has fewer possible bugs in the first place."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Complex (hard to debug):\n// Multiple locks, complex ordering, easy to deadlock\nclass ComplexTransferService {\n    private final ReentrantLock lockA = new ReentrantLock();\n    private final ReentrantLock lockB = new ReentrantLock();\n    private int balanceA, balanceB;\n\n    public void transfer(int amount) {\n        lockA.lock();\n        try {\n            lockB.lock(); // Deadlock risk if another thread locks in opposite order!\n            try {\n                balanceA -= amount;\n                balanceB += amount;\n            } finally { lockB.unlock(); }\n        } finally { lockA.unlock(); }\n    }\n}\n\n// KISS (easy to debug):\n// Single lock, no ordering issues, no deadlock possible\nclass SimpleTransferService {\n    private final Object lock = new Object();\n    private int balanceA, balanceB;\n\n    public void transfer(int amount) {\n        synchronized (lock) {\n            balanceA -= amount;\n            balanceB += amount;\n        }\n    }\n}\n"
+      "text": "// Complex (hard to debug):\n// Multiple locks, complex ordering, easy to deadlock\nclass ComplexTransferService {\n    private final ReentrantLock lockA = new ReentrantLock();\n    private final ReentrantLock lockB = new ReentrantLock();\n    private int balanceA, balanceB;\n\n    public void transfer(int amount) {\n        lockA.lock();\n        try {\n            lockB.lock(); // Deadlock risk if another thread locks in opposite order!\n            try {\n                balanceA -= amount;\n                balanceB += amount;\n            } finally { lockB.unlock(); }\n        } finally { lockA.unlock(); }\n    }\n}\n\n// KISS (easy to debug):\n// Single lock, no ordering issues, no deadlock possible\nclass SimpleTransferService {\n    private final Object lock = new Object();\n    private int balanceA, balanceB;\n\n    public void transfer(int amount) {\n        synchronized (lock) {\n            balanceA -= amount;\n            balanceB += amount;\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -305,12 +265,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Returning immutable snapshots provides several debugging benefits:\n\n1. Consistent view: The snapshot represents the state at a single point in time.\n   There are no changes happening while you iterate, so the data is consistent.\n\n2. No ConcurrentModificationException: Callers can iterate, filter, and\n   transform the snapshot without worrying about other threads modifying it.\n\n3. Reproducibility: If you log or capture a snapshot, you know exactly what\n   the state was. Mutable references can change between capture and inspection.\n\n4. Isolation: Callers cannot accidentally modify the shared state through the\n   returned reference. This eliminates an entire category of bugs.\n\n5. Thread-safety by design: The caller does not need to know anything about\n   the synchronization strategy of the source collection.\n\nThe KISS approach: always return defensive copies or unmodifiable views from\nconcurrent data structures. The small performance cost is almost always worth\nthe safety and debuggability improvement.\n"
+      "text": "A2: Returning immutable snapshots provides several debugging benefits:\n\n1. Consistent view: The snapshot represents the state at a single point in time.\n   There are no changes happening while you iterate, so the data is consistent.\n\n2. No ConcurrentModificationException: Callers can iterate, filter, and\n   transform the snapshot without worrying about other threads modifying it.\n\n3. Reproducibility: If you log or capture a snapshot, you know exactly what\n   the state was. Mutable references can change between capture and inspection.\n\n4. Isolation: Callers cannot accidentally modify the shared state through the\n   returned reference. This eliminates an entire category of bugs.\n\n5. Thread-safety by design: The caller does not need to know anything about\n   the synchronization strategy of the source collection.\n\nThe KISS approach: always return defensive copies or unmodifiable views from\nconcurrent data structures. The small performance cost is almost always worth\nthe safety and debuggability improvement."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// KISS: Return immutable snapshot\npublic class SimpleEventLogger {\n    private final CopyOnWriteArrayList<String> events = new CopyOnWriteArrayList<>();\n\n    public void log(String event) {\n        events.add(event);\n    }\n\n    public List<String> getEvents() {\n        // Immutable snapshot -- callers cannot modify our internal state\n        return Collections.unmodifiableList(new ArrayList<>(events));\n    }\n\n    public void clear() {\n        events.clear();\n    }\n}\n\n// Usage: safe to iterate while other threads continue logging\nList<String> snapshot = logger.getEvents();\nfor (String event : snapshot) {\n    // No ConcurrentModificationException possible\n    System.out.println(event);\n}\n"
+      "text": "// KISS: Return immutable snapshot\npublic class SimpleEventLogger {\n    private final CopyOnWriteArrayList<String> events = new CopyOnWriteArrayList<>();\n\n    public void log(String event) {\n        events.add(event);\n    }\n\n    public List<String> getEvents() {\n        // Immutable snapshot -- callers cannot modify our internal state\n        return Collections.unmodifiableList(new ArrayList<>(events));\n    }\n\n    public void clear() {\n        events.clear();\n    }\n}\n\n// Usage: safe to iterate while other threads continue logging\nList<String> snapshot = logger.getEvents();\nfor (String event : snapshot) {\n    // No ConcurrentModificationException possible\n    System.out.println(event);\n}"
     },
     {
       "type": "para",
@@ -319,12 +279,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: AtomicReference simplifies state machines by providing atomic\ncompare-and-set (CAS) operations that eliminate the need for explicit locks:\n\nBenefits:\n1. Atomic transitions: compareAndSet(expected, new) ensures that the state\n   changes only if it is currently the expected value. No lock needed.\n2. No deadlocks: CAS is lock-free, so deadlocks are impossible.\n3. Self-documenting: The transition logic is explicit and easy to read.\n4. Thread-safe by construction: The AtomicReference guarantees visibility\n   and atomicity automatically.\n5. Contention handling: If two threads try to transition simultaneously,\n   one succeeds and the other gets false -- simple, predictable behavior.\n\nWhen NOT to use AtomicReference for state machines:\n- When a transition requires updating multiple variables atomically\n  (use synchronized or explicit locks instead)\n- When you need to wait for a state change (use Condition or CountDownLatch)\n"
+      "text": "A3: AtomicReference simplifies state machines by providing atomic\ncompare-and-set (CAS) operations that eliminate the need for explicit locks:\n\nBenefits:\n1. Atomic transitions: compareAndSet(expected, new) ensures that the state\n   changes only if it is currently the expected value. No lock needed.\n2. No deadlocks: CAS is lock-free, so deadlocks are impossible.\n3. Self-documenting: The transition logic is explicit and easy to read.\n4. Thread-safe by construction: The AtomicReference guarantees visibility\n   and atomicity automatically.\n5. Contention handling: If two threads try to transition simultaneously,\n   one succeeds and the other gets false -- simple, predictable behavior.\n\nWhen NOT to use AtomicReference for state machines:\n- When a transition requires updating multiple variables atomically\n  (use synchronized or explicit locks instead)\n- When you need to wait for a state change (use Condition or CountDownLatch)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class SimpleStateMachine {\n    public enum State { IDLE, RUNNING, COMPLETED, FAILED }\n\n    private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\n    // Each method is a single atomic operation -- simple and correct\n    public boolean start() {\n        return state.compareAndSet(State.IDLE, State.RUNNING);\n    }\n\n    public boolean complete() {\n        return state.compareAndSet(State.RUNNING, State.COMPLETED);\n    }\n\n    public boolean fail() {\n        return state.compareAndSet(State.RUNNING, State.FAILED);\n    }\n\n    public boolean reset() {\n        State current = state.get();\n        if (current == State.COMPLETED || current == State.FAILED) {\n            return state.compareAndSet(current, State.IDLE);\n        }\n        return false;\n    }\n\n    public State getState() {\n        return state.get();\n    }\n}\n// Total: ~25 lines. Thread-safe. No locks. No deadlocks. Easy to test.\n"
+      "text": "public class SimpleStateMachine {\n    public enum State { IDLE, RUNNING, COMPLETED, FAILED }\n\n    private final AtomicReference<State> state = new AtomicReference<>(State.IDLE);\n\n    // Each method is a single atomic operation -- simple and correct\n    public boolean start() {\n        return state.compareAndSet(State.IDLE, State.RUNNING);\n    }\n\n    public boolean complete() {\n        return state.compareAndSet(State.RUNNING, State.COMPLETED);\n    }\n\n    public boolean fail() {\n        return state.compareAndSet(State.RUNNING, State.FAILED);\n    }\n\n    public boolean reset() {\n        State current = state.get();\n        if (current == State.COMPLETED || current == State.FAILED) {\n            return state.compareAndSet(current, State.IDLE);\n        }\n        return false;\n    }\n\n    public State getState() {\n        return state.get();\n    }\n}\n// Total: ~25 lines. Thread-safe. No locks. No deadlocks. Easy to test."
     },
     {
       "type": "para",
@@ -333,12 +293,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Almost always. The performance difference between simple and complex\nconcurrent code is usually negligible compared to other bottlenecks (I/O,\ndatabase queries, network latency). Here is how to think about it:\n\nWhen simplicity's cost is acceptable (the common case):\n- The code is not on the critical performance path\n- The difference is microseconds, not milliseconds\n- The code handles fewer than millions of operations per second\n- Correctness is more important than raw throughput\n\nWhen complexity might be justified (rare cases):\n- Profiling data shows this specific code is the bottleneck\n- The simpler approach cannot meet measured, concrete SLAs\n- The complex approach has been validated with benchmarks\n- The team understands and can maintain the complex approach\n\nThe decision framework:\n1. Write the simple version first\n2. Test it for correctness\n3. Measure its performance under realistic load\n4. ONLY if it does not meet requirements, consider the complex alternative\n5. If you add complexity, document WHY with the benchmark data\n\nIn practice, steps 4-5 are rarely needed. Most performance problems are in\nI/O, algorithms (wrong data structure), or architecture -- not in whether\nyou used AtomicInteger vs. a custom lock-free counter.\n"
+      "text": "A4: Almost always. The performance difference between simple and complex\nconcurrent code is usually negligible compared to other bottlenecks (I/O,\ndatabase queries, network latency). Here is how to think about it:\n\nWhen simplicity's cost is acceptable (the common case):\n- The code is not on the critical performance path\n- The difference is microseconds, not milliseconds\n- The code handles fewer than millions of operations per second\n- Correctness is more important than raw throughput\n\nWhen complexity might be justified (rare cases):\n- Profiling data shows this specific code is the bottleneck\n- The simpler approach cannot meet measured, concrete SLAs\n- The complex approach has been validated with benchmarks\n- The team understands and can maintain the complex approach\n\nThe decision framework:\n1. Write the simple version first\n2. Test it for correctness\n3. Measure its performance under realistic load\n4. ONLY if it does not meet requirements, consider the complex alternative\n5. If you add complexity, document WHY with the benchmark data\n\nIn practice, steps 4-5 are rarely needed. Most performance problems are in\nI/O, algorithms (wrong data structure), or architecture -- not in whether\nyou used AtomicInteger vs. a custom lock-free counter."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Step 1: Start simple\npublic class SimpleCache<K, V> {\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    public V get(K key, Function<K, V> loader) {\n        return cache.computeIfAbsent(key, loader);\n    }\n}\n\n// Step 2: Only if profiling shows this is a bottleneck AND\n// you need features like TTL, consider adding complexity:\n// (But this is rarely needed in practice)\n"
+      "text": "// Step 1: Start simple\npublic class SimpleCache<K, V> {\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    public V get(K key, Function<K, V> loader) {\n        return cache.computeIfAbsent(key, loader);\n    }\n}\n\n// Step 2: Only if profiling shows this is a bottleneck AND\n// you need features like TTL, consider adding complexity:\n// (But this is rarely needed in practice)"
     },
     {
       "type": "para",
@@ -347,12 +307,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: The simplest approach uses CopyOnWriteArrayList for the listener list\nand iterates over it directly to notify:\n\nDesign decisions:\n1. CopyOnWriteArrayList for listeners: Thread-safe iteration without locks.\n   Adding listeners is rare; notifying is frequent -- perfect for COWAL.\n2. No event bus, no priority system, no async dispatch: These are features\n   you add when you need them, not before.\n3. Direct iteration: Call each listener sequentially. If a listener throws,\n   it propagates to the caller -- simple, predictable behavior.\n4. Generic type parameter: Allows reuse for any event type.\n\nWhen to add complexity:\n- If notifications must be async: wrap dispatch in an executor\n- If listener exceptions must not affect other listeners: add try-catch\n- If ordering matters: document and enforce listener ordering\n- But do NOT add these features speculatively!\n\nThe KISS rule: ship the simple version, monitor it in production, add\nfeatures only when you have evidence they are needed.\n"
+      "text": "A5: The simplest approach uses CopyOnWriteArrayList for the listener list\nand iterates over it directly to notify:\n\nDesign decisions:\n1. CopyOnWriteArrayList for listeners: Thread-safe iteration without locks.\n   Adding listeners is rare; notifying is frequent -- perfect for COWAL.\n2. No event bus, no priority system, no async dispatch: These are features\n   you add when you need them, not before.\n3. Direct iteration: Call each listener sequentially. If a listener throws,\n   it propagates to the caller -- simple, predictable behavior.\n4. Generic type parameter: Allows reuse for any event type.\n\nWhen to add complexity:\n- If notifications must be async: wrap dispatch in an executor\n- If listener exceptions must not affect other listeners: add try-catch\n- If ordering matters: document and enforce listener ordering\n- But do NOT add these features speculatively!\n\nThe KISS rule: ship the simple version, monitor it in production, add\nfeatures only when you have evidence they are needed."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class SimpleNotifier<T> {\n    private final CopyOnWriteArrayList<Consumer<T>> listeners =\n            new CopyOnWriteArrayList<>();\n\n    public void addListener(Consumer<T> listener) {\n        listeners.add(listener);\n    }\n\n    public void notify(T event) {\n        for (Consumer<T> listener : listeners) {\n            listener.accept(event);  // Simple, direct, debuggable\n        }\n    }\n}\n\n// Usage\nvar notifier = new SimpleNotifier<String>();\nnotifier.addListener(msg -> log.info(\"Received: {}\", msg));\nnotifier.addListener(msg -> metrics.increment(\"notifications\"));\nnotifier.notify(\"order-placed\");\n"
+      "text": "public class SimpleNotifier<T> {\n    private final CopyOnWriteArrayList<Consumer<T>> listeners =\n            new CopyOnWriteArrayList<>();\n\n    public void addListener(Consumer<T> listener) {\n        listeners.add(listener);\n    }\n\n    public void notify(T event) {\n        for (Consumer<T> listener : listeners) {\n            listener.accept(event);  // Simple, direct, debuggable\n        }\n    }\n}\n\n// Usage\nvar notifier = new SimpleNotifier<String>();\nnotifier.addListener(msg -> log.info(\"Received: {}\", msg));\nnotifier.addListener(msg -> metrics.increment(\"notifications\"));\nnotifier.notify(\"order-placed\");"
     },
     {
       "type": "heading",
@@ -373,10 +333,10 @@
   "attachments": [],
   "counts": {
     "headings": 12,
-    "paras": 14,
-    "code": 17,
+    "paras": 13,
+    "code": 10,
     "tables": 0,
-    "lists": 15,
+    "lists": 10,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -384,5 +344,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "2d6c0fea8658c7171548c74dad2dc30192a456f854667ed2efd58ab6959ac1ce"
+  "content_sha256": "2135035673c768898e5f0f94a7486233f6451aafbb7ba49458b3ab4dee38cea8"
 }

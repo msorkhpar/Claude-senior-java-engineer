@@ -108,81 +108,44 @@
       "ordered": true,
       "items": [
         [
-          "**Breaking synchronization through inheritance**",
-          "When a subclass overrides a synchronized method without maintaining the synchronization contract, the thread safety of the parent class is silently broken:"
-        ]
+          "**Breaking synchronization through inheritance** When a subclass overrides a synchronized method without maintaining the synchronization contract, the thread safety of the parent class is silently broken:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// PROBLEM: Subclass breaks parent's synchronization\nclass SafeCounter {\n    protected int count = 0;\n    public synchronized void increment() { count++; }\n    public synchronized int getCount() { return count; }\n}\n\nclass ExtendedCounter extends SafeCounter {\n    @Override\n    public void increment() { // NOT synchronized! Breaks thread safety\n        count++;\n        // Additional logic\n    }\n}"
+          },
+          "**Fix**: Use composition to add behavior while preserving the original synchronization:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "class ExtendedCounter implements Counter {\n    private final SafeCounter delegate;  // Thread-safe by its own contract\n\n    public void increment() {\n        delegate.increment();  // Delegates to synchronized method\n        // Additional logic (in its own synchronization scope if needed)\n    }\n}"
+          }
+        ],
+        [
+          "**Deadlocks from nested synchronization in deep hierarchies** When a parent and child class both synchronize on different monitors, method calls that traverse the hierarchy can deadlock:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// PROBLEM: Parent locks on 'this', child locks on 'childLock'\nclass Parent {\n    synchronized void doWork() { /* ... */ }\n}\n\nclass Child extends Parent {\n    private final Object childLock = new Object();\n    @Override\n    synchronized void doWork() { // locks 'this'\n        synchronized (childLock) {  // then locks childLock\n            super.doWork();\n        }\n    }\n}"
+          },
+          "**Fix**: Compose independent components with clear, non-overlapping lock scopes."
+        ],
+        [
+          "**Tight coupling to Thread class through inheritance** Extending `Thread` directly couples your logic to the threading mechanism:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// PROBLEM: Inheriting from Thread\nclass MyWorker extends Thread {\n    @Override\n    public void run() { /* worker logic */ }\n}"
+          },
+          "**Fix**: Implement `Runnable` or `Callable` and compose with an executor:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "class MyWorker implements Runnable {\n    @Override\n    public void run() { /* worker logic */ }\n}\n// Usage: executor.submit(new MyWorker());"
+          }
+        ],
+        "**Overriding methods that have implicit concurrency contracts** Methods in concurrent classes (e.g., `ConcurrentHashMap.computeIfAbsent`) have specific atomicity guarantees. Overriding them in subclasses can violate those guarantees. **Fix**: Wrap concurrent classes with composition rather than extending them."
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// PROBLEM: Subclass breaks parent's synchronization\nclass SafeCounter {\n    protected int count = 0;\n    public synchronized void increment() { count++; }\n    public synchronized int getCount() { return count; }\n}\n\nclass ExtendedCounter extends SafeCounter {\n    @Override\n    public void increment() { // NOT synchronized! Breaks thread safety\n        count++;\n        // Additional logic\n    }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use composition to add behavior while preserving the original synchronization:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class ExtendedCounter implements Counter {\n    private final SafeCounter delegate;  // Thread-safe by its own contract\n\n    public void increment() {\n        delegate.increment();  // Delegates to synchronized method\n        // Additional logic (in its own synchronization scope if needed)\n    }\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Deadlocks from nested synchronization in deep hierarchies**",
-          "When a parent and child class both synchronize on different monitors, method calls that traverse the hierarchy can deadlock:"
-        ]
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// PROBLEM: Parent locks on 'this', child locks on 'childLock'\nclass Parent {\n    synchronized void doWork() { /* ... */ }\n}\n\nclass Child extends Parent {\n    private final Object childLock = new Object();\n    @Override\n    synchronized void doWork() { // locks 'this'\n        synchronized (childLock) {  // then locks childLock\n            super.doWork();\n        }\n    }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Compose independent components with clear, non-overlapping lock scopes."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Tight coupling to Thread class through inheritance**",
-          "Extending `Thread` directly couples your logic to the threading mechanism:"
-        ]
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// PROBLEM: Inheriting from Thread\nclass MyWorker extends Thread {\n    @Override\n    public void run() { /* worker logic */ }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Implement `Runnable` or `Callable` and compose with an executor:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class MyWorker implements Runnable {\n    @Override\n    public void run() { /* worker logic */ }\n}\n// Usage: executor.submit(new MyWorker());\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Overriding methods that have implicit concurrency contracts**",
-          "Methods in concurrent classes (e.g., `ConcurrentHashMap.computeIfAbsent`) have specific atomicity guarantees. Overriding them in subclasses can violate those guarantees.",
-          "**Fix**: Wrap concurrent classes with composition rather than extending them."
-        ]
-      ],
-      "start": 4
     },
     {
       "type": "heading",
@@ -253,12 +216,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Extending Thread is considered bad practice for several reasons:\n\n1. It uses up your single inheritance slot. If MyWorker extends Thread, it\n   cannot extend any other class.\n2. It tightly couples the task logic to the threading mechanism. The task\n   cannot be reused with different execution models (thread pools, virtual\n   threads, single-threaded executor).\n3. It conflates \"what to do\" with \"how to run it.\" The Runnable interface\n   separates these concerns.\n4. Thread is a heavy class with many methods (setPriority, setDaemon, etc.)\n   that are irrelevant to the task logic.\n\nInstead, implement Runnable or Callable and submit tasks to an ExecutorService.\nThis is composition: the task (what) is composed with the executor (how).\nWith Java 21 virtual threads, this becomes even more important because you\nwant tasks to be lightweight and executor-agnostic.\n"
+      "text": "A1: Extending Thread is considered bad practice for several reasons:\n\n1. It uses up your single inheritance slot. If MyWorker extends Thread, it\n   cannot extend any other class.\n2. It tightly couples the task logic to the threading mechanism. The task\n   cannot be reused with different execution models (thread pools, virtual\n   threads, single-threaded executor).\n3. It conflates \"what to do\" with \"how to run it.\" The Runnable interface\n   separates these concerns.\n4. Thread is a heavy class with many methods (setPriority, setDaemon, etc.)\n   that are irrelevant to the task logic.\n\nInstead, implement Runnable or Callable and submit tasks to an ExecutorService.\nThis is composition: the task (what) is composed with the executor (how).\nWith Java 21 virtual threads, this becomes even more important because you\nwant tasks to be lightweight and executor-agnostic."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// BAD: Inheriting from Thread\nclass DataProcessor extends Thread {\n    private final List<String> data;\n    DataProcessor(List<String> data) { this.data = data; }\n\n    @Override\n    public void run() {\n        data.forEach(item -> System.out.println(item.toUpperCase()));\n    }\n}\nnew DataProcessor(data).start(); // Tied to platform threads\n\n// GOOD: Composition with Runnable + Executor\nclass DataProcessor implements Runnable {\n    private final List<String> data;\n    DataProcessor(List<String> data) { this.data = data; }\n\n    @Override\n    public void run() {\n        data.forEach(item -> System.out.println(item.toUpperCase()));\n    }\n}\n// Can run on platform threads, virtual threads, or single-threaded executor\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    executor.submit(new DataProcessor(data));\n}\n"
+      "text": "// BAD: Inheriting from Thread\nclass DataProcessor extends Thread {\n    private final List<String> data;\n    DataProcessor(List<String> data) { this.data = data; }\n\n    @Override\n    public void run() {\n        data.forEach(item -> System.out.println(item.toUpperCase()));\n    }\n}\nnew DataProcessor(data).start(); // Tied to platform threads\n\n// GOOD: Composition with Runnable + Executor\nclass DataProcessor implements Runnable {\n    private final List<String> data;\n    DataProcessor(List<String> data) { this.data = data; }\n\n    @Override\n    public void run() {\n        data.forEach(item -> System.out.println(item.toUpperCase()));\n    }\n}\n// Can run on platform threads, virtual threads, or single-threaded executor\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    executor.submit(new DataProcessor(data));\n}"
     },
     {
       "type": "para",
@@ -267,12 +230,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Use the Strategy pattern via composition. Define a RetryStrategy interface\nthat encapsulates the retry policy (max retries, delay calculation, which\nexceptions to retry). Then compose this strategy into a ResilientExecutor\nthat applies the retry logic around any task.\n\nBenefits over inheritance:\n- Retry strategies can be tested independently.\n- Different retry strategies can be swapped at runtime or configuration time.\n- The executor does not need to know the details of the retry policy.\n- New retry strategies (circuit breaker, jitter, etc.) can be added without\n  modifying the executor class.\n\nThis approach follows both Composition over Inheritance and the Open/Closed\nPrinciple.\n"
+      "text": "A2: Use the Strategy pattern via composition. Define a RetryStrategy interface\nthat encapsulates the retry policy (max retries, delay calculation, which\nexceptions to retry). Then compose this strategy into a ResilientExecutor\nthat applies the retry logic around any task.\n\nBenefits over inheritance:\n- Retry strategies can be tested independently.\n- Different retry strategies can be swapped at runtime or configuration time.\n- The executor does not need to know the details of the retry policy.\n- New retry strategies (circuit breaker, jitter, etc.) can be added without\n  modifying the executor class.\n\nThis approach follows both Composition over Inheritance and the Open/Closed\nPrinciple."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Strategy interface for retry behavior\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n    long delayMillis(int attempt);\n}\n\n// Concrete strategies\nclass FixedRetryStrategy implements RetryStrategy {\n    private final int maxRetries;\n    private final long delayMs;\n    // ... implementation\n}\n\nclass ExponentialBackoffStrategy implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n    // ... delay = initialDelayMs * 2^(attempt - 1), capped at maxDelayMs; compute the\n    // doubling as a shift that is checked first, or large attempts overflow to 0 or negative\n}\n\n// Executor composes the strategy\nclass ResilientExecutor {\n    private final RetryStrategy retryStrategy;\n\n    ResilientExecutor(RetryStrategy strategy) {\n        this.retryStrategy = Objects.requireNonNull(strategy);\n    }\n\n    <T> T execute(Supplier<T> task) throws Exception {\n        int attempt = 0;\n        Exception lastException = null;\n        while (true) {\n            attempt++;\n            try {\n                return task.get();\n            } catch (Exception e) {\n                lastException = e;\n                if (!retryStrategy.shouldRetry(attempt, e)) throw e;\n                Thread.sleep(retryStrategy.delayMillis(attempt));\n            }\n        }\n    }\n}\n"
+      "text": "// Strategy interface for retry behavior\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n    long delayMillis(int attempt);\n}\n\n// Concrete strategies\nclass FixedRetryStrategy implements RetryStrategy {\n    private final int maxRetries;\n    private final long delayMs;\n    // ... implementation\n}\n\nclass ExponentialBackoffStrategy implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n    // ... delay = initialDelayMs * 2^(attempt - 1), capped at maxDelayMs; compute the\n    // doubling as a shift that is checked first, or large attempts overflow to 0 or negative\n}\n\n// Executor composes the strategy\nclass ResilientExecutor {\n    private final RetryStrategy retryStrategy;\n\n    ResilientExecutor(RetryStrategy strategy) {\n        this.retryStrategy = Objects.requireNonNull(strategy);\n    }\n\n    <T> T execute(Supplier<T> task) throws Exception {\n        int attempt = 0;\n        Exception lastException = null;\n        while (true) {\n            attempt++;\n            try {\n                return task.get();\n            } catch (Exception e) {\n                lastException = e;\n                if (!retryStrategy.shouldRetry(attempt, e)) throw e;\n                Thread.sleep(retryStrategy.delayMillis(attempt));\n            }\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -281,12 +244,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: In concurrent code, requirements like logging, synchronization, retrying,\nand metrics often lead to class explosion through inheritance:\n  BaseTask -> LoggingTask -> SynchronizedLoggingTask -> RetryingSynchronizedLoggingTask\n\nThis hierarchy has several problems:\n- Each combination requires a new class (N features = 2^N classes).\n- Synchronization in parent classes can conflict with child classes.\n- Testing requires the entire hierarchy.\n\nDecorators solve this by wrapping a base implementation with single-purpose\nwrappers:\n  SynchronizedTaskRunner(LoggingTaskRunner(UpperCaseRunner))\n\nEach decorator:\n- Implements the same interface as the base.\n- Holds a reference to the delegate (composition).\n- Adds one concern (logging OR synchronization OR retrying).\n- Can be applied in any combination and order.\n\nFor concurrency specifically:\n- SynchronizedTaskRunner adds a lock around the delegate call.\n- LoggingTaskRunner records start/end/error without affecting threading.\n- The base runner focuses purely on business logic.\n"
+      "text": "A3: In concurrent code, requirements like logging, synchronization, retrying,\nand metrics often lead to class explosion through inheritance:\n  BaseTask -> LoggingTask -> SynchronizedLoggingTask -> RetryingSynchronizedLoggingTask\n\nThis hierarchy has several problems:\n- Each combination requires a new class (N features = 2^N classes).\n- Synchronization in parent classes can conflict with child classes.\n- Testing requires the entire hierarchy.\n\nDecorators solve this by wrapping a base implementation with single-purpose\nwrappers:\n  SynchronizedTaskRunner(LoggingTaskRunner(UpperCaseRunner))\n\nEach decorator:\n- Implements the same interface as the base.\n- Holds a reference to the delegate (composition).\n- Adds one concern (logging OR synchronization OR retrying).\n- Can be applied in any combination and order.\n\nFor concurrency specifically:\n- SynchronizedTaskRunner adds a lock around the delegate call.\n- LoggingTaskRunner records start/end/error without affecting threading.\n- The base runner focuses purely on business logic."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Base interface\ninterface TaskRunner {\n    String run(String input) throws Exception;\n}\n\n// Base implementation: pure business logic\nclass UpperCaseRunner implements TaskRunner {\n    @Override\n    public String run(String input) { return input.toUpperCase(); }\n}\n\n// Decorator 1: Logging (no synchronization concern)\nclass LoggingTaskRunner implements TaskRunner {\n    private final TaskRunner delegate;\n    private final List<String> logs = new CopyOnWriteArrayList<>();\n\n    LoggingTaskRunner(TaskRunner delegate) { this.delegate = delegate; }\n\n    @Override\n    public String run(String input) throws Exception {\n        logs.add(\"START: \" + input);\n        String result = delegate.run(input);\n        logs.add(\"SUCCESS: \" + result);\n        return result;\n    }\n}\n\n// Decorator 2: Thread safety\nclass SynchronizedTaskRunner implements TaskRunner {\n    private final TaskRunner delegate;\n    private final ReentrantLock lock = new ReentrantLock();\n\n    SynchronizedTaskRunner(TaskRunner delegate) { this.delegate = delegate; }\n\n    @Override\n    public String run(String input) throws Exception {\n        lock.lock();\n        try { return delegate.run(input); }\n        finally { lock.unlock(); }\n    }\n}\n\n// Compose freely:\nTaskRunner runner = new SynchronizedTaskRunner(\n    new LoggingTaskRunner(\n        new UpperCaseRunner()\n    )\n);\n"
+      "text": "// Base interface\ninterface TaskRunner {\n    String run(String input) throws Exception;\n}\n\n// Base implementation: pure business logic\nclass UpperCaseRunner implements TaskRunner {\n    @Override\n    public String run(String input) { return input.toUpperCase(); }\n}\n\n// Decorator 1: Logging (no synchronization concern)\nclass LoggingTaskRunner implements TaskRunner {\n    private final TaskRunner delegate;\n    private final List<String> logs = new CopyOnWriteArrayList<>();\n\n    LoggingTaskRunner(TaskRunner delegate) { this.delegate = delegate; }\n\n    @Override\n    public String run(String input) throws Exception {\n        logs.add(\"START: \" + input);\n        String result = delegate.run(input);\n        logs.add(\"SUCCESS: \" + result);\n        return result;\n    }\n}\n\n// Decorator 2: Thread safety\nclass SynchronizedTaskRunner implements TaskRunner {\n    private final TaskRunner delegate;\n    private final ReentrantLock lock = new ReentrantLock();\n\n    SynchronizedTaskRunner(TaskRunner delegate) { this.delegate = delegate; }\n\n    @Override\n    public String run(String input) throws Exception {\n        lock.lock();\n        try { return delegate.run(input); }\n        finally { lock.unlock(); }\n    }\n}\n\n// Compose freely:\nTaskRunner runner = new SynchronizedTaskRunner(\n    new LoggingTaskRunner(\n        new UpperCaseRunner()\n    )\n);"
     },
     {
       "type": "para",
@@ -295,12 +258,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Overriding synchronized methods in subclasses creates several problems:\n\n1. Missing synchronization: If the subclass forgets the 'synchronized'\n   keyword, the thread safety contract of the parent is silently broken.\n   The subclass method runs without holding the monitor.\n\n2. Different lock semantics: The parent may synchronize on 'this', but the\n   subclass might add synchronization on a different object, creating\n   potential for deadlocks when both locks are held.\n\n3. Extended critical sections: A subclass might add additional logic inside\n   the synchronized method, holding the lock longer than intended and\n   reducing throughput.\n\n4. Super calls within locks: Calling super.method() from a subclass's\n   synchronized method means the lock is already held. If the super method\n   also tries to acquire the same lock, Java's reentrant locking prevents\n   deadlock, but it may not prevent logical errors.\n\n5. Invisible lock ordering: When a hierarchy has multiple synchronized\n   methods that call each other, the lock ordering becomes implicit and\n   fragile.\n\nComposition avoids ALL of these issues because each component manages its\nown synchronization independently.\n"
+      "text": "A4: Overriding synchronized methods in subclasses creates several problems:\n\n1. Missing synchronization: If the subclass forgets the 'synchronized'\n   keyword, the thread safety contract of the parent is silently broken.\n   The subclass method runs without holding the monitor.\n\n2. Different lock semantics: The parent may synchronize on 'this', but the\n   subclass might add synchronization on a different object, creating\n   potential for deadlocks when both locks are held.\n\n3. Extended critical sections: A subclass might add additional logic inside\n   the synchronized method, holding the lock longer than intended and\n   reducing throughput.\n\n4. Super calls within locks: Calling super.method() from a subclass's\n   synchronized method means the lock is already held. If the super method\n   also tries to acquire the same lock, Java's reentrant locking prevents\n   deadlock, but it may not prevent logical errors.\n\n5. Invisible lock ordering: When a hierarchy has multiple synchronized\n   methods that call each other, the lock ordering becomes implicit and\n   fragile.\n\nComposition avoids ALL of these issues because each component manages its\nown synchronization independently."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// PROBLEM: Subclass breaks thread safety\nclass ThreadSafeStack<E> {\n    private final List<E> items = new ArrayList<>();\n\n    public synchronized void push(E item) { items.add(item); }\n    public synchronized E pop() { return items.remove(items.size() - 1); }\n    public synchronized int size() { return items.size(); }\n}\n\n// Subclass drops synchronized from the override\nclass LoggingStack<E> extends ThreadSafeStack<E> {\n    @Override\n    public void push(E item) {  // NOT synchronized!\n        System.out.println(\"Pushing: \" + item);\n        super.push(item);  // super IS synchronized, but the println is not\n    }\n    // This override still only calls super, so the stack stays safe -- but the log\n    // order can now differ from the push order, and nothing stops the next override\n    // from touching inherited state without the lock (see ExtendedCounter above)\n}\n\n// SOLUTION: Composition\nclass LoggingStackWrapper<E> implements Stack<E> {\n    private final Stack<E> delegate;  // Can be any thread-safe Stack\n\n    @Override\n    public void push(E item) {\n        System.out.println(\"Pushing: \" + item);\n        delegate.push(item);  // Thread safety is delegate's responsibility; the wrapper\n                              // can only reach the stack through its synchronized methods\n    }\n}\n"
+      "text": "// PROBLEM: Subclass breaks thread safety\nclass ThreadSafeStack<E> {\n    private final List<E> items = new ArrayList<>();\n\n    public synchronized void push(E item) { items.add(item); }\n    public synchronized E pop() { return items.remove(items.size() - 1); }\n    public synchronized int size() { return items.size(); }\n}\n\n// Subclass drops synchronized from the override\nclass LoggingStack<E> extends ThreadSafeStack<E> {\n    @Override\n    public void push(E item) {  // NOT synchronized!\n        System.out.println(\"Pushing: \" + item);\n        super.push(item);  // super IS synchronized, but the println is not\n    }\n    // This override still only calls super, so the stack stays safe -- but the log\n    // order can now differ from the push order, and nothing stops the next override\n    // from touching inherited state without the lock (see ExtendedCounter above)\n}\n\n// SOLUTION: Composition\nclass LoggingStackWrapper<E> implements Stack<E> {\n    private final Stack<E> delegate;  // Can be any thread-safe Stack\n\n    @Override\n    public void push(E item) {\n        System.out.println(\"Pushing: \" + item);\n        delegate.push(item);  // Thread safety is delegate's responsibility; the wrapper\n                              // can only reach the stack through its synchronized methods\n    }\n}"
     },
     {
       "type": "para",
@@ -309,12 +272,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Virtual threads and composition are natural partners because:\n\n1. Virtual threads are lightweight, so creating a virtual thread per task\n   is feasible. Composed task runners (decorators) add minimal overhead\n   per virtual thread.\n\n2. Virtual threads encourage a \"task as a unit of work\" model. Composition\n   allows building these tasks from small, reusable components (strategies,\n   formatters, validators) rather than inheriting from a monolithic base task.\n\n3. Virtual threads unmount from platform threads during blocking operations.\n   Composed decorators that delegate through the chain naturally support this\n   because each decorator simply calls the next, and if the innermost\n   operation blocks, the virtual thread unmounts cleanly.\n\n4. With structured concurrency (JEP 453), composed subtasks can be managed\n   as a group. Each subtask is a composed pipeline that runs on its own\n   virtual thread.\n\n5. In Java 21, blocking inside a synchronized block pins the virtual thread\n   to its carrier platform thread, so prefer ReentrantLock in decorators,\n   which virtual threads handle efficiently. (JDK 24, JEP 491, removed this\n   pinning for synchronized.)\n"
+      "text": "A5: Virtual threads and composition are natural partners because:\n\n1. Virtual threads are lightweight, so creating a virtual thread per task\n   is feasible. Composed task runners (decorators) add minimal overhead\n   per virtual thread.\n\n2. Virtual threads encourage a \"task as a unit of work\" model. Composition\n   allows building these tasks from small, reusable components (strategies,\n   formatters, validators) rather than inheriting from a monolithic base task.\n\n3. Virtual threads unmount from platform threads during blocking operations.\n   Composed decorators that delegate through the chain naturally support this\n   because each decorator simply calls the next, and if the innermost\n   operation blocks, the virtual thread unmounts cleanly.\n\n4. With structured concurrency (JEP 453), composed subtasks can be managed\n   as a group. Each subtask is a composed pipeline that runs on its own\n   virtual thread.\n\n5. In Java 21, blocking inside a synchronized block pins the virtual thread\n   to its carrier platform thread, so prefer ReentrantLock in decorators,\n   which virtual threads handle efficiently. (JDK 24, JEP 491, removed this\n   pinning for synchronized.)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Composed pipeline executed on virtual threads\nvar pipeline = new ProcessingPipeline<String>()\n    .addStage(String::trim)\n    .addStage(String::toUpperCase)\n    .addStage(s -> s + \" [processed]\");\n\n// Each item runs on its own virtual thread\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<String>> futures = items.stream()\n        .map(item -> executor.submit(() -> pipeline.execute(item)))\n        .toList();\n\n    for (var future : futures) {\n        System.out.println(future.get());\n    }\n}\n\n// Decorator-based runner on virtual threads\nTaskRunner runner = new SynchronizedTaskRunner(\n    new LoggingTaskRunner(new UpperCaseRunner())\n);\n\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    executor.submit(() -> runner.run(\"hello\"));\n    executor.submit(() -> runner.run(\"world\"));\n}\n"
+      "text": "// Composed pipeline executed on virtual threads\nvar pipeline = new ProcessingPipeline<String>()\n    .addStage(String::trim)\n    .addStage(String::toUpperCase)\n    .addStage(s -> s + \" [processed]\");\n\n// Each item runs on its own virtual thread\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    List<Future<String>> futures = items.stream()\n        .map(item -> executor.submit(() -> pipeline.execute(item)))\n        .toList();\n\n    for (var future : futures) {\n        System.out.println(future.get());\n    }\n}\n\n// Decorator-based runner on virtual threads\nTaskRunner runner = new SynchronizedTaskRunner(\n    new LoggingTaskRunner(new UpperCaseRunner())\n);\n\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    executor.submit(() -> runner.run(\"hello\"));\n    executor.submit(() -> runner.run(\"world\"));\n}"
     },
     {
       "type": "heading",
@@ -335,10 +298,10 @@
   "attachments": [],
   "counts": {
     "headings": 12,
-    "paras": 16,
-    "code": 15,
+    "paras": 13,
+    "code": 10,
     "tables": 0,
-    "lists": 11,
+    "lists": 8,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -346,5 +309,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "822261f800df1dc6926deb0ba30ef8b433edf143ed22b9628f58446cc2f7c805"
+  "content_sha256": "2335645c26ecf0d96a431ee60257acf18dae583e8aa5b4a70770e39ab9883825"
 }

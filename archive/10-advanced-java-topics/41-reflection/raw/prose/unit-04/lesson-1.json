@@ -89,65 +89,47 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Looking up methods/fields in a loop**"
+        [
+          "**Looking up methods/fields in a loop**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: O(n * lookup_cost) -- lookup happens every iteration\nfor (Object item : items) {\n    Method m = item.getClass().getDeclaredMethod(\"process\");\n    m.setAccessible(true);\n    m.invoke(item);\n}\n\n// CORRECT: Cache the Method object\nMethod m = MyClass.class.getDeclaredMethod(\"process\");\nm.setAccessible(true);\nfor (Object item : items) {\n    m.invoke(item);\n}"
+          }
+        ],
+        [
+          "**Calling `setAccessible(true)` on every invocation**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: Redundant access check bypass per call\nfor (int i = 0; i < 1000; i++) {\n    method.setAccessible(true); // Unnecessary after first call\n    method.invoke(target);\n}\n\n// CORRECT: Set once, reuse\nmethod.setAccessible(true);\nfor (int i = 0; i < 1000; i++) {\n    method.invoke(target);\n}"
+          }
+        ],
+        [
+          "**Using reflection where direct access is possible**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: Unnecessary reflection\nMethod getter = obj.getClass().getMethod(\"getName\");\nString name = (String) getter.invoke(obj);\n\n// CORRECT: Direct call when type is known\nString name = obj.getName();"
+          }
+        ],
+        [
+          "**Ignoring `MethodHandle` for performance-sensitive code**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// SLOWER: Method.invoke() -- boxing, an Object[] array, and (unless the Method is a static final\n// constant) no inlining; since JDK 18 invoke() itself is built on method handles (JEP 416)\nMethod m = Target.class.getMethod(\"compute\", int.class);\nm.invoke(target, 42);\n\n// FASTER: MethodHandle -- JIT can inline\nMethodHandle mh = MethodHandles.lookup()\n    .findVirtual(Target.class, \"compute\", MethodType.methodType(int.class, int.class));\nint result = (int) mh.invoke(target, 42);"
+          }
+        ],
+        [
+          "**Micro-benchmarking without warmup**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: First iterations include JIT compilation time\nlong start = System.nanoTime();\nfor (int i = 0; i < 1000; i++) { method.invoke(target); }\nlong elapsed = System.nanoTime() - start;\n\n// BETTER: Add warmup phase (or use JMH)\nfor (int i = 0; i < 10000; i++) { method.invoke(target); } // warmup\nlong start = System.nanoTime();\nfor (int i = 0; i < 100000; i++) { method.invoke(target); } // measure\nlong elapsed = System.nanoTime() - start;"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: O(n * lookup_cost) -- lookup happens every iteration\nfor (Object item : items) {\n    Method m = item.getClass().getDeclaredMethod(\"process\");\n    m.setAccessible(true);\n    m.invoke(item);\n}\n\n// CORRECT: Cache the Method object\nMethod m = MyClass.class.getDeclaredMethod(\"process\");\nm.setAccessible(true);\nfor (Object item : items) {\n    m.invoke(item);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Calling `setAccessible(true)` on every invocation**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: Redundant access check bypass per call\nfor (int i = 0; i < 1000; i++) {\n    method.setAccessible(true); // Unnecessary after first call\n    method.invoke(target);\n}\n\n// CORRECT: Set once, reuse\nmethod.setAccessible(true);\nfor (int i = 0; i < 1000; i++) {\n    method.invoke(target);\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using reflection where direct access is possible**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: Unnecessary reflection\nMethod getter = obj.getClass().getMethod(\"getName\");\nString name = (String) getter.invoke(obj);\n\n// CORRECT: Direct call when type is known\nString name = obj.getName();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Ignoring `MethodHandle` for performance-sensitive code**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// SLOWER: Method.invoke() -- boxing, an Object[] array, and (unless the Method is a static final\n// constant) no inlining; since JDK 18 invoke() itself is built on method handles (JEP 416)\nMethod m = Target.class.getMethod(\"compute\", int.class);\nm.invoke(target, 42);\n\n// FASTER: MethodHandle -- JIT can inline\nMethodHandle mh = MethodHandles.lookup()\n    .findVirtual(Target.class, \"compute\", MethodType.methodType(int.class, int.class));\nint result = (int) mh.invoke(target, 42);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Micro-benchmarking without warmup**"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: First iterations include JIT compilation time\nlong start = System.nanoTime();\nfor (int i = 0; i < 1000; i++) { method.invoke(target); }\nlong elapsed = System.nanoTime() - start;\n\n// BETTER: Add warmup phase (or use JMH)\nfor (int i = 0; i < 10000; i++) { method.invoke(target); } // warmup\nlong start = System.nanoTime();\nfor (int i = 0; i < 100000; i++) { method.invoke(target); } // measure\nlong elapsed = System.nanoTime() - start;\n"
     },
     {
       "type": "heading",
@@ -231,12 +213,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Reflection is slower for several compounding reasons:\n\n1. Member lookup overhead: getDeclaredMethod() searches an internal array\n   of Method objects, performing string comparisons and parameter type matching.\n   This is O(n) in the number of declared methods.\n\n2. Access control checking: Each invoke() checks if the caller has permission\n   to access the method (unless setAccessible(true) was called).\n\n3. Argument boxing: Primitive arguments must be boxed into wrapper objects,\n   and an Object[] array must be created for Method.invoke().\n\n4. JIT optimization barriers: The JVM's JIT compiler can inline, devirtualize,\n   and optimize direct calls. Reflective calls go through invoke(), which is\n   harder to optimize: since JDK 18 (JEP 416) invoke() is built on method\n   handles, and the JIT can inline it only when the Method object is a\n   constant (e.g. a static final field).\n\n5. Runtime type checking: The JVM must verify argument types at runtime,\n   whereas direct calls are verified at compile time.\n\nRough performance comparison (illustrative orders of magnitude, not measurements;\nthey depend on the JVM version, the hardware, and warmup state):\n- Direct call: ~1-2 nanoseconds\n- Cached Method.invoke(): ~5-20 nanoseconds (roughly 2-20x a direct call)\n- Uncached (lookup + invoke): ~200-1000+ nanoseconds (roughly 100-1000x)\n- MethodHandle.invokeExact() from a static final field: ~1-5 nanoseconds (close to direct)\n\nMeasure your own case with JMH before relying on any of these figures.\n"
+      "text": "A1: Reflection is slower for several compounding reasons:\n\n1. Member lookup overhead: getDeclaredMethod() searches an internal array\n   of Method objects, performing string comparisons and parameter type matching.\n   This is O(n) in the number of declared methods.\n\n2. Access control checking: Each invoke() checks if the caller has permission\n   to access the method (unless setAccessible(true) was called).\n\n3. Argument boxing: Primitive arguments must be boxed into wrapper objects,\n   and an Object[] array must be created for Method.invoke().\n\n4. JIT optimization barriers: The JVM's JIT compiler can inline, devirtualize,\n   and optimize direct calls. Reflective calls go through invoke(), which is\n   harder to optimize: since JDK 18 (JEP 416) invoke() is built on method\n   handles, and the JIT can inline it only when the Method object is a\n   constant (e.g. a static final field).\n\n5. Runtime type checking: The JVM must verify argument types at runtime,\n   whereas direct calls are verified at compile time.\n\nRough performance comparison (illustrative orders of magnitude, not measurements;\nthey depend on the JVM version, the hardware, and warmup state):\n- Direct call: ~1-2 nanoseconds\n- Cached Method.invoke(): ~5-20 nanoseconds (roughly 2-20x a direct call)\n- Uncached (lookup + invoke): ~200-1000+ nanoseconds (roughly 100-1000x)\n- MethodHandle.invokeExact() from a static final field: ~1-5 nanoseconds (close to direct)\n\nMeasure your own case with JMH before relying on any of these figures."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ReflectionOverheadDemo {\n    static class Target {\n        int value;\n        int getValue() { return value; }\n    }\n\n    public static void main(String[] args) throws Exception {\n        Target target = new Target();\n        target.value = 42;\n        int iterations = 1_000_000;\n\n        // Warmup omitted for brevity -- use JMH for real benchmarks\n\n        // Direct call\n        long start = System.nanoTime();\n        for (int i = 0; i < iterations; i++) {\n            int v = target.getValue();\n        }\n        System.out.println(\"Direct: \" + (System.nanoTime() - start) / iterations + \" ns/op\");\n\n        // Cached reflection\n        Method method = Target.class.getDeclaredMethod(\"getValue\");\n        method.setAccessible(true);\n        start = System.nanoTime();\n        for (int i = 0; i < iterations; i++) {\n            int v = (int) method.invoke(target);\n        }\n        System.out.println(\"Cached reflection: \" + (System.nanoTime() - start) / iterations + \" ns/op\");\n\n        // MethodHandle\n        MethodHandle mh = MethodHandles.lookup()\n                .findVirtual(Target.class, \"getValue\", MethodType.methodType(int.class));\n        start = System.nanoTime();\n        for (int i = 0; i < iterations; i++) {\n            int v = (int) mh.invoke(target);\n        }\n        System.out.println(\"MethodHandle: \" + (System.nanoTime() - start) / iterations + \" ns/op\");\n    }\n}\n"
+      "text": "public class ReflectionOverheadDemo {\n    static class Target {\n        int value;\n        int getValue() { return value; }\n    }\n\n    public static void main(String[] args) throws Exception {\n        Target target = new Target();\n        target.value = 42;\n        int iterations = 1_000_000;\n\n        // Warmup omitted for brevity -- use JMH for real benchmarks\n\n        // Direct call\n        long start = System.nanoTime();\n        for (int i = 0; i < iterations; i++) {\n            int v = target.getValue();\n        }\n        System.out.println(\"Direct: \" + (System.nanoTime() - start) / iterations + \" ns/op\");\n\n        // Cached reflection\n        Method method = Target.class.getDeclaredMethod(\"getValue\");\n        method.setAccessible(true);\n        start = System.nanoTime();\n        for (int i = 0; i < iterations; i++) {\n            int v = (int) method.invoke(target);\n        }\n        System.out.println(\"Cached reflection: \" + (System.nanoTime() - start) / iterations + \" ns/op\");\n\n        // MethodHandle\n        MethodHandle mh = MethodHandles.lookup()\n                .findVirtual(Target.class, \"getValue\", MethodType.methodType(int.class));\n        start = System.nanoTime();\n        for (int i = 0; i < iterations; i++) {\n            int v = (int) mh.invoke(target);\n        }\n        System.out.println(\"MethodHandle: \" + (System.nanoTime() - start) / iterations + \" ns/op\");\n    }\n}"
     },
     {
       "type": "para",
@@ -245,12 +227,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: MethodHandle (java.lang.invoke.MethodHandle) is a typed, directly\nexecutable reference to an underlying method, constructor, or field.\n\nKey advantages over Method.invoke():\n\n1. Strong typing: MethodHandle.invokeExact() enforces exact type matching\n   at the call site, enabling the JIT to inline the call.\n\n2. JIT optimization: Because MethodHandles are strongly typed and immutable,\n   the JIT compiler can optimize them like regular method calls -- inlining,\n   escape analysis, and constant folding all apply.\n\n3. No boxing: invokeExact() works with primitive types directly (no Object[]\n   array, no auto-boxing).\n\n4. No access checking per call: Access is checked once during MethodHandle\n   creation (lookup), not on every invocation.\n\n5. Composability: MethodHandles can be combined, adapted, and transformed\n   using MethodHandles.filterArguments(), guardWithTest(), etc.\n\nBest practice: Store MethodHandles in static final fields for maximum\nJIT optimization:\n  private static final MethodHandle GET_VALUE;\n  static {\n      GET_VALUE = MethodHandles.lookup().findVirtual(...);\n  }\n"
+      "text": "A2: MethodHandle (java.lang.invoke.MethodHandle) is a typed, directly\nexecutable reference to an underlying method, constructor, or field.\n\nKey advantages over Method.invoke():\n\n1. Strong typing: MethodHandle.invokeExact() enforces exact type matching\n   at the call site, enabling the JIT to inline the call.\n\n2. JIT optimization: Because MethodHandles are strongly typed and immutable,\n   the JIT compiler can optimize them like regular method calls -- inlining,\n   escape analysis, and constant folding all apply.\n\n3. No boxing: invokeExact() works with primitive types directly (no Object[]\n   array, no auto-boxing).\n\n4. No access checking per call: Access is checked once during MethodHandle\n   creation (lookup), not on every invocation.\n\n5. Composability: MethodHandles can be combined, adapted, and transformed\n   using MethodHandles.filterArguments(), guardWithTest(), etc.\n\nBest practice: Store MethodHandles in static final fields for maximum\nJIT optimization:\n  private static final MethodHandle GET_VALUE;\n  static {\n      GET_VALUE = MethodHandles.lookup().findVirtual(...);\n  }"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class MethodHandleDemo {\n    static class Calculator {\n        int multiply(int a, int b) { return a * b; }\n        static int add(int a, int b) { return a + b; }\n    }\n\n    public static void main(String[] args) throws Throwable {\n        MethodHandles.Lookup lookup = MethodHandles.lookup();\n\n        // Virtual method handle\n        MethodHandle multiply = lookup.findVirtual(\n                Calculator.class, \"multiply\",\n                MethodType.methodType(int.class, int.class, int.class));\n\n        Calculator calc = new Calculator();\n        int result = (int) multiply.invoke(calc, 6, 7);\n        System.out.println(\"6 * 7 = \" + result); // 42\n\n        // Static method handle\n        MethodHandle add = lookup.findStatic(\n                Calculator.class, \"add\",\n                MethodType.methodType(int.class, int.class, int.class));\n\n        int sum = (int) add.invoke(3, 4);\n        System.out.println(\"3 + 4 = \" + sum); // 7\n\n        // Field access via MethodHandle\n        MethodHandles.Lookup privateLookup = MethodHandles.privateLookupIn(\n                Calculator.class, lookup);\n        // Can access private fields with privateLookupIn\n    }\n}\n"
+      "text": "public class MethodHandleDemo {\n    static class Calculator {\n        int multiply(int a, int b) { return a * b; }\n        static int add(int a, int b) { return a + b; }\n    }\n\n    public static void main(String[] args) throws Throwable {\n        MethodHandles.Lookup lookup = MethodHandles.lookup();\n\n        // Virtual method handle\n        MethodHandle multiply = lookup.findVirtual(\n                Calculator.class, \"multiply\",\n                MethodType.methodType(int.class, int.class, int.class));\n\n        Calculator calc = new Calculator();\n        int result = (int) multiply.invoke(calc, 6, 7);\n        System.out.println(\"6 * 7 = \" + result); // 42\n\n        // Static method handle\n        MethodHandle add = lookup.findStatic(\n                Calculator.class, \"add\",\n                MethodType.methodType(int.class, int.class, int.class));\n\n        int sum = (int) add.invoke(3, 4);\n        System.out.println(\"3 + 4 = \" + sum); // 7\n\n        // Field access via MethodHandle\n        MethodHandles.Lookup privateLookup = MethodHandles.privateLookupIn(\n                Calculator.class, lookup);\n        // Can access private fields with privateLookupIn\n    }\n}"
     },
     {
       "type": "para",
@@ -259,12 +241,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Effective caching strategies for reflection:\n\n1. Static final fields: Best for known, fixed members.\n   private static final Method PROCESS_METHOD;\n   static { PROCESS_METHOD = MyClass.class.getDeclaredMethod(\"process\"); }\n\n2. ConcurrentHashMap cache: For dynamic lookups with varying types.\n   Map<String, Method> cache = new ConcurrentHashMap<>();\n   Key format: \"className#methodName(paramTypes)\"\n\n3. ClassValue (Java 7+): A JVM-optimized per-class cache.\n   ClassValue<Map<String, Method>> methodCache = new ClassValue<>() {\n       @Override protected Map<String, Method> computeValue(Class<?> type) {\n           // Build method map for this class\n       }\n   };\n\n4. WeakHashMap with Class keys: Meant to allow class unloading with custom\n   classloaders, but it does NOT work for Method/Field values: each Method or\n   Field strongly references its declaring Class, so the value keeps its own\n   key reachable and the entry is never removed (the WeakHashMap javadoc warns\n   about this). Prefer ClassValue, whose values do not keep the class alive.\n\n5. ThreadLocal caches: For thread-confined reflection operations.\n\nWhat to cache:\n- Method, Field, Constructor objects (expensive to look up)\n- MethodHandle objects (even more important -- JIT optimizes static final MH)\n- NOT Class objects (they are already singletons per classloader)\n\nWhen to invalidate:\n- When using hot-swapping or classloader-based reloading (rare in production)\n- Consider WeakReference-based caches for frameworks with class reloading\n"
+      "text": "A3: Effective caching strategies for reflection:\n\n1. Static final fields: Best for known, fixed members.\n   private static final Method PROCESS_METHOD;\n   static { PROCESS_METHOD = MyClass.class.getDeclaredMethod(\"process\"); }\n\n2. ConcurrentHashMap cache: For dynamic lookups with varying types.\n   Map<String, Method> cache = new ConcurrentHashMap<>();\n   Key format: \"className#methodName(paramTypes)\"\n\n3. ClassValue (Java 7+): A JVM-optimized per-class cache.\n   ClassValue<Map<String, Method>> methodCache = new ClassValue<>() {\n       @Override protected Map<String, Method> computeValue(Class<?> type) {\n           // Build method map for this class\n       }\n   };\n\n4. WeakHashMap with Class keys: Meant to allow class unloading with custom\n   classloaders, but it does NOT work for Method/Field values: each Method or\n   Field strongly references its declaring Class, so the value keeps its own\n   key reachable and the entry is never removed (the WeakHashMap javadoc warns\n   about this). Prefer ClassValue, whose values do not keep the class alive.\n\n5. ThreadLocal caches: For thread-confined reflection operations.\n\nWhat to cache:\n- Method, Field, Constructor objects (expensive to look up)\n- MethodHandle objects (even more important -- JIT optimizes static final MH)\n- NOT Class objects (they are already singletons per classloader)\n\nWhen to invalidate:\n- When using hot-swapping or classloader-based reloading (rare in production)\n- Consider WeakReference-based caches for frameworks with class reloading"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ReflectionCacheDemo {\n    // Strategy 1: Static final for known types\n    private static final Method TO_STRING;\n    static {\n        try {\n            TO_STRING = Object.class.getMethod(\"toString\");\n        } catch (NoSuchMethodException e) {\n            throw new ExceptionInInitializerError(e);\n        }\n    }\n\n    // Strategy 2: ConcurrentHashMap for dynamic lookups\n    private static final Map<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();\n\n    public static Method getCachedMethod(Class<?> clazz, String name, Class<?>... paramTypes)\n            throws NoSuchMethodException {\n        String key = clazz.getName() + \"#\" + name + Arrays.toString(paramTypes);\n        Method method = METHOD_CACHE.get(key);\n        if (method == null) {\n            method = clazz.getDeclaredMethod(name, paramTypes);\n            method.setAccessible(true);\n            METHOD_CACHE.put(key, method);\n        }\n        return method;\n    }\n\n    // Strategy 3: ClassValue -- JVM-optimized per-class cache\n    private static final ClassValue<Map<String, Field>> FIELD_CACHE = new ClassValue<>() {\n        @Override\n        protected Map<String, Field> computeValue(Class<?> type) {\n            Map<String, Field> map = new HashMap<>();\n            for (Field f : type.getDeclaredFields()) {\n                f.setAccessible(true);\n                map.put(f.getName(), f);\n            }\n            return Collections.unmodifiableMap(map);\n        }\n    };\n}\n"
+      "text": "public class ReflectionCacheDemo {\n    // Strategy 1: Static final for known types\n    private static final Method TO_STRING;\n    static {\n        try {\n            TO_STRING = Object.class.getMethod(\"toString\");\n        } catch (NoSuchMethodException e) {\n            throw new ExceptionInInitializerError(e);\n        }\n    }\n\n    // Strategy 2: ConcurrentHashMap for dynamic lookups\n    private static final Map<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();\n\n    public static Method getCachedMethod(Class<?> clazz, String name, Class<?>... paramTypes)\n            throws NoSuchMethodException {\n        String key = clazz.getName() + \"#\" + name + Arrays.toString(paramTypes);\n        Method method = METHOD_CACHE.get(key);\n        if (method == null) {\n            method = clazz.getDeclaredMethod(name, paramTypes);\n            method.setAccessible(true);\n            METHOD_CACHE.put(key, method);\n        }\n        return method;\n    }\n\n    // Strategy 3: ClassValue -- JVM-optimized per-class cache\n    private static final ClassValue<Map<String, Field>> FIELD_CACHE = new ClassValue<>() {\n        @Override\n        protected Map<String, Field> computeValue(Class<?> type) {\n            Map<String, Field> map = new HashMap<>();\n            for (Field f : type.getDeclaredFields()) {\n                f.setAccessible(true);\n                map.put(f.getName(), f);\n            }\n            return Collections.unmodifiableMap(map);\n        }\n    };\n}"
     },
     {
       "type": "para",
@@ -273,12 +255,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Avoid reflection when:\n\n1. The type is known at compile time: Use direct calls, generics, or pattern\n   matching instead. Reflection adds unnecessary overhead and removes type safety.\n\n2. Performance is critical: In hot loops processing millions of operations per\n   second, even cached reflection overhead adds up. Use MethodHandle or direct calls.\n\n3. Compile-time alternatives exist:\n   - Annotation processing (e.g., Dagger for DI, MapStruct for mapping)\n   - Code generation (e.g., Lombok, AutoValue)\n   - Record patterns and sealed class exhaustive switches\n\n4. GraalVM native image is a target: Reflection requires explicit configuration\n   in native images and prevents ahead-of-time optimization.\n\n5. Security is a concern: Reflection bypasses access controls, which can be\n   exploited if untrusted code has access.\n\n6. Readability matters: Reflective code is harder to understand, debug, and\n   refactor. IDE features like \"Find Usages\" don't work for reflective calls.\n\nWhen reflection IS appropriate:\n- Framework infrastructure (DI containers, ORM, serialization)\n- Plugin architectures where types are unknown at compile time\n- Testing utilities (accessing internals for verification)\n- Developer tools (debuggers, profilers, code generators)\n"
+      "text": "A4: Avoid reflection when:\n\n1. The type is known at compile time: Use direct calls, generics, or pattern\n   matching instead. Reflection adds unnecessary overhead and removes type safety.\n\n2. Performance is critical: In hot loops processing millions of operations per\n   second, even cached reflection overhead adds up. Use MethodHandle or direct calls.\n\n3. Compile-time alternatives exist:\n   - Annotation processing (e.g., Dagger for DI, MapStruct for mapping)\n   - Code generation (e.g., Lombok, AutoValue)\n   - Record patterns and sealed class exhaustive switches\n\n4. GraalVM native image is a target: Reflection requires explicit configuration\n   in native images and prevents ahead-of-time optimization.\n\n5. Security is a concern: Reflection bypasses access controls, which can be\n   exploited if untrusted code has access.\n\n6. Readability matters: Reflective code is harder to understand, debug, and\n   refactor. IDE features like \"Find Usages\" don't work for reflective calls.\n\nWhen reflection IS appropriate:\n- Framework infrastructure (DI containers, ORM, serialization)\n- Plugin architectures where types are unknown at compile time\n- Testing utilities (accessing internals for verification)\n- Developer tools (debuggers, profilers, code generators)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class AvoidReflectionDemo {\n    // AVOID: Reflection where compile-time type is known\n    public String badGetName(Object obj) throws Exception {\n        Method m = obj.getClass().getMethod(\"getName\");\n        return (String) m.invoke(obj); // Loses type safety\n    }\n\n    // PREFER: Direct call with proper typing\n    interface Named { String getName(); }\n    public String goodGetName(Named obj) {\n        return obj.getName(); // Type-safe, fast, IDE-friendly\n    }\n\n    // AVOID: Reflection for exhaustive type matching\n    public String badDescribe(Object shape) throws Exception {\n        String type = shape.getClass().getSimpleName();\n        return switch (type) {\n            case \"Circle\" -> \"A circle\";\n            case \"Square\" -> \"A square\";\n            default -> \"Unknown\";\n        };\n    }\n\n    // PREFER: Sealed class with pattern matching (Java 21)\n    sealed interface Shape permits Circle, Square {}\n    record Circle(double r) implements Shape {}\n    record Square(double s) implements Shape {}\n\n    public String goodDescribe(Shape shape) {\n        return switch (shape) {\n            case Circle c -> \"Circle r=\" + c.r();\n            case Square s -> \"Square s=\" + s.s();\n        };\n    }\n}\n"
+      "text": "public class AvoidReflectionDemo {\n    // AVOID: Reflection where compile-time type is known\n    public String badGetName(Object obj) throws Exception {\n        Method m = obj.getClass().getMethod(\"getName\");\n        return (String) m.invoke(obj); // Loses type safety\n    }\n\n    // PREFER: Direct call with proper typing\n    interface Named { String getName(); }\n    public String goodGetName(Named obj) {\n        return obj.getName(); // Type-safe, fast, IDE-friendly\n    }\n\n    // AVOID: Reflection for exhaustive type matching\n    public String badDescribe(Object shape) throws Exception {\n        String type = shape.getClass().getSimpleName();\n        return switch (type) {\n            case \"Circle\" -> \"A circle\";\n            case \"Square\" -> \"A square\";\n            default -> \"Unknown\";\n        };\n    }\n\n    // PREFER: Sealed class with pattern matching (Java 21)\n    sealed interface Shape permits Circle, Square {}\n    record Circle(double r) implements Shape {}\n    record Square(double s) implements Shape {}\n\n    public String goodDescribe(Shape shape) {\n        return switch (shape) {\n            case Circle c -> \"Circle r=\" + c.r();\n            case Square s -> \"Square s=\" + s.s();\n        };\n    }\n}"
     },
     {
       "type": "para",
@@ -287,12 +269,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Production frameworks use several strategies to minimize reflection costs:\n\n1. Startup-time scanning: Perform all reflective analysis (method lookup, field\n   scanning, annotation processing) once during application startup. Cache\n   everything for runtime use.\n\n2. Bytecode generation: Instead of calling Method.invoke() at runtime:\n   - Spring uses CGLIB to generate subclass proxies at startup.\n   - Hibernate uses Byte Buddy for bytecode enhancement.\n   - Generated bytecode is compiled by the JIT like regular code.\n\n3. MethodHandle caching: Store MethodHandles in static fields for frequently\n   accessed methods and fields.\n\n4. Lazy initialization: Only reflect on classes when first needed, amortizing\n   the cost across application lifetime.\n\n5. Classpath scanning optimization: Use ASM or similar bytecode readers to scan\n   annotations without fully loading classes.\n\n6. Compile-time processing:\n   - Spring AOT (Ahead-of-Time) generates reflection-free code for GraalVM.\n   - Micronaut and Quarkus use annotation processing to eliminate runtime reflection.\n\n7. Connection pooling for reflection: Reuse reflected metadata across multiple\n   instances of the same type.\n\nThe trend in modern frameworks is moving AWAY from runtime reflection toward\ncompile-time code generation (Spring 6 AOT, Quarkus, Micronaut).\n"
+      "text": "A5: Production frameworks use several strategies to minimize reflection costs:\n\n1. Startup-time scanning: Perform all reflective analysis (method lookup, field\n   scanning, annotation processing) once during application startup. Cache\n   everything for runtime use.\n\n2. Bytecode generation: Instead of calling Method.invoke() at runtime:\n   - Spring uses CGLIB to generate subclass proxies at startup.\n   - Hibernate uses Byte Buddy for bytecode enhancement.\n   - Generated bytecode is compiled by the JIT like regular code.\n\n3. MethodHandle caching: Store MethodHandles in static fields for frequently\n   accessed methods and fields.\n\n4. Lazy initialization: Only reflect on classes when first needed, amortizing\n   the cost across application lifetime.\n\n5. Classpath scanning optimization: Use ASM or similar bytecode readers to scan\n   annotations without fully loading classes.\n\n6. Compile-time processing:\n   - Spring AOT (Ahead-of-Time) generates reflection-free code for GraalVM.\n   - Micronaut and Quarkus use annotation processing to eliminate runtime reflection.\n\n7. Connection pooling for reflection: Reuse reflected metadata across multiple\n   instances of the same type.\n\nThe trend in modern frameworks is moving AWAY from runtime reflection toward\ncompile-time code generation (Spring 6 AOT, Quarkus, Micronaut)."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Simplified example of how a framework caches reflection metadata\npublic class FrameworkMetadataCache {\n    record BeanMetadata(\n        Constructor<?> constructor,\n        List<Field> injectableFields,\n        List<Method> postConstructMethods\n    ) {}\n\n    private static final Map<Class<?>, BeanMetadata> CACHE = new ConcurrentHashMap<>();\n\n    public static BeanMetadata getMetadata(Class<?> beanClass) {\n        return CACHE.computeIfAbsent(beanClass, clazz -> {\n            try {\n                // One-time expensive reflection\n                Constructor<?> ctor = clazz.getDeclaredConstructors()[0];\n                ctor.setAccessible(true);\n\n                List<Field> fields = new ArrayList<>();\n                for (Field f : clazz.getDeclaredFields()) {\n                    if (f.isAnnotationPresent(Inject.class)) {\n                        f.setAccessible(true);\n                        fields.add(f);\n                    }\n                }\n\n                List<Method> postConstruct = new ArrayList<>();\n                for (Method m : clazz.getDeclaredMethods()) {\n                    if (m.isAnnotationPresent(PostConstruct.class)) {\n                        m.setAccessible(true);\n                        postConstruct.add(m);\n                    }\n                }\n\n                return new BeanMetadata(ctor, fields, postConstruct);\n            } catch (Exception e) {\n                throw new RuntimeException(\"Failed to analyze: \" + clazz, e);\n            }\n        });\n    }\n}\n"
+      "text": "// Simplified example of how a framework caches reflection metadata\npublic class FrameworkMetadataCache {\n    record BeanMetadata(\n        Constructor<?> constructor,\n        List<Field> injectableFields,\n        List<Method> postConstructMethods\n    ) {}\n\n    private static final Map<Class<?>, BeanMetadata> CACHE = new ConcurrentHashMap<>();\n\n    public static BeanMetadata getMetadata(Class<?> beanClass) {\n        return CACHE.computeIfAbsent(beanClass, clazz -> {\n            try {\n                // One-time expensive reflection\n                Constructor<?> ctor = clazz.getDeclaredConstructors()[0];\n                ctor.setAccessible(true);\n\n                List<Field> fields = new ArrayList<>();\n                for (Field f : clazz.getDeclaredFields()) {\n                    if (f.isAnnotationPresent(Inject.class)) {\n                        f.setAccessible(true);\n                        fields.add(f);\n                    }\n                }\n\n                List<Method> postConstruct = new ArrayList<>();\n                for (Method m : clazz.getDeclaredMethods()) {\n                    if (m.isAnnotationPresent(PostConstruct.class)) {\n                        m.setAccessible(true);\n                        postConstruct.add(m);\n                    }\n                }\n\n                return new BeanMetadata(ctor, fields, postConstruct);\n            } catch (Exception e) {\n                throw new RuntimeException(\"Failed to analyze: \" + clazz, e);\n            }\n        });\n    }\n}"
     },
     {
       "type": "para",
@@ -301,12 +283,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: LambdaMetafactory (java.lang.invoke.LambdaMetafactory) generates\nimplementations of functional interfaces at runtime, backed by a MethodHandle.\n\nHow it works:\n1. You provide a MethodHandle pointing to a target method.\n2. LambdaMetafactory generates a class that implements a functional interface\n   (e.g., Function, Supplier, Runnable).\n3. The generated class calls the target method directly (no reflection).\n4. The JIT can inline the call as if it were a regular lambda expression.\n\nPerformance:\n- Setup cost: illustratively ~100 microseconds (one-time, during metafactory call; depends on the JVM and hardware).\n- Per-call cost: same as a regular method call or lambda -- the JIT inlines it.\n\nThis is actually how the Java compiler implements lambda expressions:\n  list.forEach(x -> x.process())\ncompiles to an invokedynamic instruction that calls LambdaMetafactory at first\nexecution, then reuses the generated implementation.\n\nUse case: When you need the flexibility of reflection (runtime-determined\ntarget method) with the performance of direct calls.\n"
+      "text": "A6: LambdaMetafactory (java.lang.invoke.LambdaMetafactory) generates\nimplementations of functional interfaces at runtime, backed by a MethodHandle.\n\nHow it works:\n1. You provide a MethodHandle pointing to a target method.\n2. LambdaMetafactory generates a class that implements a functional interface\n   (e.g., Function, Supplier, Runnable).\n3. The generated class calls the target method directly (no reflection).\n4. The JIT can inline the call as if it were a regular lambda expression.\n\nPerformance:\n- Setup cost: illustratively ~100 microseconds (one-time, during metafactory call; depends on the JVM and hardware).\n- Per-call cost: same as a regular method call or lambda -- the JIT inlines it.\n\nThis is actually how the Java compiler implements lambda expressions:\n  list.forEach(x -> x.process())\ncompiles to an invokedynamic instruction that calls LambdaMetafactory at first\nexecution, then reuses the generated implementation.\n\nUse case: When you need the flexibility of reflection (runtime-determined\ntarget method) with the performance of direct calls."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class LambdaMetafactoryDemo {\n    static class Processor {\n        String process(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    public static void main(String[] args) throws Throwable {\n        MethodHandles.Lookup lookup = MethodHandles.lookup();\n        MethodHandle target = lookup.findVirtual(\n                Processor.class, \"process\",\n                MethodType.methodType(String.class, String.class));\n\n        // Create a Function<Processor, Function<String, String>> via LambdaMetafactory\n        CallSite site = LambdaMetafactory.metafactory(\n                lookup,\n                \"apply\",                                           // SAM method name\n                MethodType.methodType(Function.class, Processor.class), // factory type\n                MethodType.methodType(Object.class, Object.class), // generic SAM signature\n                target,                                            // implementation\n                MethodType.methodType(String.class, String.class)  // specific SAM signature\n        );\n\n        Processor processor = new Processor();\n        @SuppressWarnings(\"unchecked\")\n        Function<String, String> fn = (Function<String, String>) site.getTarget().invoke(processor);\n\n        // Now fn.apply() is as fast as a direct call -- no reflection overhead\n        System.out.println(fn.apply(\"hello\")); // \"HELLO\"\n    }\n}\n"
+      "text": "public class LambdaMetafactoryDemo {\n    static class Processor {\n        String process(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    public static void main(String[] args) throws Throwable {\n        MethodHandles.Lookup lookup = MethodHandles.lookup();\n        MethodHandle target = lookup.findVirtual(\n                Processor.class, \"process\",\n                MethodType.methodType(String.class, String.class));\n\n        // Create a Function<Processor, Function<String, String>> via LambdaMetafactory\n        CallSite site = LambdaMetafactory.metafactory(\n                lookup,\n                \"apply\",                                           // SAM method name\n                MethodType.methodType(Function.class, Processor.class), // factory type\n                MethodType.methodType(Object.class, Object.class), // generic SAM signature\n                target,                                            // implementation\n                MethodType.methodType(String.class, String.class)  // specific SAM signature\n        );\n\n        Processor processor = new Processor();\n        @SuppressWarnings(\"unchecked\")\n        Function<String, String> fn = (Function<String, String>) site.getTarget().invoke(processor);\n\n        // Now fn.apply() is as fast as a direct call -- no reflection overhead\n        System.out.println(fn.apply(\"hello\")); // \"HELLO\"\n    }\n}"
     },
     {
       "type": "heading",
@@ -328,9 +310,9 @@
   "counts": {
     "headings": 10,
     "paras": 11,
-    "code": 17,
+    "code": 12,
     "tables": 0,
-    "lists": 13,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -338,5 +320,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "929ca6c7a23faad876a9e73d771517debf5f8c08c9040d3b0fc9cf6bc109c810"
+  "content_sha256": "d109411f856dd204903216a6250388bc292f745031ad94e6e888fda757888c5a"
 }

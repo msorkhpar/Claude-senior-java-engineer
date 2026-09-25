@@ -82,52 +82,39 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Using `equals()` to compare across timezones**:"
+        [
+          "**Using `equals()` to compare across timezones**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: equals() checks zone, not just the instant\nZonedDateTime ny = ZonedDateTime.parse(\"2024-03-15T12:00-04:00[America/New_York]\");\nZonedDateTime utc = ny.withZoneSameInstant(ZoneId.of(\"UTC\"));\nny.equals(utc); // false!\n\n// Fix: Use isEqual() or compare instants\nny.isEqual(utc); // true -- same moment in time\nny.toInstant().equals(utc.toInstant()); // true"
+          }
+        ],
+        [
+          "**Ignoring DST gaps**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Creating a time that doesn't exist during spring forward\nZoneId ny = ZoneId.of(\"America/New_York\");\n// On March 10, 2024, 2:00 AM doesn't exist (clocks skip to 3:00 AM)\nZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);\n// Silently adjusted to 3:30 AM!\n\n// Awareness: Always check if the resulting time matches your input"
+          }
+        ],
+        [
+          "**Confusing `OffsetDateTime` with `ZonedDateTime`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: OffsetDateTime doesn't track DST\nOffsetDateTime odt = OffsetDateTime.of(2024, 1, 15, 12, 0, 0, 0, ZoneOffset.ofHours(-5));\n// In summer, Eastern Time is -4, not -5. OffsetDateTime doesn't know this.\n\n// Fix: Use ZonedDateTime when DST matters\nZonedDateTime zdt = ZonedDateTime.of(2024, 7, 15, 12, 0, 0, 0, ZoneId.of(\"America/New_York\"));\n// Automatically uses -4 (EDT) in summer"
+          }
+        ],
+        [
+          "**Using three-letter timezone abbreviations**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: \"CST\" is ambiguous (Central Standard Time? China Standard Time?)\nZoneId.of(\"CST\"); // Throws ZoneRulesException: Unknown time-zone ID\n// Only ZoneId.of(\"CST\", ZoneId.SHORT_IDS) resolves it -- to America/Chicago\n// (while the legacy TimeZone.getTimeZone(\"CST\") silently accepts it)\n\n// Fix: Use IANA timezone IDs\nZoneId.of(\"America/Chicago\");  // Central US\nZoneId.of(\"Asia/Shanghai\");    // China"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: equals() checks zone, not just the instant\nZonedDateTime ny = ZonedDateTime.parse(\"2024-03-15T12:00-04:00[America/New_York]\");\nZonedDateTime utc = ny.withZoneSameInstant(ZoneId.of(\"UTC\"));\nny.equals(utc); // false!\n\n// Fix: Use isEqual() or compare instants\nny.isEqual(utc); // true -- same moment in time\nny.toInstant().equals(utc.toInstant()); // true\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Ignoring DST gaps**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Creating a time that doesn't exist during spring forward\nZoneId ny = ZoneId.of(\"America/New_York\");\n// On March 10, 2024, 2:00 AM doesn't exist (clocks skip to 3:00 AM)\nZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);\n// Silently adjusted to 3:30 AM!\n\n// Awareness: Always check if the resulting time matches your input\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Confusing `OffsetDateTime` with `ZonedDateTime`**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: OffsetDateTime doesn't track DST\nOffsetDateTime odt = OffsetDateTime.of(2024, 1, 15, 12, 0, 0, 0, ZoneOffset.ofHours(-5));\n// In summer, Eastern Time is -4, not -5. OffsetDateTime doesn't know this.\n\n// Fix: Use ZonedDateTime when DST matters\nZonedDateTime zdt = ZonedDateTime.of(2024, 7, 15, 12, 0, 0, 0, ZoneId.of(\"America/New_York\"));\n// Automatically uses -4 (EDT) in summer\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using three-letter timezone abbreviations**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: \"CST\" is ambiguous (Central Standard Time? China Standard Time?)\nZoneId.of(\"CST\"); // Throws ZoneRulesException: Unknown time-zone ID\n// Only ZoneId.of(\"CST\", ZoneId.SHORT_IDS) resolves it -- to America/Chicago\n// (while the legacy TimeZone.getTimeZone(\"CST\") silently accepts it)\n\n// Fix: Use IANA timezone IDs\nZoneId.of(\"America/Chicago\");  // Central US\nZoneId.of(\"Asia/Shanghai\");    // China\n"
     },
     {
       "type": "heading",
@@ -193,12 +180,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The key difference is DST awareness:\n\nZonedDateTime:\n- Carries a ZoneId (e.g., \"America/New_York\")\n- Knows about DST rules -- automatically adjusts offset as DST changes\n- Same zone ID can have different offsets at different times of year\n- Best for: scheduling, user-facing times, calendar applications\n\nOffsetDateTime:\n- Carries a fixed ZoneOffset (e.g., \"-04:00\")\n- No DST awareness -- the offset never changes\n- Simpler and more predictable\n- Best for: API responses, database storage, log timestamps\n\nConversion: ZonedDateTime -> OffsetDateTime is lossless (via toOffsetDateTime()).\nOffsetDateTime -> ZonedDateTime requires specifying which zone the offset belongs to.\n\nSQL/JDBC: OffsetDateTime maps directly to TIMESTAMP WITH TIME ZONE.\n"
+      "text": "A1: The key difference is DST awareness:\n\nZonedDateTime:\n- Carries a ZoneId (e.g., \"America/New_York\")\n- Knows about DST rules -- automatically adjusts offset as DST changes\n- Same zone ID can have different offsets at different times of year\n- Best for: scheduling, user-facing times, calendar applications\n\nOffsetDateTime:\n- Carries a fixed ZoneOffset (e.g., \"-04:00\")\n- No DST awareness -- the offset never changes\n- Simpler and more predictable\n- Best for: API responses, database storage, log timestamps\n\nConversion: ZonedDateTime -> OffsetDateTime is lossless (via toOffsetDateTime()).\nOffsetDateTime -> ZonedDateTime requires specifying which zone the offset belongs to.\n\nSQL/JDBC: OffsetDateTime maps directly to TIMESTAMP WITH TIME ZONE."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// ZonedDateTime: DST-aware\nZoneId ny = ZoneId.of(\"America/New_York\");\nZonedDateTime winter = ZonedDateTime.of(2024, 1, 15, 12, 0, 0, 0, ny);\nZonedDateTime summer = ZonedDateTime.of(2024, 7, 15, 12, 0, 0, 0, ny);\nSystem.out.println(winter.getOffset()); // -05:00 (EST)\nSystem.out.println(summer.getOffset()); // -04:00 (EDT)\n\n// OffsetDateTime: Fixed offset\nOffsetDateTime odt = OffsetDateTime.of(2024, 3, 15, 12, 0, 0, 0, ZoneOffset.ofHours(-5));\n// Always -05:00, regardless of DST\n"
+      "text": "// ZonedDateTime: DST-aware\nZoneId ny = ZoneId.of(\"America/New_York\");\nZonedDateTime winter = ZonedDateTime.of(2024, 1, 15, 12, 0, 0, 0, ny);\nZonedDateTime summer = ZonedDateTime.of(2024, 7, 15, 12, 0, 0, 0, ny);\nSystem.out.println(winter.getOffset()); // -05:00 (EST)\nSystem.out.println(summer.getOffset()); // -04:00 (EDT)\n\n// OffsetDateTime: Fixed offset\nOffsetDateTime odt = OffsetDateTime.of(2024, 3, 15, 12, 0, 0, 0, ZoneOffset.ofHours(-5));\n// Always -05:00, regardless of DST"
     },
     {
       "type": "para",
@@ -207,12 +194,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: During DST transitions, two special cases occur:\n\n1. Gap (spring forward): A range of local times does not exist. For example, on \n   March 10, 2024 in US Eastern, 2:00 AM to 2:59 AM is skipped.\n   - ZonedDateTime.of() for a time in the gap adjusts FORWARD to the post-gap time\n   - 2:30 AM becomes 3:30 AM EDT\n\n2. Overlap (fall back): A range of local times occurs twice. For example, on \n   November 3, 2024 in US Eastern, 1:00 AM to 1:59 AM occurs twice (EDT then EST).\n   - ZonedDateTime.of() for a time in the overlap uses the EARLIER offset (pre-transition)\n   - Use withLaterOffsetAtOverlap() to select the later occurrence\n   - Use withEarlierOffsetAtOverlap() to explicitly select the earlier occurrence\n\nThe API never throws an exception for DST transitions -- it makes a reasonable \ndefault choice and provides methods to override it.\n"
+      "text": "A2: During DST transitions, two special cases occur:\n\n1. Gap (spring forward): A range of local times does not exist. For example, on \n   March 10, 2024 in US Eastern, 2:00 AM to 2:59 AM is skipped.\n   - ZonedDateTime.of() for a time in the gap adjusts FORWARD to the post-gap time\n   - 2:30 AM becomes 3:30 AM EDT\n\n2. Overlap (fall back): A range of local times occurs twice. For example, on \n   November 3, 2024 in US Eastern, 1:00 AM to 1:59 AM occurs twice (EDT then EST).\n   - ZonedDateTime.of() for a time in the overlap uses the EARLIER offset (pre-transition)\n   - Use withLaterOffsetAtOverlap() to select the later occurrence\n   - Use withEarlierOffsetAtOverlap() to explicitly select the earlier occurrence\n\nThe API never throws an exception for DST transitions -- it makes a reasonable \ndefault choice and provides methods to override it."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "ZoneId ny = ZoneId.of(\"America/New_York\");\n\n// Gap: March 10, 2024, 2:00 AM doesn't exist\nZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);\nSystem.out.println(gap); // 2024-03-10T03:30-04:00[America/New_York]\n// Adjusted forward to 3:30 AM EDT\n\n// Overlap: November 3, 2024, 1:00 AM occurs twice\nZonedDateTime overlap = ZonedDateTime.of(2024, 11, 3, 1, 30, 0, 0, ny);\nSystem.out.println(overlap); // 2024-11-03T01:30-04:00[America/New_York] (EDT -- earlier offset)\n\nZonedDateTime later = overlap.withLaterOffsetAtOverlap();\nSystem.out.println(later); // 2024-11-03T01:30-05:00[America/New_York] (EST -- later offset)\n"
+      "text": "ZoneId ny = ZoneId.of(\"America/New_York\");\n\n// Gap: March 10, 2024, 2:00 AM doesn't exist\nZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);\nSystem.out.println(gap); // 2024-03-10T03:30-04:00[America/New_York]\n// Adjusted forward to 3:30 AM EDT\n\n// Overlap: November 3, 2024, 1:00 AM occurs twice\nZonedDateTime overlap = ZonedDateTime.of(2024, 11, 3, 1, 30, 0, 0, ny);\nSystem.out.println(overlap); // 2024-11-03T01:30-04:00[America/New_York] (EDT -- earlier offset)\n\nZonedDateTime later = overlap.withLaterOffsetAtOverlap();\nSystem.out.println(later); // 2024-11-03T01:30-05:00[America/New_York] (EST -- later offset)"
     },
     {
       "type": "para",
@@ -221,12 +208,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: These two methods change the timezone of a ZonedDateTime in fundamentally \ndifferent ways:\n\nwithZoneSameInstant(zone):\n- Preserves the INSTANT (same point in time)\n- Changes the local date/time to match the new zone\n- Example: 2 PM in New York = 7 PM in London (same moment)\n- Use case: \"What time is it in London right now?\"\n\nwithZoneSameLocal(zone):\n- Preserves the LOCAL DATE/TIME (same wall clock reading)\n- Changes the instant (different point in time)\n- Example: 2 PM in New York becomes \"2 PM in London\" (different moment)\n- Use case: \"Schedule this meeting at 2 PM London time instead\"\n\nThis is one of the most important distinctions in timezone programming.\n"
+      "text": "A3: These two methods change the timezone of a ZonedDateTime in fundamentally \ndifferent ways:\n\nwithZoneSameInstant(zone):\n- Preserves the INSTANT (same point in time)\n- Changes the local date/time to match the new zone\n- Example: 2 PM in New York = 7 PM in London (same moment)\n- Use case: \"What time is it in London right now?\"\n\nwithZoneSameLocal(zone):\n- Preserves the LOCAL DATE/TIME (same wall clock reading)\n- Changes the instant (different point in time)\n- Example: 2 PM in New York becomes \"2 PM in London\" (different moment)\n- Use case: \"Schedule this meeting at 2 PM London time instead\"\n\nThis is one of the most important distinctions in timezone programming."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "ZonedDateTime nyNoon = ZonedDateTime.of(2024, 3, 15, 12, 0, 0, 0,\n        ZoneId.of(\"America/New_York\"));\n\n// withZoneSameInstant: SAME moment, different local time\nZonedDateTime londonSameInstant = nyNoon.withZoneSameInstant(ZoneId.of(\"Europe/London\"));\n// 2024-03-15T16:00Z[Europe/London] -- 4 PM London = 12 PM New York\n// Same instant: nyNoon.toInstant().equals(londonSameInstant.toInstant()) == true\n\n// withZoneSameLocal: SAME local time, different moment\nZonedDateTime londonSameLocal = nyNoon.withZoneSameLocal(ZoneId.of(\"Europe/London\"));\n// 2024-03-15T12:00Z[Europe/London] -- 12 PM London (different moment!)\n// Different instant: nyNoon.toInstant().equals(londonSameLocal.toInstant()) == false\n"
+      "text": "ZonedDateTime nyNoon = ZonedDateTime.of(2024, 3, 15, 12, 0, 0, 0,\n        ZoneId.of(\"America/New_York\"));\n\n// withZoneSameInstant: SAME moment, different local time\nZonedDateTime londonSameInstant = nyNoon.withZoneSameInstant(ZoneId.of(\"Europe/London\"));\n// 2024-03-15T16:00Z[Europe/London] -- 4 PM London = 12 PM New York\n// Same instant: nyNoon.toInstant().equals(londonSameInstant.toInstant()) == true\n\n// withZoneSameLocal: SAME local time, different moment\nZonedDateTime londonSameLocal = nyNoon.withZoneSameLocal(ZoneId.of(\"Europe/London\"));\n// 2024-03-15T12:00Z[Europe/London] -- 12 PM London (different moment!)\n// Different instant: nyNoon.toInstant().equals(londonSameLocal.toInstant()) == false"
     },
     {
       "type": "para",
@@ -235,12 +222,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Get the current Instant and convert to each desired timezone:\n\n1. Instant.now() gives you the current moment\n2. instant.atZone(ZoneId) converts to any timezone\n3. ZonedDateTime.now(ZoneId) is a shortcut for the above\n\nThis pattern is correct because it ensures all conversions are based on the \nsame instant, avoiding subtle timing issues.\n"
+      "text": "A4: Get the current Instant and convert to each desired timezone:\n\n1. Instant.now() gives you the current moment\n2. instant.atZone(ZoneId) converts to any timezone\n3. ZonedDateTime.now(ZoneId) is a shortcut for the above\n\nThis pattern is correct because it ensures all conversions are based on the \nsame instant, avoiding subtle timing issues."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Get current time in multiple zones\nInstant now = Instant.now();\n\nZonedDateTime newYork = now.atZone(ZoneId.of(\"America/New_York\"));\nZonedDateTime london = now.atZone(ZoneId.of(\"Europe/London\"));\nZonedDateTime tokyo = now.atZone(ZoneId.of(\"Asia/Tokyo\"));\nZonedDateTime sydney = now.atZone(ZoneId.of(\"Australia/Sydney\"));\n\n// Or use the shortcut\nZonedDateTime nyDirect = ZonedDateTime.now(ZoneId.of(\"America/New_York\"));\n\n// Format for display\nDateTimeFormatter displayFmt = DateTimeFormatter.ofPattern(\"HH:mm z\");\nSystem.out.println(\"New York: \" + newYork.format(displayFmt));\nSystem.out.println(\"London:   \" + london.format(displayFmt));\nSystem.out.println(\"Tokyo:    \" + tokyo.format(displayFmt));\nSystem.out.println(\"Sydney:   \" + sydney.format(displayFmt));\n"
+      "text": "// Get current time in multiple zones\nInstant now = Instant.now();\n\nZonedDateTime newYork = now.atZone(ZoneId.of(\"America/New_York\"));\nZonedDateTime london = now.atZone(ZoneId.of(\"Europe/London\"));\nZonedDateTime tokyo = now.atZone(ZoneId.of(\"Asia/Tokyo\"));\nZonedDateTime sydney = now.atZone(ZoneId.of(\"Australia/Sydney\"));\n\n// Or use the shortcut\nZonedDateTime nyDirect = ZonedDateTime.now(ZoneId.of(\"America/New_York\"));\n\n// Format for display\nDateTimeFormatter displayFmt = DateTimeFormatter.ofPattern(\"HH:mm z\");\nSystem.out.println(\"New York: \" + newYork.format(displayFmt));\nSystem.out.println(\"London:   \" + london.format(displayFmt));\nSystem.out.println(\"Tokyo:    \" + tokyo.format(displayFmt));\nSystem.out.println(\"Sydney:   \" + sydney.format(displayFmt));"
     },
     {
       "type": "para",
@@ -249,12 +236,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Use ZoneId when:\n- You need DST awareness (most user-facing scenarios)\n- You're working with named timezones (\"America/New_York\")\n- You're scheduling future events (DST rules may change offset)\n- You need historical accuracy (past timezone changes)\n\nUse ZoneOffset when:\n- You have a fixed offset from UTC\n- You're storing/transmitting timestamps (API, database)\n- DST is not relevant (e.g., UTC-based timestamps)\n- You need maximum simplicity and predictability\n\nZoneOffset is a subclass of ZoneId (ZoneId is an abstract class and ZoneOffset \nextends it). Every ZoneOffset is also a valid ZoneId, but not every ZoneId is a \nZoneOffset.\n\nSpecial note: ZoneId.of(\"UTC\"), ZoneId.of(\"Z\"), and ZoneOffset.UTC all \nrepresent UTC, but not with the same type: ZoneId.of(\"Z\") returns ZoneOffset.UTC \nitself, while ZoneId.of(\"UTC\") returns a region ID (a ZoneRegion) whose rules \nhave a fixed zero offset, so it is not equal to ZoneOffset.UTC. Use \nZoneOffset.UTC when you specifically need an offset value.\n"
+      "text": "A5: Use ZoneId when:\n- You need DST awareness (most user-facing scenarios)\n- You're working with named timezones (\"America/New_York\")\n- You're scheduling future events (DST rules may change offset)\n- You need historical accuracy (past timezone changes)\n\nUse ZoneOffset when:\n- You have a fixed offset from UTC\n- You're storing/transmitting timestamps (API, database)\n- DST is not relevant (e.g., UTC-based timestamps)\n- You need maximum simplicity and predictability\n\nZoneOffset is a subclass of ZoneId (ZoneId is an abstract class and ZoneOffset \nextends it). Every ZoneOffset is also a valid ZoneId, but not every ZoneId is a \nZoneOffset.\n\nSpecial note: ZoneId.of(\"UTC\"), ZoneId.of(\"Z\"), and ZoneOffset.UTC all \nrepresent UTC, but not with the same type: ZoneId.of(\"Z\") returns ZoneOffset.UTC \nitself, while ZoneId.of(\"UTC\") returns a region ID (a ZoneRegion) whose rules \nhave a fixed zero offset, so it is not equal to ZoneOffset.UTC. Use \nZoneOffset.UTC when you specifically need an offset value."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// ZoneId: DST-aware, named timezone\nZoneId newYork = ZoneId.of(\"America/New_York\"); // DST rules included\nZonedDateTime zdt = ZonedDateTime.now(newYork);\n// Offset changes between -05:00 (winter) and -04:00 (summer)\n\n// ZoneOffset: Fixed, simple offset\nZoneOffset utcPlus5 = ZoneOffset.ofHours(5);\nOffsetDateTime odt = OffsetDateTime.now(utcPlus5);\n// Always +05:00, no DST changes\n\n// UTC representations\nZoneOffset utc1 = ZoneOffset.UTC;              // ZoneOffset\nZoneId utc2 = ZoneId.of(\"UTC\");                // Region ID \"UTC\" (a ZoneRegion), not equal to utc1\nZoneId utc3 = ZoneId.of(\"Z\");                  // Returns ZoneOffset.UTC itself (utc3 == utc1)\n"
+      "text": "// ZoneId: DST-aware, named timezone\nZoneId newYork = ZoneId.of(\"America/New_York\"); // DST rules included\nZonedDateTime zdt = ZonedDateTime.now(newYork);\n// Offset changes between -05:00 (winter) and -04:00 (summer)\n\n// ZoneOffset: Fixed, simple offset\nZoneOffset utcPlus5 = ZoneOffset.ofHours(5);\nOffsetDateTime odt = OffsetDateTime.now(utcPlus5);\n// Always +05:00, no DST changes\n\n// UTC representations\nZoneOffset utc1 = ZoneOffset.UTC;              // ZoneOffset\nZoneId utc2 = ZoneId.of(\"UTC\");                // Region ID \"UTC\" (a ZoneRegion), not equal to utc1\nZoneId utc3 = ZoneId.of(\"Z\");                  // Returns ZoneOffset.UTC itself (utc3 == utc1)"
     },
     {
       "type": "heading",
@@ -276,9 +263,9 @@
   "counts": {
     "headings": 10,
     "paras": 8,
-    "code": 14,
+    "code": 10,
     "tables": 0,
-    "lists": 11,
+    "lists": 8,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -286,5 +273,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "dae4d4353cc52d88fb49b2f3d922ccd04e4216c04730dee9ef48f4e351d6c0a6"
+  "content_sha256": "747efa3f25bc11546544e7428af3b31c308b11bd8f38361884f0a28cbbfaf18f"
 }

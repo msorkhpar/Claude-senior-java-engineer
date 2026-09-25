@@ -134,68 +134,43 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Benchmarking without warmup**: JIT compilation occurs progressively; cold code is much slower than warmed-up code."
+        [
+          "**Benchmarking without warmup**: JIT compilation occurs progressively; cold code is much slower than warmed-up code.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: Measuring cold performance\nlong start = System.nanoTime();\nresult = compute(data);\nlong elapsed = System.nanoTime() - start; // Includes interpretation + compilation\n\n// RIGHT: Warm up first, then measure\nfor (int i = 0; i < 10_000; i++) {\n    compute(data); // Warmup iterations\n}\nlong start = System.nanoTime();\nresult = compute(data); // Now measures JIT-compiled code\nlong elapsed = System.nanoTime() - start;\n\n// BEST: Use JMH (Java Microbenchmark Harness) which handles warmup properly"
+          },
+          "**Solution**: Always use JMH for microbenchmarks, or manually warm up code before measuring."
+        ],
+        [
+          "**Megamorphic call sites killing performance**: Having too many implementations at a call site prevents devirtualization.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Monomorphic (1 type) -- JIT can devirtualize and inline\nShape s = new Circle();\ns.draw(); // Always Circle.draw() -- optimized\n\n// Bimorphic (2 types) -- JIT can handle with type check\nShape s = random ? new Circle() : new Square();\ns.draw(); // Two possibilities -- still optimizable\n\n// Megamorphic (3+ types) -- JIT gives up on devirtualization\nShape s = getRandomShape(); // Circle, Square, Triangle, Hexagon...\ns.draw(); // Virtual dispatch every time -- slower"
+          },
+          "**Solution**: Minimize polymorphism at hot call sites. (`sealed` is a type-system feature, not a performance one: HotSpot's devirtualization comes from receiver-type profiling and class hierarchy analysis of the loaded classes, so do not expect a speed-up from declaring the hierarchy `sealed`.)"
+        ],
+        [
+          "**Methods too large to inline**: By default HotSpot inlines a method of at most 35 bytes of bytecode at an ordinary call site (`MaxInlineSize`) and at most 325 bytes at a hot, frequently executed call site (`FreqInlineSize`); larger methods are not inlined.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// This large method won't be inlined\npublic int computeEverything(int input) {\n    // 500+ lines of code\n}"
+          },
+          "**Solution**: Keep methods small and focused. Use `-XX:MaxInlineSize` and `-XX:FreqInlineSize` for tuning."
+        ],
+        [
+          "**Escape analysis defeated by external references**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Object escapes -- cannot be stack-allocated\npublic Point getPoint() {\n    Point p = new Point(1, 2);\n    return p; // p escapes the method\n}\n\n// Object does NOT escape -- the allocation can be eliminated (scalar replacement)\npublic int getDistance() {\n    Point p = new Point(3, 4);\n    return p.x * p.x + p.y * p.y; // p never escapes\n}"
+          },
+          "**Solution**: Design APIs so that intermediate objects don't escape hot methods."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: Measuring cold performance\nlong start = System.nanoTime();\nresult = compute(data);\nlong elapsed = System.nanoTime() - start; // Includes interpretation + compilation\n\n// RIGHT: Warm up first, then measure\nfor (int i = 0; i < 10_000; i++) {\n    compute(data); // Warmup iterations\n}\nlong start = System.nanoTime();\nresult = compute(data); // Now measures JIT-compiled code\nlong elapsed = System.nanoTime() - start;\n\n// BEST: Use JMH (Java Microbenchmark Harness) which handles warmup properly\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Always use JMH for microbenchmarks, or manually warm up code before measuring."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Megamorphic call sites killing performance**: Having too many implementations at a call site prevents devirtualization."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Monomorphic (1 type) -- JIT can devirtualize and inline\nShape s = new Circle();\ns.draw(); // Always Circle.draw() -- optimized\n\n// Bimorphic (2 types) -- JIT can handle with type check\nShape s = random ? new Circle() : new Square();\ns.draw(); // Two possibilities -- still optimizable\n\n// Megamorphic (3+ types) -- JIT gives up on devirtualization\nShape s = getRandomShape(); // Circle, Square, Triangle, Hexagon...\ns.draw(); // Virtual dispatch every time -- slower\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Minimize polymorphism at hot call sites. (`sealed` is a type-system feature, not a performance one: HotSpot's devirtualization comes from receiver-type profiling and class hierarchy analysis of the loaded classes, so do not expect a speed-up from declaring the hierarchy `sealed`.)"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Methods too large to inline**: By default HotSpot inlines a method of at most 35 bytes of bytecode at an ordinary call site (`MaxInlineSize`) and at most 325 bytes at a hot, frequently executed call site (`FreqInlineSize`); larger methods are not inlined."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// This large method won't be inlined\npublic int computeEverything(int input) {\n    // 500+ lines of code\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Keep methods small and focused. Use `-XX:MaxInlineSize` and `-XX:FreqInlineSize` for tuning."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Escape analysis defeated by external references**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Object escapes -- cannot be stack-allocated\npublic Point getPoint() {\n    Point p = new Point(1, 2);\n    return p; // p escapes the method\n}\n\n// Object does NOT escape -- the allocation can be eliminated (scalar replacement)\npublic int getDistance() {\n    Point p = new Point(3, 4);\n    return p.x * p.x + p.y * p.y; // p never escapes\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Design APIs so that intermediate objects don't escape hot methods."
     },
     {
       "type": "heading",
@@ -278,12 +253,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Tiered compilation is the default compilation strategy in HotSpot JVM (since Java 8)\nthat combines two JIT compilers for optimal performance:\n\nC1 (Client Compiler):\n- Fast compilation, basic optimizations\n- Generates reasonably optimized code quickly\n- Collects profiling data for C2\n- Three sub-levels: Level 1 (no profiling), Level 2 (basic), Level 3 (full profiling)\n\nC2 (Server Compiler):\n- Slow compilation, aggressive optimizations\n- Uses profiling data from C1 to make speculative optimizations\n- Produces highly optimized native code\n- Level 4\n\nThe typical compilation path:\n1. Method starts as interpreted (Level 0)\n2. After enough invocations, C1 compiles it with profiling (Level 3)\n3. After more invocations and sufficient profiling data, C2 recompiles (Level 4)\n\nBenefits of tiered compilation:\n- Fast startup (C1 compiles quickly for early warmup)\n- High peak performance (C2 optimizes hot code aggressively)\n- Better profiling data (C1 collects data while providing decent performance)\n- Automatic adaptation (no need to choose -client vs -server)\n\nYou can control this with:\n- -XX:+TieredCompilation (on by default)\n- -XX:-TieredCompilation (disable, use only C2)\n- -XX:TieredStopAtLevel=N (stop at level N)\n"
+      "text": "A1: Tiered compilation is the default compilation strategy in HotSpot JVM (since Java 8)\nthat combines two JIT compilers for optimal performance:\n\nC1 (Client Compiler):\n- Fast compilation, basic optimizations\n- Generates reasonably optimized code quickly\n- Collects profiling data for C2\n- Three sub-levels: Level 1 (no profiling), Level 2 (basic), Level 3 (full profiling)\n\nC2 (Server Compiler):\n- Slow compilation, aggressive optimizations\n- Uses profiling data from C1 to make speculative optimizations\n- Produces highly optimized native code\n- Level 4\n\nThe typical compilation path:\n1. Method starts as interpreted (Level 0)\n2. After enough invocations, C1 compiles it with profiling (Level 3)\n3. After more invocations and sufficient profiling data, C2 recompiles (Level 4)\n\nBenefits of tiered compilation:\n- Fast startup (C1 compiles quickly for early warmup)\n- High peak performance (C2 optimizes hot code aggressively)\n- Better profiling data (C1 collects data while providing decent performance)\n- Automatic adaptation (no need to choose -client vs -server)\n\nYou can control this with:\n- -XX:+TieredCompilation (on by default)\n- -XX:-TieredCompilation (disable, use only C2)\n- -XX:TieredStopAtLevel=N (stop at level N)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Observing JIT compilation with flags:\n// java -XX:+PrintCompilation TieredCompilationDemo\n\npublic class TieredCompilationDemo {\n    public static int hotMethod(int x) {\n        return x * x + 2 * x + 1;\n    }\n\n    public static void main(String[] args) {\n        // Level 0: Interpreted for first few hundred calls\n        for (int i = 0; i < 100; i++) {\n            hotMethod(i);\n        }\n\n        // Level 3: C1 compiled with profiling after ~hundreds of calls\n        for (int i = 0; i < 10_000; i++) {\n            hotMethod(i);\n        }\n\n        // Level 4: C2 compiled with aggressive optimizations after ~10,000+ calls\n        for (int i = 0; i < 100_000; i++) {\n            hotMethod(i);\n        }\n    }\n}\n"
+      "text": "// Observing JIT compilation with flags:\n// java -XX:+PrintCompilation TieredCompilationDemo\n\npublic class TieredCompilationDemo {\n    public static int hotMethod(int x) {\n        return x * x + 2 * x + 1;\n    }\n\n    public static void main(String[] args) {\n        // Level 0: Interpreted for first few hundred calls\n        for (int i = 0; i < 100; i++) {\n            hotMethod(i);\n        }\n\n        // Level 3: C1 compiled with profiling after ~hundreds of calls\n        for (int i = 0; i < 10_000; i++) {\n            hotMethod(i);\n        }\n\n        // Level 4: C2 compiled with aggressive optimizations after ~10,000+ calls\n        for (int i = 0; i < 100_000; i++) {\n            hotMethod(i);\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -292,12 +267,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Method inlining replaces a method call with the body of the called method at the\ncall site. It is considered the most important JIT optimization because:\n\n1. Eliminates call overhead:\n   - No need to create a new stack frame\n   - No parameter passing overhead\n   - No return value handling\n\n2. Enables cascading optimizations:\n   - Constant propagation: If arguments are constants, the inlined code can be\n     simplified at compile time\n   - Dead code elimination: Unreachable branches in the inlined code can be removed\n   - Escape analysis: Objects that don't escape the inlined scope can be\n     stack-allocated or eliminated\n   - Loop optimizations: Inlined loop bodies can be unrolled or vectorized\n\n3. Improves data locality:\n   - Inlined code is physically closer in the code cache\n   - Better CPU cache utilization\n\nHotSpot inlining heuristics:\n- MaxInlineSize (default 35 bytes): Methods smaller than this are always inlined\n- FreqInlineSize (default 325 bytes): Frequently called methods up to this size\n- MaxInlineLevel (default 15): Maximum depth of inlining\n- Methods marked as 'final' or in 'final' classes are easier to inline\n\nWhy small methods matter:\n- Getter/setter methods (1-5 bytes) are always inlined\n- Small utility methods get inlined, making abstraction \"free\"\n- Large methods block inlining of their callers\n"
+      "text": "A2: Method inlining replaces a method call with the body of the called method at the\ncall site. It is considered the most important JIT optimization because:\n\n1. Eliminates call overhead:\n   - No need to create a new stack frame\n   - No parameter passing overhead\n   - No return value handling\n\n2. Enables cascading optimizations:\n   - Constant propagation: If arguments are constants, the inlined code can be\n     simplified at compile time\n   - Dead code elimination: Unreachable branches in the inlined code can be removed\n   - Escape analysis: Objects that don't escape the inlined scope can be\n     stack-allocated or eliminated\n   - Loop optimizations: Inlined loop bodies can be unrolled or vectorized\n\n3. Improves data locality:\n   - Inlined code is physically closer in the code cache\n   - Better CPU cache utilization\n\nHotSpot inlining heuristics:\n- MaxInlineSize (default 35 bytes): Methods smaller than this are always inlined\n- FreqInlineSize (default 325 bytes): Frequently called methods up to this size\n- MaxInlineLevel (default 15): Maximum depth of inlining\n- Methods marked as 'final' or in 'final' classes are easier to inline\n\nWhy small methods matter:\n- Getter/setter methods (1-5 bytes) are always inlined\n- Small utility methods get inlined, making abstraction \"free\"\n- Large methods block inlining of their callers"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Inlining demonstration\npublic class InliningDemo {\n    // These small methods will be inlined by the JIT\n    public static int square(int x) {\n        return x * x;\n    }\n\n    public static int doubleIt(int x) {\n        return x * 2;\n    }\n\n    // After inlining, this becomes equivalent to: return x * x + x * 2 + 1\n    public static int compute(int x) {\n        return square(x) + doubleIt(x) + 1;\n    }\n\n    // Polymorphic methods may not be inlined (megamorphic call sites)\n    interface Shape {\n        int area();\n    }\n\n    static final class Circle implements Shape {\n        int r;\n        Circle(int r) { this.r = r; }\n        @Override public int area() { return (int)(Math.PI * r * r); }\n    }\n\n    // Sealed classes document every implementation for readers and for switch\n    // exhaustiveness (a type-system feature); the JIT's inlining decisions come from\n    // profiling and class hierarchy analysis, so expect no speed-up from 'sealed' itself\n    sealed interface SealedShape permits SealedCircle, SealedSquare {\n        int area();\n    }\n    static final class SealedCircle implements SealedShape {\n        int r;\n        SealedCircle(int r) { this.r = r; }\n        @Override public int area() { return (int)(Math.PI * r * r); }\n    }\n    static final class SealedSquare implements SealedShape {\n        int s;\n        SealedSquare(int s) { this.s = s; }\n        @Override public int area() { return s * s; }\n    }\n}\n"
+      "text": "// Inlining demonstration\npublic class InliningDemo {\n    // These small methods will be inlined by the JIT\n    public static int square(int x) {\n        return x * x;\n    }\n\n    public static int doubleIt(int x) {\n        return x * 2;\n    }\n\n    // After inlining, this becomes equivalent to: return x * x + x * 2 + 1\n    public static int compute(int x) {\n        return square(x) + doubleIt(x) + 1;\n    }\n\n    // Polymorphic methods may not be inlined (megamorphic call sites)\n    interface Shape {\n        int area();\n    }\n\n    static final class Circle implements Shape {\n        int r;\n        Circle(int r) { this.r = r; }\n        @Override public int area() { return (int)(Math.PI * r * r); }\n    }\n\n    // Sealed classes document every implementation for readers and for switch\n    // exhaustiveness (a type-system feature); the JIT's inlining decisions come from\n    // profiling and class hierarchy analysis, so expect no speed-up from 'sealed' itself\n    sealed interface SealedShape permits SealedCircle, SealedSquare {\n        int area();\n    }\n    static final class SealedCircle implements SealedShape {\n        int r;\n        SealedCircle(int r) { this.r = r; }\n        @Override public int area() { return (int)(Math.PI * r * r); }\n    }\n    static final class SealedSquare implements SealedShape {\n        int s;\n        SealedSquare(int s) { this.s = s; }\n        @Override public int area() { return s * s; }\n    }\n}"
     },
     {
       "type": "para",
@@ -306,12 +281,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Escape analysis is a JIT compiler optimization that determines the dynamic scope\nof object references -- specifically, whether an object can be accessed outside the\nmethod or thread that created it.\n\nThree escape states:\n1. NoEscape: Object is only used within the creating method and never stored in a\n   field or passed to another method.\n2. ArgEscape: Object is passed as an argument to a method but doesn't escape beyond\n   that call (e.g., passed to a method that doesn't store it).\n3. GlobalEscape: Object is stored in a static field, returned from the method, or\n   otherwise accessible globally.\n\nOptimizations enabled:\n1. Scalar Replacement (NoEscape):\n   - Instead of allocating the object on the heap, its fields become local variables\n   - No allocation, no garbage collection needed\n   - Example: Point p = new Point(x, y); return p.x + p.y;\n     Becomes: return x + y; (Point object eliminated entirely)\n\n2. Stack Allocation (NoEscape):\n   - Object is allocated on the thread's stack instead of the heap\n   - Automatically deallocated when the method returns\n   - No GC pressure at all\n   - Note: HotSpot primarily uses scalar replacement rather than stack allocation\n\n3. Lock Elision (NoEscape/ArgEscape):\n   - If an object doesn't escape the thread, its synchronization can be removed\n   - synchronized(localObj) becomes a no-op if localObj doesn't escape\n\n4. Lock Coarsening (related optimization):\n   - Multiple adjacent synchronized blocks on the same object are merged\n\nLimitations:\n- Only works for objects that don't escape\n- Complex control flow can prevent escape analysis\n- Large objects may not benefit (exceeds optimization thresholds)\n- Requires method inlining first (analysis must see the full scope)\n"
+      "text": "A3: Escape analysis is a JIT compiler optimization that determines the dynamic scope\nof object references -- specifically, whether an object can be accessed outside the\nmethod or thread that created it.\n\nThree escape states:\n1. NoEscape: Object is only used within the creating method and never stored in a\n   field or passed to another method.\n2. ArgEscape: Object is passed as an argument to a method but doesn't escape beyond\n   that call (e.g., passed to a method that doesn't store it).\n3. GlobalEscape: Object is stored in a static field, returned from the method, or\n   otherwise accessible globally.\n\nOptimizations enabled:\n1. Scalar Replacement (NoEscape):\n   - Instead of allocating the object on the heap, its fields become local variables\n   - No allocation, no garbage collection needed\n   - Example: Point p = new Point(x, y); return p.x + p.y;\n     Becomes: return x + y; (Point object eliminated entirely)\n\n2. Stack Allocation (NoEscape):\n   - Object is allocated on the thread's stack instead of the heap\n   - Automatically deallocated when the method returns\n   - No GC pressure at all\n   - Note: HotSpot primarily uses scalar replacement rather than stack allocation\n\n3. Lock Elision (NoEscape/ArgEscape):\n   - If an object doesn't escape the thread, its synchronization can be removed\n   - synchronized(localObj) becomes a no-op if localObj doesn't escape\n\n4. Lock Coarsening (related optimization):\n   - Multiple adjacent synchronized blocks on the same object are merged\n\nLimitations:\n- Only works for objects that don't escape\n- Complex control flow can prevent escape analysis\n- Large objects may not benefit (exceeds optimization thresholds)\n- Requires method inlining first (analysis must see the full scope)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Escape analysis scenarios\npublic class EscapeAnalysisDemo {\n    record Point(int x, int y) {}\n\n    // NoEscape -- Point can be scalar-replaced (eliminated)\n    public static int sumCoordinates(int x, int y) {\n        Point p = new Point(x, y); // JIT may eliminate this allocation\n        return p.x() + p.y();     // Becomes just: return x + y;\n    }\n\n    // GlobalEscape -- Point escapes via return; cannot be eliminated\n    public static Point createPoint(int x, int y) {\n        return new Point(x, y); // Must be heap-allocated\n    }\n\n    // NoEscape with lock elision\n    public static int synchronizedNoEscape() {\n        Object lock = new Object(); // Doesn't escape\n        synchronized (lock) {        // Lock can be elided\n            return 42;\n        }\n    }\n\n    // ArgEscape -- depends on what the called method does\n    public static void argEscape(int x, int y) {\n        Point p = new Point(x, y);\n        System.out.println(p); // p escapes to println\n    }\n}\n"
+      "text": "// Escape analysis scenarios\npublic class EscapeAnalysisDemo {\n    record Point(int x, int y) {}\n\n    // NoEscape -- Point can be scalar-replaced (eliminated)\n    public static int sumCoordinates(int x, int y) {\n        Point p = new Point(x, y); // JIT may eliminate this allocation\n        return p.x() + p.y();     // Becomes just: return x + y;\n    }\n\n    // GlobalEscape -- Point escapes via return; cannot be eliminated\n    public static Point createPoint(int x, int y) {\n        return new Point(x, y); // Must be heap-allocated\n    }\n\n    // NoEscape with lock elision\n    public static int synchronizedNoEscape() {\n        Object lock = new Object(); // Doesn't escape\n        synchronized (lock) {        // Lock can be elided\n            return 42;\n        }\n    }\n\n    // ArgEscape -- depends on what the called method does\n    public static void argEscape(int x, int y) {\n        Point p = new Point(x, y);\n        System.out.println(p); // p escapes to println\n    }\n}"
     },
     {
       "type": "para",
@@ -320,12 +295,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Deoptimization is the process of reverting from JIT-compiled native code back to\ninterpreted execution. It occurs when the assumptions made during JIT compilation\nbecome invalid.\n\nWhen deoptimization occurs:\n1. Class loading invalidates assumptions:\n   - JIT assumed a method was monomorphic (only one implementation)\n   - A new class is loaded that provides another implementation\n   - The compiled code's devirtualization is no longer valid\n\n2. Uncommon traps are hit:\n   - JIT compiled code based on profiling that showed a branch was never taken\n   - When that branch is taken for the first time, the compiled code can't handle it\n   - Example: null check that was never triggered during profiling\n\n3. Type profile changes:\n   - JIT optimized for specific types seen during profiling\n   - A new type appears at runtime\n\n4. Hot code replacement:\n   - Debugger replaces code at runtime (JVMTI)\n\n5. Speculative optimizations fail:\n   - Bounds check elimination assumed array was always in bounds\n   - An out-of-bounds access occurs\n\nThe deoptimization process:\n1. JVM identifies the current point in compiled code\n2. Reconstructs the interpreter state (stack frame, local variables)\n3. Transfers execution to the interpreter\n4. The method may be recompiled later with updated profiling data\n\nImpact on performance:\n- Deoptimization itself is expensive (state reconstruction)\n- Repeated deopt/recompile cycles (\"deoptimization storms\") are very costly\n- Usually temporary -- recompilation with better data resolves it\n"
+      "text": "A4: Deoptimization is the process of reverting from JIT-compiled native code back to\ninterpreted execution. It occurs when the assumptions made during JIT compilation\nbecome invalid.\n\nWhen deoptimization occurs:\n1. Class loading invalidates assumptions:\n   - JIT assumed a method was monomorphic (only one implementation)\n   - A new class is loaded that provides another implementation\n   - The compiled code's devirtualization is no longer valid\n\n2. Uncommon traps are hit:\n   - JIT compiled code based on profiling that showed a branch was never taken\n   - When that branch is taken for the first time, the compiled code can't handle it\n   - Example: null check that was never triggered during profiling\n\n3. Type profile changes:\n   - JIT optimized for specific types seen during profiling\n   - A new type appears at runtime\n\n4. Hot code replacement:\n   - Debugger replaces code at runtime (JVMTI)\n\n5. Speculative optimizations fail:\n   - Bounds check elimination assumed array was always in bounds\n   - An out-of-bounds access occurs\n\nThe deoptimization process:\n1. JVM identifies the current point in compiled code\n2. Reconstructs the interpreter state (stack frame, local variables)\n3. Transfers execution to the interpreter\n4. The method may be recompiled later with updated profiling data\n\nImpact on performance:\n- Deoptimization itself is expensive (state reconstruction)\n- Repeated deopt/recompile cycles (\"deoptimization storms\") are very costly\n- Usually temporary -- recompilation with better data resolves it"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Demonstrating deoptimization trigger\npublic class DeoptimizationDemo {\n    interface Processor {\n        int process(int input);\n    }\n\n    static class SimpleProcessor implements Processor {\n        @Override public int process(int input) { return input * 2; }\n    }\n\n    static class ComplexProcessor implements Processor {\n        @Override public int process(int input) { return input * input + input; }\n    }\n\n    public static int useProcessor(Processor p, int input) {\n        return p.process(input); // Call site for potential deopt\n    }\n\n    public static void main(String[] args) {\n        Processor simple = new SimpleProcessor();\n\n        // Phase 1: JIT profiles this as monomorphic (only SimpleProcessor)\n        // After warmup, devirtualizes and inlines SimpleProcessor.process()\n        for (int i = 0; i < 100_000; i++) {\n            useProcessor(simple, i);\n        }\n\n        // Phase 2: Introducing ComplexProcessor invalidates the assumption\n        // This triggers deoptimization of useProcessor()\n        Processor complex = new ComplexProcessor();\n        for (int i = 0; i < 100_000; i++) {\n            // JIT must now handle bimorphic call site\n            useProcessor(i % 2 == 0 ? simple : complex, i);\n        }\n    }\n}\n"
+      "text": "// Demonstrating deoptimization trigger\npublic class DeoptimizationDemo {\n    interface Processor {\n        int process(int input);\n    }\n\n    static class SimpleProcessor implements Processor {\n        @Override public int process(int input) { return input * 2; }\n    }\n\n    static class ComplexProcessor implements Processor {\n        @Override public int process(int input) { return input * input + input; }\n    }\n\n    public static int useProcessor(Processor p, int input) {\n        return p.process(input); // Call site for potential deopt\n    }\n\n    public static void main(String[] args) {\n        Processor simple = new SimpleProcessor();\n\n        // Phase 1: JIT profiles this as monomorphic (only SimpleProcessor)\n        // After warmup, devirtualizes and inlines SimpleProcessor.process()\n        for (int i = 0; i < 100_000; i++) {\n            useProcessor(simple, i);\n        }\n\n        // Phase 2: Introducing ComplexProcessor invalidates the assumption\n        // This triggers deoptimization of useProcessor()\n        Processor complex = new ComplexProcessor();\n        for (int i = 0; i < 100_000; i++) {\n            // JIT must now handle bimorphic call site\n            useProcessor(i % 2 == 0 ? simple : complex, i);\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -334,12 +309,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Several tools and flags help diagnose JIT compilation behavior:\n\nDiagnostic Flags:\n1. -XX:+PrintCompilation\n   - Shows each method as it's compiled\n   - Format: timestamp compile_id flags tier method_name size\n   - Flags: b=blocking, s=synchronized, !=has exception handler\n   - % indicates OSR compilation\n\n2. -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining\n   - Shows inlining decisions and reasons for not inlining\n   - \"too big\", \"callee is too large\", \"no static binding\"\n\n3. -XX:+PrintCodeCache\n   - Shows code cache utilization at shutdown\n   - Helps identify if code cache is exhausted\n\n4. -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation (produces XML log)\n   - Most detailed output, used with JITWatch visualization tool\n   - Generates hotspot_pidXXXX.log\n\n5. JFR (Java Flight Recorder):\n   - jdk.Compilation event: Method compilation details\n   - jdk.CompilerInlining: Inlining decisions\n   - jdk.Deoptimization: Deoptimization events\n   - Low overhead, safe for production\n\nTools:\n- JITWatch: Visualizes compilation logs and inlining decisions\n- JMH: Microbenchmarking with proper warmup handling\n- async-profiler: Shows actual compiled code and CPU hot spots\n- perf + perf-map-agent: Maps JIT-compiled code to Linux perf events\n\nKey metrics to watch:\n- Compilation rate (compiles per second)\n- Code cache utilization (%)\n- Deoptimization count\n- Time spent in compilation threads\n"
+      "text": "A5: Several tools and flags help diagnose JIT compilation behavior:\n\nDiagnostic Flags:\n1. -XX:+PrintCompilation\n   - Shows each method as it's compiled\n   - Format: timestamp compile_id flags tier method_name size\n   - Flags: b=blocking, s=synchronized, !=has exception handler\n   - % indicates OSR compilation\n\n2. -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining\n   - Shows inlining decisions and reasons for not inlining\n   - \"too big\", \"callee is too large\", \"no static binding\"\n\n3. -XX:+PrintCodeCache\n   - Shows code cache utilization at shutdown\n   - Helps identify if code cache is exhausted\n\n4. -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation (produces XML log)\n   - Most detailed output, used with JITWatch visualization tool\n   - Generates hotspot_pidXXXX.log\n\n5. JFR (Java Flight Recorder):\n   - jdk.Compilation event: Method compilation details\n   - jdk.CompilerInlining: Inlining decisions\n   - jdk.Deoptimization: Deoptimization events\n   - Low overhead, safe for production\n\nTools:\n- JITWatch: Visualizes compilation logs and inlining decisions\n- JMH: Microbenchmarking with proper warmup handling\n- async-profiler: Shows actual compiled code and CPU hot spots\n- perf + perf-map-agent: Maps JIT-compiled code to Linux perf events\n\nKey metrics to watch:\n- Compilation rate (compiles per second)\n- Code cache utilization (%)\n- Deoptimization count\n- Time spent in compilation threads"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// JIT diagnostic demonstration\n// Run with: java -XX:+PrintCompilation -XX:+UnlockDiagnosticVMOptions\n//           -XX:+PrintInlining JitDiagnostics\n\npublic class JitDiagnostics {\n    // Small enough to be inlined (< 35 bytes)\n    static int smallMethod(int x) {\n        return x + 1;\n    }\n\n    // 36 bytes of bytecode: over MaxInlineSize (35), so C1 and cold call sites do not\n    // inline it; under FreqInlineSize (325), so C2 can inline it at a hot call site\n    static int largeMethod(int x) {\n        int result = x;\n        for (int i = 0; i < 10; i++) {\n            result = result * x + i;\n            if (result < 0) result = -result;\n            result = result % 1000000;\n        }\n        return result;\n    }\n\n    public static void main(String[] args) {\n        // Force compilation by calling many times\n        int sum = 0;\n        for (int i = 0; i < 100_000; i++) {\n            sum += smallMethod(i);  // Will be inlined\n            sum += largeMethod(i);  // C1 reports \"callee is too large\"; C2 can inline it\n                                // (\"inline (hot)\") if the loop runs long enough for C2\n                                // to compile main -- 100_000 iterations may end first\n        }\n        System.out.println(\"Sum: \" + sum);\n\n        // The number of CPUs also sizes the JIT compiler thread pool\n        System.out.println(\"Available processors: \" +\n            Runtime.getRuntime().availableProcessors());\n    }\n}\n"
+      "text": "// JIT diagnostic demonstration\n// Run with: java -XX:+PrintCompilation -XX:+UnlockDiagnosticVMOptions\n//           -XX:+PrintInlining JitDiagnostics\n\npublic class JitDiagnostics {\n    // Small enough to be inlined (< 35 bytes)\n    static int smallMethod(int x) {\n        return x + 1;\n    }\n\n    // 36 bytes of bytecode: over MaxInlineSize (35), so C1 and cold call sites do not\n    // inline it; under FreqInlineSize (325), so C2 can inline it at a hot call site\n    static int largeMethod(int x) {\n        int result = x;\n        for (int i = 0; i < 10; i++) {\n            result = result * x + i;\n            if (result < 0) result = -result;\n            result = result % 1000000;\n        }\n        return result;\n    }\n\n    public static void main(String[] args) {\n        // Force compilation by calling many times\n        int sum = 0;\n        for (int i = 0; i < 100_000; i++) {\n            sum += smallMethod(i);  // Will be inlined\n            sum += largeMethod(i);  // C1 reports \"callee is too large\"; C2 can inline it\n                                // (\"inline (hot)\") if the loop runs long enough for C2\n                                // to compile main -- 100_000 iterations may end first\n        }\n        System.out.println(\"Sum: \" + sum);\n\n        // The number of CPUs also sizes the JIT compiler thread pool\n        System.out.println(\"Available processors: \" +\n            Runtime.getRuntime().availableProcessors());\n    }\n}"
     },
     {
       "type": "heading",
@@ -360,10 +335,10 @@
   "attachments": [],
   "counts": {
     "headings": 13,
-    "paras": 16,
-    "code": 14,
+    "paras": 12,
+    "code": 10,
     "tables": 0,
-    "lists": 14,
+    "lists": 11,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -371,5 +346,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "eccba2d0c36b3f9607181df69e6f4d7eeed2816a78daea69765a356be3ec0fec"
+  "content_sha256": "39b51b477ddc11793fc611819dfcc4215044bdcbad8aebae0c8c0fa765e97cae"
 }

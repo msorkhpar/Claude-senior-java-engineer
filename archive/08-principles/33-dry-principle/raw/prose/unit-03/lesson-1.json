@@ -83,68 +83,43 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Mixed locking strategies across repositories**"
+        [
+          "**Mixed locking strategies across repositories**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// UserRepo uses synchronized, ProductRepo uses ReentrantLock\n// Reasoning about their interaction becomes very difficult"
+          },
+          "**Solution**: Use a shared `ReadWriteLockedResource<T>` wrapper for all repositories."
+        ],
+        [
+          "**Inconsistent counter implementations**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// CounterA uses synchronized, CounterB uses AtomicInteger\n// Hard to reason about composability and visibility guarantees"
+          },
+          "**Solution**: Standardize on a single `ConsistentCounter` abstraction."
+        ],
+        [
+          "**Updating locking logic in one class but forgetting another**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fixed a deadlock in UserService by changing lock ordering\n// OrderService still has the old ordering -- deadlock persists"
+          },
+          "**Solution**: Centralize lock management in a shared utility."
+        ],
+        [
+          "**Event handling with inconsistent thread safety**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Some event handlers use CopyOnWriteArrayList, others use synchronized ArrayList"
+          },
+          "**Solution**: Use a single `SimpleEventBus` with consistent internal synchronization."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// UserRepo uses synchronized, ProductRepo uses ReentrantLock\n// Reasoning about their interaction becomes very difficult\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Use a shared `ReadWriteLockedResource<T>` wrapper for all repositories."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Inconsistent counter implementations**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// CounterA uses synchronized, CounterB uses AtomicInteger\n// Hard to reason about composability and visibility guarantees\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Standardize on a single `ConsistentCounter` abstraction."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Updating locking logic in one class but forgetting another**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fixed a deadlock in UserService by changing lock ordering\n// OrderService still has the old ordering -- deadlock persists\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Centralize lock management in a shared utility."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Event handling with inconsistent thread safety**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Some event handlers use CopyOnWriteArrayList, others use synchronized ArrayList\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Use a single `SimpleEventBus` with consistent internal synchronization."
     },
     {
       "type": "heading",
@@ -221,12 +196,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: When synchronization logic lives in a shared abstraction (e.g., ReadWriteLockedResource),\nmaintenance improves in several ways:\n\n1. Single point of change: Switching from ReentrantReadWriteLock to StampedLock requires\n   editing only the wrapper class.\n2. Single point of testing: Concurrency tests focus on the shared utility.\n3. Reduced code review burden: Reviewers verify the locking pattern once, not per repository.\n4. Easier migration: Moving to virtual threads or structured concurrency affects one utility.\n\nWithout DRY, each repository independently implements locking, and a strategy change\nrequires shotgun surgery across the entire codebase.\n"
+      "text": "A1: When synchronization logic lives in a shared abstraction (e.g., ReadWriteLockedResource),\nmaintenance improves in several ways:\n\n1. Single point of change: Switching from ReentrantReadWriteLock to StampedLock requires\n   editing only the wrapper class.\n2. Single point of testing: Concurrency tests focus on the shared utility.\n3. Reduced code review burden: Reviewers verify the locking pattern once, not per repository.\n4. Easier migration: Moving to virtual threads or structured concurrency affects one utility.\n\nWithout DRY, each repository independently implements locking, and a strategy change\nrequires shotgun surgery across the entire codebase."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// DRY: Shared read-write locking wrapper\npublic class ReadWriteLockedResource<T> {\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    public <R> R read(Function<T, R> action) {\n        rwLock.readLock().lock();\n        try { return action.apply(resource); }\n        finally { rwLock.readLock().unlock(); }\n    }\n\n    public void writeVoid(Consumer<T> action) {\n        rwLock.writeLock().lock();\n        try { action.accept(resource); }\n        finally { rwLock.writeLock().unlock(); }\n    }\n}\n\n// Both repos use the same locking -- change once, applied everywhere\nclass UserRepo {\n    private final ReadWriteLockedResource<Map<String, String>> data = ...;\n    public String getUser(String id) { return data.read(m -> m.get(id)); }\n}\nclass ProductRepo {\n    private final ReadWriteLockedResource<Map<String, Double>> data = ...;\n    public Double getPrice(String name) { return data.read(m -> m.get(name)); }\n}\n"
+      "text": "// DRY: Shared read-write locking wrapper\npublic class ReadWriteLockedResource<T> {\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    public <R> R read(Function<T, R> action) {\n        rwLock.readLock().lock();\n        try { return action.apply(resource); }\n        finally { rwLock.readLock().unlock(); }\n    }\n\n    public void writeVoid(Consumer<T> action) {\n        rwLock.writeLock().lock();\n        try { action.accept(resource); }\n        finally { rwLock.writeLock().unlock(); }\n    }\n}\n\n// Both repos use the same locking -- change once, applied everywhere\nclass UserRepo {\n    private final ReadWriteLockedResource<Map<String, String>> data = ...;\n    public String getUser(String id) { return data.read(m -> m.get(id)); }\n}\nclass ProductRepo {\n    private final ReadWriteLockedResource<Map<String, Double>> data = ...;\n    public Double getPrice(String name) { return data.read(m -> m.get(name)); }\n}"
     },
     {
       "type": "para",
@@ -235,12 +210,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: When different parts of a codebase use different synchronization mechanisms\n(synchronized, ReentrantLock, AtomicInteger, volatile), several problems arise:\n\n1. Composability issues: synchronized blocks and ReentrantLock blocks don't\n   interoperate -- holding one doesn't prevent the other from proceeding.\n2. Visibility confusion: volatile provides visibility but not atomicity;\n   synchronized provides both -- mixing them creates false safety assumptions.\n3. Reasoning complexity: Developers must track which mechanism each class uses,\n   increasing cognitive load during code review.\n4. Deadlock risk: Different lock ordering in different mechanisms makes deadlock\n   analysis much harder.\n\nDRY eliminates this by standardizing on a single mechanism across the codebase.\n"
+      "text": "A2: When different parts of a codebase use different synchronization mechanisms\n(synchronized, ReentrantLock, AtomicInteger, volatile), several problems arise:\n\n1. Composability issues: synchronized blocks and ReentrantLock blocks don't\n   interoperate -- holding one doesn't prevent the other from proceeding.\n2. Visibility confusion: volatile provides visibility but not atomicity;\n   synchronized provides both -- mixing them creates false safety assumptions.\n3. Reasoning complexity: Developers must track which mechanism each class uses,\n   increasing cognitive load during code review.\n4. Deadlock risk: Different lock ordering in different mechanisms makes deadlock\n   analysis much harder.\n\nDRY eliminates this by standardizing on a single mechanism across the codebase."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// VIOLATION: Mixed mechanisms -- hard to reason about interactions\nclass ServiceA {\n    private synchronized void update() { /* uses intrinsic lock */ }\n}\nclass ServiceB {\n    private final Lock lock = new ReentrantLock();\n    void update() { lock.lock(); try { /*...*/ } finally { lock.unlock(); } }\n}\n\n// DRY: Consistent mechanism everywhere\nclass ServiceA {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    void update() { locker.withLockRun(() -> { /*...*/ }); }\n}\nclass ServiceB {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    void update() { locker.withLockRun(() -> { /*...*/ }); }\n}\n"
+      "text": "// VIOLATION: Mixed mechanisms -- hard to reason about interactions\nclass ServiceA {\n    private synchronized void update() { /* uses intrinsic lock */ }\n}\nclass ServiceB {\n    private final Lock lock = new ReentrantLock();\n    void update() { lock.lock(); try { /*...*/ } finally { lock.unlock(); } }\n}\n\n// DRY: Consistent mechanism everywhere\nclass ServiceA {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    void update() { locker.withLockRun(() -> { /*...*/ }); }\n}\nclass ServiceB {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    void update() { locker.withLockRun(() -> { /*...*/ }); }\n}"
     },
     {
       "type": "para",
@@ -249,12 +224,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Without DRY, different counters use different mechanisms:\n- Counter A: synchronized increment/get\n- Counter B: AtomicInteger.incrementAndGet()\n- Counter C: volatile int with non-atomic increment (BUG!)\n\nA single ConsistentCounter class using AtomicInteger ensures:\n1. All increments are atomic -- no lost updates.\n2. All reads see the latest value -- guaranteed by AtomicInteger's memory semantics.\n3. No lock contention -- AtomicInteger is lock-free.\n4. Consistent API -- increment(), decrement(), get(), reset().\n\nIf the team later decides to switch to LongAdder for high-contention scenarios,\nonly the ConsistentCounter class changes.\n"
+      "text": "A3: Without DRY, different counters use different mechanisms:\n- Counter A: synchronized increment/get\n- Counter B: AtomicInteger.incrementAndGet()\n- Counter C: volatile int with non-atomic increment (BUG!)\n\nA single ConsistentCounter class using AtomicInteger ensures:\n1. All increments are atomic -- no lost updates.\n2. All reads see the latest value -- guaranteed by AtomicInteger's memory semantics.\n3. No lock contention -- AtomicInteger is lock-free.\n4. Consistent API -- increment(), decrement(), get(), reset().\n\nIf the team later decides to switch to LongAdder for high-contention scenarios,\nonly the ConsistentCounter class changes."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ConsistentCounter {\n    private final AtomicInteger count = new AtomicInteger(0);\n\n    public int increment() { return count.incrementAndGet(); }\n    public int decrement() { return count.decrementAndGet(); }\n    public int get() { return count.get(); }\n    public void reset() { count.set(0); }\n}\n\n// All code uses the same counter -- consistent behavior guaranteed\nConsistentCounter requestCount = new ConsistentCounter();\nConsistentCounter errorCount = new ConsistentCounter();\n"
+      "text": "public class ConsistentCounter {\n    private final AtomicInteger count = new AtomicInteger(0);\n\n    public int increment() { return count.incrementAndGet(); }\n    public int decrement() { return count.decrementAndGet(); }\n    public int get() { return count.get(); }\n    public void reset() { count.set(0); }\n}\n\n// All code uses the same counter -- consistent behavior guaranteed\nConsistentCounter requestCount = new ConsistentCounter();\nConsistentCounter errorCount = new ConsistentCounter();"
     },
     {
       "type": "para",
@@ -263,12 +238,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: A SimpleEventBus centralizes publish-subscribe synchronization:\n\n1. ConcurrentHashMap for topic registration -- thread-safe without external locking.\n2. CopyOnWriteArrayList for listener lists -- safe iteration during concurrent modification.\n3. All event types use the same mechanism -- no inconsistency risk.\n\nWithout DRY, each component implements its own listener management:\n- ComponentA uses synchronized ArrayList\n- ComponentB uses CopyOnWriteArrayList\n- ComponentC uses unsynchronized ArrayList (BUG!)\n\nThe event bus ensures all publish-subscribe behavior is consistent and thread-safe.\n"
+      "text": "A4: A SimpleEventBus centralizes publish-subscribe synchronization:\n\n1. ConcurrentHashMap for topic registration -- thread-safe without external locking.\n2. CopyOnWriteArrayList for listener lists -- safe iteration during concurrent modification.\n3. All event types use the same mechanism -- no inconsistency risk.\n\nWithout DRY, each component implements its own listener management:\n- ComponentA uses synchronized ArrayList\n- ComponentB uses CopyOnWriteArrayList\n- ComponentC uses unsynchronized ArrayList (BUG!)\n\nThe event bus ensures all publish-subscribe behavior is consistent and thread-safe."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class SimpleEventBus {\n    private final Map<String, List<Consumer<Object>>> listeners = new ConcurrentHashMap<>();\n\n    public void subscribe(String eventType, Consumer<Object> listener) {\n        listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);\n    }\n\n    public void publish(String eventType, Object event) {\n        List<Consumer<Object>> eventListeners = listeners.get(eventType);\n        if (eventListeners != null) {\n            eventListeners.forEach(l -> l.accept(event));\n        }\n    }\n}\n"
+      "text": "public class SimpleEventBus {\n    private final Map<String, List<Consumer<Object>>> listeners = new ConcurrentHashMap<>();\n\n    public void subscribe(String eventType, Consumer<Object> listener) {\n        listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);\n    }\n\n    public void publish(String eventType, Object event) {\n        List<Consumer<Object>> eventListeners = listeners.get(eventType);\n        if (eventListeners != null) {\n            eventListeners.forEach(l -> l.accept(event));\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -277,12 +252,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: DRY concurrent code dramatically reduces the testing burden:\n\n1. Test the shared utility once with stress tests (multiple threads, race conditions,\n   edge cases) and trust it everywhere.\n2. Consumer classes only need to test their business logic, not their synchronization.\n3. Easier to write deterministic tests -- mock or control the shared utility.\n4. Easier to achieve coverage -- one set of concurrency tests covers all consumers.\n\nWithout DRY, each class with its own locking needs its own concurrency tests.\nA codebase with 10 repositories each implementing ReadWriteLock needs 10 concurrent\ntest suites. With a shared ReadWriteLockedResource, you need 1.\n"
+      "text": "A5: DRY concurrent code dramatically reduces the testing burden:\n\n1. Test the shared utility once with stress tests (multiple threads, race conditions,\n   edge cases) and trust it everywhere.\n2. Consumer classes only need to test their business logic, not their synchronization.\n3. Easier to write deterministic tests -- mock or control the shared utility.\n4. Easier to achieve coverage -- one set of concurrency tests covers all consumers.\n\nWithout DRY, each class with its own locking needs its own concurrency tests.\nA codebase with 10 repositories each implementing ReadWriteLock needs 10 concurrent\ntest suites. With a shared ReadWriteLockedResource, you need 1."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Test the shared utility exhaustively ONCE\n@Test\nvoid readWriteLockedResource_concurrentAccess() throws Exception {\n    var resource = new ReadWriteLockedResource<>(new HashMap<String, String>());\n    int threads = 100;\n    ExecutorService executor = Executors.newFixedThreadPool(threads);\n\n    // Concurrent writes\n    for (int i = 0; i < threads; i++) {\n        final int idx = i;\n        executor.submit(() -> resource.writeVoid(m -> m.put(\"key\" + idx, \"val\" + idx)));\n    }\n    executor.shutdown();\n    executor.awaitTermination(5, TimeUnit.SECONDS);\n\n    // Verify all writes are visible\n    int size = resource.read(Map::size);\n    assertThat(size).isEqualTo(threads);\n}\n"
+      "text": "// Test the shared utility exhaustively ONCE\n@Test\nvoid readWriteLockedResource_concurrentAccess() throws Exception {\n    var resource = new ReadWriteLockedResource<>(new HashMap<String, String>());\n    int threads = 100;\n    ExecutorService executor = Executors.newFixedThreadPool(threads);\n\n    // Concurrent writes\n    for (int i = 0; i < threads; i++) {\n        final int idx = i;\n        executor.submit(() -> resource.writeVoid(m -> m.put(\"key\" + idx, \"val\" + idx)));\n    }\n    executor.shutdown();\n    executor.awaitTermination(5, TimeUnit.SECONDS);\n\n    // Verify all writes are visible\n    int size = resource.read(Map::size);\n    assertThat(size).isEqualTo(threads);\n}"
     },
     {
       "type": "heading",
@@ -303,10 +278,10 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 14,
-    "code": 14,
+    "paras": 10,
+    "code": 10,
     "tables": 0,
-    "lists": 12,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -314,5 +289,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "92387ee23673ecb23bae32ab8c512a08ec86111c0a4e492ba5d0b7e88aaec779"
+  "content_sha256": "27cf6ccdc056bf0450f2e308a2476c4c3ce583163217b4587e12aaeee111a763"
 }

@@ -74,8 +74,8 @@
     },
     {
       "type": "code",
-      "lang": "text",
-      "text": "                 start()\n      NEW ───────────────────→ RUNNABLE ──────────────────────→ TERMINATED\n                              │  ↑  ↑  │      (run() completes\n          tries to enter a    │  │  │  │       or uncaught exception)\n          synchronized block  │  │  │  │ wait(), join(), park(),\n          held by another     │  │  │  │ sleep(ms), wait(ms), join(ms),\n          thread              │  │  │  │ parkNanos()\n                              ▼  │  │  ▼\n                       BLOCKED ──┘  └── WAITING / TIMED_WAITING\n                    (waiting for       (notified, unparked, joined\n                     monitor lock)      thread ended, timeout expired)\n                          ↑                     │\n                          └─────────────────────┘\n                 after Object.wait() returns, the thread must\n                 re-acquire the monitor: if it is held, BLOCKED\n"
+      "lang": "",
+      "text": "                 start()\n      NEW ───────────────────→ RUNNABLE ──────────────────────→ TERMINATED\n                              │  ↑  ↑  │      (run() completes\n          tries to enter a    │  │  │  │       or uncaught exception)\n          synchronized block  │  │  │  │ wait(), join(), park(),\n          held by another     │  │  │  │ sleep(ms), wait(ms), join(ms),\n          thread              │  │  │  │ parkNanos()\n                              ▼  │  │  ▼\n                       BLOCKED ──┘  └── WAITING / TIMED_WAITING\n                    (waiting for       (notified, unparked, joined\n                     monitor lock)      thread ended, timeout expired)\n                          ↑                     │\n                          └─────────────────────┘\n                 after Object.wait() returns, the thread must\n                 re-acquire the monitor: if it is held, BLOCKED"
     },
     {
       "type": "heading",
@@ -145,7 +145,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "Thread thread = new Thread(() -> {\n    try {\n        Thread.sleep(5000);\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n});\n\nSystem.out.println(thread.getState()); // NEW\nthread.start();\nThread.sleep(100);\nSystem.out.println(thread.getState()); // TIMED_WAITING\nthread.interrupt();\nthread.join();\nSystem.out.println(thread.getState()); // TERMINATED\n"
+      "text": "Thread thread = new Thread(() -> {\n    try {\n        Thread.sleep(5000);\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n});\n\nSystem.out.println(thread.getState()); // NEW\nthread.start();\nThread.sleep(100);\nSystem.out.println(thread.getState()); // TIMED_WAITING\nthread.interrupt();\nthread.join();\nSystem.out.println(thread.getState()); // TERMINATED"
     },
     {
       "type": "heading",
@@ -201,85 +201,52 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Confusing `BLOCKED` with `WAITING`**:"
+        [
+          "**Confusing `BLOCKED` with `WAITING`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BLOCKED: waiting for a synchronized lock\nsynchronized (lock) { // <-- if lock is held by another thread, this thread is BLOCKED\n    doWork();\n}\n\n// WAITING: explicitly waiting for a condition\nsynchronized (lock) {\n    lock.wait(); // <-- this thread is WAITING (and it has released the lock)\n}"
+          },
+          "**Key distinction**: `BLOCKED` means the thread wants to acquire a lock. `WAITING` means the thread has voluntarily released its hold and is waiting for a signal."
+        ],
+        [
+          "**Assuming `RUNNABLE` means \"actively running on a CPU\"**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Thread t = new Thread(() -> {\n    while (true) { Thread.yield(); } // State is RUNNABLE, but may not be on CPU\n});\nt.start();\nSystem.out.println(t.getState()); // RUNNABLE — but thread may be descheduled"
+          },
+          "**Fix**: Understand that `RUNNABLE` means \"eligible to run.\" The OS scheduler decides when the thread actually gets CPU time. Java does not distinguish between \"running\" and \"ready.\""
+        ],
+        [
+          "**Using `getState()` for synchronization decisions**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: race condition\nif (thread.getState() == Thread.State.TERMINATED) {\n    readResults(); // thread may have just started terminating!\n}\n\n// CORRECT: use join() for synchronization\nthread.join();\nreadResults();"
+          },
+          "**Fix**: Use proper synchronization mechanisms (`join()`, `CountDownLatch`, `Future.get()`) instead of polling thread state."
+        ],
+        [
+          "**Forgetting that `ReentrantLock` blocking shows as `WAITING`, not `BLOCKED`**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "ReentrantLock lock = new ReentrantLock();\nlock.lock(); // held by thread A\n\n// Thread B tries to acquire:\nlock.lock(); // Thread B state is WAITING (not BLOCKED!)"
+          },
+          "**Why**: `ReentrantLock` internally uses `LockSupport.park()`, which puts the thread in `WAITING`. Only intrinsic `synchronized` monitors cause `BLOCKED` state. This is a frequent source of confusion when reading thread dumps."
+        ],
+        [
+          "**Not accounting for transient states in thread dump analysis**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// A thread can change state between the time you take a dump and the time you read it\n// Multiple dumps spaced a few seconds apart give a more reliable picture"
+          },
+          "**Fix**: When diagnosing issues, take multiple thread dumps (3-5, spaced 5-10 seconds apart) and compare."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BLOCKED: waiting for a synchronized lock\nsynchronized (lock) { // <-- if lock is held by another thread, this thread is BLOCKED\n    doWork();\n}\n\n// WAITING: explicitly waiting for a condition\nsynchronized (lock) {\n    lock.wait(); // <-- this thread is WAITING (and it has released the lock)\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Key distinction**: `BLOCKED` means the thread wants to acquire a lock. `WAITING` means the thread has voluntarily released its hold and is waiting for a signal."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Assuming `RUNNABLE` means \"actively running on a CPU\"**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Thread t = new Thread(() -> {\n    while (true) { Thread.yield(); } // State is RUNNABLE, but may not be on CPU\n});\nt.start();\nSystem.out.println(t.getState()); // RUNNABLE — but thread may be descheduled\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Understand that `RUNNABLE` means \"eligible to run.\" The OS scheduler decides when the thread actually gets CPU time. Java does not distinguish between \"running\" and \"ready.\""
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using `getState()` for synchronization decisions**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: race condition\nif (thread.getState() == Thread.State.TERMINATED) {\n    readResults(); // thread may have just started terminating!\n}\n\n// CORRECT: use join() for synchronization\nthread.join();\nreadResults();\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use proper synchronization mechanisms (`join()`, `CountDownLatch`, `Future.get()`) instead of polling thread state."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Forgetting that `ReentrantLock` blocking shows as `WAITING`, not `BLOCKED`**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ReentrantLock lock = new ReentrantLock();\nlock.lock(); // held by thread A\n\n// Thread B tries to acquire:\nlock.lock(); // Thread B state is WAITING (not BLOCKED!)\n"
-    },
-    {
-      "type": "para",
-      "text": "**Why**: `ReentrantLock` internally uses `LockSupport.park()`, which puts the thread in `WAITING`. Only intrinsic `synchronized` monitors cause `BLOCKED` state. This is a frequent source of confusion when reading thread dumps."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Not accounting for transient states in thread dump analysis**:"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// A thread can change state between the time you take a dump and the time you read it\n// Multiple dumps spaced a few seconds apart give a more reliable picture\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: When diagnosing issues, take multiple thread dumps (3-5, spaced 5-10 seconds apart) and compare."
     },
     {
       "type": "heading",
@@ -302,48 +269,33 @@
             ]
           }
         ],
-        "**Prefer higher-level constructs over raw thread state management**:"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Instead of manually managing thread states with wait/notify:\nCompletableFuture.supplyAsync(() -> computeResult())\n    .thenApply(result -> transform(result))\n    .thenAccept(final_ -> display(final_));\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Prefer higher-level constructs over raw thread state management**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Instead of manually managing thread states with wait/notify:\nCompletableFuture.supplyAsync(() -> computeResult())\n    .thenApply(result -> transform(result))\n    .thenAccept(final_ -> display(final_));"
+          }
+        ],
         "**Use `LockSupport.park()` / `unpark()` for precise thread control**: Unlike `wait()` / `notify()`, `LockSupport` does not require holding a monitor and allows permit-based unparking (no lost-signal problem).",
-        "**Monitor thread states in production with JMX**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ThreadMXBean bean = ManagementFactory.getThreadMXBean();\nlong[] threadIds = bean.getAllThreadIds();\nThreadInfo[] infos = bean.getThreadInfo(threadIds, true, true);\nfor (ThreadInfo info : infos) {\n    System.out.println(info.getThreadName() + \": \" + info.getThreadState());\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Use `Thread.onSpinWait()` for busy-wait loops** (Java 9+): Signals the JVM and CPU that the thread is in a spin-loop, enabling power-saving optimizations:"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "while (!condition) {\n    Thread.onSpinWait();\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Monitor thread states in production with JMX**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "ThreadMXBean bean = ManagementFactory.getThreadMXBean();\nlong[] threadIds = bean.getAllThreadIds();\nThreadInfo[] infos = bean.getThreadInfo(threadIds, true, true);\nfor (ThreadInfo info : infos) {\n    System.out.println(info.getThreadName() + \": \" + info.getThreadState());\n}"
+          }
+        ],
+        [
+          "**Use `Thread.onSpinWait()` for busy-wait loops** (Java 9+): Signals the JVM and CPU that the thread is in a spin-loop, enabling power-saving optimizations:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "while (!condition) {\n    Thread.onSpinWait();\n}"
+          }
+        ],
         "**Design tasks to spend minimal time in `BLOCKED`**: Lock contention is a common scalability bottleneck. Use finer-grained locks, lock-free data structures, or `ReadWriteLock` to reduce contention."
-      ],
-      "start": 6
+      ]
     },
     {
       "type": "heading",
@@ -354,31 +306,28 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Thread state after an uncaught exception**: The thread transitions directly to `TERMINATED`. The exception is passed to the `UncaughtExceptionHandler`. The state is `TERMINATED` regardless of whether the exception was caught."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Thread t = new Thread(() -> { throw new RuntimeException(\"oops\"); });\nt.setUncaughtExceptionHandler((th, ex) -> {});\nt.start();\nt.join();\nassert t.getState() == Thread.State.TERMINATED; // always true\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Thread state after an uncaught exception**: The thread transitions directly to `TERMINATED`. The exception is passed to the `UncaughtExceptionHandler`. The state is `TERMINATED` regardless of whether the exception was caught.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Thread t = new Thread(() -> { throw new RuntimeException(\"oops\"); });\nt.setUncaughtExceptionHandler((th, ex) -> {});\nt.start();\nt.join();\nassert t.getState() == Thread.State.TERMINATED; // always true"
+          }
+        ],
         "**Observing `RUNNABLE` vs `WAITING` is timing-dependent**: When a thread calls `canFinish.await()` (a `CountDownLatch`), it enters `WAITING`. But if you query `getState()` before the thread reaches the `await()` call, you see `RUNNABLE`. This is a race condition inherent to state observation, not a bug.",
         "**`NEW` state is only observable before `start()`**: Once `start()` is called, the thread can never return to `NEW`. Calling `start()` twice throws `IllegalThreadStateException`.",
         "**`TERMINATED` is permanent**: There is no mechanism to restart a terminated thread. Create a new `Thread` instance.",
         "**State during `Thread.yield()`**: A thread calling `Thread.yield()` remains in `RUNNABLE` state. `yield()` is merely a hint to the scheduler to give other threads a chance; it does not change the thread's state.",
         "**State during `Thread.onSpinWait()`**: Like `yield()`, the thread remains `RUNNABLE`. This method is a CPU-level hint, not a state change.",
-        "**Spurious wakeups and WAITING**: A thread in `WAITING` (via `Object.wait()`) can wake up spuriously without being notified. This is why `wait()` should always be called in a loop that re-checks the condition:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "synchronized (lock) {\n    while (!conditionMet) {\n        lock.wait(); // may wake spuriously\n    }\n}\n"
+        [
+          "**Spurious wakeups and WAITING**: A thread in `WAITING` (via `Object.wait()`) can wake up spuriously without being notified. This is why `wait()` should always be called in a loop that re-checks the condition:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "synchronized (lock) {\n    while (!conditionMet) {\n        lock.wait(); // may wake spuriously\n    }\n}"
+          }
+        ]
+      ]
     },
     {
       "type": "heading",
@@ -428,12 +377,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The six thread states defined in Thread.State are:\n\n1. NEW: A thread that has been created (new Thread()) but start() has not been called yet.\n   Cause: Thread constructor.\n\n2. RUNNABLE: A thread that is executing in the JVM or is eligible to execute (waiting for CPU scheduling).\n   Cause: thread.start() transitions from NEW to RUNNABLE. A thread also returns to RUNNABLE after acquiring a contested lock, being notified, or timing out.\n\n3. BLOCKED: A thread that is waiting to acquire an intrinsic monitor lock to enter or re-enter a synchronized block/method.\n   Cause: Attempting to enter a synchronized block whose monitor is held by another thread.\n\n4. WAITING: A thread that is waiting indefinitely for another thread to perform a particular action.\n   Cause: Calling Object.wait() (without timeout), Thread.join() (without timeout), or LockSupport.park().\n\n5. TIMED_WAITING: A thread that is waiting for another thread or for a specified time period, whichever comes first.\n   Cause: Calling Thread.sleep(millis), Object.wait(millis), Thread.join(millis), or LockSupport.parkNanos(nanos).\n\n6. TERMINATED: A thread that has exited. Either run() completed normally, or an uncaught exception propagated out of run().\n   Cause: run() returning or throwing an uncaught exception.\n"
+      "text": "A1: The six thread states defined in Thread.State are:\n\n1. NEW: A thread that has been created (new Thread()) but start() has not been called yet.\n   Cause: Thread constructor.\n\n2. RUNNABLE: A thread that is executing in the JVM or is eligible to execute (waiting for CPU scheduling).\n   Cause: thread.start() transitions from NEW to RUNNABLE. A thread also returns to RUNNABLE after acquiring a contested lock, being notified, or timing out.\n\n3. BLOCKED: A thread that is waiting to acquire an intrinsic monitor lock to enter or re-enter a synchronized block/method.\n   Cause: Attempting to enter a synchronized block whose monitor is held by another thread.\n\n4. WAITING: A thread that is waiting indefinitely for another thread to perform a particular action.\n   Cause: Calling Object.wait() (without timeout), Thread.join() (without timeout), or LockSupport.park().\n\n5. TIMED_WAITING: A thread that is waiting for another thread or for a specified time period, whichever comes first.\n   Cause: Calling Thread.sleep(millis), Object.wait(millis), Thread.join(millis), or LockSupport.parkNanos(nanos).\n\n6. TERMINATED: A thread that has exited. Either run() completed normally, or an uncaught exception propagated out of run().\n   Cause: run() returning or throwing an uncaught exception."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Demonstrating four of the six states (BLOCKED and WAITING are shown in Q2 and Q4)\nimport java.util.concurrent.CountDownLatch;\n\npublic class AllStatesDemo {\n    public static void main(String[] args) throws InterruptedException {\n        // NEW\n        Thread t = new Thread(() -> {});\n        System.out.println(\"NEW: \" + t.getState()); // NEW\n\n        // RUNNABLE\n        CountDownLatch running = new CountDownLatch(1);\n        CountDownLatch finish = new CountDownLatch(1);\n        Thread runnable = new Thread(() -> {\n            running.countDown();\n            while (finish.getCount() > 0) Thread.yield();\n        });\n        runnable.start();\n        running.await();\n        System.out.println(\"RUNNABLE: \" + runnable.getState()); // RUNNABLE\n        finish.countDown();\n        runnable.join();\n\n        // TIMED_WAITING\n        CountDownLatch sleepStarted = new CountDownLatch(1);\n        Thread sleeping = new Thread(() -> {\n            sleepStarted.countDown();\n            try { Thread.sleep(10_000); }\n            catch (InterruptedException e) { Thread.currentThread().interrupt(); }\n        });\n        sleeping.start();\n        sleepStarted.await();\n        Thread.sleep(50);\n        System.out.println(\"TIMED_WAITING: \" + sleeping.getState()); // TIMED_WAITING\n        sleeping.interrupt();\n        sleeping.join();\n\n        // TERMINATED\n        Thread done = new Thread(() -> {});\n        done.start();\n        done.join();\n        System.out.println(\"TERMINATED: \" + done.getState()); // TERMINATED\n    }\n}\n"
+      "text": "// Demonstrating four of the six states (BLOCKED and WAITING are shown in Q2 and Q4)\nimport java.util.concurrent.CountDownLatch;\n\npublic class AllStatesDemo {\n    public static void main(String[] args) throws InterruptedException {\n        // NEW\n        Thread t = new Thread(() -> {});\n        System.out.println(\"NEW: \" + t.getState()); // NEW\n\n        // RUNNABLE\n        CountDownLatch running = new CountDownLatch(1);\n        CountDownLatch finish = new CountDownLatch(1);\n        Thread runnable = new Thread(() -> {\n            running.countDown();\n            while (finish.getCount() > 0) Thread.yield();\n        });\n        runnable.start();\n        running.await();\n        System.out.println(\"RUNNABLE: \" + runnable.getState()); // RUNNABLE\n        finish.countDown();\n        runnable.join();\n\n        // TIMED_WAITING\n        CountDownLatch sleepStarted = new CountDownLatch(1);\n        Thread sleeping = new Thread(() -> {\n            sleepStarted.countDown();\n            try { Thread.sleep(10_000); }\n            catch (InterruptedException e) { Thread.currentThread().interrupt(); }\n        });\n        sleeping.start();\n        sleepStarted.await();\n        Thread.sleep(50);\n        System.out.println(\"TIMED_WAITING: \" + sleeping.getState()); // TIMED_WAITING\n        sleeping.interrupt();\n        sleeping.join();\n\n        // TERMINATED\n        Thread done = new Thread(() -> {});\n        done.start();\n        done.join();\n        System.out.println(\"TERMINATED: \" + done.getState()); // TERMINATED\n    }\n}"
     },
     {
       "type": "para",
@@ -442,12 +391,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: This is a critical distinction:\n\nBLOCKED:\n- The thread WANTS to acquire an intrinsic monitor lock (synchronized block/method).\n- Another thread currently holds that lock.\n- The thread is passively waiting for the lock to be released.\n- The thread did NOT voluntarily give up anything — it never had the lock in the first place.\n- Only caused by contention on synchronized monitors.\n\nWAITING:\n- The thread has VOLUNTARILY suspended its execution.\n- It is waiting for a specific signal (notify/notifyAll) or for another thread to complete (join).\n- If the thread was holding a monitor (via wait()), it RELEASES the monitor upon entering WAITING.\n- Caused by Object.wait(), Thread.join(), or LockSupport.park().\n\nKey insight: A thread in BLOCKED never held the lock and is trying to acquire it.\nA thread in WAITING (via wait()) previously held the lock, released it, and is waiting to be signaled so it can re-acquire it.\n\nIn thread dumps:\n- BLOCKED shows as \"waiting to lock <0xABC...>\"\n- WAITING shows as \"waiting on <0xABC...>\" (for wait()) or \"parking\" (for LockSupport)\n\nThis matters for diagnosis: many BLOCKED threads indicate lock contention.\nMany WAITING threads might indicate a missing notify() or a deadlocked producer-consumer.\n"
+      "text": "A2: This is a critical distinction:\n\nBLOCKED:\n- The thread WANTS to acquire an intrinsic monitor lock (synchronized block/method).\n- Another thread currently holds that lock.\n- The thread is passively waiting for the lock to be released.\n- The thread did NOT voluntarily give up anything — it never had the lock in the first place.\n- Only caused by contention on synchronized monitors.\n\nWAITING:\n- The thread has VOLUNTARILY suspended its execution.\n- It is waiting for a specific signal (notify/notifyAll) or for another thread to complete (join).\n- If the thread was holding a monitor (via wait()), it RELEASES the monitor upon entering WAITING.\n- Caused by Object.wait(), Thread.join(), or LockSupport.park().\n\nKey insight: A thread in BLOCKED never held the lock and is trying to acquire it.\nA thread in WAITING (via wait()) previously held the lock, released it, and is waiting to be signaled so it can re-acquire it.\n\nIn thread dumps:\n- BLOCKED shows as \"waiting to lock <0xABC...>\"\n- WAITING shows as \"waiting on <0xABC...>\" (for wait()) or \"parking\" (for LockSupport)\n\nThis matters for diagnosis: many BLOCKED threads indicate lock contention.\nMany WAITING threads might indicate a missing notify() or a deadlocked producer-consumer."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Object lock = new Object();\n\n// Thread A: holds the lock, then waits (WAITING)\nThread threadA = new Thread(() -> {\n    synchronized (lock) {\n        try {\n            lock.wait(); // WAITING — releases the lock voluntarily\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n        }\n    }\n});\n\n// Thread B: tries to enter synchronized — BLOCKED\nThread threadB = new Thread(() -> {\n    synchronized (lock) { // BLOCKED if lock is held by someone else\n        lock.notify();\n    }\n});\n\n// Scenario:\n// 1. threadA starts, acquires lock, calls wait() -> WAITING, releases lock\n// 2. threadB starts, acquires the now-free lock -> RUNNABLE, calls notify()\n// 3. threadA wakes up, needs to re-acquire lock -> BLOCKED (until threadB exits synchronized)\n// 4. threadB exits synchronized -> threadA re-acquires lock -> RUNNABLE\n"
+      "text": "Object lock = new Object();\n\n// Thread A: holds the lock, then waits (WAITING)\nThread threadA = new Thread(() -> {\n    synchronized (lock) {\n        try {\n            lock.wait(); // WAITING — releases the lock voluntarily\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n        }\n    }\n});\n\n// Thread B: tries to enter synchronized — BLOCKED\nThread threadB = new Thread(() -> {\n    synchronized (lock) { // BLOCKED if lock is held by someone else\n        lock.notify();\n    }\n});\n\n// Scenario:\n// 1. threadA starts, acquires lock, calls wait() -> WAITING, releases lock\n// 2. threadB starts, acquires the now-free lock -> RUNNABLE, calls notify()\n// 3. threadA wakes up, needs to re-acquire lock -> BLOCKED (until threadB exits synchronized)\n// 4. threadB exits synchronized -> threadA re-acquires lock -> RUNNABLE"
     },
     {
       "type": "para",
@@ -456,12 +405,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: No, Java does NOT have a RUNNING state. The RUNNABLE state encompasses both:\n- Threads that are actively executing on a CPU core (\"running\")\n- Threads that are ready to execute and waiting for CPU scheduling (\"ready\")\n\nThis design decision was made because Java runs on top of the OS, and the JVM cannot always know whether a thread currently has CPU time. The OS scheduler makes those decisions transparently.\n\nFrom the JVM's perspective, once a thread has been started and is not blocked/waiting/terminated, it is RUNNABLE — regardless of whether the OS has currently allocated a CPU time slice to it.\n\nPractical implications:\n1. You cannot determine if a thread is actively consuming CPU just by checking getState().\n2. A thread doing a CPU-intensive computation and a thread that just yielded are both RUNNABLE.\n3. To measure actual CPU usage per thread, use ThreadMXBean:\n   - bean.getThreadCpuTime(threadId) returns the actual CPU time consumed.\n\nIn other thread models (e.g., POSIX pthreads), RUNNING and READY are distinct states. Java intentionally abstracts this away for portability across different OS schedulers.\n"
+      "text": "A3: No, Java does NOT have a RUNNING state. The RUNNABLE state encompasses both:\n- Threads that are actively executing on a CPU core (\"running\")\n- Threads that are ready to execute and waiting for CPU scheduling (\"ready\")\n\nThis design decision was made because Java runs on top of the OS, and the JVM cannot always know whether a thread currently has CPU time. The OS scheduler makes those decisions transparently.\n\nFrom the JVM's perspective, once a thread has been started and is not blocked/waiting/terminated, it is RUNNABLE — regardless of whether the OS has currently allocated a CPU time slice to it.\n\nPractical implications:\n1. You cannot determine if a thread is actively consuming CPU just by checking getState().\n2. A thread doing a CPU-intensive computation and a thread that just yielded are both RUNNABLE.\n3. To measure actual CPU usage per thread, use ThreadMXBean:\n   - bean.getThreadCpuTime(threadId) returns the actual CPU time consumed.\n\nIn other thread models (e.g., POSIX pthreads), RUNNING and READY are distinct states. Java intentionally abstracts this away for portability across different OS schedulers."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "import java.lang.management.ManagementFactory;\nimport java.lang.management.ThreadMXBean;\n\n// Both threads are RUNNABLE, but only one may be on CPU at a given instant\nThread cpuBound = new Thread(() -> {\n    long sum = 0;\n    for (long i = 0; i < 1_000_000_000L; i++) sum += i;\n}, \"cpu-bound\");\n\nThread yielder = new Thread(() -> {\n    for (int i = 0; i < 1000; i++) Thread.yield();\n}, \"yielder\");\n\ncpuBound.start();\nyielder.start();\n\n// Both are usually RUNNABLE here (not guaranteed: either may not be scheduled yet or may already be done)\nSystem.out.println(cpuBound.getState()); // RUNNABLE (typically)\nSystem.out.println(yielder.getState());  // RUNNABLE (typically)\n\n// To see actual CPU usage, use ThreadMXBean\nThreadMXBean bean = ManagementFactory.getThreadMXBean();\nlong cpuTime = bean.getThreadCpuTime(cpuBound.threadId()); // nanoseconds of actual CPU time\n"
+      "text": "import java.lang.management.ManagementFactory;\nimport java.lang.management.ThreadMXBean;\n\n// Both threads are RUNNABLE, but only one may be on CPU at a given instant\nThread cpuBound = new Thread(() -> {\n    long sum = 0;\n    for (long i = 0; i < 1_000_000_000L; i++) sum += i;\n}, \"cpu-bound\");\n\nThread yielder = new Thread(() -> {\n    for (int i = 0; i < 1000; i++) Thread.yield();\n}, \"yielder\");\n\ncpuBound.start();\nyielder.start();\n\n// Both are usually RUNNABLE here (not guaranteed: either may not be scheduled yet or may already be done)\nSystem.out.println(cpuBound.getState()); // RUNNABLE (typically)\nSystem.out.println(yielder.getState());  // RUNNABLE (typically)\n\n// To see actual CPU usage, use ThreadMXBean\nThreadMXBean bean = ManagementFactory.getThreadMXBean();\nlong cpuTime = bean.getThreadCpuTime(cpuBound.threadId()); // nanoseconds of actual CPU time"
     },
     {
       "type": "para",
@@ -470,12 +419,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: A thread waiting to acquire a ReentrantLock is in the WAITING state, NOT BLOCKED.\n\nThis is because ReentrantLock (and all java.util.concurrent.locks.Lock implementations) use LockSupport.park() internally to suspend threads, which puts them in WAITING (or TIMED_WAITING for tryLock(timeout)).\n\nOnly the intrinsic synchronized monitor causes the BLOCKED state.\n\nThis distinction matters when reading thread dumps:\n- A thread stuck on \"synchronized\" appears as BLOCKED with \"waiting to lock <monitor>\"\n- A thread stuck on ReentrantLock.lock() appears as WAITING with \"parking to wait for <ReentrantLock>\"\n\nIn practice:\n- If you see many BLOCKED threads in a dump, look for synchronized contention.\n- If you see many WAITING threads with a ReentrantLock stack trace, look for Lock contention or a thread holding the lock for too long.\n\nThis is a very common interview question because many candidates assume any lock acquisition leads to BLOCKED state.\n"
+      "text": "A4: A thread waiting to acquire a ReentrantLock is in the WAITING state, NOT BLOCKED.\n\nThis is because ReentrantLock (and all java.util.concurrent.locks.Lock implementations) use LockSupport.park() internally to suspend threads, which puts them in WAITING (or TIMED_WAITING for tryLock(timeout)).\n\nOnly the intrinsic synchronized monitor causes the BLOCKED state.\n\nThis distinction matters when reading thread dumps:\n- A thread stuck on \"synchronized\" appears as BLOCKED with \"waiting to lock <monitor>\"\n- A thread stuck on ReentrantLock.lock() appears as WAITING with \"parking to wait for <ReentrantLock>\"\n\nIn practice:\n- If you see many BLOCKED threads in a dump, look for synchronized contention.\n- If you see many WAITING threads with a ReentrantLock stack trace, look for Lock contention or a thread holding the lock for too long.\n\nThis is a very common interview question because many candidates assume any lock acquisition leads to BLOCKED state."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "import java.util.concurrent.locks.ReentrantLock;\n\nReentrantLock lock = new ReentrantLock();\nCountDownLatch holderReady = new CountDownLatch(1);\nCountDownLatch waiterStarted = new CountDownLatch(1);\n\n// Thread holding the lock\nThread holder = new Thread(() -> {\n    lock.lock();\n    try {\n        holderReady.countDown();\n        Thread.sleep(10_000); // hold lock for a long time\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    } finally {\n        lock.unlock();\n    }\n});\n\n// Thread waiting for the lock\nThread waiter = new Thread(() -> {\n    waiterStarted.countDown();\n    lock.lock(); // will park here — state becomes WAITING\n    try {\n        // eventually gets the lock\n    } finally {\n        lock.unlock();\n    }\n});\n\nholder.start();\nholderReady.await();\nwaiter.start();\nwaiterStarted.await();\nThread.sleep(100);\n\nSystem.out.println(waiter.getState()); // WAITING (not BLOCKED!)\n\nholder.interrupt();\nholder.join();\nwaiter.join();\n"
+      "text": "import java.util.concurrent.locks.ReentrantLock;\n\nReentrantLock lock = new ReentrantLock();\nCountDownLatch holderReady = new CountDownLatch(1);\nCountDownLatch waiterStarted = new CountDownLatch(1);\n\n// Thread holding the lock\nThread holder = new Thread(() -> {\n    lock.lock();\n    try {\n        holderReady.countDown();\n        Thread.sleep(10_000); // hold lock for a long time\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    } finally {\n        lock.unlock();\n    }\n});\n\n// Thread waiting for the lock\nThread waiter = new Thread(() -> {\n    waiterStarted.countDown();\n    lock.lock(); // will park here — state becomes WAITING\n    try {\n        // eventually gets the lock\n    } finally {\n        lock.unlock();\n    }\n});\n\nholder.start();\nholderReady.await();\nwaiter.start();\nwaiterStarted.await();\nThread.sleep(100);\n\nSystem.out.println(waiter.getState()); // WAITING (not BLOCKED!)\n\nholder.interrupt();\nholder.join();\nwaiter.join();"
     },
     {
       "type": "para",
@@ -484,12 +433,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Thread dumps are the primary tool for diagnosing deadlocks and other concurrency issues. Here's how thread states help:\n\n1. DEADLOCK DETECTION:\n   - Look for threads in BLOCKED state that form a circular dependency.\n   - Thread A is BLOCKED waiting for lock X (held by Thread B).\n   - Thread B is BLOCKED waiting for lock Y (held by Thread A).\n   - The JVM's built-in deadlock detector (via jstack or ThreadMXBean.findDeadlockedThreads()) can identify these automatically.\n\n2. LOCK CONTENTION:\n   - Many threads BLOCKED on the same monitor -> a hot lock.\n   - Solution: reduce lock granularity, use concurrent collections, or use read-write locks.\n\n3. THREAD STARVATION:\n   - Threads stuck in WAITING that never get notified -> missed signal or bug in producer-consumer logic.\n   - Check if notify()/notifyAll() is being called, or if CountDownLatch/Condition is being signaled.\n\n4. THREAD LEAK:\n   - Growing number of threads in WAITING or TIMED_WAITING -> threads being created but never cleaned up.\n   - Often caused by ExecutorService not being shut down, or threads waiting on resources that never arrive.\n\n5. CPU SPINNING:\n   - Threads in RUNNABLE with high CPU usage on the same stack frame -> infinite loop or busy-wait.\n   - Compare multiple dumps to confirm the thread is stuck in the same method.\n\nHOW TO TAKE A THREAD DUMP:\n- jstack <pid>\n- jcmd <pid> Thread.print\n- jcmd <pid> Thread.dump_to_file -format=json <file> (Java 21; the only one of these that includes virtual threads)\n- kill -3 <pid> (SIGQUIT on Unix/macOS)\n- ThreadMXBean.dumpAllThreads() programmatically\n"
+      "text": "A5: Thread dumps are the primary tool for diagnosing deadlocks and other concurrency issues. Here's how thread states help:\n\n1. DEADLOCK DETECTION:\n   - Look for threads in BLOCKED state that form a circular dependency.\n   - Thread A is BLOCKED waiting for lock X (held by Thread B).\n   - Thread B is BLOCKED waiting for lock Y (held by Thread A).\n   - The JVM's built-in deadlock detector (via jstack or ThreadMXBean.findDeadlockedThreads()) can identify these automatically.\n\n2. LOCK CONTENTION:\n   - Many threads BLOCKED on the same monitor -> a hot lock.\n   - Solution: reduce lock granularity, use concurrent collections, or use read-write locks.\n\n3. THREAD STARVATION:\n   - Threads stuck in WAITING that never get notified -> missed signal or bug in producer-consumer logic.\n   - Check if notify()/notifyAll() is being called, or if CountDownLatch/Condition is being signaled.\n\n4. THREAD LEAK:\n   - Growing number of threads in WAITING or TIMED_WAITING -> threads being created but never cleaned up.\n   - Often caused by ExecutorService not being shut down, or threads waiting on resources that never arrive.\n\n5. CPU SPINNING:\n   - Threads in RUNNABLE with high CPU usage on the same stack frame -> infinite loop or busy-wait.\n   - Compare multiple dumps to confirm the thread is stuck in the same method.\n\nHOW TO TAKE A THREAD DUMP:\n- jstack <pid>\n- jcmd <pid> Thread.print\n- jcmd <pid> Thread.dump_to_file -format=json <file> (Java 21; the only one of these that includes virtual threads)\n- kill -3 <pid> (SIGQUIT on Unix/macOS)\n- ThreadMXBean.dumpAllThreads() programmatically"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "import java.lang.management.ManagementFactory;\nimport java.lang.management.ThreadInfo;\nimport java.lang.management.ThreadMXBean;\n\n// Programmatic deadlock detection\nThreadMXBean bean = ManagementFactory.getThreadMXBean();\n\n// Find deadlocked threads (returns null if no deadlock)\nlong[] deadlockedIds = bean.findDeadlockedThreads();\nif (deadlockedIds != null) {\n    ThreadInfo[] deadlocked = bean.getThreadInfo(deadlockedIds, true, true);\n    for (ThreadInfo info : deadlocked) {\n        System.out.println(\"Deadlocked thread: \" + info.getThreadName());\n        System.out.println(\"  State: \" + info.getThreadState());\n        System.out.println(\"  Waiting for lock: \" + info.getLockName());\n        System.out.println(\"  Held by: \" + info.getLockOwnerName());\n    }\n} else {\n    System.out.println(\"No deadlock detected.\");\n}\n\n// Dump all thread states\nThreadInfo[] allThreads = bean.dumpAllThreads(true, true);\nfor (ThreadInfo info : allThreads) {\n    System.out.printf(\"%-30s %s%n\", info.getThreadName(), info.getThreadState());\n}\n"
+      "text": "import java.lang.management.ManagementFactory;\nimport java.lang.management.ThreadInfo;\nimport java.lang.management.ThreadMXBean;\n\n// Programmatic deadlock detection\nThreadMXBean bean = ManagementFactory.getThreadMXBean();\n\n// Find deadlocked threads (returns null if no deadlock)\nlong[] deadlockedIds = bean.findDeadlockedThreads();\nif (deadlockedIds != null) {\n    ThreadInfo[] deadlocked = bean.getThreadInfo(deadlockedIds, true, true);\n    for (ThreadInfo info : deadlocked) {\n        System.out.println(\"Deadlocked thread: \" + info.getThreadName());\n        System.out.println(\"  State: \" + info.getThreadState());\n        System.out.println(\"  Waiting for lock: \" + info.getLockName());\n        System.out.println(\"  Held by: \" + info.getLockOwnerName());\n    }\n} else {\n    System.out.println(\"No deadlock detected.\");\n}\n\n// Dump all thread states\nThreadInfo[] allThreads = bean.dumpAllThreads(true, true);\nfor (ThreadInfo info : allThreads) {\n    System.out.printf(\"%-30s %s%n\", info.getThreadName(), info.getThreadState());\n}"
     },
     {
       "type": "para",
@@ -498,12 +447,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: BLOCKED -> WAITING: no. A thread must be running (RUNNABLE) to call wait()/join()/park().\nWAITING -> BLOCKED: yes. The Thread.State.BLOCKED javadoc names it: a thread is BLOCKED while waiting\n\"to reenter a synchronized block/method after calling Object.wait\". The same holds for TIMED_WAITING\nafter wait(ms).\n\nThe full set of valid transitions:\n- NEW -> RUNNABLE (start())\n- RUNNABLE -> BLOCKED (attempt to enter synchronized held by another thread)\n- BLOCKED -> RUNNABLE (lock acquired)\n- RUNNABLE -> WAITING (wait(), join(), park())\n- WAITING -> RUNNABLE (notified, joined thread terminates, unparked)\n- RUNNABLE -> TIMED_WAITING (sleep(ms), wait(ms), join(ms), parkNanos())\n- TIMED_WAITING -> RUNNABLE (timeout, notified, unparked)\n- WAITING / TIMED_WAITING -> BLOCKED (after Object.wait() returns, the monitor is held by another thread)\n- RUNNABLE -> TERMINATED (run() completes or uncaught exception)\n\nThe WAITING -> BLOCKED case: a thread in Object.wait() that is notified must re-acquire the monitor before wait() can return. If the notifier (or anyone else) still holds the monitor, getState() reports BLOCKED, without an observable RUNNABLE in between. The code below shows it.\n\nThis subtlety is an advanced interview topic that tests understanding of monitor mechanics.\n"
+      "text": "A6: BLOCKED -> WAITING: no. A thread must be running (RUNNABLE) to call wait()/join()/park().\nWAITING -> BLOCKED: yes. The Thread.State.BLOCKED javadoc names it: a thread is BLOCKED while waiting\n\"to reenter a synchronized block/method after calling Object.wait\". The same holds for TIMED_WAITING\nafter wait(ms).\n\nThe full set of valid transitions:\n- NEW -> RUNNABLE (start())\n- RUNNABLE -> BLOCKED (attempt to enter synchronized held by another thread)\n- BLOCKED -> RUNNABLE (lock acquired)\n- RUNNABLE -> WAITING (wait(), join(), park())\n- WAITING -> RUNNABLE (notified, joined thread terminates, unparked)\n- RUNNABLE -> TIMED_WAITING (sleep(ms), wait(ms), join(ms), parkNanos())\n- TIMED_WAITING -> RUNNABLE (timeout, notified, unparked)\n- WAITING / TIMED_WAITING -> BLOCKED (after Object.wait() returns, the monitor is held by another thread)\n- RUNNABLE -> TERMINATED (run() completes or uncaught exception)\n\nThe WAITING -> BLOCKED case: a thread in Object.wait() that is notified must re-acquire the monitor before wait() can return. If the notifier (or anyone else) still holds the monitor, getState() reports BLOCKED, without an observable RUNNABLE in between. The code below shows it.\n\nThis subtlety is an advanced interview topic that tests understanding of monitor mechanics."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Object lock = new Object();\n\n// Thread 1: enters wait() — WAITING\nThread waiter = new Thread(() -> {\n    synchronized (lock) {\n        try {\n            lock.wait(); // WAITING — releases the monitor\n            // After being notified, must re-acquire monitor\n            // If monitor is held by notifier, briefly BLOCKED\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n        }\n    }\n}, \"waiter\");\n\n// Thread 2: holds lock, notifies, then does more work while holding lock\nThread notifier = new Thread(() -> {\n    synchronized (lock) {\n        lock.notify(); // wakes waiter, but notifier still holds the lock\n        // waiter is now: notified -> needs monitor -> BLOCKED (until this block exits)\n        try { Thread.sleep(2000); } catch (InterruptedException e) {}\n    } // lock released — waiter transitions BLOCKED -> RUNNABLE\n}, \"notifier\");\n\nwaiter.start();\nThread.sleep(100);\nSystem.out.println(\"Waiter: \" + waiter.getState()); // WAITING\n\nnotifier.start();\nThread.sleep(100);\nSystem.out.println(\"Waiter after notify: \" + waiter.getState()); // BLOCKED (waiting for monitor)\n\nnotifier.join();\nwaiter.join();\nSystem.out.println(\"Waiter final: \" + waiter.getState()); // TERMINATED\n"
+      "text": "Object lock = new Object();\n\n// Thread 1: enters wait() — WAITING\nThread waiter = new Thread(() -> {\n    synchronized (lock) {\n        try {\n            lock.wait(); // WAITING — releases the monitor\n            // After being notified, must re-acquire monitor\n            // If monitor is held by notifier, briefly BLOCKED\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n        }\n    }\n}, \"waiter\");\n\n// Thread 2: holds lock, notifies, then does more work while holding lock\nThread notifier = new Thread(() -> {\n    synchronized (lock) {\n        lock.notify(); // wakes waiter, but notifier still holds the lock\n        // waiter is now: notified -> needs monitor -> BLOCKED (until this block exits)\n        try { Thread.sleep(2000); } catch (InterruptedException e) {}\n    } // lock released — waiter transitions BLOCKED -> RUNNABLE\n}, \"notifier\");\n\nwaiter.start();\nThread.sleep(100);\nSystem.out.println(\"Waiter: \" + waiter.getState()); // WAITING\n\nnotifier.start();\nThread.sleep(100);\nSystem.out.println(\"Waiter after notify: \" + waiter.getState()); // BLOCKED (waiting for monitor)\n\nnotifier.join();\nwaiter.join();\nSystem.out.println(\"Waiter final: \" + waiter.getState()); // TERMINATED"
     },
     {
       "type": "para",
@@ -512,12 +461,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A7: Virtual threads (Java 21, JEP 444) share the same Thread.State enum and the same six states as platform threads. From the application's perspective, the lifecycle is identical. However, the internal implementation differs significantly:\n\nPLATFORM THREADS:\n- Each thread maps 1:1 to an OS thread.\n- BLOCKED/WAITING/TIMED_WAITING causes the OS thread to be parked (consuming OS resources).\n- Context switching is expensive (kernel-mode transition).\n\nVIRTUAL THREADS:\n- Many virtual threads share a small pool of carrier (platform) threads.\n- When a virtual thread enters WAITING or TIMED_WAITING (via sleep, I/O, etc.), the JVM unmounts it from the carrier thread.\n- The carrier thread is then free to run another virtual thread.\n- This means millions of virtual threads can be in WAITING without consuming OS resources.\n- BLOCKED on synchronized is special: it \"pins\" the virtual thread to the carrier thread, which defeats the purpose. Use ReentrantLock instead.\n\nState observation:\n- thread.getState() returns the same Thread.State values for virtual threads.\n- jstack and jcmd Thread.print list platform threads only; virtual threads appear in `jcmd <pid> Thread.dump_to_file [-format=json] <file>`.\n- ThreadMXBean covers platform threads only; it does not report virtual threads.\n\nBest practices:\n- Use virtual threads for I/O-bound workloads where threads spend most time in WAITING/TIMED_WAITING.\n- Avoid synchronized blocks in virtual-thread code (prefer ReentrantLock) to prevent pinning.\n- Do not pool virtual threads — they are cheap to create and discard.\n"
+      "text": "A7: Virtual threads (Java 21, JEP 444) share the same Thread.State enum and the same six states as platform threads. From the application's perspective, the lifecycle is identical. However, the internal implementation differs significantly:\n\nPLATFORM THREADS:\n- Each thread maps 1:1 to an OS thread.\n- BLOCKED/WAITING/TIMED_WAITING causes the OS thread to be parked (consuming OS resources).\n- Context switching is expensive (kernel-mode transition).\n\nVIRTUAL THREADS:\n- Many virtual threads share a small pool of carrier (platform) threads.\n- When a virtual thread enters WAITING or TIMED_WAITING (via sleep, I/O, etc.), the JVM unmounts it from the carrier thread.\n- The carrier thread is then free to run another virtual thread.\n- This means millions of virtual threads can be in WAITING without consuming OS resources.\n- BLOCKED on synchronized is special: it \"pins\" the virtual thread to the carrier thread, which defeats the purpose. Use ReentrantLock instead.\n\nState observation:\n- thread.getState() returns the same Thread.State values for virtual threads.\n- jstack and jcmd Thread.print list platform threads only; virtual threads appear in `jcmd <pid> Thread.dump_to_file [-format=json] <file>`.\n- ThreadMXBean covers platform threads only; it does not report virtual threads.\n\nBest practices:\n- Use virtual threads for I/O-bound workloads where threads spend most time in WAITING/TIMED_WAITING.\n- Avoid synchronized blocks in virtual-thread code (prefer ReentrantLock) to prevent pinning.\n- Do not pool virtual threads — they are cheap to create and discard."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Virtual thread lifecycle — same states, different resource usage\nThread vt = Thread.ofVirtual().name(\"my-virtual-thread\").unstarted(() -> {\n    try {\n        System.out.println(\"Virtual thread running\");\n        Thread.sleep(1000); // TIMED_WAITING — carrier thread is released!\n        System.out.println(\"Virtual thread resumed\");\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n});\n\nSystem.out.println(vt.getState()); // NEW\nvt.start();\nThread.sleep(50);\nSystem.out.println(vt.getState()); // TIMED_WAITING (same as platform thread)\nvt.join();\nSystem.out.println(vt.getState()); // TERMINATED\n\n// Demonstrating pinning (what to avoid)\nObject monitor = new Object();\nThread pinned = Thread.ofVirtual().start(() -> {\n    synchronized (monitor) { // PINS the virtual thread to carrier!\n        try { Thread.sleep(1000); } catch (InterruptedException e) {}\n    }\n});\n\n// Better: use ReentrantLock with virtual threads\nReentrantLock lock = new ReentrantLock();\nThread unpinned = Thread.ofVirtual().start(() -> {\n    lock.lock(); // Does NOT pin — carrier is released if lock is contended\n    try { Thread.sleep(1000); } catch (InterruptedException e) {}\n    finally { lock.unlock(); }\n});\n"
+      "text": "// Virtual thread lifecycle — same states, different resource usage\nThread vt = Thread.ofVirtual().name(\"my-virtual-thread\").unstarted(() -> {\n    try {\n        System.out.println(\"Virtual thread running\");\n        Thread.sleep(1000); // TIMED_WAITING — carrier thread is released!\n        System.out.println(\"Virtual thread resumed\");\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n});\n\nSystem.out.println(vt.getState()); // NEW\nvt.start();\nThread.sleep(50);\nSystem.out.println(vt.getState()); // TIMED_WAITING (same as platform thread)\nvt.join();\nSystem.out.println(vt.getState()); // TERMINATED\n\n// Demonstrating pinning (what to avoid)\nObject monitor = new Object();\nThread pinned = Thread.ofVirtual().start(() -> {\n    synchronized (monitor) { // PINS the virtual thread to carrier!\n        try { Thread.sleep(1000); } catch (InterruptedException e) {}\n    }\n});\n\n// Better: use ReentrantLock with virtual threads\nReentrantLock lock = new ReentrantLock();\nThread unpinned = Thread.ofVirtual().start(() -> {\n    lock.lock(); // Does NOT pin — carrier is released if lock is contended\n    try { Thread.sleep(1000); } catch (InterruptedException e) {}\n    finally { lock.unlock(); }\n});"
     },
     {
       "type": "heading",
@@ -538,10 +487,10 @@
   "attachments": [],
   "counts": {
     "headings": 13,
-    "paras": 17,
-    "code": 26,
+    "paras": 12,
+    "code": 16,
     "tables": 2,
-    "lists": 16,
+    "lists": 8,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -549,5 +498,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "3ce88c75f39c8c4fa7428838dc1764bb4b9d9c0f150521c406cc5b264245cd72"
+  "content_sha256": "f5c9abb74fa9ced85c20f0c688458757417ac8768b1a7b4f849571ce9c82d9c1"
 }

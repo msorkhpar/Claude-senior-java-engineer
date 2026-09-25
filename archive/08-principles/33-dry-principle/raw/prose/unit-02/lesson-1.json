@@ -82,68 +82,43 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Duplicated lock-try-finally across methods**"
+        [
+          "**Duplicated lock-try-finally across methods**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// VIOLATION: Same pattern in deposit(), withdraw(), getBalance()\nlock.lock();\ntry { balance += amount; return balance; }\nfinally { lock.unlock(); }"
+          },
+          "**Solution**: Extract into a `LockExecutor.withLock(Supplier)` utility method."
+        ],
+        [
+          "**Inconsistent executor shutdown patterns**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Copy A: executor.shutdown(); executor.awaitTermination(5, SECONDS);\n// Copy B: executor.shutdownNow(); // forgot awaitTermination!"
+          },
+          "**Solution**: Centralize into a `ParallelComputation.executeAll()` method."
+        ],
+        [
+          "**Duplicated retry logic with different error handling**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// ServiceA retries 3 times, ServiceB retries 5 times, ServiceC has no delay"
+          },
+          "**Solution**: Use a configurable `RetryExecutor(maxRetries, delayMs)`."
+        ],
+        [
+          "**Rolling your own cache in every service**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Each service creates its own ConcurrentHashMap + computeIfAbsent"
+          },
+          "**Solution**: Use a reusable `ThreadSafeCache<K,V>` class."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// VIOLATION: Same pattern in deposit(), withdraw(), getBalance()\nlock.lock();\ntry { balance += amount; return balance; }\nfinally { lock.unlock(); }\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Extract into a `LockExecutor.withLock(Supplier)` utility method."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Inconsistent executor shutdown patterns**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Copy A: executor.shutdown(); executor.awaitTermination(5, SECONDS);\n// Copy B: executor.shutdownNow(); // forgot awaitTermination!\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Centralize into a `ParallelComputation.executeAll()` method."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Duplicated retry logic with different error handling**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// ServiceA retries 3 times, ServiceB retries 5 times, ServiceC has no delay\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Use a configurable `RetryExecutor(maxRetries, delayMs)`."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Rolling your own cache in every service**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Each service creates its own ConcurrentHashMap + computeIfAbsent\n"
-    },
-    {
-      "type": "para",
-      "text": "**Solution**: Use a reusable `ThreadSafeCache<K,V>` class."
     },
     {
       "type": "heading",
@@ -220,12 +195,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Create a reusable LockExecutor class that accepts a Lock and provides withLock(Supplier<T>)\nand withLockRun(Runnable) methods. The lock acquisition, try block, and finally-unlock pattern\nis written exactly once. All callers pass their business logic as a lambda.\n\nBenefits:\n1. The locking pattern is correct in one place -- no risk of forgetting unlock.\n2. Changing lock type (e.g., to ReadWriteLock) only requires modifying LockExecutor.\n3. The calling code focuses on business logic, not concurrency mechanics.\n"
+      "text": "A1: Create a reusable LockExecutor class that accepts a Lock and provides withLock(Supplier<T>)\nand withLockRun(Runnable) methods. The lock acquisition, try block, and finally-unlock pattern\nis written exactly once. All callers pass their business logic as a lambda.\n\nBenefits:\n1. The locking pattern is correct in one place -- no risk of forgetting unlock.\n2. Changing lock type (e.g., to ReadWriteLock) only requires modifying LockExecutor.\n3. The calling code focuses on business logic, not concurrency mechanics."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class LockExecutor {\n    private final Lock lock;\n    public LockExecutor(Lock lock) { this.lock = lock; }\n\n    public <T> T withLock(Supplier<T> action) {\n        lock.lock();\n        try { return action.get(); }\n        finally { lock.unlock(); }\n    }\n}\n\n// Usage: no duplicated lock boilerplate\nclass Account {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    private int balance = 0;\n\n    public int deposit(int amount) {\n        return locker.withLock(() -> { balance += amount; return balance; });\n    }\n    public int getBalance() {\n        return locker.withLock(() -> balance);\n    }\n}\n"
+      "text": "public class LockExecutor {\n    private final Lock lock;\n    public LockExecutor(Lock lock) { this.lock = lock; }\n\n    public <T> T withLock(Supplier<T> action) {\n        lock.lock();\n        try { return action.get(); }\n        finally { lock.unlock(); }\n    }\n}\n\n// Usage: no duplicated lock boilerplate\nclass Account {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    private int balance = 0;\n\n    public int deposit(int amount) {\n        return locker.withLock(() -> { balance += amount; return balance; });\n    }\n    public int getBalance() {\n        return locker.withLock(() -> balance);\n    }\n}"
     },
     {
       "type": "para",
@@ -234,12 +209,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: ExecutorService requires careful lifecycle management: create, submit tasks, shutdown,\nand awaitTermination. When this pattern is duplicated:\n\n1. One copy might forget shutdown() -- causing thread leaks.\n2. Another might use shutdownNow() instead of shutdown() -- canceling running tasks.\n3. A third might skip awaitTermination() -- returning results before tasks complete.\n\nBy extracting a reusable ParallelComputation utility, the lifecycle is correct everywhere.\nSince Java 19, ExecutorService implements AutoCloseable, so try-with-resources handles shutdown\nautomatically -- an even DRYer approach.\n"
+      "text": "A2: ExecutorService requires careful lifecycle management: create, submit tasks, shutdown,\nand awaitTermination. When this pattern is duplicated:\n\n1. One copy might forget shutdown() -- causing thread leaks.\n2. Another might use shutdownNow() instead of shutdown() -- canceling running tasks.\n3. A third might skip awaitTermination() -- returning results before tasks complete.\n\nBy extracting a reusable ParallelComputation utility, the lifecycle is correct everywhere.\nSince Java 19, ExecutorService implements AutoCloseable, so try-with-resources handles shutdown\nautomatically -- an even DRYer approach."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// DRY: Reusable parallel execution utility\npublic class ParallelComputation {\n    public <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount)\n            throws InterruptedException {\n        ExecutorService executor = Executors.newFixedThreadPool(threadCount);\n        try {\n            List<Future<T>> futures = executor.invokeAll(tasks);\n            List<T> results = new ArrayList<>();\n            for (Future<T> f : futures) {\n                try { results.add(f.get()); }\n                catch (ExecutionException e) { throw new RuntimeException(e); }\n            }\n            return results;\n        } finally {\n            executor.shutdown();\n            executor.awaitTermination(5, TimeUnit.SECONDS);\n        }\n    }\n}\n"
+      "text": "// DRY: Reusable parallel execution utility\npublic class ParallelComputation {\n    public <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount)\n            throws InterruptedException {\n        ExecutorService executor = Executors.newFixedThreadPool(threadCount);\n        try {\n            List<Future<T>> futures = executor.invokeAll(tasks);\n            List<T> results = new ArrayList<>();\n            for (Future<T> f : futures) {\n                try { results.add(f.get()); }\n                catch (ExecutionException e) { throw new RuntimeException(e); }\n            }\n            return results;\n        } finally {\n            executor.shutdown();\n            executor.awaitTermination(5, TimeUnit.SECONDS);\n        }\n    }\n}"
     },
     {
       "type": "para",
@@ -248,12 +223,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Concurrent systems frequently encounter transient failures (network timeouts,\nlock contention, temporary resource unavailability). A reusable RetryExecutor:\n\n1. Centralizes retry count and delay configuration -- no magic numbers scattered around.\n2. Ensures consistent behavior -- all retries use the same backoff strategy.\n3. Makes testing easier -- inject a RetryExecutor with 0 retries for fast tests.\n4. Handles edge cases correctly -- what if maxRetries is 0? What if the delay is 0?\n\nWithout DRY, each caller implements its own retry loop, often with subtle differences\nin error handling or delay logic.\n"
+      "text": "A3: Concurrent systems frequently encounter transient failures (network timeouts,\nlock contention, temporary resource unavailability). A reusable RetryExecutor:\n\n1. Centralizes retry count and delay configuration -- no magic numbers scattered around.\n2. Ensures consistent behavior -- all retries use the same backoff strategy.\n3. Makes testing easier -- inject a RetryExecutor with 0 retries for fast tests.\n4. Handles edge cases correctly -- what if maxRetries is 0? What if the delay is 0?\n\nWithout DRY, each caller implements its own retry loop, often with subtle differences\nin error handling or delay logic."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class RetryExecutor {\n    private final int maxRetries;\n    private final long retryDelayMs;\n\n    public RetryExecutor(int maxRetries, long retryDelayMs) {\n        this.maxRetries = maxRetries;\n        this.retryDelayMs = retryDelayMs;\n    }\n\n    public <T> T executeWithRetry(Callable<T> action) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt <= maxRetries; attempt++) {\n            try { return action.call(); }\n            catch (Exception e) {\n                lastException = e;\n                if (attempt < maxRetries && retryDelayMs > 0) Thread.sleep(retryDelayMs);\n            }\n        }\n        throw lastException;\n    }\n}\n"
+      "text": "public class RetryExecutor {\n    private final int maxRetries;\n    private final long retryDelayMs;\n\n    public RetryExecutor(int maxRetries, long retryDelayMs) {\n        this.maxRetries = maxRetries;\n        this.retryDelayMs = retryDelayMs;\n    }\n\n    public <T> T executeWithRetry(Callable<T> action) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt <= maxRetries; attempt++) {\n            try { return action.call(); }\n            catch (Exception e) {\n                lastException = e;\n                if (attempt < maxRetries && retryDelayMs > 0) Thread.sleep(retryDelayMs);\n            }\n        }\n        throw lastException;\n    }\n}"
     },
     {
       "type": "para",
@@ -262,12 +237,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Many services need thread-safe caching -- compute a value on first access and return\nthe cached value on subsequent calls. Without DRY, each service creates its own\nConcurrentHashMap and calls computeIfAbsent directly. With DRY, a reusable\nThreadSafeCache<K,V> encapsulates this:\n\n1. Thread-safe by construction -- ConcurrentHashMap guarantees atomicity.\n2. Consistent API -- getOrCompute, get, invalidate, clear.\n3. Single place to add features like TTL, max size, or metrics.\n\nThis is the same idea behind Guava's LoadingCache or Caffeine, but at a simpler scale.\n"
+      "text": "A4: Many services need thread-safe caching -- compute a value on first access and return\nthe cached value on subsequent calls. Without DRY, each service creates its own\nConcurrentHashMap and calls computeIfAbsent directly. With DRY, a reusable\nThreadSafeCache<K,V> encapsulates this:\n\n1. Thread-safe by construction -- ConcurrentHashMap guarantees atomicity.\n2. Consistent API -- getOrCompute, get, invalidate, clear.\n3. Single place to add features like TTL, max size, or metrics.\n\nThis is the same idea behind Guava's LoadingCache or Caffeine, but at a simpler scale."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public class ThreadSafeCache<K, V> {\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    public V getOrCompute(K key, Function<K, V> computeFunction) {\n        return cache.computeIfAbsent(key, computeFunction);\n    }\n\n    public Optional<V> get(K key) {\n        return Optional.ofNullable(cache.get(key));\n    }\n\n    public void invalidate(K key) { cache.remove(key); }\n    public int size() { return cache.size(); }\n    public void clear() { cache.clear(); }\n}\n"
+      "text": "public class ThreadSafeCache<K, V> {\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    public V getOrCompute(K key, Function<K, V> computeFunction) {\n        return cache.computeIfAbsent(key, computeFunction);\n    }\n\n    public Optional<V> get(K key) {\n        return Optional.ofNullable(cache.get(key));\n    }\n\n    public void invalidate(K key) { cache.remove(key); }\n    public int size() { return cache.size(); }\n    public void clear() { cache.clear(); }\n}"
     },
     {
       "type": "para",
@@ -276,12 +251,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Before structured concurrency, the fork-join pattern was duplicated everywhere:\ncreate executor, submit tasks, collect futures, handle exceptions, shutdown.\nJava 21's StructuredTaskScope (preview) provides a single, reusable abstraction:\n\n1. StructuredTaskScope.ShutdownOnFailure -- cancel all if one fails.\n2. StructuredTaskScope.ShutdownOnSuccess -- return first result.\n3. Automatic lifecycle -- try-with-resources handles shutdown.\n4. Child threads are bounded to parent scope -- no orphaned threads.\n\nThis is DRY at the framework level: the platform provides the correct fork-join\npattern so developers don't have to rewrite it in every service.\n"
+      "text": "A5: Before structured concurrency, the fork-join pattern was duplicated everywhere:\ncreate executor, submit tasks, collect futures, handle exceptions, shutdown.\nJava 21's StructuredTaskScope (preview) provides a single, reusable abstraction:\n\n1. StructuredTaskScope.ShutdownOnFailure -- cancel all if one fails.\n2. StructuredTaskScope.ShutdownOnSuccess -- return first result.\n3. Automatic lifecycle -- try-with-resources handles shutdown.\n4. Child threads are bounded to parent scope -- no orphaned threads.\n\nThis is DRY at the framework level: the platform provides the correct fork-join\npattern so developers don't have to rewrite it in every service."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Java 21 structured concurrency (preview) -- DRY fork-join\ntry (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n    Subtask<String> user = scope.fork(() -> fetchUser(id));\n    Subtask<String> order = scope.fork(() -> fetchOrder(id));\n    scope.join().throwIfFailed();\n    return new UserOrder(user.get(), order.get());\n}\n// No manual executor creation, shutdown, or future handling!\n"
+      "text": "// Java 21 structured concurrency (preview) -- DRY fork-join\ntry (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n    Subtask<String> user = scope.fork(() -> fetchUser(id));\n    Subtask<String> order = scope.fork(() -> fetchOrder(id));\n    scope.join().throwIfFailed();\n    return new UserOrder(user.get(), order.get());\n}\n// No manual executor creation, shutdown, or future handling!"
     },
     {
       "type": "heading",
@@ -302,10 +277,10 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 14,
-    "code": 14,
+    "paras": 10,
+    "code": 10,
     "tables": 0,
-    "lists": 12,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -313,5 +288,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "028c5ebc8da9e213d7376419807f3310e7c11c56c93591171679f5174215f674"
+  "content_sha256": "fcf47ef9ef95f88180c853a8f504721ee522c0370361a4bfa0e222b4bf80b1ad"
 }

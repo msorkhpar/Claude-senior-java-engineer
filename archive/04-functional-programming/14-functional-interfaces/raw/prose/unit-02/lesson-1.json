@@ -41,7 +41,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "@FunctionalInterface\npublic interface Supplier<T> {\n    T get();\n}\n"
+      "text": "@FunctionalInterface\npublic interface Supplier<T> {\n    T get();\n}"
     },
     {
       "type": "para",
@@ -123,85 +123,67 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**`orElse` vs `orElseGet` — the classic mistake** — `orElse(T value)` evaluates its argument **always**, even when the Optional is present, because Java evaluates method arguments eagerly before the call."
+        [
+          "**`orElse` vs `orElseGet` — the classic mistake** — `orElse(T value)` evaluates its argument **always**, even when the Optional is present, because Java evaluates method arguments eagerly before the call.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: computeExpensiveDefault() runs even when optional is present\nOptional<String> opt = Optional.of(\"existing\");\nString result = opt.orElse(computeExpensiveDefault()); // method called!"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: use orElseGet — the Supplier is only called when opt is empty\nString result = opt.orElseGet(() -> computeExpensiveDefault());\n// computeExpensiveDefault() is NOT called because opt is present"
+          }
+        ],
+        [
+          "**Forgetting `limit()` on `Stream.generate()`** — `Stream.generate(Supplier)` produces an infinite stream. Without a terminal short-circuit operation, it runs forever.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: runs forever, eventually OOM\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .collect(Collectors.toList()); // infinite!"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: always limit infinite streams\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .limit(10)\n    .collect(Collectors.toList());"
+          }
+        ],
+        [
+          "**Memoization without thread safety** — A naive memoizing Supplier using a local flag is not thread-safe. Multiple threads may each see the \"not yet computed\" state and compute the value concurrently.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: not thread-safe under concurrent access\nObject[] cached = {null};\nboolean[] computed = {false};\nSupplier<String> memo = () -> {\n    if (!computed[0]) { // race condition here\n        cached[0] = expensiveComputation();\n        computed[0] = true;\n    }\n    return (String) cached[0];\n};"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: synchronize the check-and-compute so it runs at most once\nObject lock = new Object();\nObject[] cached = {null};\nSupplier<String> threadSafeMemo = () -> {\n    synchronized (lock) {\n        if (cached[0] == null) {\n            cached[0] = expensiveComputation();\n        }\n        return (String) cached[0];\n    }\n};\n// Note: AtomicReference.updateAndGet(v -> v != null ? v : expensiveComputation()) publishes a single value\n// safely, but under contention it may call expensiveComputation() more than once (its function can be retried)."
+          }
+        ],
+        [
+          "**Using `Supplier` where `Callable` is needed** — `Supplier.get()` cannot throw checked exceptions. If the computation throws a checked exception, use `Callable<T>` instead.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: IOException is checked, Supplier cannot throw it\nSupplier<String> reader = () -> Files.readString(Path.of(\"file.txt\")); // compile error"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix 1: use Callable (for ExecutorService, etc.)\nCallable<String> reader = () -> Files.readString(Path.of(\"file.txt\"));\n\n// Fix 2: wrap in unchecked exception\nSupplier<String> reader = () -> {\n    try { return Files.readString(Path.of(\"file.txt\")); }\n    catch (IOException e) { throw new UncheckedIOException(e); }\n};"
+          }
+        ],
+        [
+          "**Capturing mutable state that changes between `get()` calls** — If a Supplier captures a mutable variable that is modified externally, it may return different values across calls unexpectedly.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Tricky: 'prefix' is effectively final, but what if it pointed to a mutable object?\nStringBuilder prefix = new StringBuilder(\"Hello\");\nSupplier<String> greeter = () -> prefix + \" World\";\nprefix.append(\"!!!\"); // greeter will now return \"Hello!!! World\""
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: computeExpensiveDefault() runs even when optional is present\nOptional<String> opt = Optional.of(\"existing\");\nString result = opt.orElse(computeExpensiveDefault()); // method called!\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: use orElseGet — the Supplier is only called when opt is empty\nString result = opt.orElseGet(() -> computeExpensiveDefault());\n// computeExpensiveDefault() is NOT called because opt is present\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Forgetting `limit()` on `Stream.generate()`** — `Stream.generate(Supplier)` produces an infinite stream. Without a terminal short-circuit operation, it runs forever."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: runs forever, eventually OOM\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .collect(Collectors.toList()); // infinite!\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: always limit infinite streams\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .limit(10)\n    .collect(Collectors.toList());\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Memoization without thread safety** — A naive memoizing Supplier using a local flag is not thread-safe. Multiple threads may each see the \"not yet computed\" state and compute the value concurrently."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: not thread-safe under concurrent access\nObject[] cached = {null};\nboolean[] computed = {false};\nSupplier<String> memo = () -> {\n    if (!computed[0]) { // race condition here\n        cached[0] = expensiveComputation();\n        computed[0] = true;\n    }\n    return (String) cached[0];\n};\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: synchronize the check-and-compute so it runs at most once\nObject lock = new Object();\nObject[] cached = {null};\nSupplier<String> threadSafeMemo = () -> {\n    synchronized (lock) {\n        if (cached[0] == null) {\n            cached[0] = expensiveComputation();\n        }\n        return (String) cached[0];\n    }\n};\n// Note: AtomicReference.updateAndGet(v -> v != null ? v : expensiveComputation()) publishes a single value\n// safely, but under contention it may call expensiveComputation() more than once (its function can be retried).\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using `Supplier` where `Callable` is needed** — `Supplier.get()` cannot throw checked exceptions. If the computation throws a checked exception, use `Callable<T>` instead."
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: IOException is checked, Supplier cannot throw it\nSupplier<String> reader = () -> Files.readString(Path.of(\"file.txt\")); // compile error\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix 1: use Callable (for ExecutorService, etc.)\nCallable<String> reader = () -> Files.readString(Path.of(\"file.txt\"));\n\n// Fix 2: wrap in unchecked exception\nSupplier<String> reader = () -> {\n    try { return Files.readString(Path.of(\"file.txt\")); }\n    catch (IOException e) { throw new UncheckedIOException(e); }\n};\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Capturing mutable state that changes between `get()` calls** — If a Supplier captures a mutable variable that is modified externally, it may return different values across calls unexpectedly."
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Tricky: 'prefix' is effectively final, but what if it pointed to a mutable object?\nStringBuilder prefix = new StringBuilder(\"Hello\");\nSupplier<String> greeter = () -> prefix + \" World\";\nprefix.append(\"!!!\"); // greeter will now return \"Hello!!! World\"\n"
     },
     {
       "type": "heading",
@@ -213,41 +195,33 @@
       "ordered": true,
       "items": [
         "**Prefer `orElseGet(Supplier)` over `orElse(value)` when the default involves any computation** — even simple string formatting or object construction.",
-        "**Use constructor references as Suppliers for factory patterns.** `ArrayList::new` is cleaner and more expressive than `() -> new ArrayList<>()`."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Supplier<List<String>> listFactory = ArrayList::new;\nSupplier<Map<String, Integer>> mapFactory = HashMap::new;\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Implement the initialization-on-demand pattern with Supplier.** Wrap expensive one-time initialization in a Supplier that is stored as a field and called once."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "private Supplier<HeavyResource> resourceSupplier = () -> new HeavyResource(); // not yet created\n// Later, when actually needed:\nHeavyResource resource = resourceSupplier.get();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Use constructor references as Suppliers for factory patterns.** `ArrayList::new` is cleaner and more expressive than `() -> new ArrayList<>()`.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Supplier<List<String>> listFactory = ArrayList::new;\nSupplier<Map<String, Integer>> mapFactory = HashMap::new;"
+          }
+        ],
+        [
+          "**Implement the initialization-on-demand pattern with Supplier.** Wrap expensive one-time initialization in a Supplier that is stored as a field and called once.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "private Supplier<HeavyResource> resourceSupplier = () -> new HeavyResource(); // not yet created\n// Later, when actually needed:\nHeavyResource resource = resourceSupplier.get();"
+          }
+        ],
         "**Use Supplier for dependency injection in tests.** Instead of creating the real object, inject a Supplier that returns a stub or mock — easy to swap without frameworks.",
         "**Use primitive specializations for numeric suppliers in tight loops.** `IntSupplier.getAsInt()` avoids boxing each return value.",
-        "**Use `Optional.or(Supplier<Optional<T>>)` (Java 9+) for chaining Optional fallbacks** without nesting."
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Optional<String> result = primary.or(() -> secondary).or(() -> tertiary);\n"
+        [
+          "**Use `Optional.or(Supplier<Optional<T>>)` (Java 9+) for chaining Optional fallbacks** without nesting.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Optional<String> result = primary.or(() -> secondary).or(() -> tertiary);"
+          }
+        ]
+      ]
     },
     {
       "type": "heading",
@@ -258,36 +232,26 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Supplier returning `null`** — `Supplier<T>` can return `null`. If the consumer of the Supplier does not expect null, a `NullPointerException` may follow. Use `Optional.ofNullable(supplier.get())` to handle this safely."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Supplier<String> mayBeNull = () -> null;\nString value = Optional.ofNullable(mayBeNull.get()).orElse(\"default\");\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Supplier returning `null`** — `Supplier<T>` can return `null`. If the consumer of the Supplier does not expect null, a `NullPointerException` may follow. Use `Optional.ofNullable(supplier.get())` to handle this safely.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Supplier<String> mayBeNull = () -> null;\nString value = Optional.ofNullable(mayBeNull.get()).orElse(\"default\");"
+          }
+        ],
         "**Supplier that throws `RuntimeException`** — The exception propagates out of `get()` to the caller. This is the only way for a `Supplier` to signal failure.",
-        "**Supplier used with `Stream.generate` producing the same object reference each time** — If the Supplier returns the same mutable object (not a copy), the stream will contain references to the same mutated object."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Dangerous: all elements point to the same list\nList<String> shared = new ArrayList<>();\nList<List<String>> bad = Stream.generate(() -> shared).limit(3).collect(toList());\n// bad.get(0) == bad.get(1) == bad.get(2) (same reference)\n\n// Safe: create a new instance per call\nList<List<String>> good = Stream.generate(ArrayList::new).limit(3).collect(toList());\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Supplier used with `Stream.generate` producing the same object reference each time** — If the Supplier returns the same mutable object (not a copy), the stream will contain references to the same mutated object.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Dangerous: all elements point to the same list\nList<String> shared = new ArrayList<>();\nList<List<String>> bad = Stream.generate(() -> shared).limit(3).collect(toList());\n// bad.get(0) == bad.get(1) == bad.get(2) (same reference)\n\n// Safe: create a new instance per call\nList<List<String>> good = Stream.generate(ArrayList::new).limit(3).collect(toList());"
+          }
+        ],
         "**BooleanSupplier** — Returns `boolean`, not `Boolean`. No boxing. Use `getAsBoolean()` instead of `get()`.",
         "**Calling `get()` multiple times** — Unless you explicitly memoize, each call to `get()` re-executes the lambda. For expensive one-shot computations, store the result after the first call."
-      ],
-      "start": 4
+      ]
     },
     {
       "type": "heading",
@@ -335,12 +299,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: orElse(T value) is eager: the argument expression is evaluated before orElse is called,\nregardless of whether the Optional is present or empty. This is standard Java argument\nevaluation — the value is computed and then passed.\n\norElseGet(Supplier<T> supplier) is lazy: the Supplier's get() is only called when the\nOptional is empty. If the Optional is present, get() is never invoked.\n\nThis matters when the \"default\" is expensive to compute (database query, HTTP call, complex\nobject construction). Using orElse with an expensive call wastes resources when the Optional\nis already present.\n\nRule of thumb:\n- orElse(constant) — fine for constants, literals, already-computed values\n- orElseGet(() -> compute()) — preferred for any non-trivial default\n"
+      "text": "A1: orElse(T value) is eager: the argument expression is evaluated before orElse is called,\nregardless of whether the Optional is present or empty. This is standard Java argument\nevaluation — the value is computed and then passed.\n\norElseGet(Supplier<T> supplier) is lazy: the Supplier's get() is only called when the\nOptional is empty. If the Optional is present, get() is never invoked.\n\nThis matters when the \"default\" is expensive to compute (database query, HTTP call, complex\nobject construction). Using orElse with an expensive call wastes resources when the Optional\nis already present.\n\nRule of thumb:\n- orElse(constant) — fine for constants, literals, already-computed values\n- orElseGet(() -> compute()) — preferred for any non-trivial default"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Optional<String> opt = Optional.of(\"found\");\n\n// orElse: computeDefault() ALWAYS runs\nString a = opt.orElse(computeDefault());   // computeDefault() executes, result discarded\n\n// orElseGet: computeDefault() only runs if opt is empty\nString b = opt.orElseGet(() -> computeDefault()); // computeDefault() NOT called\n\n// Demonstration with side effect to prove the point\nint[] callCount = {0};\nSupplier<String> countingSupplier = () -> {\n    callCount[0]++;\n    return \"default\";\n};\n\nOptional.of(\"present\").orElseGet(countingSupplier);\nSystem.out.println(callCount[0]); // 0 — Supplier was NOT called\n\nOptional.<String>empty().orElseGet(countingSupplier);\nSystem.out.println(callCount[0]); // 1 — Supplier WAS called\n"
+      "text": "Optional<String> opt = Optional.of(\"found\");\n\n// orElse: computeDefault() ALWAYS runs\nString a = opt.orElse(computeDefault());   // computeDefault() executes, result discarded\n\n// orElseGet: computeDefault() only runs if opt is empty\nString b = opt.orElseGet(() -> computeDefault()); // computeDefault() NOT called\n\n// Demonstration with side effect to prove the point\nint[] callCount = {0};\nSupplier<String> countingSupplier = () -> {\n    callCount[0]++;\n    return \"default\";\n};\n\nOptional.of(\"present\").orElseGet(countingSupplier);\nSystem.out.println(callCount[0]); // 0 — Supplier was NOT called\n\nOptional.<String>empty().orElseGet(countingSupplier);\nSystem.out.println(callCount[0]); // 1 — Supplier WAS called"
     },
     {
       "type": "rule"
@@ -352,12 +316,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Stream.generate(Supplier<T>) creates an infinite, unordered, sequential Stream<T>.\nEach call to the stream pipeline requests the next element by calling Supplier.get().\n\nBecause the stream is infinite, you MUST use a short-circuiting or limiting operation:\n- limit(n)         — take exactly n elements\n- findFirst()      — take one element\n- anyMatch(pred)   — stop as soon as a match is found\n- takeWhile(pred)  — take while condition holds (Java 9+)\n\nIf no limiting operation is used and collect() or forEach() is called, the stream will\nattempt to process infinite elements — resulting in an infinite loop or OutOfMemoryError.\n"
+      "text": "A2: Stream.generate(Supplier<T>) creates an infinite, unordered, sequential Stream<T>.\nEach call to the stream pipeline requests the next element by calling Supplier.get().\n\nBecause the stream is infinite, you MUST use a short-circuiting or limiting operation:\n- limit(n)         — take exactly n elements\n- findFirst()      — take one element\n- anyMatch(pred)   — stop as soon as a match is found\n- takeWhile(pred)  — take while condition holds (Java 9+)\n\nIf no limiting operation is used and collect() or forEach() is called, the stream will\nattempt to process infinite elements — resulting in an infinite loop or OutOfMemoryError."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Generate 10 random numbers between 0 and 99\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .limit(10)\n    .collect(Collectors.toList());\n\n// Generate UUIDs\nList<String> uuids = Stream.generate(() -> UUID.randomUUID().toString())\n    .limit(5)\n    .collect(Collectors.toList());\n\n// Generate incrementing sequence using a stateful Supplier\nint[] counter = {0};\nSupplier<Integer> incrementing = () -> counter[0]++;\nList<Integer> sequence = Stream.generate(incrementing).limit(5).collect(Collectors.toList());\n// [0, 1, 2, 3, 4]\n\n// Java 9+: takeWhile for condition-based stopping\nStream.generate(() -> (int)(Math.random() * 10))\n    .takeWhile(n -> n != 0)     // stop at first 0\n    .forEach(System.out::println);\n"
+      "text": "// Generate 10 random numbers between 0 and 99\nList<Integer> randoms = Stream.generate(() -> (int)(Math.random() * 100))\n    .limit(10)\n    .collect(Collectors.toList());\n\n// Generate UUIDs\nList<String> uuids = Stream.generate(() -> UUID.randomUUID().toString())\n    .limit(5)\n    .collect(Collectors.toList());\n\n// Generate incrementing sequence using a stateful Supplier\nint[] counter = {0};\nSupplier<Integer> incrementing = () -> counter[0]++;\nList<Integer> sequence = Stream.generate(incrementing).limit(5).collect(Collectors.toList());\n// [0, 1, 2, 3, 4]\n\n// Java 9+: takeWhile for condition-based stopping\nStream.generate(() -> (int)(Math.random() * 10))\n    .takeWhile(n -> n != 0)     // stop at first 0\n    .forEach(System.out::println);"
     },
     {
       "type": "rule"
@@ -369,12 +333,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Memoization is an optimization where the result of an expensive computation is cached\nafter the first call, and all subsequent calls return the cached result without recomputing.\n\nA Supplier is a natural fit: it represents \"produce this value when asked\". By wrapping it\nin a memoizing layer, we change its semantics to \"produce this value once, then cache it\".\n\nThere are two common implementations:\n1. Single-threaded: use a boolean flag and a result holder.\n2. Thread-safe: use AtomicReference with compareAndSet. This guarantees that every caller sees the\n   same cached value, but two threads racing on the first call may both run the computation (only\n   one result is kept). If the computation must run at most once, use synchronization instead.\n"
+      "text": "A3: Memoization is an optimization where the result of an expensive computation is cached\nafter the first call, and all subsequent calls return the cached result without recomputing.\n\nA Supplier is a natural fit: it represents \"produce this value when asked\". By wrapping it\nin a memoizing layer, we change its semantics to \"produce this value once, then cache it\".\n\nThere are two common implementations:\n1. Single-threaded: use a boolean flag and a result holder.\n2. Thread-safe: use AtomicReference with compareAndSet. This guarantees that every caller sees the\n   same cached value, but two threads racing on the first call may both run the computation (only\n   one result is kept). If the computation must run at most once, use synchronization instead."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Thread-safe memoizing Supplier\npublic static <T> Supplier<T> memoize(Supplier<T> supplier) {\n    AtomicReference<T> cached = new AtomicReference<>();\n    return () -> {\n        T value = cached.get();\n        if (value == null) {\n            // compareAndSet is atomic: only one thread's result is stored. Several threads racing here\n            // may each call supplier.get(); the losers' results are discarded.\n            cached.compareAndSet(null, supplier.get());\n            value = cached.get();\n        }\n        return value;\n    };\n}\n\n// Usage\nSupplier<String> expensive = memoize(() -> {\n    System.out.println(\"Computing...\");\n    return \"result-\" + System.currentTimeMillis();\n});\n\nSystem.out.println(expensive.get()); // \"Computing...\" then \"result-...\"\nSystem.out.println(expensive.get()); // returns cached value — no \"Computing...\"\nSystem.out.println(expensive.get()); // still cached\n\n// Instance-level memoization pattern (simple, single-threaded)\npublic class Config {\n    private String cachedValue;\n\n    private final Supplier<String> valueSupplier = () -> {\n        if (cachedValue == null) cachedValue = loadFromDisk();\n        return cachedValue;\n    };\n\n    public String getValue() { return valueSupplier.get(); }\n    private String loadFromDisk() { return \"value-from-disk\"; }\n}\n"
+      "text": "// Thread-safe memoizing Supplier\npublic static <T> Supplier<T> memoize(Supplier<T> supplier) {\n    AtomicReference<T> cached = new AtomicReference<>();\n    return () -> {\n        T value = cached.get();\n        if (value == null) {\n            // compareAndSet is atomic: only one thread's result is stored. Several threads racing here\n            // may each call supplier.get(); the losers' results are discarded.\n            cached.compareAndSet(null, supplier.get());\n            value = cached.get();\n        }\n        return value;\n    };\n}\n\n// Usage\nSupplier<String> expensive = memoize(() -> {\n    System.out.println(\"Computing...\");\n    return \"result-\" + System.currentTimeMillis();\n});\n\nSystem.out.println(expensive.get()); // \"Computing...\" then \"result-...\"\nSystem.out.println(expensive.get()); // returns cached value — no \"Computing...\"\nSystem.out.println(expensive.get()); // still cached\n\n// Instance-level memoization pattern (simple, single-threaded)\npublic class Config {\n    private String cachedValue;\n\n    private final Supplier<String> valueSupplier = () -> {\n        if (cachedValue == null) cachedValue = loadFromDisk();\n        return cachedValue;\n    };\n\n    public String getValue() { return valueSupplier.get(); }\n    private String loadFromDisk() { return \"value-from-disk\"; }\n}"
     },
     {
       "type": "rule"
@@ -386,12 +350,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Both Supplier<T> and Callable<T> are zero-argument functional interfaces that return a\nvalue of type T. The key differences are:\n\n1. Package: Supplier is in java.util.function (functional programming). Callable is in\n   java.util.concurrent (concurrency).\n\n2. Checked exceptions: Supplier.get() cannot throw checked exceptions. Callable.call()\n   declares \"throws Exception\" — any checked exception is allowed.\n\n3. Use sites: Supplier is used with Optional, Stream.generate, lazy initialization.\n   Callable is used with ExecutorService.submit(), FutureTask, and other concurrency APIs.\n\n4. Nullability: Both can return null, but Supplier is often expected to return non-null\n   in Optional.orElseGet.\n\nUse Supplier for lazy evaluation and functional composition.\nUse Callable when submitting tasks to an executor or when checked exceptions must be propagated.\n"
+      "text": "A4: Both Supplier<T> and Callable<T> are zero-argument functional interfaces that return a\nvalue of type T. The key differences are:\n\n1. Package: Supplier is in java.util.function (functional programming). Callable is in\n   java.util.concurrent (concurrency).\n\n2. Checked exceptions: Supplier.get() cannot throw checked exceptions. Callable.call()\n   declares \"throws Exception\" — any checked exception is allowed.\n\n3. Use sites: Supplier is used with Optional, Stream.generate, lazy initialization.\n   Callable is used with ExecutorService.submit(), FutureTask, and other concurrency APIs.\n\n4. Nullability: Both can return null, but Supplier is often expected to return non-null\n   in Optional.orElseGet.\n\nUse Supplier for lazy evaluation and functional composition.\nUse Callable when submitting tasks to an executor or when checked exceptions must be propagated."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Supplier: no checked exceptions\nSupplier<String> supplier = () -> \"hello\";\nString s = supplier.get();\n\n// Callable: allows checked exceptions, used with ExecutorService\nCallable<String> callable = () -> Files.readString(Path.of(\"file.txt\")); // checked IOException ok\nExecutorService exec = Executors.newSingleThreadExecutor();\nFuture<String> future = exec.submit(callable);\nString content = future.get(); // may throw ExecutionException wrapping IOException\n\n// Converting Supplier to Callable (trivial)\nCallable<String> asCallable = supplier::get;\n\n// Converting Callable to Supplier (requires exception wrapping)\nSupplier<String> asSupplier = () -> {\n    try { return callable.call(); }\n    catch (Exception e) { throw new RuntimeException(e); }\n};\n"
+      "text": "// Supplier: no checked exceptions\nSupplier<String> supplier = () -> \"hello\";\nString s = supplier.get();\n\n// Callable: allows checked exceptions, used with ExecutorService\nCallable<String> callable = () -> Files.readString(Path.of(\"file.txt\")); // checked IOException ok\nExecutorService exec = Executors.newSingleThreadExecutor();\nFuture<String> future = exec.submit(callable);\nString content = future.get(); // may throw ExecutionException wrapping IOException\n\n// Converting Supplier to Callable (trivial)\nCallable<String> asCallable = supplier::get;\n\n// Converting Callable to Supplier (requires exception wrapping)\nSupplier<String> asSupplier = () -> {\n    try { return callable.call(); }\n    catch (Exception e) { throw new RuntimeException(e); }\n};"
     },
     {
       "type": "rule"
@@ -403,12 +367,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: A Supplier is an excellent fit for the factory pattern: you pass a Supplier<T> instead of\na concrete T, giving the receiver control over when and how many instances are created. This\ndecouples creation from use, makes testing easier (inject a Supplier returning a mock), and\nenables lazy creation.\n\nIn dependency injection contexts, a Supplier replaces the container's role for lightweight\nscenarios — the caller provides \"how to create the dependency\" and the callee calls get()\nonly when it needs it.\n"
+      "text": "A5: A Supplier is an excellent fit for the factory pattern: you pass a Supplier<T> instead of\na concrete T, giving the receiver control over when and how many instances are created. This\ndecouples creation from use, makes testing easier (inject a Supplier returning a mock), and\nenables lazy creation.\n\nIn dependency injection contexts, a Supplier replaces the container's role for lightweight\nscenarios — the caller provides \"how to create the dependency\" and the callee calls get()\nonly when it needs it."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Factory pattern: method accepts a Supplier to create instances on demand\npublic <T> List<T> createN(int n, Supplier<T> factory) {\n    List<T> result = new ArrayList<>();\n    for (int i = 0; i < n; i++) {\n        result.add(factory.get());  // new instance created each time\n    }\n    return result;\n}\n\n// Usage with different factories\nList<ArrayList<String>> lists = createN(3, ArrayList::new);\nList<StringBuilder> builders = createN(5, StringBuilder::new);\nList<String> uuids = createN(10, () -> UUID.randomUUID().toString());\n\n// Dependency injection via Supplier (no framework needed)\npublic class UserService {\n    private final Supplier<DatabaseConnection> connectionSupplier;\n\n    public UserService(Supplier<DatabaseConnection> connectionSupplier) {\n        this.connectionSupplier = connectionSupplier;\n    }\n\n    public User findUser(String id) {\n        DatabaseConnection conn = connectionSupplier.get(); // lazy, only when needed\n        return conn.query(\"SELECT * FROM users WHERE id = ?\", id);\n    }\n}\n\n// In tests, inject a Supplier returning a mock\nDatabaseConnection mockConn = mock(DatabaseConnection.class);\nUserService service = new UserService(() -> mockConn);\n\n// In production, inject a Supplier returning a real pooled connection\nUserService prodService = new UserService(() -> connectionPool.borrow());\n"
+      "text": "// Factory pattern: method accepts a Supplier to create instances on demand\npublic <T> List<T> createN(int n, Supplier<T> factory) {\n    List<T> result = new ArrayList<>();\n    for (int i = 0; i < n; i++) {\n        result.add(factory.get());  // new instance created each time\n    }\n    return result;\n}\n\n// Usage with different factories\nList<ArrayList<String>> lists = createN(3, ArrayList::new);\nList<StringBuilder> builders = createN(5, StringBuilder::new);\nList<String> uuids = createN(10, () -> UUID.randomUUID().toString());\n\n// Dependency injection via Supplier (no framework needed)\npublic class UserService {\n    private final Supplier<DatabaseConnection> connectionSupplier;\n\n    public UserService(Supplier<DatabaseConnection> connectionSupplier) {\n        this.connectionSupplier = connectionSupplier;\n    }\n\n    public User findUser(String id) {\n        DatabaseConnection conn = connectionSupplier.get(); // lazy, only when needed\n        return conn.query(\"SELECT * FROM users WHERE id = ?\", id);\n    }\n}\n\n// In tests, inject a Supplier returning a mock\nDatabaseConnection mockConn = mock(DatabaseConnection.class);\nUserService service = new UserService(() -> mockConn);\n\n// In production, inject a Supplier returning a real pooled connection\nUserService prodService = new UserService(() -> connectionPool.borrow());"
     },
     {
       "type": "rule"
@@ -420,12 +384,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: Generic Supplier<T> requires T to be a reference type. When T is Integer, Long, or Double,\neach call to get() returns a boxed object, requiring heap allocation. Primitive specializations\navoid this:\n\n- IntSupplier.getAsInt()       — returns int (no boxing)\n- LongSupplier.getAsLong()     — returns long (no boxing)\n- DoubleSupplier.getAsDouble() — returns double (no boxing)\n- BooleanSupplier.getAsBoolean() — returns boolean (no boxing)\n\nUse primitive specializations when:\n- Supplying values in tight loops or high-frequency code paths\n- Working with IntStream, LongStream, DoubleStream\n- The allocation overhead of boxing is measurable in your profiling\n"
+      "text": "A6: Generic Supplier<T> requires T to be a reference type. When T is Integer, Long, or Double,\neach call to get() returns a boxed object, requiring heap allocation. Primitive specializations\navoid this:\n\n- IntSupplier.getAsInt()       — returns int (no boxing)\n- LongSupplier.getAsLong()     — returns long (no boxing)\n- DoubleSupplier.getAsDouble() — returns double (no boxing)\n- BooleanSupplier.getAsBoolean() — returns boolean (no boxing)\n\nUse primitive specializations when:\n- Supplying values in tight loops or high-frequency code paths\n- Working with IntStream, LongStream, DoubleStream\n- The allocation overhead of boxing is measurable in your profiling"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Generic: each call boxes the int to Integer\nSupplier<Integer> genericRandom = () -> (int)(Math.random() * 100);\nInteger boxed = genericRandom.get(); // Integer object allocated on heap\n\n// Primitive: no boxing\nIntSupplier primitiveRandom = () -> (int)(Math.random() * 100);\nint primitive = primitiveRandom.getAsInt(); // no allocation\n\n// With IntStream — requires IntSupplier\nIntStream.generate(primitiveRandom).limit(10).sum();\n\n// BooleanSupplier — common for feature flags and lazy checks\nBooleanSupplier featureEnabled = () -> System.getProperty(\"feature.x\") != null;\nif (featureEnabled.getAsBoolean()) {\n    enableFeature();\n}\n\n// LongSupplier — for timestamps and large counters\nLongSupplier timestampMs = System::currentTimeMillis;\nlong start = timestampMs.getAsLong();\n"
+      "text": "// Generic: each call boxes the int to Integer\nSupplier<Integer> genericRandom = () -> (int)(Math.random() * 100);\nInteger boxed = genericRandom.get(); // Integer object allocated on heap\n\n// Primitive: no boxing\nIntSupplier primitiveRandom = () -> (int)(Math.random() * 100);\nint primitive = primitiveRandom.getAsInt(); // no allocation\n\n// With IntStream — requires IntSupplier\nIntStream.generate(primitiveRandom).limit(10).sum();\n\n// BooleanSupplier — common for feature flags and lazy checks\nBooleanSupplier featureEnabled = () -> System.getProperty(\"feature.x\") != null;\nif (featureEnabled.getAsBoolean()) {\n    enableFeature();\n}\n\n// LongSupplier — for timestamps and large counters\nLongSupplier timestampMs = System::currentTimeMillis;\nlong start = timestampMs.getAsLong();"
     },
     {
       "type": "rule"
@@ -437,12 +401,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A7: Optional.or(Supplier<Optional<T>>) introduced in Java 9 allows you to chain multiple\nOptional sources without nesting. If the first Optional is empty, the Supplier is called\nto produce another Optional, which may itself be empty (triggering further fallbacks).\n\nThis is cleaner than nested orElseGet calls and reads like a natural \"try this, then try that\"\nchain. Unlike orElseGet which produces a plain value, or() produces an Optional, allowing\nthe final stage to still apply orElse/orElseThrow.\n"
+      "text": "A7: Optional.or(Supplier<Optional<T>>) introduced in Java 9 allows you to chain multiple\nOptional sources without nesting. If the first Optional is empty, the Supplier is called\nto produce another Optional, which may itself be empty (triggering further fallbacks).\n\nThis is cleaner than nested orElseGet calls and reads like a natural \"try this, then try that\"\nchain. Unlike orElseGet which produces a plain value, or() produces an Optional, allowing\nthe final stage to still apply orElse/orElseThrow."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Without or() — nested and hard to read\nOptional<String> result = primaryCache.get(key)\n    .map(Optional::of)\n    .orElseGet(() -> secondaryCache.get(key)\n        .map(Optional::of)\n        .orElseGet(() -> database.find(key)));\n\n// With or() — clean and readable chain (Java 9+)\nOptional<String> result = primaryCache.get(key)\n    .or(() -> secondaryCache.get(key))\n    .or(() -> database.find(key))\n    .or(() -> Optional.of(\"default\"));\n\n// Each Supplier is only called if the previous Optional was empty\n// If primaryCache returns a value, the remaining Suppliers are never invoked\n\n// Practical example: multi-tier configuration lookup\nString config = Optional.ofNullable(System.getProperty(\"app.timeout\"))\n    .or(() -> Optional.ofNullable(System.getenv(\"APP_TIMEOUT\")))\n    .or(() -> readFromConfigFile(\"app.timeout\"))\n    .orElse(\"30\"); // final default if all sources are empty\n"
+      "text": "// Without or() — nested and hard to read\nOptional<String> result = primaryCache.get(key)\n    .map(Optional::of)\n    .orElseGet(() -> secondaryCache.get(key)\n        .map(Optional::of)\n        .orElseGet(() -> database.find(key)));\n\n// With or() — clean and readable chain (Java 9+)\nOptional<String> result = primaryCache.get(key)\n    .or(() -> secondaryCache.get(key))\n    .or(() -> database.find(key))\n    .or(() -> Optional.of(\"default\"));\n\n// Each Supplier is only called if the previous Optional was empty\n// If primaryCache returns a value, the remaining Suppliers are never invoked\n\n// Practical example: multi-tier configuration lookup\nString config = Optional.ofNullable(System.getProperty(\"app.timeout\"))\n    .or(() -> Optional.ofNullable(System.getenv(\"APP_TIMEOUT\")))\n    .or(() -> readFromConfigFile(\"app.timeout\"))\n    .orElse(\"30\"); // final default if all sources are empty"
     },
     {
       "type": "heading",
@@ -464,9 +428,9 @@
   "counts": {
     "headings": 10,
     "paras": 16,
-    "code": 29,
+    "code": 15,
     "tables": 0,
-    "lists": 18,
+    "lists": 10,
     "images": 0,
     "videos": 0,
     "rules": 6,
@@ -474,5 +438,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "12e1e8b2a44f9afa51f5e1786471a6a6f03628dca22d9e4e3ceea57f00b38362"
+  "content_sha256": "1750b1162490c40d0b5042fd5e518d9cedcbd145c09ca0ca8fd23b9496c3ebc5"
 }

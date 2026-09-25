@@ -82,46 +82,23 @@
       "ordered": true,
       "items": [
         [
-          "**The fragile base class problem with inheritance**",
-          "When a subclass overrides a method that the superclass calls internally, the subclass's behavior becomes dependent on implementation details:"
-        ]
+          "**The fragile base class problem with inheritance** When a subclass overrides a method that the superclass calls internally, the subclass's behavior becomes dependent on implementation details:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// PROBLEM: InstrumentedHashSet extends HashSet\npublic class InstrumentedHashSet<E> extends HashSet<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // BUG: HashSet.addAll calls add() internally!\n    }\n    // addCount will be double the actual adds when using addAll\n}"
+          },
+          "**Fix**: Use forwarding wrapper (composition):",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "public class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) { super(delegate); }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // ForwardingSet.addAll delegates directly, no double-counting\n    }\n}"
+          }
+        ],
+        "**Over-engineering with unnecessary composition layers** Adding too many wrapper/decorator layers when simple inheritance is appropriate creates complexity without benefit. **Fix**: Use composition when you need flexibility, runtime behavior changes, or wrapping existing classes. Use inheritance for genuine \"is-a\" relationships with well-designed base classes.",
+        "**Forgetting to delegate all methods in a wrapper** When creating a forwarding class, the compiler makes you implement the interface's abstract methods, but not `equals`, `hashCode` and `toString`. Forgetting those leaves `Object`'s identity-based versions, so the wrapper breaks the `Set` contract (`wrapper.equals(sameSet)` is `false` while `sameSet.equals(wrapper)` is `true`). **Fix**: Create a complete forwarding class that delegates all interface methods and the `Object` methods `equals`, `hashCode` and `toString`, as shown in the `ForwardingSet` pattern.",
+        "**Breaking the Liskov Substitution Principle with inheritance** Subclasses that change the semantics of inherited methods violate LSP. Composition avoids this by not establishing an is-a relationship. **Fix**: When behavior needs to differ significantly, compose rather than inherit."
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// PROBLEM: InstrumentedHashSet extends HashSet\npublic class InstrumentedHashSet<E> extends HashSet<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // BUG: HashSet.addAll calls add() internally!\n    }\n    // addCount will be double the actual adds when using addAll\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use forwarding wrapper (composition):"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) { super(delegate); }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // ForwardingSet.addAll delegates directly, no double-counting\n    }\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Over-engineering with unnecessary composition layers**",
-          "Adding too many wrapper/decorator layers when simple inheritance is appropriate creates complexity without benefit.",
-          "**Fix**: Use composition when you need flexibility, runtime behavior changes, or wrapping existing classes. Use inheritance for genuine \"is-a\" relationships with well-designed base classes."
-        ],
-        [
-          "**Forgetting to delegate all methods in a wrapper**",
-          "When creating a forwarding class, the compiler makes you implement the interface's abstract methods, but not `equals`, `hashCode` and `toString`. Forgetting those leaves `Object`'s identity-based versions, so the wrapper breaks the `Set` contract (`wrapper.equals(sameSet)` is `false` while `sameSet.equals(wrapper)` is `true`).",
-          "**Fix**: Create a complete forwarding class that delegates all interface methods and the `Object` methods `equals`, `hashCode` and `toString`, as shown in the `ForwardingSet` pattern."
-        ],
-        [
-          "**Breaking the Liskov Substitution Principle with inheritance**",
-          "Subclasses that change the semantics of inherited methods violate LSP. Composition avoids this by not establishing an is-a relationship.",
-          "**Fix**: When behavior needs to differ significantly, compose rather than inherit."
-        ]
-      ],
-      "start": 2
     },
     {
       "type": "heading",
@@ -188,12 +165,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The Composition over Inheritance principle states that classes should achieve\ncode reuse and polymorphic behavior by containing instances of other classes\n(composition/delegation) rather than inheriting from them.\n\nIt matters because:\n1. Inheritance creates tight coupling -- subclasses depend on superclass\n   implementation details (fragile base class problem).\n2. Composition creates loose coupling -- the composed object interacts only\n   through a well-defined interface.\n3. Composition allows runtime flexibility -- you can swap behaviors at runtime.\n4. Inheritance is constrained to single inheritance in Java; composition has\n   no such limitation.\n5. Composition makes code easier to test -- you can mock composed dependencies.\n\nThis does NOT mean \"never use inheritance.\" Use inheritance when there is a\ngenuine is-a relationship and the superclass is designed for extension.\n"
+      "text": "A1: The Composition over Inheritance principle states that classes should achieve\ncode reuse and polymorphic behavior by containing instances of other classes\n(composition/delegation) rather than inheriting from them.\n\nIt matters because:\n1. Inheritance creates tight coupling -- subclasses depend on superclass\n   implementation details (fragile base class problem).\n2. Composition creates loose coupling -- the composed object interacts only\n   through a well-defined interface.\n3. Composition allows runtime flexibility -- you can swap behaviors at runtime.\n4. Inheritance is constrained to single inheritance in Java; composition has\n   no such limitation.\n5. Composition makes code easier to test -- you can mock composed dependencies.\n\nThis does NOT mean \"never use inheritance.\" Use inheritance when there is a\ngenuine is-a relationship and the superclass is designed for extension."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Inheritance approach (fragile)\nclass CountingList<E> extends ArrayList<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n    // What about addAll? It may call add() internally -- fragile!\n}\n\n// Composition approach (robust)\nclass CountingList<E> implements List<E> {\n    private final List<E> delegate = new ArrayList<>();\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return delegate.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return delegate.addAll(c); // no double-counting risk\n    }\n    // ... delegate all other List methods\n}\n"
+      "text": "// Inheritance approach (fragile)\nclass CountingList<E> extends ArrayList<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n    // What about addAll? It may call add() internally -- fragile!\n}\n\n// Composition approach (robust)\nclass CountingList<E> implements List<E> {\n    private final List<E> delegate = new ArrayList<>();\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return delegate.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return delegate.addAll(c); // no double-counting risk\n    }\n    // ... delegate all other List methods\n}"
     },
     {
       "type": "para",
@@ -202,12 +179,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: The fragile base class problem occurs when a subclass depends on the\ninternal implementation details of its superclass. If the superclass changes\nhow it implements a method, the subclass can break silently.\n\nThe classic example is extending HashSet to count element insertions.\nHashSet.addAll() internally calls add() for each element. If a subclass\noverrides both add() and addAll() to count insertions, addAll() will\ndouble-count because the superclass's addAll() calls the overridden add().\n\nThis is fragile because:\n- The subclass depends on the IMPLEMENTATION of HashSet.addAll(), not just\n  its CONTRACT.\n- If a future JDK version changes how addAll() works internally, the\n  subclass breaks.\n- The developer cannot know this without reading HashSet's source code.\n"
+      "text": "A2: The fragile base class problem occurs when a subclass depends on the\ninternal implementation details of its superclass. If the superclass changes\nhow it implements a method, the subclass can break silently.\n\nThe classic example is extending HashSet to count element insertions.\nHashSet.addAll() internally calls add() for each element. If a subclass\noverrides both add() and addAll() to count insertions, addAll() will\ndouble-count because the superclass's addAll() calls the overridden add().\n\nThis is fragile because:\n- The subclass depends on the IMPLEMENTATION of HashSet.addAll(), not just\n  its CONTRACT.\n- If a future JDK version changes how addAll() works internally, the\n  subclass breaks.\n- The developer cannot know this without reading HashSet's source code."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Demonstrates the fragile base class problem\npublic class CountingInheritanceStack<E> extends InheritanceStack<E> {\n    private int pushCount = 0;\n\n    @Override\n    public void push(E item) {\n        pushCount++;\n        super.push(item);\n    }\n\n    @Override\n    public void pushAll(Collection<E> items) {\n        pushCount += items.size();\n        super.pushAll(items); // BUG: super.pushAll calls push() for each item!\n    }\n    // After pushAll(List.of(\"a\",\"b\",\"c\")):\n    //   pushCount = 6 (3 from pushAll + 3 from push called by super.pushAll)\n    //   Expected: 3\n}\n"
+      "text": "// Demonstrates the fragile base class problem\npublic class CountingInheritanceStack<E> extends InheritanceStack<E> {\n    private int pushCount = 0;\n\n    @Override\n    public void push(E item) {\n        pushCount++;\n        super.push(item);\n    }\n\n    @Override\n    public void pushAll(Collection<E> items) {\n        pushCount += items.size();\n        super.pushAll(items); // BUG: super.pushAll calls push() for each item!\n    }\n    // After pushAll(List.of(\"a\",\"b\",\"c\")):\n    //   pushCount = 6 (3 from pushAll + 3 from push called by super.pushAll)\n    //   Expected: 3\n}"
     },
     {
       "type": "para",
@@ -216,12 +193,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: The forwarding wrapper pattern (from Effective Java Item 18) is a\ncomposition-based alternative to inheritance. It consists of two parts:\n\n1. A forwarding class that implements the same interface as the class to\n   wrap, delegating all method calls to a contained instance.\n2. A wrapper class that extends the forwarding class and overrides only\n   the methods it needs to add behavior to.\n\nWhen to use it:\n- When you need to add behavior to an existing class but cannot (or should\n  not) modify it.\n- When extending a concrete class that was not designed for inheritance.\n- When wrapping third-party library classes.\n- When you need to decorate or instrument behavior without risking the\n  fragile base class problem.\n\nThe pattern works with any class that implements an interface, because the\nforwarding class delegates through the interface contract, not through\nimplementation details.\n"
+      "text": "A3: The forwarding wrapper pattern (from Effective Java Item 18) is a\ncomposition-based alternative to inheritance. It consists of two parts:\n\n1. A forwarding class that implements the same interface as the class to\n   wrap, delegating all method calls to a contained instance.\n2. A wrapper class that extends the forwarding class and overrides only\n   the methods it needs to add behavior to.\n\nWhen to use it:\n- When you need to add behavior to an existing class but cannot (or should\n  not) modify it.\n- When extending a concrete class that was not designed for inheritance.\n- When wrapping third-party library classes.\n- When you need to decorate or instrument behavior without risking the\n  fragile base class problem.\n\nThe pattern works with any class that implements an interface, because the\nforwarding class delegates through the interface contract, not through\nimplementation details."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Step 1: Forwarding class delegates all calls\npublic class ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    public ForwardingSet(Set<E> delegate) {\n        this.delegate = Objects.requireNonNull(delegate);\n    }\n\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }\n    @Override public int hashCode() { return delegate.hashCode(); }\n    // ... all other Set methods (and toString) delegated\n}\n\n// Step 2: Wrapper adds behavior\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) { super(delegate); }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);  // delegates to ForwardingSet, which delegates to actual Set\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c);  // no double-counting!\n    }\n}\n"
+      "text": "// Step 1: Forwarding class delegates all calls\npublic class ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    public ForwardingSet(Set<E> delegate) {\n        this.delegate = Objects.requireNonNull(delegate);\n    }\n\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }\n    @Override public int hashCode() { return delegate.hashCode(); }\n    // ... all other Set methods (and toString) delegated\n}\n\n// Step 2: Wrapper adds behavior\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) { super(delegate); }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);  // delegates to ForwardingSet, which delegates to actual Set\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c);  // no double-counting!\n    }\n}"
     },
     {
       "type": "para",
@@ -230,12 +207,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Inheritance is appropriate when ALL of these conditions are met:\n\n1. There is a genuine \"is-a\" relationship (a Dog IS an Animal, an ArrayList\n   IS a List).\n2. The superclass is designed and documented for extension (e.g., AbstractList,\n   AbstractMap in the JDK).\n3. The subclass does not need to work with multiple unrelated types (since\n   Java has single inheritance).\n4. The subclass genuinely extends the superclass's behavior rather than\n   restricting or altering it.\n\nExamples of appropriate inheritance:\n- Extending AbstractList to create a custom List implementation.\n- Creating a SpecificException that extends a base ApplicationException.\n- Sealed class hierarchies (Java 17+) where the set of subtypes is fixed\n  and known.\n\nRed flags that suggest composition instead:\n- You want to \"reuse code\" but there is no is-a relationship.\n- You are extending a concrete class not designed for inheritance.\n- You override methods primarily to restrict or nullify behavior.\n- You need to combine behaviors from multiple sources.\n"
+      "text": "A4: Inheritance is appropriate when ALL of these conditions are met:\n\n1. There is a genuine \"is-a\" relationship (a Dog IS an Animal, an ArrayList\n   IS a List).\n2. The superclass is designed and documented for extension (e.g., AbstractList,\n   AbstractMap in the JDK).\n3. The subclass does not need to work with multiple unrelated types (since\n   Java has single inheritance).\n4. The subclass genuinely extends the superclass's behavior rather than\n   restricting or altering it.\n\nExamples of appropriate inheritance:\n- Extending AbstractList to create a custom List implementation.\n- Creating a SpecificException that extends a base ApplicationException.\n- Sealed class hierarchies (Java 17+) where the set of subtypes is fixed\n  and known.\n\nRed flags that suggest composition instead:\n- You want to \"reuse code\" but there is no is-a relationship.\n- You are extending a concrete class not designed for inheritance.\n- You override methods primarily to restrict or nullify behavior.\n- You need to combine behaviors from multiple sources."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Good use of inheritance: AbstractList is designed for extension\npublic class ImmutableArrayList<E> extends AbstractList<E> {\n    private final E[] elements;\n\n    @SuppressWarnings(\"unchecked\")\n    public ImmutableArrayList(Collection<E> source) {\n        this.elements = (E[]) source.toArray();\n    }\n\n    @Override\n    public E get(int index) {\n        return elements[index];\n    }\n\n    @Override\n    public int size() {\n        return elements.length;\n    }\n    // AbstractList provides all other methods via get() and size()\n}\n\n// Good use of sealed classes with inheritance\npublic sealed interface Shape permits Circle, Rectangle, Triangle {\n    double area();\n}\npublic record Circle(double radius) implements Shape {\n    public double area() { return Math.PI * radius * radius; }\n}\n"
+      "text": "// Good use of inheritance: AbstractList is designed for extension\npublic class ImmutableArrayList<E> extends AbstractList<E> {\n    private final E[] elements;\n\n    @SuppressWarnings(\"unchecked\")\n    public ImmutableArrayList(Collection<E> source) {\n        this.elements = (E[]) source.toArray();\n    }\n\n    @Override\n    public E get(int index) {\n        return elements[index];\n    }\n\n    @Override\n    public int size() {\n        return elements.length;\n    }\n    // AbstractList provides all other methods via get() and size()\n}\n\n// Good use of sealed classes with inheritance\npublic sealed interface Shape permits Circle, Rectangle, Triangle {\n    double area();\n}\npublic record Circle(double radius) implements Shape {\n    public double area() { return Math.PI * radius * radius; }\n}"
     },
     {
       "type": "para",
@@ -244,12 +221,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Many classic design patterns are implementations of composition:\n\n1. Strategy Pattern: Compose an algorithm object instead of inheriting\n   different algorithm variants. Example: a Sorter class that composes a\n   Comparator rather than creating SortByName, SortByAge subclasses.\n\n2. Decorator Pattern: Wrap an object to add behavior. Each decorator\n   composes the original object and delegates to it. Example: BufferedReader\n   wrapping FileReader.\n\n3. Adapter Pattern: Compose an existing class and present a different\n   interface. Adapts one interface to another via delegation.\n\n4. Observer Pattern: A subject composes a list of observers rather than\n   inheriting notification behavior.\n\n5. Builder Pattern: Composes parts of a complex object step by step.\n\n6. Dependency Injection: The entire DI paradigm is built on composition --\n   dependencies are composed (injected) rather than created via inheritance.\n\nIn modern Java, functional interfaces (Function, Predicate, Consumer) enable\nlightweight composition without creating explicit classes, replacing many\nuses of the Strategy and Command patterns.\n"
+      "text": "A5: Many classic design patterns are implementations of composition:\n\n1. Strategy Pattern: Compose an algorithm object instead of inheriting\n   different algorithm variants. Example: a Sorter class that composes a\n   Comparator rather than creating SortByName, SortByAge subclasses.\n\n2. Decorator Pattern: Wrap an object to add behavior. Each decorator\n   composes the original object and delegates to it. Example: BufferedReader\n   wrapping FileReader.\n\n3. Adapter Pattern: Compose an existing class and present a different\n   interface. Adapts one interface to another via delegation.\n\n4. Observer Pattern: A subject composes a list of observers rather than\n   inheriting notification behavior.\n\n5. Builder Pattern: Composes parts of a complex object step by step.\n\n6. Dependency Injection: The entire DI paradigm is built on composition --\n   dependencies are composed (injected) rather than created via inheritance.\n\nIn modern Java, functional interfaces (Function, Predicate, Consumer) enable\nlightweight composition without creating explicit classes, replacing many\nuses of the Strategy and Command patterns."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Strategy via composition (modern Java style)\npublic class TextProcessor {\n    private final List<Function<String, String>> transformations = new ArrayList<>();\n\n    public TextProcessor addTransformation(Function<String, String> t) {\n        transformations.add(t);\n        return this;\n    }\n\n    public String process(String input) {\n        String result = input;\n        for (var t : transformations) {\n            result = t.apply(result);\n        }\n        return result;\n    }\n}\n\n// Usage: compose behaviors at runtime\nvar processor = new TextProcessor()\n    .addTransformation(String::trim)\n    .addTransformation(String::toUpperCase)\n    .addTransformation(s -> s.replace(\" \", \"_\"));\n\nprocessor.process(\"  hello world  \"); // \"HELLO_WORLD\"\n"
+      "text": "// Strategy via composition (modern Java style)\npublic class TextProcessor {\n    private final List<Function<String, String>> transformations = new ArrayList<>();\n\n    public TextProcessor addTransformation(Function<String, String> t) {\n        transformations.add(t);\n        return this;\n    }\n\n    public String process(String input) {\n        String result = input;\n        for (var t : transformations) {\n            result = t.apply(result);\n        }\n        return result;\n    }\n}\n\n// Usage: compose behaviors at runtime\nvar processor = new TextProcessor()\n    .addTransformation(String::trim)\n    .addTransformation(String::toUpperCase)\n    .addTransformation(s -> s.replace(\" \", \"_\"));\n\nprocessor.process(\"  hello world  \"); // \"HELLO_WORLD\""
     },
     {
       "type": "heading",
@@ -270,10 +247,10 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 11,
-    "code": 12,
+    "paras": 10,
+    "code": 10,
     "tables": 0,
-    "lists": 8,
+    "lists": 7,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -281,5 +258,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "4688eda55f16d5d9a15b4f4c8b1ca39ced14a56b4d95c70da1b8745df946349c"
+  "content_sha256": "1aee248168a58a52af89d1e6695633b8206d3556143a0f1dda290712dc670eba"
 }

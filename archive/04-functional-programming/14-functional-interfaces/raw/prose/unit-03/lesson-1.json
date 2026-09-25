@@ -37,7 +37,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "@FunctionalInterface\npublic interface Function<T, R> {\n    R apply(T t);\n\n    default <V> Function<T, V> andThen(Function<? super R, ? extends V> after) { ... }\n    default <V> Function<V, R> compose(Function<? super V, ? extends T> before) { ... }\n    static <T> Function<T, T> identity() { ... }\n}\n"
+      "text": "@FunctionalInterface\npublic interface Function<T, R> {\n    R apply(T t);\n\n    default <V> Function<T, V> andThen(Function<? super R, ? extends V> after) { ... }\n    default <V> Function<V, R> compose(Function<? super V, ? extends T> before) { ... }\n    static <T> Function<T, T> identity() { ... }\n}"
     },
     {
       "type": "para",
@@ -141,65 +141,45 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Confusing `compose` and `andThen`** — this is a very common interview trap."
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// andThen: this runs FIRST — left to right\n// f.andThen(g) == g(f(x))\nFunction<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\n\n// Broken expectation: \"I want upper first, then trim\"\nFunction<String, String> wrong = trim.andThen(upper); // actually: trim first, then upper\n\n// Fix: put the step you want first on the left of andThen, or pass it to compose\nFunction<String, String> correct = upper.andThen(trim);   // upper first, then trim\nFunction<String, String> same    = trim.compose(upper);   // also upper first, then trim\n// For these two steps the results happen to be equal; for non-commutative transforms the order matters\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using `BiFunction` and expecting `compose()`** — `BiFunction` does not have a `compose()` method. Only unary `Function` does."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "BiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\n// repeat.compose(...); // does NOT exist — compile error\n// Fix: chain with andThen after the BiFunction produces its result\nFunction<String, String> upper = String::toUpperCase;\nBiFunction<String, Integer, String> repeatThenUpper = repeat.andThen(upper);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Chaining functions that throw `NullPointerException`** — if an intermediate step returns `null`, the next step in `andThen` will receive null."
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Broken: toUpperCase() on null throws NPE\nFunction<String, String> toNull = s -> null;\nFunction<String, String> pipeline = toNull.andThen(String::toUpperCase);\npipeline.apply(\"hello\"); // NPE in andThen step\n"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fix: add null guards in each step\nFunction<String, String> safe = s -> Optional.ofNullable(s)\n    .map(String::toUpperCase)\n    .orElse(\"\");\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Using `Function.identity()` incorrectly expecting a copy** — `identity()` returns the exact same reference, not a copy. For mutable types, this can cause bugs if the object is later mutated."
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Tricky: identity() returns the SAME list reference, not a copy\nFunction<List<String>, List<String>> id = Function.identity();\nList<String> original = new ArrayList<>(List.of(\"a\", \"b\"));\nList<String> result = id.apply(original);\nresult.add(\"c\"); // mutates the original too!\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Confusing `compose` and `andThen`** — this is a very common interview trap.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// andThen: this runs FIRST — left to right\n// f.andThen(g) == g(f(x))\nFunction<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\n\n// Broken expectation: \"I want upper first, then trim\"\nFunction<String, String> wrong = trim.andThen(upper); // actually: trim first, then upper\n\n// Fix: put the step you want first on the left of andThen, or pass it to compose\nFunction<String, String> correct = upper.andThen(trim);   // upper first, then trim\nFunction<String, String> same    = trim.compose(upper);   // also upper first, then trim\n// For these two steps the results happen to be equal; for non-commutative transforms the order matters"
+          }
+        ],
+        [
+          "**Using `BiFunction` and expecting `compose()`** — `BiFunction` does not have a `compose()` method. Only unary `Function` does.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "BiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\n// repeat.compose(...); // does NOT exist — compile error\n// Fix: chain with andThen after the BiFunction produces its result\nFunction<String, String> upper = String::toUpperCase;\nBiFunction<String, Integer, String> repeatThenUpper = repeat.andThen(upper);"
+          }
+        ],
+        [
+          "**Chaining functions that throw `NullPointerException`** — if an intermediate step returns `null`, the next step in `andThen` will receive null.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Broken: toUpperCase() on null throws NPE\nFunction<String, String> toNull = s -> null;\nFunction<String, String> pipeline = toNull.andThen(String::toUpperCase);\npipeline.apply(\"hello\"); // NPE in andThen step"
+          },
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Fix: add null guards in each step\nFunction<String, String> safe = s -> Optional.ofNullable(s)\n    .map(String::toUpperCase)\n    .orElse(\"\");"
+          }
+        ],
+        [
+          "**Using `Function.identity()` incorrectly expecting a copy** — `identity()` returns the exact same reference, not a copy. For mutable types, this can cause bugs if the object is later mutated.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Tricky: identity() returns the SAME list reference, not a copy\nFunction<List<String>, List<String>> id = Function.identity();\nList<String> original = new ArrayList<>(List.of(\"a\", \"b\"));\nList<String> result = id.apply(original);\nresult.add(\"c\"); // mutates the original too!"
+          }
+        ],
         "**Overloading ambiguity** — when a method is overloaded for two unrelated functional interfaces of the same shape (for example `Function<String,String>` and a custom `StringMapper { String map(String s); }`), a lambda argument is ambiguous. Prefer explicit casts or distinct method names. (Overloads for `Function<T,T>` and `UnaryOperator<T>` are not ambiguous: `UnaryOperator` is a subtype, so that more specific overload is chosen.)"
-      ],
-      "start": 5
+      ]
     },
     {
       "type": "heading",
@@ -210,30 +190,27 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Compose functions with `andThen()` to build readable pipelines.** Name intermediate functions for clarity:"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Function<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\nFunction<String, String> slugify = s -> s.replace(\" \", \"-\");\nFunction<String, String> normalize = trim.andThen(upper).andThen(slugify);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Compose functions with `andThen()` to build readable pipelines.** Name intermediate functions for clarity:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "Function<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\nFunction<String, String> slugify = s -> s.replace(\" \", \"-\");\nFunction<String, String> normalize = trim.andThen(upper).andThen(slugify);"
+          }
+        ],
         "**Use `UnaryOperator<T>` instead of `Function<T,T>`** when input and output are the same type — it is more descriptive and accepted by `List.replaceAll()`.",
         "**Use `BinaryOperator<T>` for reductions.** `Stream.reduce(identity, BinaryOperator)` is the canonical use — it clearly expresses \"combining two values of the same type into one\".",
         "**Use `Function.identity()` as a default/no-op** in builder APIs or pipeline configurations where a \"do nothing\" function is needed.",
         "**Prefer primitive specializations** (`ToIntFunction`, `IntFunction`, `IntUnaryOperator`) in hot numeric processing paths to eliminate boxing overhead.",
-        "**Use `Map.computeIfAbsent(key, Function)` as a single \"get or compute\" operation** rather than get-check-put patterns (it is atomic in `ConcurrentHashMap`; in a plain `HashMap` it is simply one call instead of three)."
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Verbose get-check-put\nif (!cache.containsKey(key)) cache.put(key, expensiveCompute(key));\nreturn cache.get(key);\n\n// Clean computeIfAbsent\nreturn cache.computeIfAbsent(key, k -> expensiveCompute(k));\n"
+        [
+          "**Use `Map.computeIfAbsent(key, Function)` as a single \"get or compute\" operation** rather than get-check-put patterns (it is atomic in `ConcurrentHashMap`; in a plain `HashMap` it is simply one call instead of three).",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Verbose get-check-put\nif (!cache.containsKey(key)) cache.put(key, expensiveCompute(key));\nreturn cache.get(key);\n\n// Clean computeIfAbsent\nreturn cache.computeIfAbsent(key, k -> expensiveCompute(k));"
+          }
+        ]
+      ]
     },
     {
       "type": "heading",
@@ -299,12 +276,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Both compose two functions into a pipeline, but in opposite orders:\n\n    f.andThen(g)  — f runs FIRST, result passed to g — equivalent to g(f(x))\n    f.compose(g)  — g runs FIRST, result passed to f — equivalent to f(g(x))\n\nMemory trick:\n- andThen: \"apply this, then apply the argument\" — left to right reading\n- compose: \"apply the argument before applying this\" — right to left (mathematical notation)\n\nBiFunction only has andThen, not compose — because you cannot compose before a two-argument function\nwithout supplying both arguments first.\n"
+      "text": "A1: Both compose two functions into a pipeline, but in opposite orders:\n\n    f.andThen(g)  — f runs FIRST, result passed to g — equivalent to g(f(x))\n    f.compose(g)  — g runs FIRST, result passed to f — equivalent to f(g(x))\n\nMemory trick:\n- andThen: \"apply this, then apply the argument\" — left to right reading\n- compose: \"apply the argument before applying this\" — right to left (mathematical notation)\n\nBiFunction only has andThen, not compose — because you cannot compose before a two-argument function\nwithout supplying both arguments first."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "Function<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\n\n// andThen: trim first, then upper — same as upper(trim(input))\nString r1 = trim.andThen(upper).apply(\"  hello  \"); // \"HELLO\"\n\n// compose: upper first, then trim — same as trim(upper(input))\nString r2 = trim.compose(upper).apply(\"  hello  \"); // \"HELLO\" (same here because upper doesn't add spaces)\n\n// Use a more illustrative example to see the difference\nFunction<Integer, Integer> times2 = x -> x * 2;\nFunction<Integer, Integer> plus3  = x -> x + 3;\n\n// andThen: times2 first, then plus3 => (x * 2) + 3\nint a = times2.andThen(plus3).apply(5);  // (5*2)+3 = 13\n\n// compose: plus3 first, then times2 => (x + 3) * 2\nint b = times2.compose(plus3).apply(5);  // (5+3)*2 = 16\n\nSystem.out.println(a); // 13\nSystem.out.println(b); // 16\n"
+      "text": "Function<String, String> trim = String::trim;\nFunction<String, String> upper = String::toUpperCase;\n\n// andThen: trim first, then upper — same as upper(trim(input))\nString r1 = trim.andThen(upper).apply(\"  hello  \"); // \"HELLO\"\n\n// compose: upper first, then trim — same as trim(upper(input))\nString r2 = trim.compose(upper).apply(\"  hello  \"); // \"HELLO\" (same here because upper doesn't add spaces)\n\n// Use a more illustrative example to see the difference\nFunction<Integer, Integer> times2 = x -> x * 2;\nFunction<Integer, Integer> plus3  = x -> x + 3;\n\n// andThen: times2 first, then plus3 => (x * 2) + 3\nint a = times2.andThen(plus3).apply(5);  // (5*2)+3 = 13\n\n// compose: plus3 first, then times2 => (x + 3) * 2\nint b = times2.compose(plus3).apply(5);  // (5+3)*2 = 16\n\nSystem.out.println(a); // 13\nSystem.out.println(b); // 16"
     },
     {
       "type": "rule"
@@ -316,12 +293,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: UnaryOperator<T> extends Function<T, T> — it represents a function where the input and\noutput are the same type. It adds no new abstract methods beyond Function's apply(T); the\nconstraint is purely that T → T.\n\nBinaryOperator<T> extends BiFunction<T, T, T> — it represents a function that takes two\narguments of the same type and returns the same type. It adds two static factory methods:\n- maxBy(Comparator<T>) — returns a BinaryOperator that picks the larger element\n- minBy(Comparator<T>) — returns a BinaryOperator that picks the smaller element\n\nThese specializations make code more expressive and are accepted by specific API methods:\n- List.replaceAll(UnaryOperator<E>)  — transforms each list element in-place\n- Stream.reduce(T, BinaryOperator<T>)  — folds a stream to a single value\n"
+      "text": "A2: UnaryOperator<T> extends Function<T, T> — it represents a function where the input and\noutput are the same type. It adds no new abstract methods beyond Function's apply(T); the\nconstraint is purely that T → T.\n\nBinaryOperator<T> extends BiFunction<T, T, T> — it represents a function that takes two\narguments of the same type and returns the same type. It adds two static factory methods:\n- maxBy(Comparator<T>) — returns a BinaryOperator that picks the larger element\n- minBy(Comparator<T>) — returns a BinaryOperator that picks the smaller element\n\nThese specializations make code more expressive and are accepted by specific API methods:\n- List.replaceAll(UnaryOperator<E>)  — transforms each list element in-place\n- Stream.reduce(T, BinaryOperator<T>)  — folds a stream to a single value"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// UnaryOperator: same-type transformation\nUnaryOperator<String> trim = String::trim;\nUnaryOperator<Integer> square = x -> x * x;\n\n// Using with List.replaceAll — requires UnaryOperator, not Function\nList<String> names = new ArrayList<>(List.of(\"  Alice \", \" Bob \", \"  Charlie  \"));\nnames.replaceAll(String::trim);   // in-place transformation\n// names = [\"Alice\", \"Bob\", \"Charlie\"]\n\n// BinaryOperator: two same-type inputs, same-type output\nBinaryOperator<Integer> add = Integer::sum;\nBinaryOperator<String> concat = (a, b) -> a + b;\nBinaryOperator<Integer> max = BinaryOperator.maxBy(Integer::compareTo);\n\n// Using with Stream.reduce\nList<Integer> numbers = List.of(1, 2, 3, 4, 5);\nint sum = numbers.stream().reduce(0, add);        // 15\nint maximum = numbers.stream().reduce(Integer.MIN_VALUE, max); // 5\n\n// BinaryOperator.maxBy and minBy\nBinaryOperator<String> longerOf = BinaryOperator.maxBy(Comparator.comparingInt(String::length));\nOptional<String> longest = Stream.of(\"hi\", \"hello\", \"hey\").reduce(longerOf);\nSystem.out.println(longest.orElse(\"\")); // \"hello\"\n"
+      "text": "// UnaryOperator: same-type transformation\nUnaryOperator<String> trim = String::trim;\nUnaryOperator<Integer> square = x -> x * x;\n\n// Using with List.replaceAll — requires UnaryOperator, not Function\nList<String> names = new ArrayList<>(List.of(\"  Alice \", \" Bob \", \"  Charlie  \"));\nnames.replaceAll(String::trim);   // in-place transformation\n// names = [\"Alice\", \"Bob\", \"Charlie\"]\n\n// BinaryOperator: two same-type inputs, same-type output\nBinaryOperator<Integer> add = Integer::sum;\nBinaryOperator<String> concat = (a, b) -> a + b;\nBinaryOperator<Integer> max = BinaryOperator.maxBy(Integer::compareTo);\n\n// Using with Stream.reduce\nList<Integer> numbers = List.of(1, 2, 3, 4, 5);\nint sum = numbers.stream().reduce(0, add);        // 15\nint maximum = numbers.stream().reduce(Integer.MIN_VALUE, max); // 5\n\n// BinaryOperator.maxBy and minBy\nBinaryOperator<String> longerOf = BinaryOperator.maxBy(Comparator.comparingInt(String::length));\nOptional<String> longest = Stream.of(\"hi\", \"hello\", \"hey\").reduce(longerOf);\nSystem.out.println(longest.orElse(\"\")); // \"hello\""
     },
     {
       "type": "rule"
@@ -333,12 +310,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Map.computeIfAbsent(K key, Function<K,V> mappingFunction), in a single call (atomically in ConcurrentHashMap):\n1. Checks if the key is absent (or mapped to null)\n2. If absent, calls mappingFunction.apply(key) to compute the value\n3. Stores the computed value in the map\n4. Returns the (new or existing) value\n\nThis is better than the get-check-put pattern for two reasons:\n1. Atomicity: in concurrent maps (like ConcurrentHashMap), computeIfAbsent is atomic — no\n   race condition between the check and the put.\n2. Conciseness: it replaces 3-4 lines with a single expression.\n\nCommon use cases:\n- Building grouping maps (group by first letter, etc.)\n- Implementing caches\n- Initializing default values for map keys\n"
+      "text": "A3: Map.computeIfAbsent(K key, Function<K,V> mappingFunction), in a single call (atomically in ConcurrentHashMap):\n1. Checks if the key is absent (or mapped to null)\n2. If absent, calls mappingFunction.apply(key) to compute the value\n3. Stores the computed value in the map\n4. Returns the (new or existing) value\n\nThis is better than the get-check-put pattern for two reasons:\n1. Atomicity: in concurrent maps (like ConcurrentHashMap), computeIfAbsent is atomic — no\n   race condition between the check and the put.\n2. Conciseness: it replaces 3-4 lines with a single expression.\n\nCommon use cases:\n- Building grouping maps (group by first letter, etc.)\n- Implementing caches\n- Initializing default values for map keys"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Verbose get-check-put (not atomic for concurrent maps)\nMap<String, List<String>> groups = new HashMap<>();\nString word = \"apple\";\nString key = String.valueOf(word.charAt(0));\nif (!groups.containsKey(key)) {\n    groups.put(key, new ArrayList<>());\n}\ngroups.get(key).add(word);\n\n// Clean computeIfAbsent\nMap<String, List<String>> groups2 = new HashMap<>();\nList<String> words = List.of(\"apple\", \"banana\", \"avocado\", \"cherry\", \"blueberry\");\nfor (String w : words) {\n    groups2.computeIfAbsent(String.valueOf(w.charAt(0)), k -> new ArrayList<>()).add(w);\n}\n// groups2 = {\"a\": [\"apple\", \"avocado\"], \"b\": [\"banana\", \"blueberry\"], \"c\": [\"cherry\"]}\n\n// Cache implementation\nMap<String, Integer> cache = new HashMap<>();\nFunction<String, Integer> computeLength = String::length;\n// On first call: computes and stores; on subsequent calls: returns cached value\nint len1 = cache.computeIfAbsent(\"hello\", computeLength); // computes 5, stores it\nint len2 = cache.computeIfAbsent(\"hello\", computeLength); // returns cached 5\n"
+      "text": "// Verbose get-check-put (not atomic for concurrent maps)\nMap<String, List<String>> groups = new HashMap<>();\nString word = \"apple\";\nString key = String.valueOf(word.charAt(0));\nif (!groups.containsKey(key)) {\n    groups.put(key, new ArrayList<>());\n}\ngroups.get(key).add(word);\n\n// Clean computeIfAbsent\nMap<String, List<String>> groups2 = new HashMap<>();\nList<String> words = List.of(\"apple\", \"banana\", \"avocado\", \"cherry\", \"blueberry\");\nfor (String w : words) {\n    groups2.computeIfAbsent(String.valueOf(w.charAt(0)), k -> new ArrayList<>()).add(w);\n}\n// groups2 = {\"a\": [\"apple\", \"avocado\"], \"b\": [\"banana\", \"blueberry\"], \"c\": [\"cherry\"]}\n\n// Cache implementation\nMap<String, Integer> cache = new HashMap<>();\nFunction<String, Integer> computeLength = String::length;\n// On first call: computes and stores; on subsequent calls: returns cached value\nint len1 = cache.computeIfAbsent(\"hello\", computeLength); // computes 5, stores it\nint len2 = cache.computeIfAbsent(\"hello\", computeLength); // returns cached 5"
     },
     {
       "type": "rule"
@@ -350,12 +327,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Function.identity() returns a Function that always returns its input argument unchanged:\n    T -> T, equivalent to t -> t.\n\nUse cases:\n1. As a default/no-op in builder patterns where a transformation Function is optional.\n2. In stream pipelines as a placeholder: stream.map(Function.identity()) is a no-op.\n3. In test code to assert that a pipeline correctly passes through unchanged values.\n4. With Collectors.toMap() when the value should be the element itself:\n   stream.collect(toMap(keyExtractor, Function.identity()))\n\nImportant caveat: identity() returns the SAME reference — not a copy. For mutable objects,\nthe caller and the \"result\" share the same object. This is usually fine for immutable types\n(String, Integer, records) but can be surprising for mutable collections.\n"
+      "text": "A4: Function.identity() returns a Function that always returns its input argument unchanged:\n    T -> T, equivalent to t -> t.\n\nUse cases:\n1. As a default/no-op in builder patterns where a transformation Function is optional.\n2. In stream pipelines as a placeholder: stream.map(Function.identity()) is a no-op.\n3. In test code to assert that a pipeline correctly passes through unchanged values.\n4. With Collectors.toMap() when the value should be the element itself:\n   stream.collect(toMap(keyExtractor, Function.identity()))\n\nImportant caveat: identity() returns the SAME reference — not a copy. For mutable objects,\nthe caller and the \"result\" share the same object. This is usually fine for immutable types\n(String, Integer, records) but can be surprising for mutable collections."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// No-op transformation in a stream\nList<String> names = List.of(\"Alice\", \"Bob\");\nList<String> same = names.stream()\n    .map(Function.identity()) // passes each string through unchanged\n    .collect(Collectors.toList());\n\n// Collectors.toMap with identity value\nMap<String, String> nameMap = names.stream()\n    .collect(Collectors.toMap(\n        String::toLowerCase,    // key: lowercased name\n        Function.identity()     // value: original name\n    ));\n// {\"alice\" -> \"Alice\", \"bob\" -> \"Bob\"}\n\n// Default pipeline: apply transform if provided, otherwise identity\nFunction<String, String> transform = getOptionalTransform().orElse(Function.identity());\nList<String> result = names.stream().map(transform).collect(Collectors.toList());\n\n// Gotcha: identity() with mutable objects\nList<String> mutable = new ArrayList<>(List.of(\"a\", \"b\"));\nFunction<List<String>, List<String>> id = Function.identity();\nList<String> ref = id.apply(mutable); // SAME reference\nref.add(\"c\"); // mutates mutable too!\nSystem.out.println(mutable); // [a, b, c]\n"
+      "text": "// No-op transformation in a stream\nList<String> names = List.of(\"Alice\", \"Bob\");\nList<String> same = names.stream()\n    .map(Function.identity()) // passes each string through unchanged\n    .collect(Collectors.toList());\n\n// Collectors.toMap with identity value\nMap<String, String> nameMap = names.stream()\n    .collect(Collectors.toMap(\n        String::toLowerCase,    // key: lowercased name\n        Function.identity()     // value: original name\n    ));\n// {\"alice\" -> \"Alice\", \"bob\" -> \"Bob\"}\n\n// Default pipeline: apply transform if provided, otherwise identity\nFunction<String, String> transform = getOptionalTransform().orElse(Function.identity());\nList<String> result = names.stream().map(transform).collect(Collectors.toList());\n\n// Gotcha: identity() with mutable objects\nList<String> mutable = new ArrayList<>(List.of(\"a\", \"b\"));\nFunction<List<String>, List<String>> id = Function.identity();\nList<String> ref = id.apply(mutable); // SAME reference\nref.add(\"c\"); // mutates mutable too!\nSystem.out.println(mutable); // [a, b, c]"
     },
     {
       "type": "rule"
@@ -367,12 +344,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Generic Function<T,R> requires both T and R to be reference types. When T or R is a\nprimitive type (int, long, double), autoboxing occurs: primitives are wrapped in Integer,\nLong, Double, etc., creating heap objects.\n\nPrimitive specializations eliminate this overhead:\n- ToIntFunction<T>:    T -> int  (no boxing on the int side)\n- IntFunction<R>:      int -> R  (no boxing on the int side)\n- IntUnaryOperator:    int -> int (no boxing at all)\n- IntBinaryOperator:   (int, int) -> int (no boxing at all)\n- ToLongFunction<T>, ToDoubleFunction<T>, etc.\n\nUse primitive specializations when:\n- Processing large arrays or streams of numbers\n- Working with IntStream, LongStream, DoubleStream APIs\n- Performance profiling shows boxing/unboxing overhead\n"
+      "text": "A5: Generic Function<T,R> requires both T and R to be reference types. When T or R is a\nprimitive type (int, long, double), autoboxing occurs: primitives are wrapped in Integer,\nLong, Double, etc., creating heap objects.\n\nPrimitive specializations eliminate this overhead:\n- ToIntFunction<T>:    T -> int  (no boxing on the int side)\n- IntFunction<R>:      int -> R  (no boxing on the int side)\n- IntUnaryOperator:    int -> int (no boxing at all)\n- IntBinaryOperator:   (int, int) -> int (no boxing at all)\n- ToLongFunction<T>, ToDoubleFunction<T>, etc.\n\nUse primitive specializations when:\n- Processing large arrays or streams of numbers\n- Working with IntStream, LongStream, DoubleStream APIs\n- Performance profiling shows boxing/unboxing overhead"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Generic Function with boxing\nFunction<String, Integer> length = String::length;  // returns Integer (boxed)\nint len = length.apply(\"hello\");  // unboxed to int\n\n// Primitive specialization — no boxing on the return side\nToIntFunction<String> primLength = String::length;   // returns int (primitive)\nint primLen = primLength.applyAsInt(\"hello\");  // no unboxing needed\n\n// IntFunction: int in, object out (e.g., int -> String)\nIntFunction<String> padded = i -> String.format(\"%03d\", i);\nString s = padded.apply(7);  // \"007\"\n\n// IntUnaryOperator: int in, int out — used with IntStream.map()\nIntUnaryOperator square = n -> n * n;\nint[] squares = IntStream.rangeClosed(1, 5)\n    .map(square)\n    .toArray();  // [1, 4, 9, 16, 25] — no boxing at any step\n\n// IntBinaryOperator: (int, int) -> int — used with IntStream.reduce()\nIntBinaryOperator multiply = (a, b) -> a * b;\nint product = IntStream.rangeClosed(1, 5).reduce(1, multiply);  // 120 (factorial 5)\n"
+      "text": "// Generic Function with boxing\nFunction<String, Integer> length = String::length;  // returns Integer (boxed)\nint len = length.apply(\"hello\");  // unboxed to int\n\n// Primitive specialization — no boxing on the return side\nToIntFunction<String> primLength = String::length;   // returns int (primitive)\nint primLen = primLength.applyAsInt(\"hello\");  // no unboxing needed\n\n// IntFunction: int in, object out (e.g., int -> String)\nIntFunction<String> padded = i -> String.format(\"%03d\", i);\nString s = padded.apply(7);  // \"007\"\n\n// IntUnaryOperator: int in, int out — used with IntStream.map()\nIntUnaryOperator square = n -> n * n;\nint[] squares = IntStream.rangeClosed(1, 5)\n    .map(square)\n    .toArray();  // [1, 4, 9, 16, 25] — no boxing at any step\n\n// IntBinaryOperator: (int, int) -> int — used with IntStream.reduce()\nIntBinaryOperator multiply = (a, b) -> a * b;\nint product = IntStream.rangeClosed(1, 5).reduce(1, multiply);  // 120 (factorial 5)"
     },
     {
       "type": "rule"
@@ -384,12 +361,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: Function composition with andThen() is excellent for building data normalization or\nETL (Extract-Transform-Load) pipelines. Each step is a pure transformation that can be\nnamed, tested independently, and reordered. This is the Pipeline pattern.\n"
+      "text": "A6: Function composition with andThen() is excellent for building data normalization or\nETL (Extract-Transform-Load) pipelines. Each step is a pure transformation that can be\nnamed, tested independently, and reordered. This is the Pipeline pattern."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Individual, testable transformation steps\nFunction<String, String> trim = String::trim;\nFunction<String, String> lower = String::toLowerCase;\nFunction<String, String> removeSpecialChars = s -> s.replaceAll(\"[^a-z0-9\\\\s-]\", \"\");\nFunction<String, String> collapseSpaces = s -> s.replaceAll(\"\\\\s+\", \" \");\nFunction<String, String> spaceToHyphen = s -> s.replace(\" \", \"-\");\n\n// Compose into a single pipeline\nFunction<String, String> slugify = trim\n    .andThen(lower)\n    .andThen(removeSpecialChars)\n    .andThen(collapseSpaces)\n    .andThen(spaceToHyphen);\n\n// Apply\nSystem.out.println(slugify.apply(\"  Hello, World!  \"));   // \"hello-world\"\nSystem.out.println(slugify.apply(\"Java 21 Features!!!\"));  // \"java-21-features\"\nSystem.out.println(slugify.apply(\"  My   Blog   Post  \")); // \"my-blog-post\"\n\n// The pipeline can be used with Stream.map()\nList<String> titles = List.of(\"Hello World\", \"Java Is Great\", \"  Spaces  \");\nList<String> slugs = titles.stream()\n    .map(slugify)\n    .collect(Collectors.toList());\n// [\"hello-world\", \"java-is-great\", \"spaces\"]\n"
+      "text": "// Individual, testable transformation steps\nFunction<String, String> trim = String::trim;\nFunction<String, String> lower = String::toLowerCase;\nFunction<String, String> removeSpecialChars = s -> s.replaceAll(\"[^a-z0-9\\\\s-]\", \"\");\nFunction<String, String> collapseSpaces = s -> s.replaceAll(\"\\\\s+\", \" \");\nFunction<String, String> spaceToHyphen = s -> s.replace(\" \", \"-\");\n\n// Compose into a single pipeline\nFunction<String, String> slugify = trim\n    .andThen(lower)\n    .andThen(removeSpecialChars)\n    .andThen(collapseSpaces)\n    .andThen(spaceToHyphen);\n\n// Apply\nSystem.out.println(slugify.apply(\"  Hello, World!  \"));   // \"hello-world\"\nSystem.out.println(slugify.apply(\"Java 21 Features!!!\"));  // \"java-21-features\"\nSystem.out.println(slugify.apply(\"  My   Blog   Post  \")); // \"my-blog-post\"\n\n// The pipeline can be used with Stream.map()\nList<String> titles = List.of(\"Hello World\", \"Java Is Great\", \"  Spaces  \");\nList<String> slugs = titles.stream()\n    .map(slugify)\n    .collect(Collectors.toList());\n// [\"hello-world\", \"java-is-great\", \"spaces\"]"
     },
     {
       "type": "rule"
@@ -401,12 +378,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A7: BiFunction<T,U,R> accepts two arguments of types T and U and returns a value of type R.\nIts abstract method is R apply(T t, U u). It also has andThen(Function<R,V>) to chain a\npost-processing function.\n\nKey limitations compared to Function<T,R>:\n1. No compose() method — you cannot \"compose before\" a two-argument function the same way.\n2. Cannot be used directly where Function<T,R> is expected (different functional interface type).\n3. Cannot chain two BiFunctions directly — you can only chain a BiFunction with a subsequent\n   unary Function via andThen().\n\nSubtype relationships:\n- UnaryOperator<T>  extends Function<T,T>\n- BinaryOperator<T> extends BiFunction<T,T,T>\n"
+      "text": "A7: BiFunction<T,U,R> accepts two arguments of types T and U and returns a value of type R.\nIts abstract method is R apply(T t, U u). It also has andThen(Function<R,V>) to chain a\npost-processing function.\n\nKey limitations compared to Function<T,R>:\n1. No compose() method — you cannot \"compose before\" a two-argument function the same way.\n2. Cannot be used directly where Function<T,R> is expected (different functional interface type).\n3. Cannot chain two BiFunctions directly — you can only chain a BiFunction with a subsequent\n   unary Function via andThen().\n\nSubtype relationships:\n- UnaryOperator<T>  extends Function<T,T>\n- BinaryOperator<T> extends BiFunction<T,T,T>"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Basic BiFunction\nBiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\nString result = repeat.apply(\"Ha\", 3);  // \"HaHaHa\"\n\n// andThen with BiFunction — chains a unary Function after\nBiFunction<String, Integer, String> repeatAndUpper = repeat.andThen(String::toUpperCase);\nString upper = repeatAndUpper.apply(\"ha\", 3);  // \"HAHAHA\"\n\n// BiFunction for combining two different types\nBiFunction<String, List<String>, String> formatter =\n    (header, items) -> header + \": \" + String.join(\", \", items);\nString line = formatter.apply(\"Languages\", List.of(\"Java\", \"Kotlin\", \"Scala\"));\n// \"Languages: Java, Kotlin, Scala\"\n\n// BiFunction in Map.compute, Map.merge\nMap<String, Integer> wordCount = new HashMap<>();\nList<String> words = List.of(\"java\", \"python\", \"java\", \"java\", \"python\");\nwords.forEach(word -> wordCount.merge(word, 1, Integer::sum));\n// wordCount = {\"java\": 3, \"python\": 2}\n\n// BinaryOperator (extends BiFunction<T,T,T>) for stream reduction\nBinaryOperator<Integer> sum = Integer::sum;\nint total = List.of(1, 2, 3, 4, 5).stream().reduce(0, sum);  // 15\n"
+      "text": "// Basic BiFunction\nBiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\nString result = repeat.apply(\"Ha\", 3);  // \"HaHaHa\"\n\n// andThen with BiFunction — chains a unary Function after\nBiFunction<String, Integer, String> repeatAndUpper = repeat.andThen(String::toUpperCase);\nString upper = repeatAndUpper.apply(\"ha\", 3);  // \"HAHAHA\"\n\n// BiFunction for combining two different types\nBiFunction<String, List<String>, String> formatter =\n    (header, items) -> header + \": \" + String.join(\", \", items);\nString line = formatter.apply(\"Languages\", List.of(\"Java\", \"Kotlin\", \"Scala\"));\n// \"Languages: Java, Kotlin, Scala\"\n\n// BiFunction in Map.compute, Map.merge\nMap<String, Integer> wordCount = new HashMap<>();\nList<String> words = List.of(\"java\", \"python\", \"java\", \"java\", \"python\");\nwords.forEach(word -> wordCount.merge(word, 1, Integer::sum));\n// wordCount = {\"java\": 3, \"python\": 2}\n\n// BinaryOperator (extends BiFunction<T,T,T>) for stream reduction\nBinaryOperator<Integer> sum = Integer::sum;\nint total = List.of(1, 2, 3, 4, 5).stream().reduce(0, sum);  // 15"
     },
     {
       "type": "heading",
@@ -428,9 +405,9 @@
   "counts": {
     "headings": 10,
     "paras": 16,
-    "code": 22,
+    "code": 15,
     "tables": 0,
-    "lists": 17,
+    "lists": 12,
     "images": 0,
     "videos": 0,
     "rules": 6,
@@ -438,5 +415,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "b7fda0dba1bc66dd0aa3821be3c796f6c1bb59bda5338c4353376f88125c796a"
+  "content_sha256": "8c1a913bb9edf00e2da01b9f1aefa76c1dd103f35ada35ff458c5b4b20bb7e07"
 }

@@ -131,51 +131,34 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**God class**: A single class that handles data access, business logic, and presentation."
+        [
+          "**God class**: A single class that handles data access, business logic, and presentation.",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BAD: One class doing everything\nclass OrderManager {\n    void saveToDatabase(Order o) { /* SQL */ }\n    double calculateTax(Order o) { /* tax logic */ }\n    String formatReceipt(Order o) { /* formatting */ }\n}"
+          },
+          "**Fix**: Split into `OrderRepository`, `TaxCalculator`, and `ReceiptFormatter`."
+        ],
+        [
+          "**Mixing thread lifecycle with business logic**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BAD: Business logic mixed with thread management\nclass DataProcessor {\n    private final ExecutorService pool = Executors.newFixedThreadPool(4);\n    double computeAverage(List<Integer> data) { /* ... */ }\n    void shutdown() { pool.shutdown(); }\n}"
+          },
+          "**Fix**: Inject the `ExecutorService` or separate the thread pool management into its own class."
+        ],
+        [
+          "**Notification side effects inside repositories**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// BAD: Repository also sends emails\nclass UserRepository {\n    void save(User u) {\n        db.insert(u);\n        emailService.send(\"New user: \" + u.name()); // Side effect!\n    }\n}"
+          },
+          "**Fix**: Move notification into a `UserService` orchestrator that calls both `UserRepository.save()` and `NotificationService.send()`."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: One class doing everything\nclass OrderManager {\n    void saveToDatabase(Order o) { /* SQL */ }\n    double calculateTax(Order o) { /* tax logic */ }\n    String formatReceipt(Order o) { /* formatting */ }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Split into `OrderRepository`, `TaxCalculator`, and `ReceiptFormatter`."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Mixing thread lifecycle with business logic**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: Business logic mixed with thread management\nclass DataProcessor {\n    private final ExecutorService pool = Executors.newFixedThreadPool(4);\n    double computeAverage(List<Integer> data) { /* ... */ }\n    void shutdown() { pool.shutdown(); }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Inject the `ExecutorService` or separate the thread pool management into its own class."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Notification side effects inside repositories**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD: Repository also sends emails\nclass UserRepository {\n    void save(User u) {\n        db.insert(u);\n        emailService.send(\"New user: \" + u.name()); // Side effect!\n    }\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Move notification into a `UserService` orchestrator that calls both `UserRepository.save()` and `NotificationService.send()`."
     },
     {
       "type": "heading",
@@ -252,12 +235,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The Single Responsibility Principle states that a class should have only one reason \nto change. \"Reason to change\" maps to a stakeholder or business concern.\n\nImportance:\n1. Reduces coupling: Changes in one concern don't ripple to unrelated code\n2. Improves testability: Focused classes are easier to unit test\n3. Enhances readability: Developers can quickly understand what a class does\n4. Simplifies maintenance: Bug fixes and features are localized\n5. Enables parallel development: Teams can work on different concerns independently\n\nFor example, a UserRepository that also sends emails violates SRP because changes to \nemail templates would require modifying a class that should only care about persistence.\n"
+      "text": "A1: The Single Responsibility Principle states that a class should have only one reason \nto change. \"Reason to change\" maps to a stakeholder or business concern.\n\nImportance:\n1. Reduces coupling: Changes in one concern don't ripple to unrelated code\n2. Improves testability: Focused classes are easier to unit test\n3. Enhances readability: Developers can quickly understand what a class does\n4. Simplifies maintenance: Bug fixes and features are localized\n5. Enables parallel development: Teams can work on different concerns independently\n\nFor example, a UserRepository that also sends emails violates SRP because changes to \nemail templates would require modifying a class that should only care about persistence."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// SRP violation\nclass UserService {\n    void createUser(String name) {\n        // persistence\n        database.save(name);\n        // notification -- different concern!\n        emailClient.send(\"Welcome \" + name);\n        // logging -- yet another concern!\n        auditLog.record(\"Created user: \" + name);\n    }\n}\n\n// SRP applied\nclass UserRepository { void save(String name) { database.save(name); } }\nclass WelcomeNotifier { void notify(String name) { emailClient.send(\"Welcome \" + name); } }\nclass AuditLogger { void record(String action) { auditLog.record(action); } }\nclass UserService {\n    UserService(UserRepository repo, WelcomeNotifier notifier, AuditLogger logger) { /*...*/ }\n    void createUser(String name) {\n        repo.save(name);\n        notifier.notify(name);\n        logger.record(\"Created user: \" + name);\n    }\n}\n"
+      "text": "// SRP violation\nclass UserService {\n    void createUser(String name) {\n        // persistence\n        database.save(name);\n        // notification -- different concern!\n        emailClient.send(\"Welcome \" + name);\n        // logging -- yet another concern!\n        auditLog.record(\"Created user: \" + name);\n    }\n}\n\n// SRP applied\nclass UserRepository { void save(String name) { database.save(name); } }\nclass WelcomeNotifier { void notify(String name) { emailClient.send(\"Welcome \" + name); } }\nclass AuditLogger { void record(String action) { auditLog.record(action); } }\nclass UserService {\n    UserService(UserRepository repo, WelcomeNotifier notifier, AuditLogger logger) { /*...*/ }\n    void createUser(String name) {\n        repo.save(name);\n        notifier.notify(name);\n        logger.record(\"Created user: \" + name);\n    }\n}"
     },
     {
       "type": "para",
@@ -266,12 +249,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: In concurrent programming, SRP is critical because:\n\n1. Isolated synchronization: Each class manages its own locks/atomics, making \n   thread-safety reasoning local rather than global\n2. Reduced contention: When unrelated concerns share the same lock, threads \n   contend unnecessarily. SRP eliminates this.\n3. Easier deadlock prevention: With isolated locks, lock ordering is simpler\n4. Testability: You can stress-test each concurrent component independently\n\nFor example, separating a thread-safe counter from its display formatter means the \ncounter can use AtomicLong internally without the formatter needing synchronization \nat all.\n"
+      "text": "A2: In concurrent programming, SRP is critical because:\n\n1. Isolated synchronization: Each class manages its own locks/atomics, making \n   thread-safety reasoning local rather than global\n2. Reduced contention: When unrelated concerns share the same lock, threads \n   contend unnecessarily. SRP eliminates this.\n3. Easier deadlock prevention: With isolated locks, lock ordering is simpler\n4. Testability: You can stress-test each concurrent component independently\n\nFor example, separating a thread-safe counter from its display formatter means the \ncounter can use AtomicLong internally without the formatter needing synchronization \nat all."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Thread-safe counter -- single responsibility: counting\nclass ThreadSafeCounter {\n    private final AtomicLong count = new AtomicLong(0);\n    long increment() { return count.incrementAndGet(); }\n    long getCount() { return count.get(); }\n}\n\n// Formatter -- single responsibility: display formatting (no synchronization needed)\nclass CounterFormatter {\n    String format(long count) {\n        return count == 0 ? \"Zero\" : \"Count: \" + count;\n    }\n}\n\n// Composition: each class handles its own concern\nvar counter = new ThreadSafeCounter();\nvar formatter = new CounterFormatter();\nSystem.out.println(formatter.format(counter.increment())); // \"Count: 1\"\n"
+      "text": "// Thread-safe counter -- single responsibility: counting\nclass ThreadSafeCounter {\n    private final AtomicLong count = new AtomicLong(0);\n    long increment() { return count.incrementAndGet(); }\n    long getCount() { return count.get(); }\n}\n\n// Formatter -- single responsibility: display formatting (no synchronization needed)\nclass CounterFormatter {\n    String format(long count) {\n        return count == 0 ? \"Zero\" : \"Count: \" + count;\n    }\n}\n\n// Composition: each class handles its own concern\nvar counter = new ThreadSafeCounter();\nvar formatter = new CounterFormatter();\nSystem.out.println(formatter.format(counter.increment())); // \"Count: 1\""
     },
     {
       "type": "para",
@@ -280,12 +263,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Yes, SRP can be over-applied, leading to:\n\n1. Class explosion: Too many tiny classes make the codebase hard to navigate\n2. Indirection overload: Simple operations require tracing through many layers\n3. Premature abstraction: Splitting before understanding the domain leads to \n   wrong boundaries that are expensive to fix later\n4. Performance overhead: Excessive object creation and method calls in hot paths\n\nThe right balance:\n- Split when you can identify distinct stakeholders or change drivers\n- Don't split purely for the sake of having small classes\n- Consider cohesion: methods that operate on the same data usually belong together\n- Refactor toward SRP when you see actual pain (frequent merge conflicts, \n  test fragility, difficulty understanding a class)\n"
+      "text": "A3: Yes, SRP can be over-applied, leading to:\n\n1. Class explosion: Too many tiny classes make the codebase hard to navigate\n2. Indirection overload: Simple operations require tracing through many layers\n3. Premature abstraction: Splitting before understanding the domain leads to \n   wrong boundaries that are expensive to fix later\n4. Performance overhead: Excessive object creation and method calls in hot paths\n\nThe right balance:\n- Split when you can identify distinct stakeholders or change drivers\n- Don't split purely for the sake of having small classes\n- Consider cohesion: methods that operate on the same data usually belong together\n- Refactor toward SRP when you see actual pain (frequent merge conflicts, \n  test fragility, difficulty understanding a class)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Over-application of SRP (too granular)\nclass NameValidator { boolean isValid(String name) { return name != null; } }\nclass NameSanitizer { String sanitize(String name) { return name.trim(); } }\nclass NameFormatter { String format(String name) { return name.toUpperCase(); } }\nclass NameProcessor {\n    NameProcessor(NameValidator v, NameSanitizer s, NameFormatter f) { /*...*/ }\n}\n\n// Better: these are all \"name processing\" -- one cohesive responsibility\nclass NameProcessor {\n    String process(String name) {\n        if (name == null) throw new IllegalArgumentException(\"Name required\");\n        return name.trim().toUpperCase();\n    }\n}\n"
+      "text": "// Over-application of SRP (too granular)\nclass NameValidator { boolean isValid(String name) { return name != null; } }\nclass NameSanitizer { String sanitize(String name) { return name.trim(); } }\nclass NameFormatter { String format(String name) { return name.toUpperCase(); } }\nclass NameProcessor {\n    NameProcessor(NameValidator v, NameSanitizer s, NameFormatter f) { /*...*/ }\n}\n\n// Better: these are all \"name processing\" -- one cohesive responsibility\nclass NameProcessor {\n    String process(String name) {\n        if (name == null) throw new IllegalArgumentException(\"Name required\");\n        return name.trim().toUpperCase();\n    }\n}"
     },
     {
       "type": "para",
@@ -294,12 +277,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Common indicators of SRP violations:\n\n1. Class name includes \"And\" or \"Manager\" or \"Handler\" (e.g., UserAndOrderManager)\n2. The class has methods that don't interact with each other's fields\n3. Different groups of methods use different subsets of instance variables\n4. The class imports from many unrelated packages (UI, database, networking)\n5. Changes to one feature require modifying this class alongside unrelated changes\n6. The class is frequently involved in merge conflicts\n7. Unit tests require complex setup because the class depends on many concerns\n\nRefactoring approach:\n- Identify groups of methods that operate on the same fields\n- Extract each group into its own class\n- Create a coordinator/facade that composes the extracted classes\n"
+      "text": "A4: Common indicators of SRP violations:\n\n1. Class name includes \"And\" or \"Manager\" or \"Handler\" (e.g., UserAndOrderManager)\n2. The class has methods that don't interact with each other's fields\n3. Different groups of methods use different subsets of instance variables\n4. The class imports from many unrelated packages (UI, database, networking)\n5. Changes to one feature require modifying this class alongside unrelated changes\n6. The class is frequently involved in merge conflicts\n7. Unit tests require complex setup because the class depends on many concerns\n\nRefactoring approach:\n- Identify groups of methods that operate on the same fields\n- Extract each group into its own class\n- Create a coordinator/facade that composes the extracted classes"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Identifying the violation: methods use different fields\nclass ReportService {\n    private final Database db;         // Used by data methods\n    private final EmailClient email;   // Used by notification methods\n    private final PdfRenderer pdf;     // Used by rendering methods\n\n    List<Order> fetchOrders() { return db.query(\"SELECT ...\"); }\n    void notifyManager(String msg) { email.send(\"manager@example.com\", msg); }\n    byte[] renderPdf(List<Order> orders) { return pdf.render(orders); }\n}\n\n// After SRP refactoring\nclass OrderRepository { List<Order> fetchOrders() { /* db logic */ } }\nclass ManagerNotifier { void notify(String msg) { /* email logic */ } }\nclass ReportRenderer { byte[] render(List<Order> orders) { /* pdf logic */ } }\n"
+      "text": "// Identifying the violation: methods use different fields\nclass ReportService {\n    private final Database db;         // Used by data methods\n    private final EmailClient email;   // Used by notification methods\n    private final PdfRenderer pdf;     // Used by rendering methods\n\n    List<Order> fetchOrders() { return db.query(\"SELECT ...\"); }\n    void notifyManager(String msg) { email.send(\"manager@example.com\", msg); }\n    byte[] renderPdf(List<Order> orders) { return pdf.render(orders); }\n}\n\n// After SRP refactoring\nclass OrderRepository { List<Order> fetchOrders() { /* db logic */ } }\nclass ManagerNotifier { void notify(String msg) { /* email logic */ } }\nclass ReportRenderer { byte[] render(List<Order> orders) { /* pdf logic */ } }"
     },
     {
       "type": "para",
@@ -308,12 +291,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: SRP at the class level is a microcosm of SRP at the service level:\n\n1. Each microservice owns one bounded context (e.g., user management, billing, \n   notifications)\n2. A change in billing logic should not require redeploying the user service\n3. Each service has its own database, deployment pipeline, and team ownership\n\nThe parallel:\n- Class-level SRP: separate UserRepository from NotificationService\n- Service-level SRP: separate user-service from notification-service\n\nBenefits in microservices:\n- Independent deployment: each service changes for only one reason\n- Team autonomy: teams own their service end-to-end\n- Fault isolation: a bug in notifications doesn't crash user management\n- Technology diversity: each service can use the best tool for its concern\n\nWarning: Just as classes can be over-split, microservices can be too fine-grained, \nleading to distributed monolith problems (excessive inter-service calls, data \nconsistency challenges).\n"
+      "text": "A5: SRP at the class level is a microcosm of SRP at the service level:\n\n1. Each microservice owns one bounded context (e.g., user management, billing, \n   notifications)\n2. A change in billing logic should not require redeploying the user service\n3. Each service has its own database, deployment pipeline, and team ownership\n\nThe parallel:\n- Class-level SRP: separate UserRepository from NotificationService\n- Service-level SRP: separate user-service from notification-service\n\nBenefits in microservices:\n- Independent deployment: each service changes for only one reason\n- Team autonomy: teams own their service end-to-end\n- Fault isolation: a bug in notifications doesn't crash user management\n- Technology diversity: each service can use the best tool for its concern\n\nWarning: Just as classes can be over-split, microservices can be too fine-grained, \nleading to distributed monolith problems (excessive inter-service calls, data \nconsistency challenges)."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Monolith violating SRP at service level\nclass ECommerceApp {\n    void processOrder(Order o) {\n        inventoryDb.reserve(o.items());      // Inventory concern\n        paymentGateway.charge(o.total());    // Payment concern\n        emailService.sendConfirmation(o);    // Notification concern\n        analyticsClient.trackPurchase(o);    // Analytics concern\n    }\n}\n\n// Microservice-style SRP (each would be a separate service)\ninterface InventoryService { void reserve(List<Item> items); }\ninterface PaymentService { void charge(BigDecimal amount); }\ninterface NotificationService { void sendConfirmation(Order o); }\ninterface AnalyticsService { void trackPurchase(Order o); }\n\n// Orchestrator composes them\nclass OrderOrchestrator {\n    OrderOrchestrator(InventoryService inv, PaymentService pay,\n                      NotificationService notif, AnalyticsService analytics) { /*...*/ }\n}\n"
+      "text": "// Monolith violating SRP at service level\nclass ECommerceApp {\n    void processOrder(Order o) {\n        inventoryDb.reserve(o.items());      // Inventory concern\n        paymentGateway.charge(o.total());    // Payment concern\n        emailService.sendConfirmation(o);    // Notification concern\n        analyticsClient.trackPurchase(o);    // Analytics concern\n    }\n}\n\n// Microservice-style SRP (each would be a separate service)\ninterface InventoryService { void reserve(List<Item> items); }\ninterface PaymentService { void charge(BigDecimal amount); }\ninterface NotificationService { void sendConfirmation(Order o); }\ninterface AnalyticsService { void trackPurchase(Order o); }\n\n// Orchestrator composes them\nclass OrderOrchestrator {\n    OrderOrchestrator(InventoryService inv, PaymentService pay,\n                      NotificationService notif, AnalyticsService analytics) { /*...*/ }\n}"
     },
     {
       "type": "heading",
@@ -334,10 +317,10 @@
   "attachments": [],
   "counts": {
     "headings": 13,
-    "paras": 16,
-    "code": 13,
+    "paras": 13,
+    "code": 10,
     "tables": 0,
-    "lists": 13,
+    "lists": 11,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -345,5 +328,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "afeb17dd530aa398ae8512d7091ff428b27b16916b1e728e0dbdbaebecdf8894"
+  "content_sha256": "f5f74e4f257b4cf69e17bb927a10f2eb0fbee35ab00705ea9fc87cc59158372d"
 }

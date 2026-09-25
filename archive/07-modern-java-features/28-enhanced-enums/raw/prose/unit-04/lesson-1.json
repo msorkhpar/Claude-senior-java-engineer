@@ -88,65 +88,47 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Type erasure hiding bugs at runtime**:"
+        [
+          "**Type erasure hiding bugs at runtime**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: unchecked cast at runtime due to erasure\npublic enum Converter {\n    INSTANCE;\n    @SuppressWarnings(\"unchecked\")\n    public <T> T convert(Object obj) {\n        return (T) obj; // Compiles but fails at runtime if types don't match\n    }\n}\n// Converter.INSTANCE.<Integer>convert(\"hello\"); // ClassCastException later!\n\n// RIGHT: use Class<T> type token for runtime safety\npublic <T> T convert(Object obj, Class<T> type) {\n    return type.cast(obj); // Throws ClassCastException immediately\n}"
+          }
+        ],
+        [
+          "**Ignoring generic type constraints in abstract methods**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: abstract method without proper bounds\npublic abstract <T> T aggregate(List<T> values);\n// Callers can pass List<String> to a numeric aggregation!\n\n// RIGHT: bound the type parameter\npublic abstract <T extends Number> double aggregate(List<T> values);"
+          }
+        ],
+        [
+          "**Heap pollution with varargs**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WARNING: potential heap pollution\npublic <T> Collection<T> of(T... elements) { /* ... */ }\n// Needs @SafeVarargs (only valid on static, final or private methods, and constructors)\n\n// Enum methods are NOT implicitly final (constant bodies can override them), so declare it final:\n@SafeVarargs\npublic final <T> Collection<T> of(T... elements) { /* ... */ }"
+          }
+        ],
+        [
+          "**Returning raw types from generic methods**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// WRONG: raw type return\npublic <T> List execute(List<T> input) { return new ArrayList(); }\n\n// RIGHT: properly typed return\npublic <T> List<T> execute(List<T> input) { return new ArrayList<>(input); }"
+          }
+        ],
+        [
+          "**Losing type information in enum method chains**:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: type inference may not propagate through method chains\nList<String> result = CollectionOp.FILTER\n    .execute(List.of(\"a\", \"bb\", \"ccc\"), s -> s.length() > 1);\n// This works because Java infers T=String from the input list"
+          }
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: unchecked cast at runtime due to erasure\npublic enum Converter {\n    INSTANCE;\n    @SuppressWarnings(\"unchecked\")\n    public <T> T convert(Object obj) {\n        return (T) obj; // Compiles but fails at runtime if types don't match\n    }\n}\n// Converter.INSTANCE.<Integer>convert(\"hello\"); // ClassCastException later!\n\n// RIGHT: use Class<T> type token for runtime safety\npublic <T> T convert(Object obj, Class<T> type) {\n    return type.cast(obj); // Throws ClassCastException immediately\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Ignoring generic type constraints in abstract methods**:"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: abstract method without proper bounds\npublic abstract <T> T aggregate(List<T> values);\n// Callers can pass List<String> to a numeric aggregation!\n\n// RIGHT: bound the type parameter\npublic abstract <T extends Number> double aggregate(List<T> values);\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Heap pollution with varargs**:"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WARNING: potential heap pollution\npublic <T> Collection<T> of(T... elements) { /* ... */ }\n// Needs @SafeVarargs (only valid on static, final or private methods, and constructors)\n\n// Enum methods are NOT implicitly final (constant bodies can override them), so declare it final:\n@SafeVarargs\npublic final <T> Collection<T> of(T... elements) { /* ... */ }\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Returning raw types from generic methods**:"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: raw type return\npublic <T> List execute(List<T> input) { return new ArrayList(); }\n\n// RIGHT: properly typed return\npublic <T> List<T> execute(List<T> input) { return new ArrayList<>(input); }\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Losing type information in enum method chains**:"
-      ],
-      "start": 5
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: type inference may not propagate through method chains\nList<String> result = CollectionOp.FILTER\n    .execute(List.of(\"a\", \"bb\", \"ccc\"), s -> s.length() > 1);\n// This works because Java infers T=String from the input list\n"
     },
     {
       "type": "heading",
@@ -209,12 +191,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "Java enums cannot be generic because the JLS does not allow type parameters on an\nenum declaration. 7.2.2, Q1 has the detail: it is a language-design decision rather\nthan a consequence of erasure, and JEP 301 (\"Enhanced Enums\"), which proposed generic\nenums, was withdrawn.\n\nGeneric methods work around this by declaring type parameters at the method level.\nThe type is resolved at each call site, so the enum constant remains a singleton\nwhile its methods can operate on different types.\n\nThis gives us the best of both worlds: fixed constants with type-safe operations.\n"
+      "text": "Java enums cannot be generic because the JLS does not allow type parameters on an\nenum declaration. 7.2.2, Q1 has the detail: it is a language-design decision rather\nthan a consequence of erasure, and JEP 301 (\"Enhanced Enums\"), which proposed generic\nenums, was withdrawn.\n\nGeneric methods work around this by declaring type parameters at the method level.\nThe type is resolved at each call site, so the enum constant remains a singleton\nwhile its methods can operate on different types.\n\nThis gives us the best of both worlds: fixed constants with type-safe operations."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Enum cannot be generic\n// enum Converter<T> { } // COMPILE ERROR\n\n// But methods can be generic\npublic enum DataConverter {\n    STRING_TO_NUMBER {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            String str = String.valueOf(input);\n            if (targetType == Integer.class) return targetType.cast(Integer.parseInt(str));\n            if (targetType == Double.class) return targetType.cast(Double.parseDouble(str));\n            throw new UnsupportedOperationException(\"Unsupported: \" + targetType);\n        }\n    },\n    IDENTITY {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            return targetType.cast(input);\n        }\n    };\n\n    public abstract <T> T convert(Object input, Class<T> targetType);\n}\n\n// Usage — type resolved at call site\nInteger num = DataConverter.STRING_TO_NUMBER.convert(\"42\", Integer.class);\nDouble dbl = DataConverter.STRING_TO_NUMBER.convert(\"3.14\", Double.class);\nString str = DataConverter.IDENTITY.convert(\"hello\", String.class);\n"
+      "text": "// Enum cannot be generic\n// enum Converter<T> { } // COMPILE ERROR\n\n// But methods can be generic\npublic enum DataConverter {\n    STRING_TO_NUMBER {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            String str = String.valueOf(input);\n            if (targetType == Integer.class) return targetType.cast(Integer.parseInt(str));\n            if (targetType == Double.class) return targetType.cast(Double.parseDouble(str));\n            throw new UnsupportedOperationException(\"Unsupported: \" + targetType);\n        }\n    },\n    IDENTITY {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            return targetType.cast(input);\n        }\n    };\n\n    public abstract <T> T convert(Object input, Class<T> targetType);\n}\n\n// Usage — type resolved at call site\nInteger num = DataConverter.STRING_TO_NUMBER.convert(\"42\", Integer.class);\nDouble dbl = DataConverter.STRING_TO_NUMBER.convert(\"3.14\", Double.class);\nString str = DataConverter.IDENTITY.convert(\"hello\", String.class);"
     },
     {
       "type": "heading",
@@ -224,12 +206,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A collection factory enum uses generic methods to create typed collections without\nrequiring the caller to cast. Each constant produces a different collection type\n(ArrayList, LinkedList, HashSet, TreeSet), but the generic method signature ensures\nthe returned collection has the correct element type.\n\nKey design decisions:\n- create() returns an empty collection of the specified type\n- createFrom(Collection<T> source) copies from a source collection\n- of(T... elements) creates a pre-populated collection (needs @SafeVarargs)\n- The return type is Collection<T>, not the specific implementation, for flexibility\n"
+      "text": "A collection factory enum uses generic methods to create typed collections without\nrequiring the caller to cast. Each constant produces a different collection type\n(ArrayList, LinkedList, HashSet, TreeSet), but the generic method signature ensures\nthe returned collection has the correct element type.\n\nKey design decisions:\n- create() returns an empty collection of the specified type\n- createFrom(Collection<T> source) copies from a source collection\n- of(T... elements) creates a pre-populated collection (needs @SafeVarargs)\n- The return type is Collection<T>, not the specific implementation, for flexibility"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public enum CollectionFactory {\n    ARRAY_LIST {\n        @Override public <T> Collection<T> create() { return new ArrayList<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            return new ArrayList<>(src);\n        }\n    },\n    HASH_SET {\n        @Override public <T> Collection<T> create() { return new HashSet<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            return new HashSet<>(src);\n        }\n    },\n    TREE_SET {\n        @Override public <T> Collection<T> create() { return new TreeSet<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            TreeSet<T> set = new TreeSet<>();\n            set.addAll(src);\n            return set;\n        }\n    };\n\n    public abstract <T> Collection<T> create();\n    public abstract <T> Collection<T> createFrom(Collection<T> source);\n\n    @SafeVarargs\n    public final <T> Collection<T> of(T... elements) {\n        Collection<T> c = create();\n        Collections.addAll(c, elements);\n        return c;\n    }\n}\n\n// Type-safe usage\nCollection<String> strings = CollectionFactory.ARRAY_LIST.of(\"a\", \"b\", \"c\");\nCollection<Integer> numbers = CollectionFactory.HASH_SET.of(1, 2, 3, 2, 1);\n// numbers.size() == 3 (duplicates removed by HashSet)\n"
+      "text": "public enum CollectionFactory {\n    ARRAY_LIST {\n        @Override public <T> Collection<T> create() { return new ArrayList<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            return new ArrayList<>(src);\n        }\n    },\n    HASH_SET {\n        @Override public <T> Collection<T> create() { return new HashSet<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            return new HashSet<>(src);\n        }\n    },\n    TREE_SET {\n        @Override public <T> Collection<T> create() { return new TreeSet<>(); }\n        @Override public <T> Collection<T> createFrom(Collection<T> src) {\n            TreeSet<T> set = new TreeSet<>();\n            set.addAll(src);\n            return set;\n        }\n    };\n\n    public abstract <T> Collection<T> create();\n    public abstract <T> Collection<T> createFrom(Collection<T> source);\n\n    @SafeVarargs\n    public final <T> Collection<T> of(T... elements) {\n        Collection<T> c = create();\n        Collections.addAll(c, elements);\n        return c;\n    }\n}\n\n// Type-safe usage\nCollection<String> strings = CollectionFactory.ARRAY_LIST.of(\"a\", \"b\", \"c\");\nCollection<Integer> numbers = CollectionFactory.HASH_SET.of(1, 2, 3, 2, 1);\n// numbers.size() == 3 (duplicates removed by HashSet)"
     },
     {
       "type": "heading",
@@ -239,12 +221,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "Bounded type parameters (<T extends SomeType>) constrain which types can be passed\nto a generic enum method. This is crucial for operations that require specific\ncapabilities (Comparable for sorting, Number for arithmetic).\n\nCommon bounds:\n- <T extends Number> — numeric operations (sum, average, min, max)\n- <T extends Comparable<T>> — ordering operations (sort, min, max)\n- <T extends Serializable> — serialization operations\n- <T extends CharSequence> — string-like operations\n- Multiple bounds: <T extends Number & Comparable<T>> — both numeric and orderable\n\nWithout bounds, you can only call Object methods on T. With bounds, you unlock\nthe methods of the bound type — this is checked at compile time.\n"
+      "text": "Bounded type parameters (<T extends SomeType>) constrain which types can be passed\nto a generic enum method. This is crucial for operations that require specific\ncapabilities (Comparable for sorting, Number for arithmetic).\n\nCommon bounds:\n- <T extends Number> — numeric operations (sum, average, min, max)\n- <T extends Comparable<T>> — ordering operations (sort, min, max)\n- <T extends Serializable> — serialization operations\n- <T extends CharSequence> — string-like operations\n- Multiple bounds: <T extends Number & Comparable<T>> — both numeric and orderable\n\nWithout bounds, you can only call Object methods on T. With bounds, you unlock\nthe methods of the bound type — this is checked at compile time."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public enum Aggregator {\n    SUM {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.stream().mapToDouble(Number::doubleValue).sum();\n        }\n    },\n    AVERAGE {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.isEmpty() ? 0.0 :\n                values.stream().mapToDouble(Number::doubleValue).average().orElse(0.0);\n        }\n    },\n    MAX {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.stream().mapToDouble(Number::doubleValue)\n                .max().orElseThrow(NoSuchElementException::new);\n        }\n    };\n\n    // Bounded type parameter — only Number subclasses allowed\n    public abstract <T extends Number> double aggregate(List<T> values);\n}\n\n// Works with any Number subclass\ndouble intSum = Aggregator.SUM.aggregate(List.of(1, 2, 3));         // 6.0\ndouble dblAvg = Aggregator.AVERAGE.aggregate(List.of(1.5, 2.5));   // 2.0\ndouble longMax = Aggregator.MAX.aggregate(List.of(100L, 200L));     // 200.0\n\n// Compile error — String is not a Number:\n// Aggregator.SUM.aggregate(List.of(\"a\", \"b\")); // ERROR\n"
+      "text": "public enum Aggregator {\n    SUM {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.stream().mapToDouble(Number::doubleValue).sum();\n        }\n    },\n    AVERAGE {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.isEmpty() ? 0.0 :\n                values.stream().mapToDouble(Number::doubleValue).average().orElse(0.0);\n        }\n    },\n    MAX {\n        @Override\n        public <T extends Number> double aggregate(List<T> values) {\n            return values.stream().mapToDouble(Number::doubleValue)\n                .max().orElseThrow(NoSuchElementException::new);\n        }\n    };\n\n    // Bounded type parameter — only Number subclasses allowed\n    public abstract <T extends Number> double aggregate(List<T> values);\n}\n\n// Works with any Number subclass\ndouble intSum = Aggregator.SUM.aggregate(List.of(1, 2, 3));         // 6.0\ndouble dblAvg = Aggregator.AVERAGE.aggregate(List.of(1.5, 2.5));   // 2.0\ndouble longMax = Aggregator.MAX.aggregate(List.of(100L, 200L));     // 200.0\n\n// Compile error — String is not a Number:\n// Aggregator.SUM.aggregate(List.of(\"a\", \"b\")); // ERROR"
     },
     {
       "type": "heading",
@@ -254,12 +236,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A comparison strategy enum uses generic methods to compare any two objects of\nthe same type. Each constant implements a different comparison algorithm:\nnatural ordering, reverse ordering, hash code comparison, or string-based comparison.\n\nThe key insight is that compare(T a, T b) returns an int (like Comparator),\nand toComparator() converts the strategy into a standard Comparator<T>.\n\nThis pattern is powerful because:\n- The set of strategies is fixed and known at compile time\n- Each strategy is a singleton (no allocation)\n- Strategies compose with Java's Comparator API (thenComparing, reversed)\n- Type safety is preserved throughout\n"
+      "text": "A comparison strategy enum uses generic methods to compare any two objects of\nthe same type. Each constant implements a different comparison algorithm:\nnatural ordering, reverse ordering, hash code comparison, or string-based comparison.\n\nThe key insight is that compare(T a, T b) returns an int (like Comparator),\nand toComparator() converts the strategy into a standard Comparator<T>.\n\nThis pattern is powerful because:\n- The set of strategies is fixed and known at compile time\n- Each strategy is a singleton (no allocation)\n- Strategies compose with Java's Comparator API (thenComparing, reversed)\n- Type safety is preserved throughout"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public enum CompareStrategy {\n    NATURAL {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> int compare(T a, T b) {\n            if (!(a instanceof Comparable<?>))\n                throw new UnsupportedOperationException(\"Not comparable\");\n            return ((Comparable<T>) a).compareTo(b);\n        }\n    },\n    REVERSE {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> int compare(T a, T b) {\n            return ((Comparable<T>) b).compareTo(a);\n        }\n    },\n    BY_STRING {\n        @Override\n        public <T> int compare(T a, T b) {\n            return String.valueOf(a).compareTo(String.valueOf(b));\n        }\n    };\n\n    public abstract <T> int compare(T a, T b);\n\n    // Convert to standard Comparator\n    public <T> Comparator<T> toComparator() {\n        return this::compare;\n    }\n\n    // Find min/max using this strategy\n    public <T> T min(List<T> items) {\n        return items.stream().min(this::compare).orElseThrow();\n    }\n}\n\n// Usage\nList<String> names = List.of(\"Charlie\", \"Alice\", \"Bob\");\nList<String> sorted = names.stream()\n    .sorted(CompareStrategy.NATURAL.toComparator())\n    .toList();\n// [Alice, Bob, Charlie]\n\nString first = CompareStrategy.NATURAL.min(names);   // \"Alice\"\nString last = CompareStrategy.REVERSE.min(names);     // \"Charlie\"\n"
+      "text": "public enum CompareStrategy {\n    NATURAL {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> int compare(T a, T b) {\n            if (!(a instanceof Comparable<?>))\n                throw new UnsupportedOperationException(\"Not comparable\");\n            return ((Comparable<T>) a).compareTo(b);\n        }\n    },\n    REVERSE {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> int compare(T a, T b) {\n            return ((Comparable<T>) b).compareTo(a);\n        }\n    },\n    BY_STRING {\n        @Override\n        public <T> int compare(T a, T b) {\n            return String.valueOf(a).compareTo(String.valueOf(b));\n        }\n    };\n\n    public abstract <T> int compare(T a, T b);\n\n    // Convert to standard Comparator\n    public <T> Comparator<T> toComparator() {\n        return this::compare;\n    }\n\n    // Find min/max using this strategy\n    public <T> T min(List<T> items) {\n        return items.stream().min(this::compare).orElseThrow();\n    }\n}\n\n// Usage\nList<String> names = List.of(\"Charlie\", \"Alice\", \"Bob\");\nList<String> sorted = names.stream()\n    .sorted(CompareStrategy.NATURAL.toComparator())\n    .toList();\n// [Alice, Bob, Charlie]\n\nString first = CompareStrategy.NATURAL.min(names);   // \"Alice\"\nString last = CompareStrategy.REVERSE.min(names);     // \"Charlie\""
     },
     {
       "type": "heading",
@@ -269,12 +251,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "Limitations:\n1. Cannot declare type parameters on the enum itself — only on methods\n2. Type information is erased at runtime — need Class<T> tokens for runtime safety\n3. Cannot create generic arrays directly — use collections instead\n4. Wildcard capture can be tricky with abstract enum methods\n5. @SafeVarargs only works on static, final or private methods (and constructors);\n   enum methods are not implicitly final, so a generic varargs method must be declared final\n6. No generic constant fields — fields must use raw or specific types\n\nWorkarounds:\n1. Class<T> type tokens for runtime type safety\n2. Optional<T> for safe conversion results\n3. Generic interfaces — enum can implement a generic interface\n4. Builder pattern alongside enum — enum selects the strategy, builder handles types\n5. Use sealed interfaces + records if you need both type-safe constants AND per-instance\n   generic types (the \"Typeclass\" pattern)\n"
+      "text": "Limitations:\n1. Cannot declare type parameters on the enum itself — only on methods\n2. Type information is erased at runtime — need Class<T> tokens for runtime safety\n3. Cannot create generic arrays directly — use collections instead\n4. Wildcard capture can be tricky with abstract enum methods\n5. @SafeVarargs only works on static, final or private methods (and constructors);\n   enum methods are not implicitly final, so a generic varargs method must be declared final\n6. No generic constant fields — fields must use raw or specific types\n\nWorkarounds:\n1. Class<T> type tokens for runtime type safety\n2. Optional<T> for safe conversion results\n3. Generic interfaces — enum can implement a generic interface\n4. Builder pattern alongside enum — enum selects the strategy, builder handles types\n5. Use sealed interfaces + records if you need both type-safe constants AND per-instance\n   generic types (the \"Typeclass\" pattern)"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Limitation: no generic enum fields\n// enum Box<T> { INSTANCE; T value; } // ILLEGAL\n\n// Workaround 1: Type token parameter\npublic enum TypeSafe {\n    INSTANCE;\n    public <T> T safeCast(Object obj, Class<T> type) {\n        return type.isInstance(obj) ? type.cast(obj) : null;\n    }\n}\n\n// Workaround 2: Generic interface implementation\ninterface Transformer<T, R> { R transform(T input); }\n\n// The enum implements the generic interface, but with ONE parameterization for all constants\npublic enum StringTransformer implements Transformer<String, Object> {\n    TO_INT {\n        public Object transform(String s) { return Integer.parseInt(s); }\n    },\n    TO_UPPER {\n        public Object transform(String s) { return s.toUpperCase(); }\n    };\n    // Note: can't make the return type differ per constant at the enum level\n\n    // But CAN have a generic utility method\n    public <T> Optional<T> safeApply(String s, Class<T> type) {\n        try {\n            Object result = transform(s);\n            return Optional.of(type.cast(result));\n        } catch (Exception e) {\n            return Optional.empty();\n        }\n    }\n}\n\n// Workaround 3: Sealed interface + records for full generics\nsealed interface TypedConstant<T> {\n    T defaultValue();\n    record StringConst(String defaultValue) implements TypedConstant<String> {}\n    record IntConst(Integer defaultValue) implements TypedConstant<Integer> {}\n}\n"
+      "text": "// Limitation: no generic enum fields\n// enum Box<T> { INSTANCE; T value; } // ILLEGAL\n\n// Workaround 1: Type token parameter\npublic enum TypeSafe {\n    INSTANCE;\n    public <T> T safeCast(Object obj, Class<T> type) {\n        return type.isInstance(obj) ? type.cast(obj) : null;\n    }\n}\n\n// Workaround 2: Generic interface implementation\ninterface Transformer<T, R> { R transform(T input); }\n\n// The enum implements the generic interface, but with ONE parameterization for all constants\npublic enum StringTransformer implements Transformer<String, Object> {\n    TO_INT {\n        public Object transform(String s) { return Integer.parseInt(s); }\n    },\n    TO_UPPER {\n        public Object transform(String s) { return s.toUpperCase(); }\n    };\n    // Note: can't make the return type differ per constant at the enum level\n\n    // But CAN have a generic utility method\n    public <T> Optional<T> safeApply(String s, Class<T> type) {\n        try {\n            Object result = transform(s);\n            return Optional.of(type.cast(result));\n        } catch (Exception e) {\n            return Optional.empty();\n        }\n    }\n}\n\n// Workaround 3: Sealed interface + records for full generics\nsealed interface TypedConstant<T> {\n    T defaultValue();\n    record StringConst(String defaultValue) implements TypedConstant<String> {}\n    record IntConst(Integer defaultValue) implements TypedConstant<Integer> {}\n}"
     },
     {
       "type": "heading",
@@ -296,9 +278,9 @@
   "counts": {
     "headings": 15,
     "paras": 3,
-    "code": 15,
+    "code": 10,
     "tables": 0,
-    "lists": 12,
+    "lists": 8,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -306,5 +288,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "6aa2dbd6b2b0b826c0a1a8f77ffae387260bace15c43af91b9ac0dc2c28d881f"
+  "content_sha256": "e88f1ef00f485ce818f9659a1971b09174226d4925a5befaee1f63f3aac24629"
 }

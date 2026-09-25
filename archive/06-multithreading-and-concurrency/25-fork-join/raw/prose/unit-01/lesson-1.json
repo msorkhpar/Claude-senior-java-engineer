@@ -100,33 +100,25 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Forking both subtasks instead of computing one inline**"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Anti-pattern: an extra fork, and the current thread only gets work back through join()\nleft.fork();\nright.fork();\nreturn left.join() + right.join();\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Fork one, compute the other in the current thread:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "left.fork();\nlong rightResult = right.compute();\nlong leftResult = left.join();\nreturn leftResult + rightResult;\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Forking both subtasks instead of computing one inline**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Anti-pattern: an extra fork, and the current thread only gets work back through join()\nleft.fork();\nright.fork();\nreturn left.join() + right.join();"
+          },
+          "**Fix**: Fork one, compute the other in the current thread:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "left.fork();\nlong rightResult = right.compute();\nlong leftResult = left.join();\nreturn leftResult + rightResult;"
+          }
+        ],
         "**Threshold too small**: Creating millions of tiny tasks causes scheduling overhead to dominate. **Fix**: Use a threshold around `N / (parallelism * 4)` or at least a few hundred elements.",
         "**Blocking I/O inside tasks**: ForkJoinPool threads that block on I/O reduce parallelism. **Fix**: Use `ManagedBlocker` or move I/O-bound work to a separate thread pool.",
         "**Shared mutable state**: Concurrent modification of shared structures causes data races. **Fix**: Use thread-local accumulators, atomic variables, or merge results at join time.",
         "**Joining too early**: Calling `left.join()` right after `left.fork()`, before computing the other half, forces sequential execution. (And calling `join()` on a task that was never forked or invoked blocks forever: nothing will ever run it.) **Fix**: Fork, compute the other subtask, then join."
-      ],
-      "start": 2
+      ]
     },
     {
       "type": "heading",
@@ -197,12 +189,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The Fork/Join Framework is a parallel computing framework in java.util.concurrent\ndesigned for divide-and-conquer algorithms. It consists of ForkJoinPool (the executor),\nRecursiveTask (for tasks that return a result), and RecursiveAction (for void tasks).\n\nUse it when:\n- The problem can be recursively decomposed into independent subproblems\n- The work is CPU-bound (not I/O-bound)\n- The dataset is large enough to benefit from parallel processing\n\nDo NOT use it for:\n- I/O-bound tasks (use virtual threads or a cached thread pool)\n- Tasks that require heavy synchronization between subtasks\n- Small datasets where overhead exceeds parallelism benefits\n"
+      "text": "A1: The Fork/Join Framework is a parallel computing framework in java.util.concurrent\ndesigned for divide-and-conquer algorithms. It consists of ForkJoinPool (the executor),\nRecursiveTask (for tasks that return a result), and RecursiveAction (for void tasks).\n\nUse it when:\n- The problem can be recursively decomposed into independent subproblems\n- The work is CPU-bound (not I/O-bound)\n- The dataset is large enough to benefit from parallel processing\n\nDo NOT use it for:\n- I/O-bound tasks (use virtual threads or a cached thread pool)\n- Tasks that require heavy synchronization between subtasks\n- Small datasets where overhead exceeds parallelism benefits"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Basic Fork/Join usage\nForkJoinPool pool = ForkJoinPool.commonPool();\nlong result = pool.invoke(new SumTask(array, 0, array.length));\n"
+      "text": "// Basic Fork/Join usage\nForkJoinPool pool = ForkJoinPool.commonPool();\nlong result = pool.invoke(new SumTask(array, 0, array.length));"
     },
     {
       "type": "para",
@@ -211,12 +203,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Each worker thread in a ForkJoinPool has its own double-ended queue (deque).\nWhen a task forks subtasks, they are pushed onto the current thread's deque.\n\nWork-stealing happens when a worker thread's deque is empty:\n1. The idle thread looks at other workers' deques\n2. It steals tasks from the TAIL of another thread's deque (LIFO for owner, FIFO for stealer)\n3. Stolen tasks tend to be larger (closer to the root of the recursion tree),\n   giving the stealer more work to do\n\nThis LIFO/FIFO design is optimal because:\n- The owning thread processes smaller, recently forked tasks (good for cache locality)\n- The stealing thread gets larger tasks (more work, fewer steals needed)\n\nThis automatically load-balances uneven workloads without explicit coordination.\n"
+      "text": "A2: Each worker thread in a ForkJoinPool has its own double-ended queue (deque).\nWhen a task forks subtasks, they are pushed onto the current thread's deque.\n\nWork-stealing happens when a worker thread's deque is empty:\n1. The idle thread looks at other workers' deques\n2. It steals tasks from the TAIL of another thread's deque (LIFO for owner, FIFO for stealer)\n3. Stolen tasks tend to be larger (closer to the root of the recursion tree),\n   giving the stealer more work to do\n\nThis LIFO/FIFO design is optimal because:\n- The owning thread processes smaller, recently forked tasks (good for cache locality)\n- The stealing thread gets larger tasks (more work, fewer steals needed)\n\nThis automatically load-balances uneven workloads without explicit coordination."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// The common pool uses work-stealing internally\nForkJoinPool pool = ForkJoinPool.commonPool();\nSystem.out.println(\"Parallelism: \" + pool.getParallelism());\nSystem.out.println(\"Steal count: \" + pool.getStealCount());\n"
+      "text": "// The common pool uses work-stealing internally\nForkJoinPool pool = ForkJoinPool.commonPool();\nSystem.out.println(\"Parallelism: \" + pool.getParallelism());\nSystem.out.println(\"Steal count: \" + pool.getStealCount());"
     },
     {
       "type": "para",
@@ -225,12 +217,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Both extend ForkJoinTask and are used with ForkJoinPool:\n\nRecursiveTask<V>:\n- Returns a result of type V\n- Override compute() which returns V\n- Use for operations like sum, max, merge sort, search\n- Results are combined at join points\n\nRecursiveAction:\n- Returns no result (void)\n- Override compute() which returns void\n- Use for in-place mutations (array fill, increment, transform)\n- Side effects happen directly (e.g., modifying array elements)\n\nKey guideline: If you need the computation's result, use RecursiveTask.\nIf you are performing an in-place transformation, use RecursiveAction.\n"
+      "text": "A3: Both extend ForkJoinTask and are used with ForkJoinPool:\n\nRecursiveTask<V>:\n- Returns a result of type V\n- Override compute() which returns V\n- Use for operations like sum, max, merge sort, search\n- Results are combined at join points\n\nRecursiveAction:\n- Returns no result (void)\n- Override compute() which returns void\n- Use for in-place mutations (array fill, increment, transform)\n- Side effects happen directly (e.g., modifying array elements)\n\nKey guideline: If you need the computation's result, use RecursiveTask.\nIf you are performing an in-place transformation, use RecursiveAction."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// RecursiveTask example -- returns a result\nclass SumTask extends RecursiveTask<Long> {\n    protected Long compute() {\n        if (size <= THRESHOLD) return sequentialSum();\n        SumTask left = new SumTask(array, start, mid);\n        SumTask right = new SumTask(array, mid, end);\n        left.fork();\n        long rightResult = right.compute();\n        return left.join() + rightResult;\n    }\n}\n\n// RecursiveAction example -- modifies in-place\nclass IncrementAction extends RecursiveAction {\n    protected void compute() {\n        if (size <= THRESHOLD) { incrementSequentially(); return; }\n        IncrementAction left = new IncrementAction(array, start, mid);\n        IncrementAction right = new IncrementAction(array, mid, end);\n        invokeAll(left, right);\n    }\n}\n"
+      "text": "// RecursiveTask example -- returns a result\nclass SumTask extends RecursiveTask<Long> {\n    protected Long compute() {\n        if (size <= THRESHOLD) return sequentialSum();\n        SumTask left = new SumTask(array, start, mid);\n        SumTask right = new SumTask(array, mid, end);\n        left.fork();\n        long rightResult = right.compute();\n        return left.join() + rightResult;\n    }\n}\n\n// RecursiveAction example -- modifies in-place\nclass IncrementAction extends RecursiveAction {\n    protected void compute() {\n        if (size <= THRESHOLD) { incrementSequentially(); return; }\n        IncrementAction left = new IncrementAction(array, start, mid);\n        IncrementAction right = new IncrementAction(array, mid, end);\n        invokeAll(left, right);\n    }\n}"
     },
     {
       "type": "para",
@@ -239,12 +231,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: Forking both subtasks wastes the current thread:\n\nAnti-pattern:\n  left.fork();   // push left to deque\n  right.fork();  // push right to deque\n  return left.join() + right.join();  // current thread just waits in join()\n\nThe current thread forks two tasks and then waits in join(). While waiting, a ForkJoinPool\nworker usually runs or helps with the queued tasks itself, so no extra thread is needed, but\nevery split pays for an extra push/pop through the deque and the work is no longer done directly.\n\nCorrect pattern:\n  left.fork();                        // push left to deque\n  long rightResult = right.compute(); // compute right in THIS thread\n  long leftResult = left.join();      // join left\n  return leftResult + rightResult;\n\nThe current thread computes the right subtask directly, staying productive while another\nworker may steal and process the left subtask. This maximizes CPU utilization.\n\nAdditionally, always join the LAST-forked task first (or call compute on the right\nafter forking the left) to minimize task queue depth.\n"
+      "text": "A4: Forking both subtasks wastes the current thread:\n\nAnti-pattern:\n  left.fork();   // push left to deque\n  right.fork();  // push right to deque\n  return left.join() + right.join();  // current thread just waits in join()\n\nThe current thread forks two tasks and then waits in join(). While waiting, a ForkJoinPool\nworker usually runs or helps with the queued tasks itself, so no extra thread is needed, but\nevery split pays for an extra push/pop through the deque and the work is no longer done directly.\n\nCorrect pattern:\n  left.fork();                        // push left to deque\n  long rightResult = right.compute(); // compute right in THIS thread\n  long leftResult = left.join();      // join left\n  return leftResult + rightResult;\n\nThe current thread computes the right subtask directly, staying productive while another\nworker may steal and process the left subtask. This maximizes CPU utilization.\n\nAdditionally, always join the LAST-forked task first (or call compute on the right\nafter forking the left) to minimize task queue depth."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Correct pattern\nleft.fork();\nlong rightResult = right.compute();  // current thread stays busy\nlong leftResult = left.join();\nreturn leftResult + rightResult;\n"
+      "text": "// Correct pattern\nleft.fork();\nlong rightResult = right.compute();  // current thread stays busy\nlong leftResult = left.join();\nreturn leftResult + rightResult;"
     },
     {
       "type": "para",
@@ -253,12 +245,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Java's parallel streams (stream.parallel() or collection.parallelStream())\nuse the common ForkJoinPool internally. When you write:\n\n  list.parallelStream().mapToInt(x -> x * x).sum();\n\nThe stream framework submits Spliterator-based tasks to ForkJoinPool.commonPool().\n\nKey implications:\n1. All parallel streams in the JVM share the same common pool by default\n2. A long-running parallel stream operation can starve other parallel operations\n3. You can run parallel streams in a custom ForkJoinPool by submitting\n   the stream operation as a task to that pool\n\nCaution: The common pool's parallelism defaults to availableProcessors() - 1.\nSaturating it with blocking operations affects all parallel streams in the JVM.\n"
+      "text": "A5: Java's parallel streams (stream.parallel() or collection.parallelStream())\nuse the common ForkJoinPool internally. When you write:\n\n  list.parallelStream().mapToInt(x -> x * x).sum();\n\nThe stream framework submits Spliterator-based tasks to ForkJoinPool.commonPool().\n\nKey implications:\n1. All parallel streams in the JVM share the same common pool by default\n2. A long-running parallel stream operation can starve other parallel operations\n3. You can run parallel streams in a custom ForkJoinPool by submitting\n   the stream operation as a task to that pool\n\nCaution: The common pool's parallelism defaults to availableProcessors() - 1.\nSaturating it with blocking operations affects all parallel streams in the JVM."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Running a parallel stream in a custom ForkJoinPool\nForkJoinPool customPool = new ForkJoinPool(4);\nlong sum = customPool.submit(() ->\n    IntStream.range(0, 10_000)\n        .parallel()\n        .mapToLong(i -> array[i])\n        .sum()\n).join();\ncustomPool.shutdown();\n"
+      "text": "// Running a parallel stream in a custom ForkJoinPool\nForkJoinPool customPool = new ForkJoinPool(4);\nlong sum = customPool.submit(() ->\n    IntStream.range(0, 10_000)\n        .parallel()\n        .mapToLong(i -> array[i])\n        .sum()\n).join();\ncustomPool.shutdown();"
     },
     {
       "type": "heading",
@@ -285,10 +277,10 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 11,
-    "code": 12,
+    "paras": 10,
+    "code": 10,
     "tables": 0,
-    "lists": 10,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -296,5 +288,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "69e09091865061cfe41ad740fc60895ce6f6d8901748bd09ebe112bc0ec6c7f4"
+  "content_sha256": "18c67c874ebdaca4e7d30d2fa721cee6c0add11aca648666d34389a211699978"
 }

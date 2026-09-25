@@ -89,95 +89,59 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Threshold = 1 (splitting down to individual elements)**"
-      ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: each element becomes a separate task\nif (end - start <= 1) {\n    return array[start];\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "With N = 1,000,000 this creates ~2 million tasks. The overhead of creating, scheduling, and joining each task vastly exceeds the cost of a single addition."
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use a threshold of at least several hundred:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "private static final int THRESHOLD = 1000;\nif (end - start <= THRESHOLD) {\n    long sum = 0;\n    for (int i = start; i < end; i++) sum += array[i];\n    return sum;\n}\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Joining too early**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: sequential execution disguised as fork/join\nleft.fork();\nlong leftResult = left.join(); // blocks immediately!\nlong rightResult = right.compute();\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Fork first, compute the other subtask, then join:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "left.fork();\nlong rightResult = right.compute(); // do useful work while left runs\nlong leftResult = left.join();\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Unbalanced splits without justification**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: 10/90 split creates deep, unbalanced recursion\nint splitPoint = start + length / 10;\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Split at the midpoint unless you have data-specific reasons not to:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "int mid = start + length / 2;\n"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Creating too many subtasks in multi-way split**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: creating 1000 subtasks for a 1000-element array\nfor (int i = 0; i < array.length; i++) {\n    tasks.add(new Task(array, i, i + 1));\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Limit the number of ways to the parallelism level or a small multiple of it."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+        [
+          "**Threshold = 1 (splitting down to individual elements)**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: each element becomes a separate task\nif (end - start <= 1) {\n    return array[start];\n}"
+          },
+          "With N = 1,000,000 this creates ~2 million tasks. The overhead of creating, scheduling, and joining each task vastly exceeds the cost of a single addition. **Fix**: Use a threshold of at least several hundred:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "private static final int THRESHOLD = 1000;\nif (end - start <= THRESHOLD) {\n    long sum = 0;\n    for (int i = start; i < end; i++) sum += array[i];\n    return sum;\n}"
+          }
+        ],
+        [
+          "**Joining too early**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: sequential execution disguised as fork/join\nleft.fork();\nlong leftResult = left.join(); // blocks immediately!\nlong rightResult = right.compute();"
+          },
+          "**Fix**: Fork first, compute the other subtask, then join:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "left.fork();\nlong rightResult = right.compute(); // do useful work while left runs\nlong leftResult = left.join();"
+          }
+        ],
+        [
+          "**Unbalanced splits without justification**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: 10/90 split creates deep, unbalanced recursion\nint splitPoint = start + length / 10;"
+          },
+          "**Fix**: Split at the midpoint unless you have data-specific reasons not to:",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "int mid = start + length / 2;"
+          }
+        ],
+        [
+          "**Creating too many subtasks in multi-way split**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: creating 1000 subtasks for a 1000-element array\nfor (int i = 0; i < array.length; i++) {\n    tasks.add(new Task(array, i, i + 1));\n}"
+          },
+          "**Fix**: Limit the number of ways to the parallelism level or a small multiple of it."
+        ],
         "**Not considering the cost of the combine step**: For merge sort, the merge step is O(n) per level. If splits create too many levels, the total merge overhead can dominate."
-      ],
-      "start": 5
+      ]
     },
     {
       "type": "heading",
@@ -265,12 +229,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: The threshold determines when to stop splitting and compute sequentially.\nChoosing it involves balancing two costs:\n\n1. Too small a threshold: excessive task creation overhead. Each fork()\n   creates a ForkJoinTask object, pushes it to a deque, and may trigger\n   work-stealing. For millions of tiny tasks, this overhead dominates.\n\n2. Too large a threshold: insufficient parallelism. If the threshold is\n   close to N, few tasks are created and most cores sit idle.\n\nHeuristics:\n- Start with N / (parallelism * 4), where parallelism is the pool size\n- Minimum 100-1000 elements (depends on the cost per element)\n- For cheap operations (addition): higher threshold (~10,000)\n- For expensive operations (complex math, string processing): lower (~100)\n\nBest practice: Profile with different thresholds using JMH or similar\nbenchmarking tools. The optimal value depends on the specific hardware,\nJVM, and operation cost.\n\nRule of thumb for interviews: \"between 1,000 and 10,000 for typical\narray operations, adjusted based on profiling.\"\n"
+      "text": "A1: The threshold determines when to stop splitting and compute sequentially.\nChoosing it involves balancing two costs:\n\n1. Too small a threshold: excessive task creation overhead. Each fork()\n   creates a ForkJoinTask object, pushes it to a deque, and may trigger\n   work-stealing. For millions of tiny tasks, this overhead dominates.\n\n2. Too large a threshold: insufficient parallelism. If the threshold is\n   close to N, few tasks are created and most cores sit idle.\n\nHeuristics:\n- Start with N / (parallelism * 4), where parallelism is the pool size\n- Minimum 100-1000 elements (depends on the cost per element)\n- For cheap operations (addition): higher threshold (~10,000)\n- For expensive operations (complex math, string processing): lower (~100)\n\nBest practice: Profile with different thresholds using JMH or similar\nbenchmarking tools. The optimal value depends on the specific hardware,\nJVM, and operation cost.\n\nRule of thumb for interviews: \"between 1,000 and 10,000 for typical\narray operations, adjusted based on profiling.\""
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Threshold that adapts to available parallelism\nint parallelism = ForkJoinPool.commonPool().getParallelism();\nint threshold = Math.max(1000, array.length / (parallelism * 4));\n\n// Using the threshold in a task\nif (end - start <= threshold) {\n    // sequential computation\n    long sum = 0;\n    for (int i = start; i < end; i++) sum += array[i];\n    return sum;\n}\n"
+      "text": "// Threshold that adapts to available parallelism\nint parallelism = ForkJoinPool.commonPool().getParallelism();\nint threshold = Math.max(1000, array.length / (parallelism * 4));\n\n// Using the threshold in a task\nif (end - start <= threshold) {\n    // sequential computation\n    long sum = 0;\n    for (int i = start; i < end; i++) sum += array[i];\n    return sum;\n}"
     },
     {
       "type": "para",
@@ -279,12 +243,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: Work-stealing is the algorithm ForkJoinPool uses to balance work\nacross threads without explicit coordination.\n\nHow it works:\n1. Each worker thread has its own deque (double-ended queue)\n2. When a thread forks a subtask, it pushes it onto ITS OWN deque (LIFO)\n3. When a thread needs work, it pops from its own deque (LIFO - top)\n4. When a thread's deque is empty, it steals from ANOTHER thread's deque (FIFO - bottom)\n\nWhy LIFO for own work and FIFO for stealing:\n- The owning thread pops recently forked tasks (smaller, at the top) -- good for\n  cache locality and working on the most recently created subtask\n- The stealing thread takes tasks from the bottom (older, larger) -- these are\n  closer to the root of the recursion tree and represent more work, reducing\n  the number of steals needed\n\nLoad balancing benefits:\n- No explicit load distribution needed\n- Naturally handles uneven workloads\n- Idle threads automatically find work\n- Minimal contention (each thread usually works on its own deque)\n\nLimitations:\n- Work-stealing has overhead (lock-free deque operations)\n- Very small tasks may be stolen before the owning thread processes them\n- Blocking in tasks reduces the effectiveness of stealing\n"
+      "text": "A2: Work-stealing is the algorithm ForkJoinPool uses to balance work\nacross threads without explicit coordination.\n\nHow it works:\n1. Each worker thread has its own deque (double-ended queue)\n2. When a thread forks a subtask, it pushes it onto ITS OWN deque (LIFO)\n3. When a thread needs work, it pops from its own deque (LIFO - top)\n4. When a thread's deque is empty, it steals from ANOTHER thread's deque (FIFO - bottom)\n\nWhy LIFO for own work and FIFO for stealing:\n- The owning thread pops recently forked tasks (smaller, at the top) -- good for\n  cache locality and working on the most recently created subtask\n- The stealing thread takes tasks from the bottom (older, larger) -- these are\n  closer to the root of the recursion tree and represent more work, reducing\n  the number of steals needed\n\nLoad balancing benefits:\n- No explicit load distribution needed\n- Naturally handles uneven workloads\n- Idle threads automatically find work\n- Minimal contention (each thread usually works on its own deque)\n\nLimitations:\n- Work-stealing has overhead (lock-free deque operations)\n- Very small tasks may be stolen before the owning thread processes them\n- Blocking in tasks reduces the effectiveness of stealing"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Observing work-stealing in action\nForkJoinPool pool = new ForkJoinPool(4);\ntry {\n    pool.invoke(new LargeTask(array));\n    System.out.println(\"Steal count: \" + pool.getStealCount());\n    System.out.println(\"Pool size: \" + pool.getPoolSize());\n} finally {\n    pool.shutdown();\n}\n"
+      "text": "// Observing work-stealing in action\nForkJoinPool pool = new ForkJoinPool(4);\ntry {\n    pool.invoke(new LargeTask(array));\n    System.out.println(\"Steal count: \" + pool.getStealCount());\n    System.out.println(\"Pool size: \" + pool.getPoolSize());\n} finally {\n    pool.shutdown();\n}"
     },
     {
       "type": "para",
@@ -293,12 +257,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: Balanced splitting (50/50) distributes work evenly across the recursion\ntree, while unbalanced splitting (e.g., 10/90) creates asymmetry.\n\nBalanced (50/50) advantages:\n- Each subtask at the same level has approximately equal work\n- The recursion tree has depth log2(N/T), creating O(N/T) leaf tasks\n- All threads finish at roughly the same time\n- Work-stealing has less to compensate for\n\nUnbalanced (10/90) problems:\n- The recursion tree is deeper on one side (log10(N/T) vs log1.11(N/T))\n- More total tasks are created (deeper tree = more internal nodes)\n- One thread may process a chain of large tasks while others are idle\n- Work-stealing must work harder to rebalance\n\nWhen unbalanced splits ARE appropriate:\n- When certain data ranges are known to be cheaper to process\n- When the split point corresponds to a natural boundary (e.g., sorted data)\n- When the cost per element varies and you can estimate it\n\nIn general, default to balanced splitting unless you have specific knowledge\nabout the workload distribution.\n"
+      "text": "A3: Balanced splitting (50/50) distributes work evenly across the recursion\ntree, while unbalanced splitting (e.g., 10/90) creates asymmetry.\n\nBalanced (50/50) advantages:\n- Each subtask at the same level has approximately equal work\n- The recursion tree has depth log2(N/T), creating O(N/T) leaf tasks\n- All threads finish at roughly the same time\n- Work-stealing has less to compensate for\n\nUnbalanced (10/90) problems:\n- The recursion tree is deeper on one side (log10(N/T) vs log1.11(N/T))\n- More total tasks are created (deeper tree = more internal nodes)\n- One thread may process a chain of large tasks while others are idle\n- Work-stealing must work harder to rebalance\n\nWhen unbalanced splits ARE appropriate:\n- When certain data ranges are known to be cheaper to process\n- When the split point corresponds to a natural boundary (e.g., sorted data)\n- When the cost per element varies and you can estimate it\n\nIn general, default to balanced splitting unless you have specific knowledge\nabout the workload distribution."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Balanced split\nint mid = start + (end - start) / 2;\n\n// Unbalanced split (only when justified by data characteristics)\nint splitPoint = start + (end - start) / 10;\n\n// Both produce the same result, but balanced is generally more efficient\n// for homogeneous workloads\n"
+      "text": "// Balanced split\nint mid = start + (end - start) / 2;\n\n// Unbalanced split (only when justified by data characteristics)\nint splitPoint = start + (end - start) / 10;\n\n// Both produce the same result, but balanced is generally more efficient\n// for homogeneous workloads"
     },
     {
       "type": "para",
@@ -307,12 +271,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: The correct pattern for RecursiveTask is: fork-compute-join.\n\n  left.fork();                        // 1. Fork left to another thread\n  long rightResult = right.compute(); // 2. Compute right in THIS thread\n  long leftResult = left.join();      // 3. Join left (wait for it)\n  return leftResult + rightResult;    // 4. Combine results\n\nWhy this is optimal:\n- Step 2 keeps the current thread busy doing useful work\n- While the current thread computes right, a stolen thread processes left\n- join() in step 3 may return immediately if left is already done\n\nAnti-pattern 1: fork-fork-join-join\n  left.fork();\n  right.fork();\n  return left.join() + right.join();  // current thread just waits in join()\n\n  The current thread no longer does the work directly: it forks two tasks and\n  then gets work back only through join() (a pool worker usually runs a queued\n  task itself while joining, so no extra thread is needed, but every split pays\n  for an extra push/pop through the deque).\n\nAnti-pattern 2: join-before-fork-completes\n  left.fork();\n  long leftResult = left.join();  // blocks immediately!\n  long rightResult = right.compute();\n\n  This forces sequential execution. The current thread waits for left\n  to complete before starting right.\n\nFor RecursiveAction, invokeAll() is preferred because there is no result\nto compute inline.\n"
+      "text": "A4: The correct pattern for RecursiveTask is: fork-compute-join.\n\n  left.fork();                        // 1. Fork left to another thread\n  long rightResult = right.compute(); // 2. Compute right in THIS thread\n  long leftResult = left.join();      // 3. Join left (wait for it)\n  return leftResult + rightResult;    // 4. Combine results\n\nWhy this is optimal:\n- Step 2 keeps the current thread busy doing useful work\n- While the current thread computes right, a stolen thread processes left\n- join() in step 3 may return immediately if left is already done\n\nAnti-pattern 1: fork-fork-join-join\n  left.fork();\n  right.fork();\n  return left.join() + right.join();  // current thread just waits in join()\n\n  The current thread no longer does the work directly: it forks two tasks and\n  then gets work back only through join() (a pool worker usually runs a queued\n  task itself while joining, so no extra thread is needed, but every split pays\n  for an extra push/pop through the deque).\n\nAnti-pattern 2: join-before-fork-completes\n  left.fork();\n  long leftResult = left.join();  // blocks immediately!\n  long rightResult = right.compute();\n\n  This forces sequential execution. The current thread waits for left\n  to complete before starting right.\n\nFor RecursiveAction, invokeAll() is preferred because there is no result\nto compute inline."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// CORRECT pattern for RecursiveTask\n@Override\nprotected Long compute() {\n    if (length <= THRESHOLD) return sequentialSum();\n\n    SumTask left = new SumTask(array, start, mid);\n    SumTask right = new SumTask(array, mid, end);\n\n    left.fork();                          // fork left\n    long rightResult = right.compute();   // compute right HERE\n    long leftResult = left.join();        // join left\n    return leftResult + rightResult;      // combine\n}\n\n// CORRECT pattern for RecursiveAction\n@Override\nprotected void compute() {\n    if (length <= THRESHOLD) { doWork(); return; }\n    invokeAll(                            // fork and join both\n        new MyAction(array, start, mid),\n        new MyAction(array, mid, end)\n    );\n}\n"
+      "text": "// CORRECT pattern for RecursiveTask\n@Override\nprotected Long compute() {\n    if (length <= THRESHOLD) return sequentialSum();\n\n    SumTask left = new SumTask(array, start, mid);\n    SumTask right = new SumTask(array, mid, end);\n\n    left.fork();                          // fork left\n    long rightResult = right.compute();   // compute right HERE\n    long leftResult = left.join();        // join left\n    return leftResult + rightResult;      // combine\n}\n\n// CORRECT pattern for RecursiveAction\n@Override\nprotected void compute() {\n    if (length <= THRESHOLD) { doWork(); return; }\n    invokeAll(                            // fork and join both\n        new MyAction(array, start, mid),\n        new MyAction(array, mid, end)\n    );\n}"
     },
     {
       "type": "para",
@@ -321,12 +285,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: Multi-way splitting creates N subtasks at once instead of the standard 2.\n\nWhen to use multi-way splitting:\n1. Very large inputs where binary splits create too many recursion levels\n   (e.g., array of 1 billion elements with threshold 1000 = 20 levels deep)\n2. When you want to match the number of leaf tasks to the available cores\n3. When the split cost is high and you want to minimize the number of splits\n\nImplementation considerations:\n- Fork all tasks except the last one\n- Compute the last task in the current thread\n- Join all forked tasks in reverse order\n- The number of ways should be 2-4x the parallelism level\n\nExample: For a 4-core machine, splitting into 4-8 chunks at the top level\ncreates enough parallelism immediately without deep recursion.\n\nMulti-way splitting is rarely needed in practice because:\n- Binary splitting with work-stealing handles most cases well\n- The overhead of creating more tasks at each level can offset benefits\n- The recursion depth for binary splitting is only log2(N/T), which is\n  manageable even for very large inputs\n"
+      "text": "A5: Multi-way splitting creates N subtasks at once instead of the standard 2.\n\nWhen to use multi-way splitting:\n1. Very large inputs where binary splits create too many recursion levels\n   (e.g., array of 1 billion elements with threshold 1000 = 20 levels deep)\n2. When you want to match the number of leaf tasks to the available cores\n3. When the split cost is high and you want to minimize the number of splits\n\nImplementation considerations:\n- Fork all tasks except the last one\n- Compute the last task in the current thread\n- Join all forked tasks in reverse order\n- The number of ways should be 2-4x the parallelism level\n\nExample: For a 4-core machine, splitting into 4-8 chunks at the top level\ncreates enough parallelism immediately without deep recursion.\n\nMulti-way splitting is rarely needed in practice because:\n- Binary splitting with work-stealing handles most cases well\n- The overhead of creating more tasks at each level can offset benefits\n- The recursion depth for binary splitting is only log2(N/T), which is\n  manageable even for very large inputs"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Multi-way split into N subtasks\n@Override\nprotected Long compute() {\n    int length = end - start;\n    if (length <= THRESHOLD || ways <= 1) {\n        return sequentialSum();\n    }\n\n    int chunkSize = length / ways;\n    List<SumTask> tasks = new ArrayList<>();\n    for (int i = 0; i < ways; i++) {\n        int chunkEnd = (i == ways - 1) ? end : start + (i + 1) * chunkSize;\n        tasks.add(new SumTask(array, start + i * chunkSize, chunkEnd));\n    }\n\n    // Fork all but the last\n    for (int i = 0; i < tasks.size() - 1; i++) {\n        tasks.get(i).fork();\n    }\n    // Compute the last in current thread\n    long total = tasks.get(tasks.size() - 1).compute();\n    // Join all forked tasks\n    for (int i = tasks.size() - 2; i >= 0; i--) {\n        total += tasks.get(i).join();\n    }\n    return total;\n}\n"
+      "text": "// Multi-way split into N subtasks\n@Override\nprotected Long compute() {\n    int length = end - start;\n    if (length <= THRESHOLD || ways <= 1) {\n        return sequentialSum();\n    }\n\n    int chunkSize = length / ways;\n    List<SumTask> tasks = new ArrayList<>();\n    for (int i = 0; i < ways; i++) {\n        int chunkEnd = (i == ways - 1) ? end : start + (i + 1) * chunkSize;\n        tasks.add(new SumTask(array, start + i * chunkSize, chunkEnd));\n    }\n\n    // Fork all but the last\n    for (int i = 0; i < tasks.size() - 1; i++) {\n        tasks.get(i).fork();\n    }\n    // Compute the last in current thread\n    long total = tasks.get(tasks.size() - 1).compute();\n    // Join all forked tasks\n    for (int i = tasks.size() - 2; i >= 0; i--) {\n        total += tasks.get(i).join();\n    }\n    return total;\n}"
     },
     {
       "type": "para",
@@ -335,12 +299,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: Verification requires both correctness testing and performance measurement:\n\nCorrectness:\n1. Compare parallel results with sequential results for the same input\n2. Test with various array sizes (below, at, and above threshold)\n3. Test with edge cases (null, empty, single element, all identical)\n4. Run multiple times to detect race conditions\n\nPerformance:\n1. Use JMH (Java Microbenchmark Harness) for reliable measurements\n2. Compare sequential vs. parallel execution times\n3. Vary the array size to find the crossover point (where parallel wins)\n4. Test with different parallelism levels\n5. Monitor pool statistics (steal count, active threads)\n\nKey metrics:\n- Speedup = sequential time / parallel time\n- Ideal speedup = number of cores\n- Actual speedup is always less due to overhead (Amdahl's law)\n- If speedup < 1, the overhead exceeds the benefit -- increase threshold\n\nCommon gotchas:\n- JIT warmup affects measurements (use JMH with warmup iterations)\n- Small arrays may show parallel being SLOWER than sequential\n- GC pauses can skew results\n"
+      "text": "A6: Verification requires both correctness testing and performance measurement:\n\nCorrectness:\n1. Compare parallel results with sequential results for the same input\n2. Test with various array sizes (below, at, and above threshold)\n3. Test with edge cases (null, empty, single element, all identical)\n4. Run multiple times to detect race conditions\n\nPerformance:\n1. Use JMH (Java Microbenchmark Harness) for reliable measurements\n2. Compare sequential vs. parallel execution times\n3. Vary the array size to find the crossover point (where parallel wins)\n4. Test with different parallelism levels\n5. Monitor pool statistics (steal count, active threads)\n\nKey metrics:\n- Speedup = sequential time / parallel time\n- Ideal speedup = number of cores\n- Actual speedup is always less due to overhead (Amdahl's law)\n- If speedup < 1, the overhead exceeds the benefit -- increase threshold\n\nCommon gotchas:\n- JIT warmup affects measurements (use JMH with warmup iterations)\n- Small arrays may show parallel being SLOWER than sequential\n- GC pauses can skew results"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Simple performance comparison (use JMH for production benchmarks)\nlong[] array = LongStream.rangeClosed(1, 10_000_000).toArray();\n\n// Sequential\nlong startTime = System.nanoTime();\nlong seqSum = Arrays.stream(array).sum();\nlong seqTime = System.nanoTime() - startTime;\n\n// Parallel with Fork/Join\nstartTime = System.nanoTime();\nlong parSum = ForkJoinPool.commonPool().invoke(\n    new ArraySumTask(array, 0, array.length));\nlong parTime = System.nanoTime() - startTime;\n\nSystem.out.printf(\"Sequential: %d ns, Parallel: %d ns%n\", seqTime, parTime);\nSystem.out.printf(\"Speedup: %.2fx%n\", (double) seqTime / parTime);\nassert seqSum == parSum; // correctness check\n"
+      "text": "// Simple performance comparison (use JMH for production benchmarks)\nlong[] array = LongStream.rangeClosed(1, 10_000_000).toArray();\n\n// Sequential\nlong startTime = System.nanoTime();\nlong seqSum = Arrays.stream(array).sum();\nlong seqTime = System.nanoTime() - startTime;\n\n// Parallel with Fork/Join\nstartTime = System.nanoTime();\nlong parSum = ForkJoinPool.commonPool().invoke(\n    new ArraySumTask(array, 0, array.length));\nlong parTime = System.nanoTime() - startTime;\n\nSystem.out.printf(\"Sequential: %d ns, Parallel: %d ns%n\", seqTime, parTime);\nSystem.out.printf(\"Speedup: %.2fx%n\", (double) seqTime / parTime);\nassert seqSum == parSum; // correctness check"
     },
     {
       "type": "heading",
@@ -361,10 +325,10 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 14,
-    "code": 19,
+    "paras": 9,
+    "code": 12,
     "tables": 0,
-    "lists": 12,
+    "lists": 8,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -372,5 +336,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "ace4fbf87576cf216a4463b25705c6eb0a26c73137020c00495f151b6c107d4c"
+  "content_sha256": "026c5225d3ea987ee1dfaf3affeb44ae40e055e8bfaf8df17b8a9090cec20c41"
 }

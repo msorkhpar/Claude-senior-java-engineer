@@ -87,68 +87,43 @@
       "type": "list",
       "ordered": true,
       "items": [
-        "**Forgetting to seal the interface**"
+        [
+          "**Forgetting to seal the interface**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Any class can implement this -- no closed set of \"constants\"\ninterface Setting<T> { T defaultValue(); }"
+          },
+          "**Fix**: Use `sealed interface Setting<T> permits ...` to restrict implementations."
+        ],
+        [
+          "**Unchecked casts with Class tokens**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Compiler warnings and potential ClassCastException\nenum ConfigKey {\n    PORT(Integer.class, 8080);\n    private final Object defaultValue;\n    ConfigKey(Class<?> type, Object defaultValue) { this.defaultValue = defaultValue; }\n    @SuppressWarnings(\"unchecked\")\n    public <T> T getDefault() { return (T) defaultValue; }\n}\n// String s = ConfigKey.PORT.getDefault(); // ClassCastException at runtime!"
+          },
+          "**Fix**: Add a `cast()` method that uses `Class.cast()` and validate types at the call site."
+        ],
+        [
+          "**Losing enum-specific features**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Static final instances don't support EnumSet, valueOf(), ordinal()\nclass Key<T> {\n    public static final Key<Integer> PORT = new Key<>(\"port\", Integer.class, 8080);\n    // No EnumSet.of(Key.PORT) -- not an enum!\n}"
+          },
+          "**Fix**: Accept the trade-off, or use a hybrid approach with an enum + companion generic wrapper."
+        ],
+        [
+          "**Mutable sealed hierarchy members**",
+          {
+            "type": "code",
+            "lang": "java",
+            "text": "// Problem: Records are immutable, but if you use classes instead of records\n// in a sealed hierarchy, you lose immutability guarantees\nsealed interface Setting<T> permits MutableSetting { ... }\nfinal class MutableSetting<T> implements Setting<T> {\n    private T value; // Mutable -- breaks assumptions\n}"
+          },
+          "**Fix**: Prefer records for sealed hierarchy members to guarantee immutability."
+        ]
       ]
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Any class can implement this -- no closed set of \"constants\"\ninterface Setting<T> { T defaultValue(); }\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Use `sealed interface Setting<T> permits ...` to restrict implementations."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Unchecked casts with Class tokens**"
-      ],
-      "start": 2
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Compiler warnings and potential ClassCastException\nenum ConfigKey {\n    PORT(Integer.class, 8080);\n    private final Object defaultValue;\n    ConfigKey(Class<?> type, Object defaultValue) { this.defaultValue = defaultValue; }\n    @SuppressWarnings(\"unchecked\")\n    public <T> T getDefault() { return (T) defaultValue; }\n}\n// String s = ConfigKey.PORT.getDefault(); // ClassCastException at runtime!\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Add a `cast()` method that uses `Class.cast()` and validate types at the call site."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Losing enum-specific features**"
-      ],
-      "start": 3
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Static final instances don't support EnumSet, valueOf(), ordinal()\nclass Key<T> {\n    public static final Key<Integer> PORT = new Key<>(\"port\", Integer.class, 8080);\n    // No EnumSet.of(Key.PORT) -- not an enum!\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Accept the trade-off, or use a hybrid approach with an enum + companion generic wrapper."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Mutable sealed hierarchy members**"
-      ],
-      "start": 4
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Problem: Records are immutable, but if you use classes instead of records\n// in a sealed hierarchy, you lose immutability guarantees\nsealed interface Setting<T> permits MutableSetting { ... }\nfinal class MutableSetting<T> implements Setting<T> {\n    private T value; // Mutable -- breaks assumptions\n}\n"
-    },
-    {
-      "type": "para",
-      "text": "**Fix**: Prefer records for sealed hierarchy members to guarantee immutability."
     },
     {
       "type": "heading",
@@ -225,12 +200,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A1: Java enums cannot have type parameters because the language does not allow it:\n\n1. Language rule: the grammar for enum declarations (JLS 8.9) has no type-parameter\n   section, so `enum Setting<T>` does not compile. This is a deliberate simplification.\n\n2. Every constant has the enum's own type: Setting.MAX_RETRIES and Setting.APP_NAME are\n   both typed as plain Setting. Giving each constant its own type argument\n   (Setting<Integer>, Setting<String>) would need per-constant typing that the\n   language does not have.\n\n3. It was proposed and withdrawn: JEP 301 (\"Enhanced Enums\") proposed generic enums\n   and sharper typing of enum constants, but it was withdrawn, so Java 21 enums are\n   still not generic.\n\n4. Erasure is not the obstacle by itself: a generic class can already declare\n   static final instances with different type arguments (the TypedKey<T> pattern in Q4),\n   even though those type arguments are erased at run time.\n\nThe practical impact is that any enum method returning a per-constant typed value\nmust use Object and unsafe casts, or you must use workaround patterns.\n"
+      "text": "A1: Java enums cannot have type parameters because the language does not allow it:\n\n1. Language rule: the grammar for enum declarations (JLS 8.9) has no type-parameter\n   section, so `enum Setting<T>` does not compile. This is a deliberate simplification.\n\n2. Every constant has the enum's own type: Setting.MAX_RETRIES and Setting.APP_NAME are\n   both typed as plain Setting. Giving each constant its own type argument\n   (Setting<Integer>, Setting<String>) would need per-constant typing that the\n   language does not have.\n\n3. It was proposed and withdrawn: JEP 301 (\"Enhanced Enums\") proposed generic enums\n   and sharper typing of enum constants, but it was withdrawn, so Java 21 enums are\n   still not generic.\n\n4. Erasure is not the obstacle by itself: a generic class can already declare\n   static final instances with different type arguments (the TypedKey<T> pattern in Q4),\n   even though those type arguments are erased at run time.\n\nThe practical impact is that any enum method returning a per-constant typed value\nmust use Object and unsafe casts, or you must use workaround patterns."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// ILLEGAL: enum Setting<T> { MAX_RETRIES(3), APP_NAME(\"MyApp\"); }\n\n// Why? The declaration cannot take a type parameter, and every constant has the plain\n// type Setting, so the compiler cannot know that MAX_RETRIES.getValue() returns Integer\n// while APP_NAME.getValue() returns String.\n"
+      "text": "// ILLEGAL: enum Setting<T> { MAX_RETRIES(3), APP_NAME(\"MyApp\"); }\n\n// Why? The declaration cannot take a type parameter, and every constant has the plain\n// type Setting, so the compiler cannot know that MAX_RETRIES.getValue() returns Integer\n// while APP_NAME.getValue() returns String."
     },
     {
       "type": "para",
@@ -239,12 +214,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A2: The sealed interface pattern uses Java 17+ sealed interfaces combined with records\nto create a closed set of type-safe \"constants\". Each record acts as an enum constant\nwith its own generic type parameter.\n\nSteps:\n1. Define a sealed generic interface with the common API.\n2. List all permitted implementations (your \"constants\").\n3. Implement each as a record with the appropriate type parameter.\n4. Optionally provide a static values() method returning all instances.\n5. Use pattern matching in switch for exhaustive handling.\n\nAdvantages over traditional enums:\n- Full compile-time type safety per constant\n- Exhaustive switch support (Java 21)\n- Immutability (records)\n- Natural toString/equals/hashCode\n\nDisadvantages:\n- No ordinal(), name(), or valueOf()\n- No EnumSet/EnumMap support\n- Instances are value-equal, not identity-equal\n"
+      "text": "A2: The sealed interface pattern uses Java 17+ sealed interfaces combined with records\nto create a closed set of type-safe \"constants\". Each record acts as an enum constant\nwith its own generic type parameter.\n\nSteps:\n1. Define a sealed generic interface with the common API.\n2. List all permitted implementations (your \"constants\").\n3. Implement each as a record with the appropriate type parameter.\n4. Optionally provide a static values() method returning all instances.\n5. Use pattern matching in switch for exhaustive handling.\n\nAdvantages over traditional enums:\n- Full compile-time type safety per constant\n- Exhaustive switch support (Java 21)\n- Immutability (records)\n- Natural toString/equals/hashCode\n\nDisadvantages:\n- No ordinal(), name(), or valueOf()\n- No EnumSet/EnumMap support\n- Instances are value-equal, not identity-equal"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "sealed interface TypedSetting<T>\n        permits TypedSetting.MaxRetries, TypedSetting.AppName, TypedSetting.Debug {\n    \n    String key();\n    T defaultValue();\n    Class<T> valueType();\n    \n    record MaxRetries() implements TypedSetting<Integer> {\n        public String key() { return \"max.retries\"; }\n        public Integer defaultValue() { return 3; }\n        public Class<Integer> valueType() { return Integer.class; }\n    }\n    \n    record AppName() implements TypedSetting<String> {\n        public String key() { return \"app.name\"; }\n        public String defaultValue() { return \"MyApp\"; }\n        public Class<String> valueType() { return String.class; }\n    }\n    \n    record Debug() implements TypedSetting<Boolean> {\n        public String key() { return \"debug\"; }\n        public Boolean defaultValue() { return false; }\n        public Class<Boolean> valueType() { return Boolean.class; }\n    }\n    \n    static List<TypedSetting<?>> values() {\n        return List.of(new MaxRetries(), new AppName(), new Debug());\n    }\n}\n"
+      "text": "sealed interface TypedSetting<T>\n        permits TypedSetting.MaxRetries, TypedSetting.AppName, TypedSetting.Debug {\n    \n    String key();\n    T defaultValue();\n    Class<T> valueType();\n    \n    record MaxRetries() implements TypedSetting<Integer> {\n        public String key() { return \"max.retries\"; }\n        public Integer defaultValue() { return 3; }\n        public Class<Integer> valueType() { return Integer.class; }\n    }\n    \n    record AppName() implements TypedSetting<String> {\n        public String key() { return \"app.name\"; }\n        public String defaultValue() { return \"MyApp\"; }\n        public Class<String> valueType() { return String.class; }\n    }\n    \n    record Debug() implements TypedSetting<Boolean> {\n        public String key() { return \"debug\"; }\n        public Boolean defaultValue() { return false; }\n        public Class<Boolean> valueType() { return Boolean.class; }\n    }\n    \n    static List<TypedSetting<?>> values() {\n        return List.of(new MaxRetries(), new AppName(), new Debug());\n    }\n}"
     },
     {
       "type": "para",
@@ -253,12 +228,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A3: The \"enum with Class token\" pattern stores a Class<?> object in each enum constant\nto enable runtime type checking. The constant carries its expected type as metadata.\n\nWhen to use:\n- When you need enum features (EnumSet, valueOf, ordinal, switch)\n- When runtime type checking is acceptable (no compile-time guarantee)\n- When the API is internal and callers can be trusted to use correct types\n\nLimitations:\n- Requires @SuppressWarnings(\"unchecked\") on generic methods\n- Type safety is enforced at runtime, not compile time\n- Cannot express parameterized types (List<String>.class doesn't exist)\n- Wrong usage causes ClassCastException at runtime, not compile error\n\nThis pattern is a pragmatic middle ground: you keep enum ergonomics but add\npartial type awareness through the class token.\n"
+      "text": "A3: The \"enum with Class token\" pattern stores a Class<?> object in each enum constant\nto enable runtime type checking. The constant carries its expected type as metadata.\n\nWhen to use:\n- When you need enum features (EnumSet, valueOf, ordinal, switch)\n- When runtime type checking is acceptable (no compile-time guarantee)\n- When the API is internal and callers can be trusted to use correct types\n\nLimitations:\n- Requires @SuppressWarnings(\"unchecked\") on generic methods\n- Type safety is enforced at runtime, not compile time\n- Cannot express parameterized types (List<String>.class doesn't exist)\n- Wrong usage causes ClassCastException at runtime, not compile error\n\nThis pattern is a pragmatic middle ground: you keep enum ergonomics but add\npartial type awareness through the class token."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "enum ConfigKey {\n    MAX_CONNECTIONS(\"max.connections\", Integer.class, 10),\n    SERVER_HOST(\"server.host\", String.class, \"localhost\"),\n    ENABLE_SSL(\"enable.ssl\", Boolean.class, false);\n    \n    private final String key;\n    private final Class<?> type;\n    private final Object defaultValue;\n    \n    ConfigKey(String key, Class<?> type, Object defaultValue) {\n        this.key = key;\n        this.type = type;\n        this.defaultValue = defaultValue;\n    }\n    \n    @SuppressWarnings(\"unchecked\")\n    public <T> T cast(Object value) {\n        if (value == null) return (T) defaultValue;\n        if (!type.isInstance(value)) {\n            throw new ClassCastException(\"Expected \" + type.getName());\n        }\n        return (T) value;\n    }\n}\n"
+      "text": "enum ConfigKey {\n    MAX_CONNECTIONS(\"max.connections\", Integer.class, 10),\n    SERVER_HOST(\"server.host\", String.class, \"localhost\"),\n    ENABLE_SSL(\"enable.ssl\", Boolean.class, false);\n    \n    private final String key;\n    private final Class<?> type;\n    private final Object defaultValue;\n    \n    ConfigKey(String key, Class<?> type, Object defaultValue) {\n        this.key = key;\n        this.type = type;\n        this.defaultValue = defaultValue;\n    }\n    \n    @SuppressWarnings(\"unchecked\")\n    public <T> T cast(Object value) {\n        if (value == null) return (T) defaultValue;\n        if (!type.isInstance(value)) {\n            throw new ClassCastException(\"Expected \" + type.getName());\n        }\n        return (T) value;\n    }\n}"
     },
     {
       "type": "para",
@@ -267,12 +242,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A4: The static-final-instances pattern simulates enums using a class with\npublic static final fields. Each field is an instance of the class with its\nown generic type parameter.\n\nHow it works:\n- Define a generic class (e.g., TypedKey<T>)\n- Create public static final instances as \"constants\"\n- Maintain a static list of all instances for a values() method\n- Keep the constructor private so that no other instances can be created\n- Optionally override equals/hashCode (e.g., by name)\n\nTrade-offs:\n+ Full generic type safety per instance\n+ Can carry any type parameter, including parameterized types\n+ Works with any Java version (no sealed classes required)\n\n- No EnumSet or EnumMap support\n- No switch statement support (unless using if-else or pattern matching)\n- No ordinal() or name() (must implement manually)\n- Closed only while the constructor stays private: no compiler-checked closed set,\n  no exhaustive switch\n- Value equality only if you override equals (nothing like enum's guaranteed identity)\n- No serialization singleton guarantee\n"
+      "text": "A4: The static-final-instances pattern simulates enums using a class with\npublic static final fields. Each field is an instance of the class with its\nown generic type parameter.\n\nHow it works:\n- Define a generic class (e.g., TypedKey<T>)\n- Create public static final instances as \"constants\"\n- Maintain a static list of all instances for a values() method\n- Keep the constructor private so that no other instances can be created\n- Optionally override equals/hashCode (e.g., by name)\n\nTrade-offs:\n+ Full generic type safety per instance\n+ Can carry any type parameter, including parameterized types\n+ Works with any Java version (no sealed classes required)\n\n- No EnumSet or EnumMap support\n- No switch statement support (unless using if-else or pattern matching)\n- No ordinal() or name() (must implement manually)\n- Closed only while the constructor stays private: no compiler-checked closed set,\n  no exhaustive switch\n- Value equality only if you override equals (nothing like enum's guaranteed identity)\n- No serialization singleton guarantee"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "public final class TypedKey<T> {\n    private static final List<TypedKey<?>> ALL = new ArrayList<>();\n    \n    public static final TypedKey<Integer> PORT =\n        new TypedKey<>(\"port\", Integer.class, 8080);\n    public static final TypedKey<String> HOST =\n        new TypedKey<>(\"host\", String.class, \"0.0.0.0\");\n    public static final TypedKey<List<String>> ORIGINS =\n        new TypedKey<>(\"origins\", null, List.of(\"*\"));\n    \n    private final String name;\n    private final Class<T> type;\n    private final T defaultValue;\n    \n    private TypedKey(String name, Class<T> type, T defaultValue) {\n        this.name = name;\n        this.type = type;\n        this.defaultValue = defaultValue;\n        ALL.add(this);\n    }\n    \n    public static List<TypedKey<?>> values() {\n        return Collections.unmodifiableList(ALL);\n    }\n}\n"
+      "text": "public final class TypedKey<T> {\n    private static final List<TypedKey<?>> ALL = new ArrayList<>();\n    \n    public static final TypedKey<Integer> PORT =\n        new TypedKey<>(\"port\", Integer.class, 8080);\n    public static final TypedKey<String> HOST =\n        new TypedKey<>(\"host\", String.class, \"0.0.0.0\");\n    public static final TypedKey<List<String>> ORIGINS =\n        new TypedKey<>(\"origins\", null, List.of(\"*\"));\n    \n    private final String name;\n    private final Class<T> type;\n    private final T defaultValue;\n    \n    private TypedKey(String name, Class<T> type, T defaultValue) {\n        this.name = name;\n        this.type = type;\n        this.defaultValue = defaultValue;\n        ALL.add(this);\n    }\n    \n    public static List<TypedKey<?>> values() {\n        return Collections.unmodifiableList(ALL);\n    }\n}"
     },
     {
       "type": "para",
@@ -281,12 +256,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A5: A type-safe heterogeneous container (from Effective Java, Item 33) is a Map-like\ndata structure where each key carries its own type parameter, and the container\nensures that the value stored for each key matches the key's type.\n\nHow it relates to generic enums:\n- Generic enum patterns define \"keys\" (settings, config keys) with per-key types.\n- The heterogeneous container is the natural \"store\" for values associated with\n  these keys.\n- Together they form a complete type-safe configuration system.\n\nImplementation:\n1. The \"key\" type has a generic parameter T and a Class<T> token.\n2. The container stores values as Object internally.\n3. On get(), the container uses the key's Class<T> to cast the value safely.\n4. On put(), the container can optionally validate the value type.\n\nThis pattern eliminates unchecked casts at the call site -- the container handles\nall casting internally using the type token.\n"
+      "text": "A5: A type-safe heterogeneous container (from Effective Java, Item 33) is a Map-like\ndata structure where each key carries its own type parameter, and the container\nensures that the value stored for each key matches the key's type.\n\nHow it relates to generic enums:\n- Generic enum patterns define \"keys\" (settings, config keys) with per-key types.\n- The heterogeneous container is the natural \"store\" for values associated with\n  these keys.\n- Together they form a complete type-safe configuration system.\n\nImplementation:\n1. The \"key\" type has a generic parameter T and a Class<T> token.\n2. The container stores values as Object internally.\n3. On get(), the container uses the key's Class<T> to cast the value safely.\n4. On put(), the container can optionally validate the value type.\n\nThis pattern eliminates unchecked casts at the call site -- the container handles\nall casting internally using the type token."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "class TypeSafeConfig {\n    private final Map<String, Object> store = new HashMap<>();\n    \n    public <T> void put(TypedSetting<T> setting, T value) {\n        Objects.requireNonNull(value);\n        store.put(setting.key(), value);\n    }\n    \n    public <T> T get(TypedSetting<T> setting) {\n        Object raw = store.get(setting.key());\n        // Type-safe cast using the setting's type token (default when absent)\n        return raw == null ? setting.defaultValue() : setting.valueType().cast(raw);\n    }\n}\n\n// Usage -- fully type-safe, no casts at the call site:\nvar config = new TypeSafeConfig();\nconfig.put(new TypedSetting.MaxRetries(), 5);       // Only Integer accepted\nconfig.put(new TypedSetting.AppName(), \"MyApp\");     // Only String accepted\nInteger retries = config.get(new TypedSetting.MaxRetries()); // Returns Integer\n"
+      "text": "class TypeSafeConfig {\n    private final Map<String, Object> store = new HashMap<>();\n    \n    public <T> void put(TypedSetting<T> setting, T value) {\n        Objects.requireNonNull(value);\n        store.put(setting.key(), value);\n    }\n    \n    public <T> T get(TypedSetting<T> setting) {\n        Object raw = store.get(setting.key());\n        // Type-safe cast using the setting's type token (default when absent)\n        return raw == null ? setting.defaultValue() : setting.valueType().cast(raw);\n    }\n}\n\n// Usage -- fully type-safe, no casts at the call site:\nvar config = new TypeSafeConfig();\nconfig.put(new TypedSetting.MaxRetries(), 5);       // Only Integer accepted\nconfig.put(new TypedSetting.AppName(), \"MyApp\");     // Only String accepted\nInteger retries = config.get(new TypedSetting.MaxRetries()); // Returns Integer"
     },
     {
       "type": "para",
@@ -295,12 +270,12 @@
     {
       "type": "code",
       "lang": "text",
-      "text": "A6: Decision criteria:\n\n1. Sealed interface + records (Java 17+):\n   - Best when: You need compile-time type safety AND exhaustive switch.\n   - Avoid when: You need EnumSet/EnumMap performance or ordinal support.\n\n2. Enum with Class token:\n   - Best when: You need enum features (switch, EnumSet, valueOf) and\n     runtime type checking is acceptable.\n   - Avoid when: You need compile-time guarantee that callers use correct types.\n\n3. Static final instances:\n   - Best when: You need full generics including parameterized types\n     (e.g., TypedKey<List<String>>).\n   - Avoid when: You need a truly closed set of constants.\n\n4. Interface-based (unsealed):\n   - Best when: Extensibility is desired (anyone can add new settings).\n   - Avoid when: You need a closed, known set of constants.\n\n5. Supplier-based:\n   - Best when: Values are lazily generated and vary per invocation.\n   - Avoid when: You need stable, cacheable default values.\n\nIn practice, most senior engineers choose sealed interface + records for new\nJava 17+ projects, and enum + Class token for libraries that must support\nolder Java versions.\n"
+      "text": "A6: Decision criteria:\n\n1. Sealed interface + records (Java 17+):\n   - Best when: You need compile-time type safety AND exhaustive switch.\n   - Avoid when: You need EnumSet/EnumMap performance or ordinal support.\n\n2. Enum with Class token:\n   - Best when: You need enum features (switch, EnumSet, valueOf) and\n     runtime type checking is acceptable.\n   - Avoid when: You need compile-time guarantee that callers use correct types.\n\n3. Static final instances:\n   - Best when: You need full generics including parameterized types\n     (e.g., TypedKey<List<String>>).\n   - Avoid when: You need a truly closed set of constants.\n\n4. Interface-based (unsealed):\n   - Best when: Extensibility is desired (anyone can add new settings).\n   - Avoid when: You need a closed, known set of constants.\n\n5. Supplier-based:\n   - Best when: Values are lazily generated and vary per invocation.\n   - Avoid when: You need stable, cacheable default values.\n\nIn practice, most senior engineers choose sealed interface + records for new\nJava 17+ projects, and enum + Class token for libraries that must support\nolder Java versions."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Decision tree in code:\n// Q: Do you need per-constant type parameters?\n//    No  -> Use a regular enum.\n//    Yes -> Q: Java 17+ available?\n//            Yes -> Use sealed interface + records.\n//            No  -> Q: Need enum features (EnumSet, switch)?\n//                    Yes -> Enum + Class token.\n//                    No  -> Static final instances.\n"
+      "text": "// Decision tree in code:\n// Q: Do you need per-constant type parameters?\n//    No  -> Use a regular enum.\n//    Yes -> Q: Java 17+ available?\n//            Yes -> Use sealed interface + records.\n//            No  -> Q: Need enum features (EnumSet, switch)?\n//                    Yes -> Enum + Class token.\n//                    No  -> Static final instances."
     },
     {
       "type": "heading",
@@ -321,10 +296,10 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 15,
-    "code": 16,
+    "paras": 11,
+    "code": 12,
     "tables": 0,
-    "lists": 12,
+    "lists": 9,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -332,5 +307,5 @@
     "html": 0,
     "disclosures": 0
   },
-  "content_sha256": "083e8c0cde1b2964c4c32ecdac8afb0809c0378fe2894fd4afb6dd3b66a2c596"
+  "content_sha256": "9dc0e870d37365fa7365b37a11307cc4948a32301de680345c5071625a82886c"
 }
