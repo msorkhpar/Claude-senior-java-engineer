@@ -1,6 +1,6 @@
 # Skill — adapter (pinned)
 
-pin: ff597ec929548eba317f127ce27063d05fa98ae1
+pin: a33243c3f1d05e125c40667ef56e7c891f86bea9
 version: 0.1.0
 
 The procedure ships inside the installed `studyforge` library, at the
