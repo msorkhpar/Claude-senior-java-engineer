@@ -727,6 +727,54 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   window.studyforge.standIn = standIn;
 }());
 
+/* Whether a page's narration can be heard: its FIRST clip, asked once.
+
+   ⛔ **Split out of `narration.js` at its seam** (R11): that file is *the
+   transport and the highlight*; this is *whether there is anything to
+   transport*. It defines one function and draws nothing.
+
+   ⭐ **The page asks the clip itself, and nothing written beside it.** A file
+   that said whether the clips were on disk went stale whenever anything but
+   its writer moved them: a site packed for release said *released* on the
+   author's own disk, with every clip there. So the page loads the metadata of
+   its first clip, in an element of its own that plays nothing:
+
+   - it loads: the clips are here, and `heard` is called — once;
+   - it fails — not found, a network error, or a clip the browser cannot
+     decode — and nothing more happens: no other clip is asked for, and the
+     transport stays hidden.
+
+   ⚠️ **A failed probe is one error in the console**, `404` served or
+   `ERR_FILE_NOT_FOUND` over `file://`, and that one line is the accepted
+   price of asking. ⛔ A probe that never settles is never heard: the
+   transport stays hidden rather than guessing.
+
+   ⛔ **No network of its own** (R8): the one source it is given is the page's
+   own relative href, read off the passage by `narration.js`. */
+
+(function () {
+  'use strict';
+
+  window.studyforge = window.studyforge || {};
+
+  window.studyforge.probeClip = function (source, heard) {
+    var probe = new Audio();
+    /* ⛔ Answered once: both listeners go at the first answer, so a later
+       event from the same element can never call `heard`. */
+    function settle(loaded) {
+      probe.removeEventListener('loadedmetadata', found);
+      probe.removeEventListener('error', lost);
+      if (loaded) { heard(); }
+    }
+    function found() { settle(true); }
+    function lost() { settle(false); }
+    probe.addEventListener('loadedmetadata', found);
+    probe.addEventListener('error', lost);
+    probe.preload = 'metadata';
+    probe.src = source;
+  };
+}());
+
 /* The narration transport: play, advance, and the highlight that tracks what is spoken.
 
    ⛔ **One clip per speech unit, and the granularity is the whole design.**
@@ -751,8 +799,8 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
    ⛔ **Progressive enhancement, and the transport ships HIDDEN.** With scripting
    off, a reader is shown nothing rather than a Play button that cannot play —
    a control that does nothing is a dead control, and none is shown. ⭐ The same
-   holds when the clips are not on disk: the transport stays hidden, and this
-   file learns it without requesting a clip (see `CLIPS` below).
+   holds when the clips are not here: the page's FIRST clip is asked once
+   (`narration-probe.js`), and only a clip that loads unhides the transport.
 
    ⭐ **It degrades honestly, in three named states** (R6). A passage whose clip
    is not on disk says so and stops rather than pretending; a unit with no usable
@@ -808,18 +856,6 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var audio = document.getElementById(NARRATOR);
   if (!player || !audio) { return; }
 
-  /* ⛔ **Whether the clips are on disk is asked of a script that is always
-     there, never of a clip.** `templates/player.html` links
-     `pageassets.CLIPS_NAME` ahead of this bundle, and it says `present` only
-     where a build found clips or a restore put them back. ⚠️ A request for a
-     clip that is not there is an error in the console, over `file://` and
-     served alike, and a site whose clips are a download nobody has taken is the
-     normal case. ⭐ So anything but `present` leaves the transport hidden and
-     binds nothing: no button, no passage that answers a click, no key. */
-  var CLIPS = 'present';
-  var told = window.studyforge && window.studyforge.clips;
-  if (told !== CLIPS) { return; }
-
   /* ⛔ THE WHOLE DOCUMENT, NOT `#content`. A unit page is headed by its
      material's own opening heading, and that heading sits in the `<header>`
      above the content — it is a narrated passage like every other one. Scoped to
@@ -858,6 +894,11 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   var at = firstPlayable();
   var reduced = quiet();
+
+  /* ⛔ Nothing plays, and no key or click is answered, until the first clip
+     was heard (`narration-probe.js`): a page whose clips are not here asks for
+     exactly one, and Space still scrolls it. */
+  var heard = false;
 
   function faces(holder) {
     var found = {};
@@ -1007,7 +1048,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   }
 
   function begin(index, scroll) {
-    if (index === -1 || !playable[index]) { return; }
+    if (!heard || index === -1 || !playable[index]) { return; }
     load(index);
     say(null);
     showFace(PLAYING);
@@ -1085,7 +1126,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
   var TYPING = { INPUT: true, TEXTAREA: true, SELECT: true, BUTTON: true, OPTION: true };
 
   document.addEventListener('keydown', function (event) {
-    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) { return; }
+    if (!heard || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) { return; }
     var target = event.target;
     if (target && (TYPING[target.tagName] || target.isContentEditable)) { return; }
     if (event.key === ' ' || event.key === 'Spacebar') {
@@ -1106,26 +1147,20 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     });
   }
 
-  /* ⛔ The transport is unhidden only once there is something behind it, and the
-     unit with nothing to play says so with its controls off rather than showing
-     three buttons that do nothing. */
+  /* ⛔ The transport is unhidden only once its first clip was heard. A unit
+     with no clip to ask for asks nothing and shows nothing. ⭐ The first
+     passage is where narration WILL start, and the transport's own line says
+     so; nothing on the page is lit until the reader starts it. */
   showFace(PAUSED);
-  if (anyPlayable()) {
-    /* ⛔ The first passage is where narration WILL start, and the
-       transport's own line says so; nothing on the page is lit until the
-       reader starts it. `load` lights a passage, and only a press reaches it. */
-    at = firstPlayable();
-    label();
-    progress();
-    say(null);
-  } else {
-    at = -1;
-    label();
-    progress();
-    say(NONE);
-    disable();
-  }
-  player.hidden = false;
+  at = firstPlayable();
+  if (at === -1) { return; }
+  label();
+  progress();
+  say(null);
+  window.studyforge.probeClip(passages[at].getAttribute(SOURCE), function () {
+    heard = true;
+    player.hidden = false;
+  });
 }());
 
 /* The practice panel: Run, Submit, the result, and what the Submit reported.
@@ -1339,7 +1374,14 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
        row exists to refuse. ⚠️ What FILLS it is `practice-editor.js`'s. */
     show(part(panel, 'offline'), false);
     show(part(panel, 'editor'), true);
-    show(controls, true);
+    /* ⛔ The controls are shown only where the index says this corpus can run
+       code now: a corpus whose runner is declared and down runs nothing, so it
+       gets the sentence saying why instead of a button that would be refused. */
+    var asking = run.runnable ? run.runnable(corpus) : Promise.resolve(true);
+    asking.then(function (ok) {
+      show(controls, ok);
+      show(part(panel, 'no-runner'), !ok);
+    }, function () { show(controls, true); });
 
     var stop = null;
     var starters = [];
@@ -2478,11 +2520,14 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     });
   }
 
-  /* ⭐ Only an editor that is UP makes an entry open the editor; until then
-     each entry is its lines and the built sentence, and every link is the
-     file's plain view. */
-  run.editor(entries[0].corpus).then(function (found) {
-    if (!found) { return; }
+  /* ⭐ Only an editor that is UP, over a corpus that can run code now, makes an
+     entry open the editor; until then each entry is its lines and the built
+     sentence, and every link is the file's plain view. ⛔ A declared runner
+     that is down runs no test, so it offers no Run tests either. */
+  var runnable = run.runnable ? run.runnable(entries[0].corpus) : Promise.resolve(true);
+  Promise.all([run.editor(entries[0].corpus), runnable]).then(function (both) {
+    var found = both[0];
+    if (!found || !both[1]) { return; }
     entries.forEach(function (entry) {
       show(part(entry, 'plain'), false);
       show(part(entry, 'copy'), true);
