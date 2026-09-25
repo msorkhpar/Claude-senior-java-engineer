@@ -37,6 +37,10 @@ services:
       start_interval: 1s
       retries: 3
     restart: "no"
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+        required: "${STUDYFORGE_PREFLIGHT:-false}"
   runner:
     image: "${STUDYFORGE_RUNNER_IMAGE:?record the primed runner's tag with the execution skill; it writes STUDYFORGE_RUNNER_IMAGE}"
     container_name: "${STUDYFORGE_RUNNER_NAME:-studyforge-runner-claude-senior-java-engineer-interview-preparation}"
@@ -51,6 +55,22 @@ services:
       - /opt/studyforge/runservice.pl
     networks:
       - runs
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+        required: "${STUDYFORGE_PREFLIGHT:-false}"
+  preflight:
+    image: "${STUDYFORGE_SITE_IMAGE:-}"
+    profiles:
+      - site
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    command:
+      - preflight
+      - /corpus
+    volumes:
+      - "../..:/corpus:ro"
+    network_mode: "none"
+    restart: "no"
   site:
     image: "${STUDYFORGE_SITE_IMAGE:-}"
     profiles:
@@ -71,12 +91,27 @@ services:
       STUDYFORGE_EDITOR_HEALTH: "http://editor:8080/healthz"
       STUDYFORGE_RUN_SERVICE: runner
       PYTHONDONTWRITEBYTECODE: 1
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${STUDYFORGE_SITE_PORT:-8765}/', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 1s
     volumes:
       - "../..:/corpus"
     networks:
       - default
       - runs
     restart: "no"
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+        required: "${STUDYFORGE_PREFLIGHT:-false}"
 networks:
   runs:
     internal: true

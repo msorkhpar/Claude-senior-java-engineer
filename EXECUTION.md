@@ -55,11 +55,12 @@ the compose network's internal side, which the runner publishes no port on,
 and never holds the Docker socket (§8.3).
 
 ⭐ `.studyforge/execution/instance.env` is the one place a port is set: the study server's, the
-editor's, the compose project and the container names. Change one with the
-skill's record step, which rewrites that file, and bring it up again; a page
-learns the editor's address from the study server, never from a built file.
-A second checkout on one host records its own the same way, and runs beside
-this one.
+editor's, the compose project and the container names. It is yours: set a
+port there by hand, or with the skill's record step, and bring it up again;
+no regeneration writes over it. A value that cannot work is refused by its
+name, by the compose file's preflight and by the study server, before anything
+starts. A page learns the editor's address from the study server, never from a
+built file. A second checkout on one host sets its own, and runs beside this one.
 
 ⛔ Every port is published on 127.0.0.1 alone. The editor has no password
 because loopback is its whole access control: widening either bind means
