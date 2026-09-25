@@ -10,14 +10,11 @@
 from __future__ import annotations
 
 
-import dataclasses
-import json
 from pathlib import Path
 
 from studyforge.archive.markdown import parse
 from studyforge.corpus.container import Container
 from studyforge.corpus.manifest import MANIFEST_FILENAME, load
-from studyforge.exercise.bundle import BUNDLE_FILENAME, Places, bundle_of, emit
 from studyforge.skills.adapter.curriculum import counted, filed
 
 #: What every unwritten step says. ⭐ One sentence of what to return, and
@@ -46,10 +43,7 @@ def containers(root: Path) -> list[Container]:
             titles=group.titles,
             variant=VARIANT,
             ingested="1970-01-01",
-            units=[
-                dataclasses.replace(unit, practices=len(_practices(root, group.address, unit.n)))
-                for unit in group.units
-            ],
+            units=group.units,
             origin=group.origin,
         )
         for group in filed(root, manifest)
@@ -72,54 +66,18 @@ def documents(root: Path, container: Container) -> list[dict]:
     `studyforge.archive.markdown.parse(text)` returns the blocks, and raises
     `MarkdownError` naming what it cannot hold rather than dropping it.
     """
-    found = []
-    for unit in container.units:
-        found.append(
-            {
-                "address": container.address,
-                "variant": VARIANT,
-                "unit": unit.n,
-                "kind": "lesson",
-                "ordinal": 1,
-                "title": unit.title,
-                "blocks": parse((Path(root) / unit.origin).read_text("utf-8")),
-            }
-        )
-        found.extend(_practices(root, container.address, unit.n))
-    return found
-
-
-#: The fields of an archive document `emit` in ingest.emit fills in itself.
-_SUPPLIED = ("raw_api", "source", "ingested")
-
-#: What `studyforge.archive.document.build` takes from a practice document.
-_TAKEN = ("address", "variant", "unit", "kind", "ordinal", "title", "blocks", "starting_code", "exercise")
-
-
-def _practices(root: Path, address, unit: int) -> list[dict]:
-    """Return one practice document's fields per exercise bundle the unit carries, in ordinal order.
-
-    ⭐ The exercises skill committed each bundle under `exercises/`, and a code
-    bundle becomes its practice document through `studyforge.exercise.bundle.emit`.
-    ⛔ Nothing is written here: the skill already created the reader's workspace
-    files. ⚠️ This corpus has no quiz yet, so a quiz bundle is not read: one would
-    stop the count at its ordinal, and `validate` would then name the unread bundle.
-    """
-    base = Path(root)
-    unit_dir = base / Places(address, VARIANT, unit, 1).bundle.rsplit("/", 1)[0]
-    found = []
-    ordinal = 1
-    while (unit_dir / f"practice-{ordinal}").is_dir():
-        where = Places(address, VARIANT, unit, ordinal).bundle
-        code = base / where / BUNDLE_FILENAME
-        if code.is_file():
-            bundle = bundle_of(json.loads(code.read_text(encoding="utf-8")), where)
-            document = emit(base, bundle, source="-", ingested="1970-01-01").document
-            found.append({key: document[key] for key in _TAKEN if key in document})
-        else:
-            break
-        ordinal += 1
-    return found
+    return [
+        {
+            "address": container.address,
+            "variant": VARIANT,
+            "unit": unit.n,
+            "kind": "lesson",
+            "ordinal": 1,
+            "title": unit.title,
+            "blocks": parse((Path(root) / unit.origin).read_text("utf-8")),
+        }
+        for unit in container.units
+    ]
 
 
 def expected_units(root: Path) -> dict[str, int] | None:

@@ -1,6 +1,6 @@
 """Write the archive: build it beside its destination, then move it (§6).
 
-**What it does.** Takes what `read` returned and writes every container map and every archive document at the paths `studyforge validate` walks. ⛔ Nothing reaches the destination until every file has been built, and every map and document of one run carries that run's one `ingested`.
+**What it does.** Takes what `read` returned and writes every container map and every archive document at the paths `studyforge validate` walks. ⛔ Nothing reaches the destination until every file has been built, and every map and document of one run carries that run's one `ingested`. ⭐ Every exercise the authoring pass committed under `exercises/` joins its unit as a practice document here (`studyforge.skills.adapter.practices`), so `read` never reads one.
 
 **How you use it.** `emit(root, ingested='YYYY-MM-DD')` returns the paths it wrote, sorted.
 
@@ -20,6 +20,7 @@ from studyforge.corpus.container import render as render_map
 from studyforge.corpus.manifest import MANIFEST_FILENAME
 from studyforge.corpus.manifest import load as load_manifest
 from studyforge.skills.adapter import Layout, plan_for
+from studyforge.skills.adapter.practices import authored
 
 from ingest import read
 
@@ -52,14 +53,20 @@ def emit(root, *, ingested: str, into=None, replace: bool = False) -> list[str]:
     if layout.staging.exists():
         shutil.rmtree(layout.staging)
     written = []
+    # ⭐ The exercises the authoring pass committed join their units here, so
+    # `read.documents` returns the source's own material only.
+    practices = authored(root)
     for reading in read.containers(root):
         # ⛔ One run, one date. The run's `ingested` is applied AFTER
         # `read`, never handed to it, so whatever date `read` recorded is replaced
         # and a map can never disagree with the documents beneath it.
         container = dataclasses.replace(reading, ingested=ingested)
+        container, found = practices.joined(
+            container, read.documents(root, container)
+        )
         written.append(_write(staging.container_map(container.address),
                               render_map(container), staging))
-        for fields in read.documents(root, container):
+        for fields in found:
             document = build(source=plan.source, ingested=ingested, **fields)
             where = staging.document(
                 document["address"],
@@ -69,6 +76,7 @@ def emit(root, *, ingested: str, into=None, replace: bool = False) -> list[str]:
                 document["ordinal"],
             )
             written.append(_write(where, render_document(document), staging))
+    practices.finish()
     if not written:
         shutil.rmtree(layout.staging, ignore_errors=True)
         raise EmitRefused(
