@@ -1,0 +1,448 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "22-locks-semaphores"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Reentrant locks",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "6.3.1. Reentrant Locks"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "Java's `java.util.concurrent.locks` package provides a more sophisticated and flexible locking mechanism than the built-in `synchronized` keyword. At the heart of this package sits the `Lock` interface and its most commonly used implementation: `ReentrantLock`."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Think of a `ReentrantLock` like a hotel master key card system. A synchronized block is like a simple door lock — anyone with the key can enter, but there's no way to query whether the door is locked, no ability to give up if you've been waiting too long, and no separate \"quiet hours\" waiting rooms. A `ReentrantLock` is like an advanced access-control system: you can check whether a door is currently locked, attempt entry with a timeout, ring a buzzer to be woken up from a designated waiting area when a room becomes free, and the same person can re-enter rooms they already hold a key for (reentrancy)."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "The Lock Interface"
+    },
+    {
+      "type": "para",
+      "text": "The `java.util.concurrent.locks.Lock` interface declares the core contract:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public interface Lock {\n    void lock();                          // Acquire the lock, blocking if necessary\n    void lockInterruptibly() throws InterruptedException;  // Acquire or respond to interruption\n    boolean tryLock();                    // Non-blocking attempt\n    boolean tryLock(long time, TimeUnit unit) throws InterruptedException;  // Timed attempt\n    void unlock();                        // Release the lock\n    Condition newCondition();             // Create a Condition object for this Lock\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "ReentrantLock Class"
+    },
+    {
+      "type": "para",
+      "text": "`ReentrantLock` is the standard implementation of `Lock`. The name \"reentrant\" means a thread that already holds the lock can acquire it again without blocking (avoiding self-deadlock). The lock maintains a **hold count**: each successful `lock()` call increments it; each `unlock()` decrements it. The lock is fully released only when the hold count drops to zero."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ReentrantLock lock = new ReentrantLock();        // Non-fair by default\nReentrantLock fairLock = new ReentrantLock(true); // Fair ordering (FIFO)\n"
+    },
+    {
+      "type": "para",
+      "text": "**Fair vs. Non-Fair:**"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Non-fair** (default): Threads that just arrived can \"barge in\" before waiting threads. Higher throughput but potential starvation.",
+        "**Fair**: Longest-waiting thread gets the lock next. No starvation but lower throughput due to context switching."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Explicit Locking and Unlocking"
+    },
+    {
+      "type": "para",
+      "text": "The golden rule: **always release in a `finally` block**."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ReentrantLock lock = new ReentrantLock();\n\nlock.lock();\ntry {\n    // critical section\n} finally {\n    lock.unlock();  // MUST be in finally — or deadlock if an exception occurs\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Condition Objects"
+    },
+    {
+      "type": "para",
+      "text": "`Condition` objects (produced by `lock.newCondition()`) replace the `Object.wait() / notify() / notifyAll()` mechanism when using explicit locks. They allow threads to wait for specific state changes, with the crucial advantage that a single `Lock` can have **multiple distinct Conditions** — unlike `synchronized`, which has only one wait-set per monitor."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ReentrantLock lock = new ReentrantLock();\nCondition notEmpty = lock.newCondition();  // \"queue has items\" condition\nCondition notFull  = lock.newCondition();  // \"queue has space\" condition\n"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Operation",
+        "`synchronized` equivalent"
+      ],
+      "rows": [
+        [
+          "`condition.await()`",
+          "`object.wait()`"
+        ],
+        [
+          "`condition.signal()`",
+          "`object.notify()`"
+        ],
+        [
+          "`condition.signalAll()`",
+          "`object.notifyAll()`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "A thread calling `condition.await()` atomically releases the lock and suspends. When another thread calls `condition.signal()`, the waiting thread is re-awakened and must re-acquire the lock before returning from `await()`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Always unlock in `finally`**: Failure to unlock causes deadlock for every thread that tries to acquire afterwards.",
+        "**Reentrancy**: The owning thread can `lock()` multiple times; it must `unlock()` the same number of times.",
+        "**`tryLock()`** is non-blocking — use it to implement lock-ordering protocols or avoid deadlock.",
+        "**`lockInterruptibly()`** lets threads respond to `Thread.interrupt()` while waiting, unlike `synchronized`.",
+        "**Multiple Conditions per Lock**: Enables more fine-grained thread coordination than `synchronized`.",
+        "**Fairness is a trade-off**: Fair locks prevent starvation but reduce throughput; non-fair locks are faster but may starve low-priority threads.",
+        "**`getHoldCount()`** returns how many times the current thread has locked; useful for debugging.",
+        "**`isHeldByCurrentThread()`** and **`isLocked()`** provide diagnostic capabilities not possible with `synchronized`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Virtual Threads (Project Loom, JEP 444)**: Virtual threads park efficiently when waiting on `ReentrantLock`, just like platform threads. The JVM ensures that a virtual thread blocked on a lock does not block its carrier (platform) thread. This makes `ReentrantLock` a better choice than `synchronized` for high-concurrency virtual thread scenarios in Java 21 (though from Java 24 `synchronized` is also non-pinning).",
+        "**Structured Concurrency (JEP 453, a preview API in Java 21)**: While structured concurrency uses `StructuredTaskScope`, locks can still be used inside scoped tasks to protect shared resources.",
+        "**`LockSupport.park`/`unpark`**: The underlying primitive that `ReentrantLock` and `Condition` use internally; understanding it helps with debugging thread dumps."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Forgetting to unlock (Deadlock)**:"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG — exception causes permanent deadlock\nlock.lock();\ndoSomethingThatMightThrow();\nlock.unlock(); // never reached if exception thrown\n\n// CORRECT\nlock.lock();\ntry {\n    doSomethingThatMightThrow();\n} finally {\n    lock.unlock();\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Unlocking without locking (IllegalMonitorStateException)**:"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG — unlock called before lock\nReentrantLock lock = new ReentrantLock();\nlock.unlock(); // throws IllegalMonitorStateException\n\n// CORRECT — always pair lock() with unlock() in the same method/thread\nlock.lock();\ntry { /* ... */ } finally { lock.unlock(); }\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using `tryLock()` but forgetting to check return value**:"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG — enters critical section even if lock not acquired\nlock.tryLock();\ntry { /* critical section */ } finally { lock.unlock(); }\n\n// CORRECT\nif (lock.tryLock()) {\n    try { /* critical section */ } finally { lock.unlock(); }\n} else {\n    // handle failed acquisition\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Calling `await()` without holding the lock**:"
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG — will throw IllegalMonitorStateException\nCondition cond = lock.newCondition();\ncond.await(); // IllegalMonitorStateException\n\n// CORRECT — must hold the lock before calling await()\nlock.lock();\ntry {\n    while (!conditionMet()) {\n        cond.await();\n    }\n} finally {\n    lock.unlock();\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Spurious wakeups — not re-checking condition after `await()`**:"
+      ],
+      "start": 5
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG — using if instead of while\nlock.lock();\ntry {\n    if (queue.isEmpty()) condition.await(); // spurious wakeup: queue still empty\n    process(queue.take()); // NPE or wrong state\n} finally { lock.unlock(); }\n\n// CORRECT — always loop around await()\nlock.lock();\ntry {\n    while (queue.isEmpty()) condition.await();\n    process(queue.take());\n} finally { lock.unlock(); }\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using wrong condition's signal**:"
+      ],
+      "start": 6
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG — signaling \"notFull\" when you should signal \"notEmpty\"\nproducerCondition.signal(); // when you want to wake consumers\n\n// CORRECT — signal the condition whose waiting threads can now proceed\nconsumerCondition.signal(); // wake exactly one consumer\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Prefer `synchronized` for simple, uncontended, short critical sections**: Simpler to read and the JVM can optimize it (lock elision, lock coarsening). Biased locking no longer applies: it was disabled by default in JDK 15 and removed in JDK 18.",
+        "**Choose `ReentrantLock` when you need**: timed or interruptible locking, `tryLock()`, multiple conditions, or fair ordering.",
+        "**Keep critical sections short**: Holding a lock for long increases contention.",
+        "**Use `tryLock(timeout)` to detect potential deadlock early** in production code.",
+        "**Prefer `signalAll()` over `signal()` when in doubt**: `signal()` is an optimization that requires careful reasoning; `signalAll()` is always safe.",
+        "**Use `ReadWriteLock` (specifically `ReentrantReadWriteLock`) when reads dominate writes**: Multiple readers can hold concurrently; a writer gets exclusive access.",
+        "**Document lock usage** in Javadoc: which methods acquire/release which locks."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Reentrant lock count overflow**: The hold count is stored in an `int`; if a thread tries to enter more than `Integer.MAX_VALUE` times (pathologically recursive code), `lock()` throws `java.lang.Error(\"Maximum lock count exceeded\")` instead of silently overflowing. This is an error in design.",
+        "**Thread interruption during `lockInterruptibly()`**: The interrupted thread receives `InterruptedException` and does not acquire the lock — the lock state is clean.",
+        "**Condition `await()` with timeout**: Returns `false` if the timeout elapsed without signal; always check the return value.",
+        "**Condition `awaitUntil(Date)` and `awaitNanos(long)`**: More precise timing control; the current state of the condition still needs re-checking after return.",
+        "**Owner thread termination**: If a thread holding a `ReentrantLock` terminates without unlocking, the lock is **never released** (unlike `synchronized` which releases locks when a thread dies). This is a critical difference — `synchronized` cleanup is JVM-managed."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers focus on:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Ability to compare `ReentrantLock` vs. `synchronized` — when to use each.",
+        "Understanding of what \"reentrant\" means and why it matters.",
+        "Correct lock-unlock pattern (always `finally`).",
+        "Understanding `Condition` objects and the spurious-wakeup problem.",
+        "Knowledge of fair vs. non-fair locks and the performance trade-off.",
+        "Impact of virtual threads (Java 21) on locking strategies."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Common tricky questions:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"What happens if a thread holding a `ReentrantLock` throws an exception?\"",
+        "\"Why does `await()` require holding the lock?\"",
+        "\"When would you use `signal()` vs. `signalAll()`?\"",
+        "\"What is a spurious wakeup and how do you handle it?\""
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the difference between `synchronized` and `ReentrantLock`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: Both provide mutual exclusion, but ReentrantLock offers significantly more flexibility:\n\nFeature Comparison:\n1. Interruptibility: lockInterruptibly() can be interrupted while waiting; synchronized cannot.\n2. Timeout: tryLock(time, unit) gives up after a timeout; synchronized blocks indefinitely.\n3. Non-blocking try: tryLock() returns immediately with false if locked; no equivalent in synchronized.\n4. Multiple Conditions: One ReentrantLock can have many named Condition objects; synchronized has one wait-set.\n5. Fairness: ReentrantLock(true) ensures FIFO ordering; synchronized has no fairness guarantee.\n6. Diagnostics: isLocked(), isHeldByCurrentThread(), getQueueLength() aid debugging; synchronized has no such API.\n7. Scope: synchronized auto-releases on scope exit; ReentrantLock requires explicit unlock (risk and flexibility).\n\nWhen to choose synchronized:\n- Simple short critical sections\n- Readability is paramount\n- Virtual threads on Java 24+ (JEP 491: synchronized no longer pins carrier threads there; on Java 21 it can pin)\n- No need for Condition variables or timeouts\n\nWhen to choose ReentrantLock:\n- Need timed lock acquisition to avoid deadlocks\n- Need interruptible lock waiting\n- Need multiple Condition variables (e.g., producer/consumer queue)\n- Need tryLock() for lock-ordering protocols\n- Need fair scheduling to prevent starvation\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// synchronized version\npublic synchronized void incrementSync() {\n    count++;\n}\n\n// ReentrantLock version — equivalent but more powerful options available\nprivate final ReentrantLock lock = new ReentrantLock();\n\npublic void incrementLock() {\n    lock.lock();\n    try {\n        count++;\n    } finally {\n        lock.unlock();\n    }\n}\n\n// tryLock() — impossible with synchronized\npublic boolean tryIncrement() {\n    if (lock.tryLock()) {\n        try {\n            count++;\n            return true;\n        } finally {\n            lock.unlock();\n        }\n    }\n    return false; // lock was not available\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: What does \"reentrant\" mean and why is it important?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: \"Reentrant\" (also called \"recursive\") means that a thread which already holds the lock can acquire it again\nwithout blocking itself. The lock maintains a hold count:\n- Each lock() call by the owning thread increments the count.\n- Each unlock() decrements the count.\n- The lock is fully released only when the count reaches zero.\n\nWhy it matters:\n1. Avoids self-deadlock in recursive algorithms or methods calling other synchronized methods.\n2. Allows refactoring: you can safely call synchronized methods from within other synchronized methods on the same lock.\n3. Simplifies implementation of complex data structures where helper methods also need the lock.\n\nNote: synchronized in Java is also reentrant — the same thread can enter nested synchronized(sameObject) blocks.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class ReentrantExample {\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public void outer() {\n        lock.lock();\n        try {\n            System.out.println(\"Hold count in outer: \" + lock.getHoldCount()); // 1\n            inner(); // safe — same thread re-acquires\n            System.out.println(\"Hold count back in outer: \" + lock.getHoldCount()); // 1\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public void inner() {\n        lock.lock(); // NOT a deadlock — same thread re-enters\n        try {\n            System.out.println(\"Hold count in inner: \" + lock.getHoldCount()); // 2\n        } finally {\n            lock.unlock(); // hold count goes back to 1\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: How do Condition objects work and how do they compare to wait/notify?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: Condition objects are produced by Lock.newCondition(). They provide per-lock wait-sets analogous to\nObject.wait()/notify(), but with two major advantages:\n\n1. Multiple conditions per lock: A single lock can have N Condition objects, each with its own wait queue.\n   This allows precise thread notification (e.g., wake only consumers, not producers).\n2. More API options: awaitUntil(), awaitNanos(), await(time, unit), awaitUninterruptibly().\n\nCorrespondences:\n  Object.wait()       → condition.await()\n  Object.notify()     → condition.signal()\n  Object.notifyAll()  → condition.signalAll()\n\nProtocol (identical to wait/notify):\n1. Acquire the lock before calling await()/signal().\n2. Check the predicate in a loop (spurious wakeups can occur).\n3. Call signal() or signalAll() when the predicate may have changed.\n4. Release the lock (await() does this atomically; finally block for the rest).\n\nSpurious wakeups: A thread may return from await() without signal() being called.\nAlways guard with while(!condition) { await(); }, never if(!condition) { await(); }.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class BoundedQueue<T> {\n    private final Queue<T> queue = new LinkedList<>();\n    private final int capacity;\n    private final ReentrantLock lock = new ReentrantLock();\n    private final Condition notFull  = lock.newCondition();\n    private final Condition notEmpty = lock.newCondition();\n\n    public BoundedQueue(int capacity) { this.capacity = capacity; }\n\n    public void put(T item) throws InterruptedException {\n        lock.lock();\n        try {\n            while (queue.size() == capacity) {\n                notFull.await(); // wait until space available (loop handles spurious wakeups)\n            }\n            queue.offer(item);\n            notEmpty.signal(); // wake one consumer\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public T take() throws InterruptedException {\n        lock.lock();\n        try {\n            while (queue.isEmpty()) {\n                notEmpty.await(); // wait until item available\n            }\n            T item = queue.poll();\n            notFull.signal(); // wake one producer\n            return item;\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: When would you choose a fair ReentrantLock over a non-fair one?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Fairness controls the lock acquisition order when multiple threads are waiting.\n\nNon-fair (default):\n- A thread that just called lock() may acquire it before threads that have been waiting longer (\"barging\").\n- Higher overall throughput because the JVM avoids expensive context switches to specific waiting threads.\n- Risk of starvation: a low-priority thread could wait indefinitely if high-throughput threads keep barging.\n\nFair:\n- Threads acquire the lock in FIFO order of their wait start times.\n- No starvation — every thread is guaranteed to eventually acquire the lock.\n- Lower throughput due to mandatory context-switching overhead.\n\nWhen to use fair locking:\n- Long-running tasks where starvation is unacceptable (e.g., request processing with SLA requirements).\n- Systems where equitable distribution of lock access matters more than raw throughput.\n- Rate-limiting or time-sensitive scenarios.\n\nBenchmark note: Non-fair can outperform fair by 5-10x in high-contention benchmarks.\nThe difference diminishes in low-contention scenarios.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Non-fair (default) — optimal for high-throughput scenarios\nReentrantLock highThroughputLock = new ReentrantLock();\n\n// Fair — guarantees FIFO acquisition, prevents starvation\nReentrantLock fairLock = new ReentrantLock(true);\n\n// Checking fairness\nSystem.out.println(\"Is fair: \" + fairLock.isFair()); // true\nSystem.out.println(\"Queue length: \" + fairLock.getQueueLength()); // threads waiting\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: What is the difference between `lock()`, `tryLock()`, and `lockInterruptibly()`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: The three acquisition methods differ in how they handle unavailability of the lock:\n\nlock():\n- Blocks indefinitely until the lock is acquired.\n- Ignores thread interruption (thread.interrupt() has no effect while waiting).\n- Use when: lock must always be acquired, and waiting indefinitely is acceptable.\n\ntryLock():\n- Returns immediately — true if acquired, false if not.\n- Timed variant: tryLock(time, unit) waits up to the specified time, then returns false.\n- Can respond to interruption if using timed form.\n- Use when: you want to avoid blocking, or need to implement lock-ordering to prevent deadlocks.\n\nlockInterruptibly():\n- Blocks like lock(), but can be interrupted via Thread.interrupt().\n- Throws InterruptedException if the thread is interrupted while waiting.\n- Use when: threads should be able to cancel lock-waiting operations (e.g., in response to shutdown).\n\nOrder of preference based on scenario:\n- Simple mutual exclusion: lock() in try-finally\n- Deadlock avoidance: tryLock() with backoff\n- Cancellable operations: lockInterruptibly()\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class LockAcquisitionStrategies {\n    private final ReentrantLock lock = new ReentrantLock();\n\n    // Strategy 1: Always acquire (blocking)\n    public void alwaysAcquire() {\n        lock.lock();\n        try { /* critical section */ }\n        finally { lock.unlock(); }\n    }\n\n    // Strategy 2: Non-blocking try\n    public boolean tryAcquire() {\n        if (lock.tryLock()) {\n            try { /* critical section */ return true; }\n            finally { lock.unlock(); }\n        }\n        return false; // couldn't acquire\n    }\n\n    // Strategy 3: Timed try — deadlock prevention\n    public boolean timedAcquire(long ms) throws InterruptedException {\n        if (lock.tryLock(ms, TimeUnit.MILLISECONDS)) {\n            try { /* critical section */ return true; }\n            finally { lock.unlock(); }\n        }\n        return false; // timed out\n    }\n\n    // Strategy 4: Interruptible — supports cancellation\n    public void interruptibleAcquire() throws InterruptedException {\n        lock.lockInterruptibly();\n        try { /* critical section */ }\n        finally { lock.unlock(); }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q6: How does ReentrantLock interact with virtual threads in Java 21?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A6: Virtual threads (Project Loom, Java 21) are lightweight threads managed by the JVM. They are mounted on\ncarrier (platform OS) threads when running and unmounted (parked) when blocking.\n\nKey point for Java 21: When a virtual thread blocks on ReentrantLock.lock(), it unmounts from its carrier\nthread. The carrier thread is free to run other virtual threads. This is exactly what makes virtual threads\nscale to millions — blocking I/O and locking don't consume carrier threads.\n\nJava 21 vs. synchronized:\n- In Java 21, synchronized blocks can cause virtual thread \"pinning\": the virtual thread stays mounted on\n  its carrier thread while blocked, tying up that carrier. This is a temporary JVM limitation being addressed.\n- In Java 24 (JEP 491), synchronized no longer pins — but for Java 21 production code, ReentrantLock is\n  recommended when lock contention is expected in virtual thread contexts.\n\nImplication: Library code and frameworks using synchronized may prevent the scalability benefits of virtual\nthreads. Lock-based code (ReentrantLock) works correctly with virtual threads immediately.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Java 21 — virtual thread + ReentrantLock (correct, no pinning)\nReentrantLock lock = new ReentrantLock();\n\nThread.ofVirtual().start(() -> {\n    lock.lock(); // virtual thread unmounts, carrier is freed for others\n    try {\n        Thread.sleep(Duration.ofMillis(100)); // IO-like wait\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    } finally {\n        lock.unlock();\n    }\n});\n\n// Java 21 — synchronized (may pin virtual thread to carrier)\nsynchronized (this) { // potential pinning in Java 21\n    Thread.sleep(100); // blocks carrier thread\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q7: How do you implement a thread-safe counter with optional timeout using ReentrantLock?**"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class TimedCounter {\n    private long count = 0;\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public boolean increment(long timeoutMs) throws InterruptedException {\n        if (lock.tryLock(timeoutMs, TimeUnit.MILLISECONDS)) {\n            try {\n                count++;\n                return true;\n            } finally {\n                lock.unlock();\n            }\n        }\n        return false; // could not acquire within timeout\n    }\n\n    public long getCount() {\n        lock.lock();\n        try {\n            return count;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    // Diagnostic methods\n    public boolean isContended() {\n        return lock.hasQueuedThreads();\n    }\n\n    public int getWaiterCount() {\n        return lock.getQueueLength();\n    }\n}\n"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A7: The pattern above demonstrates:\n1. tryLock(timeout) for bounded waiting — prevents indefinite blocking.\n2. Always unlock in finally — ensures lock is released even on exception.\n3. Diagnostic methods (hasQueuedThreads, getQueueLength) — available only with ReentrantLock.\n4. Timed operations integrate well with SLA-driven systems where hard timeouts are required.\n\nWhen increment() returns false, the caller knows the counter is under high contention and can decide\nwhether to retry, log, or fail gracefully — a design choice impossible with synchronized.\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Source: [ReentrantLockBasics.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReentrantLockBasics.java)",
+        "Source: [ConditionUsage.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ConditionUsage.java)",
+        "Source: [ReadWriteLockUsage.java](src/main/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReadWriteLockUsage.java)",
+        "Test: [ReentrantLockBasicsTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReentrantLockBasicsTest.java)",
+        "Test: [ConditionUsageTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ConditionUsageTest.java)",
+        "Test: [ReadWriteLockUsageTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/lockssemaphores/ReadWriteLockUsageTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 14,
+    "paras": 17,
+    "code": 24,
+    "tables": 1,
+    "lists": 14,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "53d0ea686c7d9af9647495cdea68c198ecd99cd4a66798d7cf72095edd5b8937"
+}

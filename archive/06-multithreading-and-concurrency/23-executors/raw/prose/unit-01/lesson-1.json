@@ -1,0 +1,476 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "23-executors"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "ExecutorService interface and implementations",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "6.4.1. ExecutorService Interface and Implementations"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "The `ExecutorService` is the cornerstone of Java's high-level concurrency framework, introduced in Java 5 as part of the `java.util.concurrent` package. It decouples **task submission** from **task execution**, allowing developers to focus on defining work without worrying about low-level thread management."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Think of an `ExecutorService` as a restaurant kitchen. You (the caller) submit orders (tasks) to the kitchen manager (the executor). The kitchen has a fixed number of chefs (threads in the pool). When all chefs are busy, new orders wait in a queue. The kitchen manager decides which chef handles which order, when to hire temporary staff (scale up threads), and when to let idle staff go home (reclaim threads). You never directly tell a chef to cook -- you simply submit the order and wait for the result."
+    },
+    {
+      "type": "para",
+      "text": "Before Java 5, developers had to manually create and manage `Thread` objects, handle thread lifecycle, and build their own task queues. This was error-prone and led to resource leaks, unbounded thread creation, and complex shutdown logic. The `ExecutorService` framework solves all of these problems with a clean abstraction."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "The Hierarchy"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Executor                          (root interface: single execute(Runnable) method)\n  └── ExecutorService             (adds submit(), invokeAll(), shutdown(), etc.)\n        └── ScheduledExecutorService   (adds schedule(), scheduleAtFixedRate(), etc.)\n"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Key Implementations"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Factory Method",
+        "Implementation",
+        "Behavior"
+      ],
+      "rows": [
+        [
+          "`Executors.newFixedThreadPool(n)`",
+          "`ThreadPoolExecutor`",
+          "Fixed number of threads; unbounded queue"
+        ],
+        [
+          "`Executors.newCachedThreadPool()`",
+          "`ThreadPoolExecutor`",
+          "Creates threads on demand; reuses idle threads (60s timeout)"
+        ],
+        [
+          "`Executors.newSingleThreadExecutor()`",
+          "Wrapper around `ThreadPoolExecutor`",
+          "Single thread; guarantees sequential execution"
+        ],
+        [
+          "`Executors.newScheduledThreadPool(n)`",
+          "`ScheduledThreadPoolExecutor`",
+          "Fixed pool for delayed/periodic tasks"
+        ],
+        [
+          "`Executors.newVirtualThreadPerTaskExecutor()`",
+          "(Java 21+)",
+          "One virtual thread per task; ideal for I/O-bound workloads"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "ThreadPoolExecutor Configuration"
+    },
+    {
+      "type": "para",
+      "text": "`ThreadPoolExecutor` is the most configurable implementation. Its constructor accepts:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ThreadPoolExecutor(\n    int corePoolSize,          // threads kept alive even when idle\n    int maximumPoolSize,       // upper bound on threads\n    long keepAliveTime,        // idle time before non-core threads are reclaimed\n    TimeUnit unit,             // time unit for keepAliveTime\n    BlockingQueue<Runnable> workQueue, // queue holding pending tasks\n    ThreadFactory threadFactory,       // factory for creating new threads\n    RejectedExecutionHandler handler   // policy when queue and pool are full\n)\n"
+    },
+    {
+      "type": "para",
+      "text": "**Task submission flow:**"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "If fewer than `corePoolSize` threads are running, a new thread is created for the task.",
+        "If core threads are busy, the task is added to the `workQueue`.",
+        "If the queue is full and fewer than `maximumPoolSize` threads exist, a new thread is created.",
+        "If the queue is full and `maximumPoolSize` threads are running, the `RejectedExecutionHandler` is invoked."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "execute() vs submit()"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Aspect",
+        "`execute(Runnable)`",
+        "`submit(Runnable/Callable)`"
+      ],
+      "rows": [
+        [
+          "Return type",
+          "`void`",
+          "`Future<?>` or `Future<T>`"
+        ],
+        [
+          "Exception handling",
+          "Exceptions propagate to thread's `UncaughtExceptionHandler`",
+          "Exceptions are captured in the `Future`"
+        ],
+        [
+          "Result retrieval",
+          "Not possible",
+          "Via `Future.get()`"
+        ],
+        [
+          "Defined in",
+          "`Executor` interface",
+          "`ExecutorService` interface"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Always shut down an `ExecutorService` when done to prevent resource leaks.",
+        "`Executors.newFixedThreadPool(n)` uses an unbounded `LinkedBlockingQueue` -- in production, prefer creating `ThreadPoolExecutor` directly with a bounded queue and a rejection policy.",
+        "`execute()` swallows exceptions silently from the caller's perspective; `submit()` captures them in the `Future`.",
+        "`Executors.newCachedThreadPool()` can create an unlimited number of threads -- dangerous for high-throughput systems.",
+        "`Executors.newSingleThreadExecutor()` guarantees task ordering (FIFO).",
+        "Calling `shutdown()` stops accepting new tasks but completes pending ones; `shutdownNow()` interrupts running tasks and returns un-started ones.",
+        "Always use `awaitTermination()` after `shutdown()` to wait for clean completion.",
+        "Custom `ThreadFactory` implementations let you name threads, set daemon status, and configure priority -- invaluable for debugging.",
+        "`ThreadPoolExecutor` exposes hooks: `beforeExecute()`, `afterExecute()`, and `terminated()` for monitoring and logging."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Virtual Threads (JEP 444)**: `Executors.newVirtualThreadPerTaskExecutor()` creates a new virtual thread for every submitted task. Virtual threads are lightweight (managed by the JVM, not the OS) and are ideal for I/O-bound workloads where thousands of concurrent tasks are common. Unlike platform threads, virtual threads have negligible creation cost.",
+        "**AutoCloseable ExecutorService**: Since Java 19, `ExecutorService` extends `AutoCloseable`, enabling try-with-resources patterns that automatically call `shutdown()` and `awaitTermination()`.",
+        "**Structured Concurrency (Preview in Java 21, JEP 453)**: Introduces `StructuredTaskScope` for managing groups of related tasks as a unit, simplifying error handling and cancellation in concurrent code."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Java 21 - try-with-resources with ExecutorService\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    executor.submit(() -> processRequest(request));\n}\n// executor is automatically shut down here\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Never forgetting to shut down the executor**"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Executor runs forever, application never exits\nExecutorService executor = Executors.newFixedThreadPool(4);\nexecutor.submit(() -> doWork());\n// Missing shutdown!\n\n// GOOD: Always shut down\nExecutorService executor = Executors.newFixedThreadPool(4);\ntry {\n    executor.submit(() -> doWork());\n} finally {\n    executor.shutdown();\n    executor.awaitTermination(30, TimeUnit.SECONDS);\n}\n\n// BEST (Java 19+, so any Java 21 code): Use try-with-resources\ntry (var executor = Executors.newFixedThreadPool(4)) {\n    executor.submit(() -> doWork());\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using unbounded queues in production**"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Unbounded queue can cause OutOfMemoryError\nExecutorService executor = Executors.newFixedThreadPool(4);\n\n// GOOD: Use bounded queue with rejection policy\nThreadPoolExecutor executor = new ThreadPoolExecutor(\n    4, 8, 60L, TimeUnit.SECONDS,\n    new ArrayBlockingQueue<>(1000),\n    new ThreadPoolExecutor.CallerRunsPolicy()\n);\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Catching exceptions from execute()**"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Exception is silently lost\nexecutor.execute(() -> {\n    throw new RuntimeException(\"Oops!\");\n});\n\n// GOOD: Use submit() and check the Future\nFuture<?> future = executor.submit(() -> {\n    throw new RuntimeException(\"Oops!\");\n});\ntry {\n    future.get();\n} catch (ExecutionException e) {\n    log.error(\"Task failed\", e.getCause());\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using Executors.newCachedThreadPool() without limits**"
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Can create thousands of threads under load\nExecutorService executor = Executors.newCachedThreadPool();\n\n// GOOD: Configure max threads explicitly\nThreadPoolExecutor executor = new ThreadPoolExecutor(\n    0, 100, 60L, TimeUnit.SECONDS,\n    new SynchronousQueue<>()\n);\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Not naming threads**"
+      ],
+      "start": 5
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Thread dumps show \"pool-1-thread-1\" -- unhelpful\nExecutorService executor = Executors.newFixedThreadPool(4);\n\n// GOOD: Custom ThreadFactory with meaningful names\nThreadFactory factory = r -> {\n    Thread t = new Thread(r, \"order-processor-\" + counter.incrementAndGet());\n    t.setDaemon(true);\n    return t;\n};\nExecutorService executor = Executors.newFixedThreadPool(4, factory);\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Size the pool appropriately**: For CPU-bound tasks, use `Runtime.getRuntime().availableProcessors()` threads. For I/O-bound tasks, use a larger pool or virtual threads.",
+        "**Use bounded queues with rejection policies** in production to prevent memory exhaustion.",
+        "**Prefer `submit()` over `execute()`** to get a `Future` for error checking.",
+        "**Name your threads** using a custom `ThreadFactory` -- this makes thread dumps readable.",
+        "**Set daemon threads** for background work that should not prevent JVM shutdown.",
+        "**Monitor pool metrics**: `ThreadPoolExecutor` exposes `getActiveCount()`, `getCompletedTaskCount()`, `getTaskCount()`, `getQueue().size()` for observability.",
+        "**Use the two-phase shutdown idiom**:"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "executor.shutdown();\nif (!executor.awaitTermination(60, TimeUnit.SECONDS)) {\n    executor.shutdownNow();\n    if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {\n        System.err.println(\"Pool did not terminate\");\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Consider virtual threads** (Java 21+) for I/O-bound workloads with many concurrent tasks."
+      ],
+      "start": 8
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Submitting tasks after shutdown**: Throws `RejectedExecutionException`. Always check `isShutdown()` before submitting if tasks arrive asynchronously.",
+        "**Thread pool with zero tasks**: `shutdown()` + `awaitTermination()` returns immediately.",
+        "**InterruptedException during awaitTermination**: Re-interrupt the thread and call `shutdownNow()` as a fallback.",
+        "**Queue full with CallerRunsPolicy**: The submitting thread runs the task itself, which provides natural backpressure but can block the caller.",
+        "**Single-thread executor failure**: If the single thread dies due to an uncaught exception, the executor creates a replacement thread automatically.",
+        "**Null tasks**: Submitting `null` to `execute()` or `submit()` throws `NullPointerException`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers commonly focus on:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The difference between `execute()` and `submit()` and when to use each.",
+        "How `ThreadPoolExecutor` decides whether to create a new thread or queue a task.",
+        "The four built-in rejection policies and their trade-offs.",
+        "Why `Executors.newFixedThreadPool()` and `newCachedThreadPool()` are discouraged in production (static-analysis rule sets such as Alibaba p3c flag the Executors factory methods).",
+        "Proper shutdown patterns and what happens to pending tasks.",
+        "How virtual threads change the concurrency landscape.",
+        "Thread safety of shared state accessed by tasks."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Tricky questions to expect:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"What happens if a task submitted via `execute()` throws an exception?\"",
+        "\"Why might `Executors.newCachedThreadPool()` cause an `OutOfMemoryError`?\"",
+        "\"How does `CallerRunsPolicy` provide backpressure?\"",
+        "\"What is the difference between `shutdown()` and `shutdownNow()`?\""
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the difference between `execute()` and `submit()` in `ExecutorService`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: execute() and submit() both allow you to run tasks asynchronously, but they differ in several important ways:\n\n1. Return type: execute() returns void. submit() returns a Future<?> or Future<T>.\n2. Exception handling: With execute(), uncaught exceptions propagate to the thread's\n   UncaughtExceptionHandler and the thread may die. With submit(), exceptions are\n   captured inside the returned Future -- they are only thrown when you call Future.get().\n3. Interface origin: execute(Runnable) is defined in the Executor interface.\n   submit() is defined in ExecutorService and has three overloads:\n   submit(Runnable), submit(Callable<T>), and submit(Runnable, T).\n4. Task types: execute() only accepts Runnable. submit() accepts both Runnable and Callable.\n\nBest practice: Prefer submit() in production code because it gives you a handle to check\nfor exceptions and task completion. Use execute() only for fire-and-forget scenarios where\nyou truly don't care about the result or failure.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newFixedThreadPool(2);\n\n// execute() - fire and forget, exception lost\nexecutor.execute(() -> {\n    System.out.println(\"Running via execute()\");\n    // Any exception here is NOT visible to the caller\n});\n\n// submit() - returns Future, exception captured\nFuture<?> future = executor.submit(() -> {\n    System.out.println(\"Running via submit()\");\n    throw new RuntimeException(\"Error!\");\n});\n\ntry {\n    future.get(); // ExecutionException wrapping RuntimeException\n} catch (ExecutionException e) {\n    System.out.println(\"Caught: \" + e.getCause().getMessage());\n}\n\nexecutor.shutdown();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: How does ThreadPoolExecutor decide whether to create a new thread or queue a task?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: ThreadPoolExecutor follows a specific algorithm when a new task is submitted:\n\n1. If fewer than corePoolSize threads are running, a NEW thread is always created,\n   even if other core threads are idle.\n2. If corePoolSize or more threads are running, the task is placed into the workQueue.\n3. If the workQueue is full AND fewer than maximumPoolSize threads exist, a new thread\n   is created to handle the task.\n4. If the workQueue is full AND maximumPoolSize threads are already running, the\n   RejectedExecutionHandler is invoked.\n\nThis means:\n- Core threads are always created first (up to corePoolSize)\n- Queue is filled next\n- Extra threads (beyond core) are only created when the queue is FULL\n- If everything is at capacity, the rejection policy kicks in\n\nThis is counter-intuitive: increasing maximumPoolSize does NOT help if the queue is\nunbounded, because the queue will never be full and extra threads will never be created.\nThat's why newFixedThreadPool(n) has core == max with an unbounded queue.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Demonstrating the task submission flow\nThreadPoolExecutor executor = new ThreadPoolExecutor(\n    2,                          // corePoolSize\n    4,                          // maximumPoolSize\n    60L, TimeUnit.SECONDS,      // keepAliveTime\n    new ArrayBlockingQueue<>(2), // bounded queue of capacity 2\n    new ThreadPoolExecutor.AbortPolicy()\n);\n\n// Task 1: core thread 1 created (pool: 1, queue: 0)\n// Task 2: core thread 2 created (pool: 2, queue: 0)\n// Task 3: queued (pool: 2, queue: 1)\n// Task 4: queued (pool: 2, queue: 2) -- queue is now FULL\n// Task 5: new thread created (pool: 3, queue: 2)\n// Task 6: new thread created (pool: 4, queue: 2) -- max reached\n// Task 7: RejectedExecutionException! (pool full, queue full)\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: What are the four built-in rejection policies, and when would you use each?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: When a ThreadPoolExecutor cannot accept a task (queue full, max threads reached),\nit invokes the configured RejectedExecutionHandler. Java provides four built-in policies:\n\n1. AbortPolicy (default): Throws RejectedExecutionException immediately.\n   Use when: You want to know immediately that the system is overloaded and handle\n   it in the calling code.\n\n2. CallerRunsPolicy: The calling thread runs the task itself.\n   Use when: You want natural backpressure. This slows down the producer,\n   preventing it from submitting more tasks while the pool is saturated.\n   Great for scenarios where slowing down is preferable to losing tasks.\n\n3. DiscardPolicy: Silently drops the rejected task.\n   Use when: Losing occasional tasks is acceptable (e.g., non-critical telemetry).\n   Dangerous because failures are silent.\n\n4. DiscardOldestPolicy: Discards the oldest task in the queue, then retries submission.\n   Use when: Newer tasks are more valuable than older ones (e.g., real-time data feeds).\n\nYou can also implement a custom policy by implementing RejectedExecutionHandler.\nCommon custom policies: log and discard, retry with backoff, persist to a database.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// AbortPolicy (default) - throws exception\nvar abortExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.SECONDS,\n    new ArrayBlockingQueue<>(1), new ThreadPoolExecutor.AbortPolicy());\n\n// CallerRunsPolicy - calling thread executes the task\nvar callerRunsExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.SECONDS,\n    new ArrayBlockingQueue<>(1), new ThreadPoolExecutor.CallerRunsPolicy());\n\n// Custom rejection handler\nRejectedExecutionHandler customHandler = (task, executor) -> {\n    System.err.println(\"Task rejected! Queue size: \" + executor.getQueue().size());\n    // Could log, persist, retry, etc.\n};\nvar customExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.SECONDS,\n    new ArrayBlockingQueue<>(1), customHandler);\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: Why are `Executors.newFixedThreadPool()` and `newCachedThreadPool()` discouraged in production?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Both factory methods create executors with potentially dangerous defaults:\n\nnewFixedThreadPool(n):\n- Uses an UNBOUNDED LinkedBlockingQueue\n- If tasks are produced faster than consumed, the queue grows without limit\n- Can cause OutOfMemoryError as millions of tasks queue up\n- No backpressure mechanism\n\nnewCachedThreadPool():\n- Uses a SynchronousQueue (zero capacity) with maximumPoolSize = Integer.MAX_VALUE\n- Creates a new thread for every task when all existing threads are busy\n- Under sustained load, can create thousands of OS threads\n- Each platform thread consumes ~1MB of stack memory\n- Can cause OutOfMemoryError or severe context-switching overhead\n\nThe recommended approach is to create ThreadPoolExecutor directly with:\n- A BOUNDED queue (e.g., ArrayBlockingQueue with a known capacity)\n- A reasonable maximumPoolSize\n- An appropriate rejection policy\n- A custom ThreadFactory for naming\n\nStatic-analysis rule sets such as Alibaba p3c flag the Executors factory methods\nas a code smell.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Instead of Executors.newFixedThreadPool(10):\nThreadPoolExecutor executor = new ThreadPoolExecutor(\n    10,                               // core pool size\n    10,                               // max pool size (same as core for fixed behavior)\n    0L, TimeUnit.SECONDS,             // no timeout for core threads\n    new ArrayBlockingQueue<>(500),    // bounded queue\n    r -> {\n        Thread t = new Thread(r, \"api-worker-\" + counter.incrementAndGet());\n        t.setDaemon(true);\n        return t;\n    },\n    new ThreadPoolExecutor.CallerRunsPolicy()  // backpressure\n);\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: What is the proper way to shut down an `ExecutorService`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: The recommended approach is the two-phase shutdown pattern from the Java documentation:\n\nPhase 1 - Graceful shutdown:\n  1. Call shutdown() to stop accepting new tasks.\n  2. Call awaitTermination() with a reasonable timeout.\n  3. This allows currently executing and queued tasks to complete.\n\nPhase 2 - Forced shutdown (if graceful fails):\n  1. Call shutdownNow() to interrupt running tasks and drain the queue.\n  2. Call awaitTermination() again.\n  3. Log a warning if tasks still haven't terminated.\n\nKey differences:\n- shutdown(): No new tasks accepted; running/queued tasks finish normally.\n- shutdownNow(): Attempts to interrupt running tasks; returns list of un-started tasks.\n- isShutdown(): Returns true after shutdown() is called.\n- isTerminated(): Returns true only after ALL tasks have completed post-shutdown.\n\nSince Java 19, ExecutorService implements AutoCloseable, so you can use\ntry-with-resources which calls shutdown() + awaitTermination() automatically.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Two-phase shutdown pattern\nExecutorService executor = Executors.newFixedThreadPool(4);\ntry {\n    // ... submit tasks ...\n} finally {\n    executor.shutdown(); // Phase 1: stop accepting new tasks\n    try {\n        if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {\n            executor.shutdownNow(); // Phase 2: interrupt running tasks\n            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {\n                System.err.println(\"Executor did not terminate!\");\n            }\n        }\n    } catch (InterruptedException e) {\n        executor.shutdownNow(); // Re-cancel if current thread interrupted\n        Thread.currentThread().interrupt(); // Preserve interrupt status\n    }\n}\n\n// Java 19+ (so Java 21) - simpler with try-with-resources\ntry (var executor = Executors.newFixedThreadPool(4)) {\n    executor.submit(() -> processRequest());\n} // shutdown() + awaitTermination() called automatically\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q6: How do virtual threads (Java 21) change the way we use ExecutorService?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A6: Virtual threads fundamentally change the concurrency model:\n\nBefore virtual threads (platform threads):\n- Each thread maps 1:1 to an OS thread\n- Creating thousands of threads is expensive (~1MB stack per thread)\n- Thread pool sizing was a critical performance tuning knob\n- I/O-bound tasks would block an expensive OS thread\n\nWith virtual threads:\n- Virtual threads are managed by the JVM, not the OS\n- Creating millions of virtual threads is feasible (a few hundred bytes each)\n- The JVM multiplexes virtual threads onto a small pool of carrier (platform) threads\n- When a virtual thread blocks on I/O, its carrier thread is freed for other work\n- Thread pool sizing becomes less important for I/O-bound workloads\n\nKey implications for ExecutorService:\n- Executors.newVirtualThreadPerTaskExecutor() creates one virtual thread per task\n- No thread pool needed -- each task gets its own lightweight thread\n- Ideal for I/O-bound workloads (HTTP requests, database queries, file I/O)\n- NOT beneficial for CPU-bound workloads (virtual threads share carrier threads)\n- Use ThreadLocal sparingly with virtual threads (it works, but per-thread caches of\n  expensive objects no longer pay off with one thread per task); ScopedValue is the\n  intended replacement, a preview API in Java 21 (JEP 446)\n\nVirtual threads do NOT make your code faster -- they make it more scalable by\nallowing many more concurrent tasks without exhausting OS resources.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Platform threads - limited by OS resources\ntry (var executor = Executors.newFixedThreadPool(200)) {\n    for (int i = 0; i < 10_000; i++) {\n        executor.submit(() -> {\n            // Only 200 requests in-flight at a time\n            return httpClient.send(request, BodyHandlers.ofString());\n        });\n    }\n}\n\n// Virtual threads - one per task, no pool sizing needed\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    for (int i = 0; i < 10_000; i++) {\n        executor.submit(() -> {\n            // All 10,000 requests can be in-flight simultaneously\n            return httpClient.send(request, BodyHandlers.ofString());\n        });\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q7: What is CallerRunsPolicy and how does it provide backpressure?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A7: CallerRunsPolicy is a RejectedExecutionHandler that runs the rejected task\nin the calling thread (the thread that called execute() or submit()).\n\nHow it provides backpressure:\n1. When the pool and queue are full, the rejected task runs in the producer thread\n2. While the producer thread is busy running the task, it cannot submit more tasks\n3. This naturally slows down the producer, giving the pool time to drain\n4. Once the task completes, the producer can submit new tasks again\n\nThis creates a self-regulating system:\n- Under light load: Tasks go to the pool normally\n- Under moderate load: Tasks queue up\n- Under heavy load: The producer slows down by running tasks itself\n\nAdvantages:\n- No tasks are lost (unlike DiscardPolicy)\n- No exceptions thrown (unlike AbortPolicy)\n- Natural backpressure without explicit rate limiting\n\nCaveats:\n- If the caller is a single-threaded event loop (e.g., Netty), blocking it\n  can stall the entire application\n- The caller thread changes, which affects ThreadLocal values\n- Performance characteristics change under load (the caller's other work is delayed)\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ThreadPoolExecutor executor = new ThreadPoolExecutor(\n    2, 2, 0L, TimeUnit.SECONDS,\n    new ArrayBlockingQueue<>(2),\n    new ThreadPoolExecutor.CallerRunsPolicy()\n);\n\n// If pool (2 threads) and queue (2 slots) are all busy:\n// This task runs in the MAIN thread, slowing down submission\nexecutor.execute(() -> {\n    System.out.println(\"Running in: \" + Thread.currentThread().getName());\n    // Could print \"main\" if pool is saturated!\n});\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Source: [ExecutorServiceDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/executors/ExecutorServiceDemo.java)",
+        "Test: [ExecutorServiceDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/executors/ExecutorServiceDemoTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 14,
+    "paras": 14,
+    "code": 23,
+    "tables": 2,
+    "lists": 14,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "d7c8704d5bb5209184364130f898630fb83b89956cdaf48d399e7ca0fd893ad8"
+}

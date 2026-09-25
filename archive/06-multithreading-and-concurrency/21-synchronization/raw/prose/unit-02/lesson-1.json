@@ -1,0 +1,494 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "21-synchronization"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Volatile keyword",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "6.2.2. Volatile Keyword"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "The `volatile` keyword in Java addresses a critical challenge in multithreaded programming: **memory visibility**. Without coordination, the JIT compiler may keep a variable in a register or hoist a read out of a loop, and the CPU may buffer and reorder writes, so a write by one thread may not be seen by another thread when (or ever) it expects. (The CPU caches themselves are kept coherent by hardware; they are not the problem.)"
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Imagine a company with multiple offices in different cities. Each office keeps its own local copy of the company's price list. If headquarters updates the price list, offices might still use their outdated local copy. `volatile` is like requiring headquarters to update a shared, always-visible central database, and requiring all offices to always consult that central database — never their local copy."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "The Java Memory Model and Visibility"
+    },
+    {
+      "type": "para",
+      "text": "A common mental model (the vocabulary of the pre-Java 5 specification) says each thread keeps its own \"working copy\" of shared variables: a write by Thread A may not be \"flushed to main memory\" until later, and a read by Thread B may use a stale copy. That is a picture, not the rule. The rule in the Java Memory Model (JLS §17.4) is: without a happens-before relationship between a write and a read, the read is not guaranteed to see the write."
+    },
+    {
+      "type": "para",
+      "text": "This can lead to subtle bugs:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "A flag set by one thread may never be seen by another thread (infinite loops)",
+        "A published object may appear partially constructed"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "What `volatile` Guarantees"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Visibility**: A write to a volatile variable happens-before every subsequent read of that variable (subsequent in the synchronization order), so a read sees the latest write. In the mental model: the write is \"flushed\" and the read \"re-reads\". In reality, the JIT must not cache the value, and it emits memory barriers; caches are not bypassed.",
+        [
+          "**Ordering (partial)**: Volatile introduces happens-before relationships:",
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              "All actions before writing to volatile X happen-before the write to X",
+              "The write to volatile X happens-before all actions that follow a read of X which sees that write"
+            ]
+          }
+        ],
+        "**Prohibition of reordering**: The JVM and CPU are NOT allowed to reorder reads/writes to volatile variables in ways that would violate visibility."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "What `volatile` Does NOT Guarantee"
+    },
+    {
+      "type": "para",
+      "text": "`volatile` does NOT provide **atomicity** for compound operations. A read-modify-write operation like `count++` is actually three steps:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Read `count` from memory",
+        "Increment the value",
+        "Write the new value back"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "If two threads perform these three steps concurrently, the result is a race condition even if `count` is volatile. Single reads and writes of `volatile long` and `volatile double` are guaranteed atomic, unlike non-volatile 64-bit reads and writes, which the JLS (§17.7) allows to be split into two 32-bit halves (seen in practice on 32-bit JVMs)."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// NOT thread-safe even with volatile!\nvolatile int count = 0;\ncount++; // Read-modify-write: not atomic\n"
+    },
+    {
+      "type": "para",
+      "text": "For compound operations, use `synchronized` or `AtomicInteger`/`AtomicLong`."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Common Use Cases for `volatile`"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Status/flag variables**: A boolean flag checked by one thread and set by another.",
+        "**Safe publication of immutable objects**: Publish an object reference once it's fully constructed.",
+        "**Double-checked locking (corrected pattern)**: With volatile, the DCL pattern is safe in Java 5+.",
+        "**Independent writes from multiple threads**: When writes don't depend on the previous value."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "`volatile` ensures **visibility** — every read sees the most recent write (in the synchronization order).",
+        "`volatile` does NOT ensure **atomicity** — compound operations like `++` are NOT atomic.",
+        "`volatile` establishes **happens-before** relationships between reads and writes.",
+        "Reading and writing a single `volatile` variable is **always atomic** (including `long` and `double`).",
+        "`volatile` restricts CPU/compiler **instruction reordering** around the volatile access (nothing before a volatile write may move after it; nothing after a volatile read may move before it).",
+        "`volatile` is not a replacement for `synchronized` — use it only when the variable is written by one thread and read by others, or when multiple threads write independent values.",
+        "For compound operations (increment, compare-and-set), use `AtomicXxx` classes or `synchronized`.",
+        "The double-checked locking pattern for singleton REQUIRES `volatile` to be correct in Java 5+."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**VarHandle API (Java 9+)**: `java.lang.invoke.VarHandle` provides more fine-grained memory ordering control, allowing `getOpaque`, `getAcquire`, `getRelease`, `getVolatile` semantics. This is lower-level than `volatile` but enables optimized concurrent algorithms.",
+        "**Atomic classes in `java.util.concurrent.atomic`**: `AtomicInteger`, `AtomicLong`, `AtomicReference`, `LongAdder` (Java 8+) provide atomic compound operations. `LongAdder` is more scalable than `AtomicLong` for high-contention increment scenarios.",
+        "**Virtual Threads (JEP 444)**: Virtual threads don't change the behavior of `volatile` — the visibility and ordering guarantees still apply, and its cost (memory barriers) is the same as on platform threads.",
+        "**StampedLock (Java 8+)**: Offers optimistic read locking, potentially more scalable than ReadWriteLock for read-heavy workloads, but more complex. The optimistic read must be validated."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Evolution Across Java Versions"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Java 1.0–1.4**: `volatile` accesses were ordered among themselves, but ordinary reads and writes could be reordered around them, so a volatile write could not publish other data. The double-checked locking pattern was broken even with `volatile`.",
+        "**Java 5 (JSR 133)**: The Java Memory Model was revised. `volatile` now provides both visibility AND establishes happens-before, fixing double-checked locking with `volatile`.",
+        "**Java 9**: VarHandle API introduced, providing fine-grained memory ordering beyond volatile."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using `volatile` for compound operations** — does not provide atomicity:"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG: Not thread-safe!\nvolatile int count = 0;\n\npublic void increment() {\n    count++; // READ-MODIFY-WRITE — not atomic even with volatile!\n}\n\n// CORRECT: Use AtomicInteger for compound operations\nAtomicInteger count = new AtomicInteger(0);\npublic void increment() {\n    count.incrementAndGet(); // Atomic\n}\n\n// OR: Use synchronized\nprivate int count = 0; // doesn't need to be volatile if always accessed under lock\npublic synchronized void increment() {\n    count++;\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Not using `volatile` for double-checked locking** — unsafe without it in Java 5+:"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG: Without volatile, a partially-constructed object might be published\nprivate static Singleton instance;\npublic static Singleton getInstance() {\n    if (instance == null) {\n        synchronized (Singleton.class) {\n            if (instance == null) {\n                instance = new Singleton(); // NOT SAFE without volatile\n            }\n        }\n    }\n    return instance;\n}\n\n// CORRECT: Use volatile for double-checked locking\nprivate static volatile Singleton instance;\npublic static Singleton getInstance() {\n    if (instance == null) {\n        synchronized (Singleton.class) {\n            if (instance == null) {\n                instance = new Singleton(); // Safe with volatile\n            }\n        }\n    }\n    return instance;\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Confusing `volatile` with `synchronized`** — `volatile` only guards individual reads/writes:"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// volatile provides visibility for individual read/write of 'items'\nvolatile List<String> items;\n\n// WRONG: This check-then-act is not atomic\nif (items == null) {         // read (volatile)\n    items = new ArrayList<>(); // write (volatile)\n}\n// Another thread could set 'items' between the read and write!\n\n// CORRECT: Use synchronized for check-then-act\nprivate List<String> items; // Not volatile; access via synchronized\npublic synchronized void initIfNeeded() {\n    if (items == null) {\n        items = new ArrayList<>();\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Over-using `volatile`** — volatile reads/writes add memory barriers and prevent certain optimizations:"
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Unnecessary if only accessed from a single thread\nvolatile int localCounter = 0; // Adds overhead for no benefit if single-threaded\n\n// Only declare volatile when shared between threads\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Assuming `volatile` on a reference makes the object's fields visible**:"
+      ],
+      "start": 5
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "volatile Config config; // Only the reference 'config' is volatile\n// config.value is NOT automatically volatile!\nconfig.value = newValue; // Not ordered by any volatile write: other threads may not see it\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Use `volatile` for flag variables**: The most natural and safe use case."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "private volatile boolean running = true;\npublic void stop() { running = false; }\npublic void run() { while (running) { /* ... */ } }\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Use `AtomicXxx` instead of `volatile` for increment/decrement** operations.",
+        "**Use `LongAdder` for high-throughput counters** — less contention than `AtomicLong` under high concurrency.",
+        "**Safe publication pattern** with volatile:"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "class SafeObject {\n    private volatile HelperObject helper;\n\n    public HelperObject getHelper() {\n        if (helper == null) {\n            synchronized (this) {\n                if (helper == null) {\n                    helper = new HelperObject();\n                }\n            }\n        }\n        return helper;\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Use `VarHandle` for advanced, fine-grained memory ordering** when `volatile` is too strict.",
+        "**Prefer immutability**: Immutable objects don't need `volatile` (after safe publication via a volatile/final field).",
+        "**Document the threading policy**: Add comments explaining why a field is volatile and what invariants it maintains."
+      ],
+      "start": 5
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Visibility vs. atomicity for `long` and `double`**: Reads/writes to 64-bit non-volatile `long` and `double` may not be atomic (JLS §17.7; in practice on 32-bit JVMs), so a reader can see a torn value: half of one write and half of another. (The JLS calls something else \"word tearing\" (§17.6), and forbids it.) `volatile` makes them atomic:"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "volatile long timestamp; // Guaranteed atomic read/write even on 32-bit JVMs\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Volatile array reference vs. volatile array elements**: The volatile applies to the reference, not the elements. Use `AtomicIntegerArray` for volatile array elements:"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "volatile int[] arr = new int[10];\narr[0] = 42; // NOT volatile — this write may not be visible to other threads\n\n// Use AtomicIntegerArray for element-level volatile semantics\nAtomicIntegerArray atomicArr = new AtomicIntegerArray(10);\natomicArr.set(0, 42); // Volatile semantics for elements\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Volatile in final fields**: Declared `final` fields in Java 5+ have special visibility guarantees when properly constructed (without `this` escaping). `volatile` is not needed for `final` fields (and a field cannot be both: `final volatile` does not compile).",
+        "**Happens-before chain**: Volatile creates happens-before guarantees across threads, not just the volatile variable itself:"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Thread 1\ndata = \"hello\";   // Not volatile, but...\nflag = true;      // volatile write — happens-after writing data\n\n// Thread 2\nif (flag) {       // volatile read\n    use(data);    // Safe! JMM guarantees data is visible here\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Spurious `volatile` writes**: Writing to a volatile field even when the value hasn't changed still costs a store plus a memory barrier, and makes other cores re-fetch the cache line (no thread is \"notified\"). Don't write volatile fields in tight loops unnecessarily."
+      ],
+      "start": 5
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers focus on:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The difference between `volatile`, `synchronized`, and `Atomic` classes",
+        "Whether `volatile` provides atomicity (it does NOT for compound ops)",
+        "The double-checked locking pattern and why `volatile` is required",
+        "The happens-before relationship established by volatile",
+        "When to use `volatile` vs. `synchronized` vs. `AtomicInteger`",
+        "Memory visibility without synchronization (the classic \"flag variable\" infinite loop bug)",
+        "Visibility of volatile reference vs. fields of the referenced object"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Classic interview trick question: \"Is `volatile int count; count++` thread-safe?\" (Answer: No!)"
+    },
+    {
+      "type": "para",
+      "text": "Tricky topics:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "64-bit variables (`long`, `double`) and torn (non-atomic) reads/writes on 32-bit JVMs",
+        "The JMM happens-before chain through volatile: non-volatile variables written before a volatile write ARE visible after reading the volatile variable",
+        "Why double-checked locking was broken pre-Java 5"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What problem does the `volatile` keyword solve?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: volatile solves the memory visibility problem in multithreaded programs.\n\nWithout volatile (or other synchronization), nothing orders Thread B's write before Thread A's\nread, so the JMM does not require A ever to see it. In practice the JIT compiles the loop,\nsees no synchronization, and reads the field once (hoists it out of the loop). CPU caches are\ncoherent; they are not what hides the write.\n\nClassic bug:\n  Thread A: while (!shutdown) { doWork(); }   // May never see the update\n  Thread B: shutdown = true;                  // Nothing makes A re-read the field\n\nWith volatile: a write happens-before every subsequent read of the field, so A's loop must\nsee it. The JMM also restricts reordering of ordinary accesses around volatile accesses.\n\nvolatile does NOT solve atomicity — compound operations like count++ are still not atomic\neven if count is declared volatile. For those, use synchronized or AtomicInteger.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Classic visibility bug — fixed with volatile\npublic class VisibilityDemo {\n    // Without volatile: Thread reading 'running' might never see it become false\n    private volatile boolean running = true;\n\n    public void stop() {\n        running = false; // volatile: every later read of 'running' sees this write\n    }\n\n    public void work() {\n        while (running) {  // volatile read: re-read on every iteration, sees the latest write\n            // do work\n        }\n        System.out.println(\"Stopped\");\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: Does `volatile` provide atomicity? When should you use `AtomicInteger` instead?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: volatile does NOT provide atomicity for compound operations.\n\nA compound operation like count++ involves three steps:\n1. Read the current value\n2. Increment it\n3. Write the new value back\n\nIf two threads execute these three steps concurrently, both may read the same value, both\nincrement it to the same next value, and both write that same value — losing one increment.\nThis is a race condition, and volatile does NOT prevent it.\n\nvolatile IS atomic for:\n- Single reads and writes of any type (including long and double)\n- Reading a volatile reference\n\nUse AtomicInteger (or other Atomic classes) when:\n- Multiple threads increment/decrement a counter\n- You need compare-and-set semantics\n- You need compound atomic operations (getAndIncrement, compareAndSet)\n\nUse synchronized when:\n- Multiple variables must be updated atomically as a group\n- You need check-then-act atomicity\n- You need to coordinate access across multiple operations\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicInteger;\n\npublic class AtomicVsVolatileDemo {\n\n    // volatile int — NOT safe for count++\n    private volatile int volatileCount = 0;\n\n    // AtomicInteger — safe for all operations\n    private final AtomicInteger atomicCount = new AtomicInteger(0);\n\n    // synchronized — safe for all operations\n    private int syncCount = 0;\n\n    // UNSAFE: Race condition even with volatile\n    public void unsafeIncrement() {\n        volatileCount++; // read-modify-write is not atomic!\n    }\n\n    // SAFE: Atomic increment\n    public void safeAtomicIncrement() {\n        atomicCount.incrementAndGet(); // Atomic operation\n    }\n\n    // SAFE: Synchronized increment\n    public synchronized void safeSyncIncrement() {\n        syncCount++;\n    }\n\n    // volatile IS safe for simple assignment\n    private volatile boolean initialized = false;\n    public void setInitialized() {\n        initialized = true; // Safe: single write\n    }\n    public boolean isInitialized() {\n        return initialized; // Safe: single read\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: Explain the double-checked locking pattern and why `volatile` is required.**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: Double-checked locking (DCL) is a pattern for lazy initialization of a singleton that\nattempts to avoid the cost of synchronization after the object is initialized.\n\nThe naive implementation:\n  if (instance == null) {        // Check 1 (no lock)\n      synchronized (Cls.class) {\n          if (instance == null) { // Check 2 (with lock)\n              instance = new Cls();\n          }\n      }\n  }\n\nWhy this is BROKEN without volatile (in every Java version):\n  new Cls() is not an atomic operation. The JVM allocates memory, initializes fields,\n  and then assigns the reference. Without volatile, the JVM/CPU can reorder these steps.\n  It may write the reference to 'instance' BEFORE finishing field initialization.\n  Thread B reads a non-null but partially-constructed instance!\n  (Before Java 5 (JSR 133) it was broken even with volatile, because volatile did not order the\n  constructor's ordinary writes.)\n\nWhy volatile FIXES it:\n  volatile establishes a happens-before relationship. The write to 'instance' (volatile)\n  happens-after all the writes done during new Cls(). Thread B reading 'instance'\n  (volatile read) sees all those prior writes. Object is fully constructed.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class DoubleCheckedLocking {\n\n    // CORRECT: volatile required for safe DCL in Java 5+\n    private static volatile DoubleCheckedLocking instance;\n\n    private final String data;\n\n    private DoubleCheckedLocking() {\n        this.data = \"initialized\";\n    }\n\n    public static DoubleCheckedLocking getInstance() {\n        if (instance == null) {           // First check (no synchronization)\n            synchronized (DoubleCheckedLocking.class) {\n                if (instance == null) {   // Second check (under lock)\n                    instance = new DoubleCheckedLocking(); // volatile write\n                }\n            }\n        }\n        return instance; // volatile read\n    }\n\n    // ALTERNATIVE: Prefer initialization-on-demand holder idiom (no volatile needed)\n    // Thread-safe and lazy by virtue of class loading semantics\n    private static class Holder {\n        private static final DoubleCheckedLocking INSTANCE = new DoubleCheckedLocking();\n    }\n\n    public static DoubleCheckedLocking getInstanceViaHolder() {\n        return Holder.INSTANCE;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: What happens-before guarantees does `volatile` provide beyond just the volatile variable itself?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: This is a subtle but important aspect of the JMM happens-before rules.\n\nThe rule is: a volatile write to variable X happens-before a subsequent volatile read of X.\n\nBecause happens-before is transitive, this means:\n  - All actions performed by Thread A BEFORE writing to volatile X are visible to Thread B\n    AFTER Thread B reads volatile X.\n\nThis \"piggyback\" effect means you can safely publish non-volatile state through a volatile\nvariable, as long as:\n  1. All state is written before the volatile write\n  2. The volatile variable is read before accessing that state\n\nThis is called the \"volatile as a synchronization action\" or \"piggybacking on volatile.\"\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class VolatileHappensBeforeDemo {\n    private int nonVolatileData;  // NOT volatile\n    private String nonVolatileMessage; // NOT volatile\n    private volatile boolean published = false; // volatile flag\n\n    // Writer thread\n    public void publish(int data, String message) {\n        nonVolatileData = data;        // Step 1: write non-volatile state\n        nonVolatileMessage = message;  // Step 2: write non-volatile state\n        published = true;              // Step 3: volatile write — happens-after steps 1 & 2\n    }\n\n    // Reader thread — called after publish() is visible\n    public void consume() {\n        if (published) {  // volatile read\n            // JMM guarantees: because we read 'published' = true (volatile),\n            // we see all writes that happened-before the volatile write of 'published'.\n            // nonVolatileData and nonVolatileMessage are correctly visible!\n            System.out.println(nonVolatileData + \" \" + nonVolatileMessage);\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: What is the difference between `volatile`, `synchronized`, and `AtomicInteger` in terms of memory semantics and performance?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: All three provide visibility guarantees, but they differ in scope and cost:\n\nvolatile:\n  - Guarantees: visibility and atomic read/write of the single variable, plus happens-before from a write\n    to the reads that see it (which also publishes every write made before it, see Q4)\n  - Does NOT guarantee: atomicity of compound operations\n  - Performance: Lowest overhead — a memory barrier, no thread context switching\n  - Use when: One writer, multiple readers of a simple flag or reference\n\nsynchronized:\n  - Guarantees: mutual exclusion; everything written before an unlock is visible to the next thread\n    that locks the same monitor\n  - Guarantees: atomicity of the entire synchronized block\n  - Performance: Higher overhead — involves lock acquisition, potential thread blocking\n  - Use when: Multiple writers, compound operations, or invariants spanning multiple variables\n\nAtomicInteger/AtomicLong/etc.:\n  - Guarantees: atomicity of specific operations (getAndIncrement, compareAndSet, etc.)\n  - Uses: hardware-level CAS (Compare-And-Swap) instruction — lock-free\n  - Performance: Medium — no lock, but CAS may spin under high contention\n  - Use when: High-concurrency counters, accumulators, or CAS-based algorithms\n\nFor very high-write-throughput counters: prefer LongAdder (Java 8+) over AtomicLong.\nLongAdder distributes the count across multiple cells, reducing contention.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.*;\n\npublic class MemorySemanticsComparison {\n    // volatile: visibility only, compound ops unsafe\n    private volatile boolean flag = false;\n\n    // synchronized: full mutual exclusion + visibility\n    private int syncCounter = 0;\n    public synchronized void syncIncrement() { syncCounter++; }\n\n    // AtomicInteger: CAS-based atomic compound operations\n    private final AtomicInteger atomicCounter = new AtomicInteger(0);\n    public void atomicIncrement() { atomicCounter.incrementAndGet(); }\n\n    // LongAdder: high-throughput counter with less contention\n    private final LongAdder throughputCounter = new LongAdder();\n    public void highThroughputIncrement() { throughputCounter.increment(); }\n    public long getThroughputCount() { return throughputCounter.sum(); }\n\n    // AtomicReference: volatile semantics for object references\n    private final AtomicReference<String> config = new AtomicReference<>(\"default\");\n    public boolean updateConfig(String expected, String newValue) {\n        return config.compareAndSet(expected, newValue); // Atomic CAS\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q6: Can you explain a scenario where using `volatile` alone is insufficient and might lead to a subtle bug?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A6: A classic scenario is the \"check-then-act\" pattern. Even with volatile, if two threads\nboth check a condition and then act on it, the check and the act are not performed atomically.\n\nExample: A volatile lazy-initialization check:\n  if (resource == null) {       // Two threads might both see null\n      resource = new Resource(); // Both create a new instance — bug!\n  }\n\nAnother example: Compound conditional update:\n  if (counter < MAX) {\n      counter++; // Read of 'counter' and write to 'counter' are separate — race!\n  }\n\nAnother scenario: Volatile array reference but non-volatile element writes.\n  volatile int[] scores = new int[10];\n  scores[5] = 42; // The reference 'scores' is volatile but element 5 is NOT!\n\nThe key insight: volatile makes each single read and each single write of the variable atomic\nand visible, but does not make a sequence of operations on that variable atomic.\nSolution: Use synchronized blocks or AtomicXxx for compound operations.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicReference;\n\npublic class VolatileInsufficientDemo {\n\n    // PROBLEM 1: Check-then-act race condition\n    private volatile Object resource = null;\n\n    // UNSAFE even with volatile!\n    public Object getResourceUnsafe() {\n        if (resource == null) {           // Thread A and B both see null\n            resource = new Object();      // Both create — one is lost!\n        }\n        return resource;\n    }\n\n    // SAFE: Use synchronized for check-then-act\n    public synchronized Object getResourceSafe() {\n        if (resource == null) {\n            resource = new Object();      // Only one thread can be here\n        }\n        return resource;\n    }\n\n    // PROBLEM 2: Volatile reference doesn't make array contents volatile\n    private volatile int[] scores = new int[10];\n\n    public void updateScoreUnsafe(int index, int value) {\n        scores[index] = value;  // NOT a volatile write! Other threads may not see this.\n    }\n\n    // SAFE: Use AtomicIntegerArray for element-level volatile semantics\n    private final java.util.concurrent.atomic.AtomicIntegerArray atomicScores =\n            new java.util.concurrent.atomic.AtomicIntegerArray(10);\n\n    public void updateScoreSafe(int index, int value) {\n        atomicScores.set(index, value);  // Volatile semantics for elements\n    }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Implementation: [VolatileKeyword.java](src/main/java/com/github/msorkhpar/claudejavatutor/synchronization/VolatileKeyword.java)",
+        "Test: [VolatileKeywordTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/synchronization/VolatileKeywordTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 15,
+    "paras": 16,
+    "code": 23,
+    "tables": 0,
+    "lists": 22,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "662b9df470141736bce511f940214d8440e646e82344a0f084ce6bc87dd4099e"
+}

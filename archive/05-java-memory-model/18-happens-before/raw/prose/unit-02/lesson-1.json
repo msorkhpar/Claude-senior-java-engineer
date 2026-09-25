@@ -1,0 +1,488 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "18-happens-before"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Synchronization actions and their impact on memory visibility",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "5.2.2. Synchronization Actions and Their Impact on Memory Visibility"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "Three primary language-level mechanisms give visibility guarantees across threads in Java: **synchronized methods/blocks** and **volatile variables**, which establish happens-before, and **final fields**, which have their own initialization-safety rule (JLS §17.5). Each targets a different use case and provides a different granularity of guarantee."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "5.2.2.1. Synchronized Methods and Blocks"
+    },
+    {
+      "type": "para",
+      "text": "The `synchronized` keyword uses a **monitor** (also called an intrinsic lock or object lock). Every Java object has exactly one monitor. When a thread acquires the monitor (enters a synchronized block), it establishes exclusive ownership; no other thread can enter any `synchronized` block guarded by the same monitor until the first thread releases it."
+    },
+    {
+      "type": "para",
+      "text": "**Monitor Lock Rule (JLS §17.4.5)**: An unlock of monitor M **happens-before** every subsequent lock of M."
+    },
+    {
+      "type": "para",
+      "text": "This means: all writes a thread performed before releasing the lock (inside the block, and anything that happened-before that) become visible to the next thread that acquires the same lock."
+    },
+    {
+      "type": "para",
+      "text": "`synchronized` provides TWO guarantees:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Mutual exclusion (atomicity)**: Only one thread can execute inside the block at a time.",
+        "**Memory visibility**: In the working-memory picture, on exit writes are flushed and on entry the thread refreshes its view of memory — formally, the unlock happens-before the next lock of the same monitor."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: A synchronized block is like a shared notebook in a locked cabinet. Whoever has the key (lock) can update the notebook. When they put the key back (unlock), all their changes are in the notebook. The next person who picks up the key reads the notebook fresh — seeing all previous changes."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "5.2.2.2. Volatile Variables"
+    },
+    {
+      "type": "para",
+      "text": "A `volatile` variable provides the **Volatile Variable Rule (JLS §17.4.5)**: A write to volatile field V **happens-before** every subsequent read of V."
+    },
+    {
+      "type": "para",
+      "text": "Volatile provides:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Visibility**: A write is visible to every read of the variable that comes after it (in the synchronization order), together with everything the writer did before the write.",
+        "**No register caching**: The JIT cannot keep the value in a register or skip re-reading it. (CPU caches are coherent; volatile is implemented with memory barriers, not by bypassing them.)",
+        "**Limited reordering prevention**: Reads and writes before a volatile write cannot be moved after it, and reads and writes after a volatile read cannot be moved before it. It is not a full barrier in both directions for ordinary accesses."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Volatile does NOT provide:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Atomicity** for compound operations: `volatile int i; i++` is still a read-modify-write that requires additional synchronization.",
+        "**Mutual exclusion**: Multiple threads can read/write a volatile variable simultaneously."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: A volatile variable is like a whiteboard in an open office that everyone can see. When someone writes on it, everyone immediately sees the new value. But two people can erase and write at the same time — there's no turn-taking (no mutual exclusion)."
+    },
+    {
+      "type": "para",
+      "text": "**When to use volatile vs synchronized**:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Use `volatile` when: one thread writes, others only read; or for a boolean flag; or for a single reference publication.",
+        "Use `synchronized` when: the operation involves reading and then writing the same variable (check-then-act), or when you need compound operations to be atomic."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "5.2.2.3. Final Fields"
+    },
+    {
+      "type": "para",
+      "text": "The `final` field guarantee is different from volatile and synchronized — it applies at **object construction time** and requires no synchronization at use time."
+    },
+    {
+      "type": "para",
+      "text": "**Final Field Rule (JLS §17.5)**: If object O is properly constructed (the `this` reference does not escape during construction), then any thread that obtains a reference to O after its constructor finished is guaranteed to see the values O's constructor wrote to its `final` fields. This is a separate guarantee, not a happens-before edge."
+    },
+    {
+      "type": "para",
+      "text": "This means: once a thread has a reference to the object, all `final` fields of that object are guaranteed to be visible with their initialized values — even without any explicit synchronization at the read site, and even if the reference itself was passed through a data race. (Non-final fields still need safe publication.)"
+    },
+    {
+      "type": "para",
+      "text": "**Implications**:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Immutable objects (all fields `final`) require only safe publication of the reference — no locking at read time.",
+        "The JVM may cache final field values aggressively, knowing they cannot change.",
+        "If an object escapes `this` during construction (e.g., passes `this` to another thread inside the constructor), the final field guarantee is void."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: A `final` field is like a birth certificate. Once properly issued (object fully constructed), it captures the values at the moment of birth and is forever fixed. Anyone who gets a valid copy of the certificate (safely published reference) can read any field without needing to verify it with anyone else."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "`synchronized` provides BOTH mutual exclusion AND memory visibility; it is the strongest guarantee.",
+        "`volatile` provides visibility and ordering but NO mutual exclusion; `i++` on a volatile is NOT atomic.",
+        "`final` fields provide visibility after safe publication without any runtime synchronization overhead.",
+        "`synchronized` and `volatile` rest on different happens-before rules; `final` rests on its own §17.5 rule. Each has different costs and use cases.",
+        "A `volatile` write has release semantics and a `volatile` read has acquire semantics (plus a StoreLoad barrier after the volatile write, which gives volatile accesses their single total order).",
+        "Synchronized blocks that use DIFFERENT locks provide NO mutual exclusion and NO happens-before between them.",
+        "Final field guarantee is conditional: the object must be **properly constructed** (no `this` escape).",
+        "`volatile` on an object reference does NOT make the object's fields volatile — only the reference itself."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Java 5 (JSR-133)**: Strengthened volatile: since Java 5 a volatile write publishes every write made before it (release) and a volatile read acquires them. Before Java 5, ordinary reads and writes could be reordered around volatile accesses, so a volatile write did not publish earlier writes. This is why double-checked locking is only safe in Java 5+.",
+        [
+          "**Java 9 (VarHandle, JEP 193)**: `java.lang.invoke.VarHandle` provides fine-grained memory ordering:",
+          {
+            "type": "list",
+            "ordered": false,
+            "items": [
+              "`PLAIN`: no ordering guarantees (like unsynchronized access)",
+              "`OPAQUE`: atomic (no tearing), coherent per variable and eventually visible to other threads, but no ordering with other variables",
+              "`ACQUIRE`/`RELEASE`: one-sided memory barriers — `ACQUIRE` for reads, `RELEASE` for writes (lighter than volatile)",
+              "`VOLATILE`: full volatile semantics"
+            ]
+          }
+        ],
+        "**Java 21 (Virtual Threads)**: Virtual threads use the same synchronization mechanisms. However, a `synchronized` block in a virtual thread that blocks will pin the virtual thread to its carrier platform thread. Prefer `java.util.concurrent.locks.ReentrantLock` in virtual-thread-heavy code for better scalability.",
+        "**Java 21 (Structured Concurrency, JEP 453)**: `StructuredTaskScope.join()` provides happens-before from all child task results to the joining thread, offering a safer abstraction than raw `Thread.join()`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using different monitors for the same data** — synchronized on different objects provides NO happens-before."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Broken: Two threads lock different objects — no mutual exclusion, no visibility\nclass BrokenSynchronization {\n    private int value = 0;\n\n    synchronized void write(int v) { value = v; }       // uses 'this' as monitor\n\n    void read() {\n        synchronized (new Object()) { // different lock!\n            System.out.println(value); // no happens-before from write()\n        }\n    }\n}\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Fix: Use the same monitor for all operations on shared state\nclass CorrectSynchronization {\n    private int value = 0;\n    private final Object lock = new Object();\n\n    void write(int v) { synchronized(lock) { value = v; } }\n    void read() { synchronized(lock) { System.out.println(value); } }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Assuming volatile makes compound operations atomic** — `volatile int i; i++` is read-modify-write, NOT atomic."
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Broken: concurrent i++ on volatile still has race condition\nclass BrokenVolatileCounter {\n    volatile int count = 0;\n    void increment() { count++; } // read, increment, write — NOT atomic!\n}\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Fix: Use AtomicInteger for atomic compound operations\nclass CorrectAtomicCounter {\n    AtomicInteger count = new AtomicInteger(0);\n    void increment() { count.incrementAndGet(); } // atomic\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Publishing objects with final fields before construction is complete (`this` escape)**"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Broken: this escapes the constructor — final field guarantee is void\nclass UnsafePublication {\n    static UnsafePublication instance;\n    final int value;\n\n    UnsafePublication() {\n        instance = this; // 'this' escapes BEFORE value is assigned!\n        value = 42;\n    }\n}\n// Another thread reading instance.value might see 0 (default), not 42!\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Fix: Never let 'this' escape during construction\nclass SafePublication {\n    final int value;\n    static volatile SafePublication instance; // volatile for safe publication\n\n    SafePublication() {\n        value = 42; // assign all fields first\n        // do NOT pass 'this' to any other thread here\n    }\n\n    static void publish() {\n        instance = new SafePublication(); // safe publication via volatile\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Synchronizing on non-final fields** — If the reference used as a monitor changes, threads may use different monitors."
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Broken: lock object reference can change\nclass BrokenLock {\n    private Object lock = new Object(); // NOT final!\n\n    void doWork() {\n        synchronized (lock) { ... }\n    }\n\n    void changeLock() { lock = new Object(); } // now other threads use a different lock\n}\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Fix: Always use final references as monitors\nclass CorrectLock {\n    private final Object lock = new Object(); // final!\n    void doWork() { synchronized (lock) { ... } }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Volatile reference, non-volatile object fields** — Volatile on a reference does NOT make the object's contents volatile."
+      ],
+      "start": 5
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Broken: config reference is volatile, but config fields are not\nclass Config { int timeout = 30; String host = \"localhost\"; }\n\nclass Server {\n    volatile Config config = new Config();\n\n    void updateConfig() {\n        config.timeout = 60;  // NOT guaranteed visible via volatile!\n        config.host = \"newhost\";\n    }\n}\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Fix: Replace the whole object (immutable update pattern)\nfinal class Config {\n    final int timeout; final String host;\n    Config(int timeout, String host) { this.timeout = timeout; this.host = host; }\n}\n\nclass Server {\n    volatile Config config = new Config(30, \"localhost\");\n\n    void updateConfig() {\n        config = new Config(60, \"newhost\"); // replace reference atomically\n        // All readers who read the new reference see fully constructed object\n    }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Prefer `java.util.concurrent` over raw `synchronized`** for most use cases: `ReentrantLock`, `ReadWriteLock`, `Semaphore`, `CountDownLatch`, `CyclicBarrier`, and concurrent collections provide correct, well-tested, and often faster implementations.",
+        "**Use the narrowest synchronization scope**: Lock only the minimum amount of code necessary. Long synchronized blocks reduce concurrency and can cause contention.",
+        "**Immutable objects eliminate synchronization needs**: If an object's state never changes after construction and all fields are `final`, you only need to publish it safely once. Subsequent reads are free of synchronization.",
+        "**Use `volatile` for single-variable state flags**: A `volatile boolean running = true` for a stop-flag, or a `volatile` reference for safe publication, is idiomatic and efficient.",
+        "**VarHandle ACQUIRE/RELEASE for performance-critical lock-free algorithms**: If you need one-sided barriers (producer writes with RELEASE mode, consumer reads with ACQUIRE mode), `VarHandle` provides this lighter-weight alternative to full volatile.",
+        "**Document which lock protects which field** using `@GuardedBy(\"lockName\")` annotation."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**`synchronized` on `null` throws `NullPointerException`** — ensure the monitor reference is non-null.",
+        "**Volatile `long` and `double` are guaranteed atomic** — non-volatile `long`/`double` writes may be split into two 32-bit writes on 32-bit JVMs, allowing tearing. `volatile` prevents this.",
+        "**`final` fields in deserialization** — Java serialization bypasses constructors when reading objects. `final` field guarantees do not apply automatically during deserialization. Use `readObject()` carefully.",
+        "**Static `synchronized` methods** — These use the `Class` object as the monitor, not an instance. `static synchronized` and `instance synchronized` methods on the same class do NOT share a monitor.",
+        "**`synchronized` blocks and exceptions** — The monitor is always released when a `synchronized` block exits, even if an exception is thrown. This prevents deadlocks from exceptions."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers focus on:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The distinction between `volatile` (visibility, no atomicity) and `synchronized` (visibility + atomicity).",
+        "The `final` field guarantee and what \"proper construction\" means (no `this` escape).",
+        "When to use which mechanism: single-variable publish → `volatile`, compound operations → `synchronized`/`Atomic`.",
+        "Understanding that `volatile int i; i++` is NOT atomic.",
+        "The `VarHandle` ACQUIRE/RELEASE pattern for performance-critical lock-free code."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Common tricky questions**:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"Is `volatile` sufficient for a counter shared across threads?\" (No, `i++` needs `AtomicInteger` or `synchronized`.)",
+        "\"What happens if you synchronize on two different objects?\" (No mutual exclusion, no happens-before between them.)",
+        "\"Can you use `final` fields without `synchronized`?\" (Yes, if safely published — this is the basis of immutable objects.)",
+        "\"What does Java 9's `VarHandle` add over `volatile`?\" (Fine-grained ordering modes for lock-free algorithms.)"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the difference between `volatile` and `synchronized`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: Both establish happens-before guarantees, but they differ significantly:\n\nVOLATILE:\n- Rule: A volatile write happens-before every subsequent volatile read of the same variable.\n- Visibility: Yes — all threads see the latest write.\n- Atomicity: Only for SINGLE reads/writes. Compound operations (i++) are NOT atomic.\n- Mutual exclusion: No — multiple threads can access simultaneously.\n- Overhead: Low — a memory barrier (fence instruction), no OS-level blocking.\n- Use case: Single-variable state flags, safe publication of immutable objects.\n\nSYNCHRONIZED:\n- Rule: Unlock of monitor M happens-before subsequent lock of M.\n- Visibility: Yes — on entry, fresh view of memory; on exit, writes flushed.\n- Atomicity: Yes — only one thread in the block at a time.\n- Mutual exclusion: Yes — exclusive access within the block.\n- Overhead: Higher — potential thread blocking, OS kernel involvement for contention.\n- Use case: Compound operations, check-then-act, read-modify-write.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// volatile: visible but NOT atomic for compound ops\nclass VolatileExample {\n    volatile boolean flag = false;      // OK: single write/read\n    volatile int counter = 0;\n\n    void setFlag() { flag = true; }     // atomic single write\n    boolean checkFlag() { return flag; } // atomic single read\n\n    void increment() { counter++; }     // NOT ATOMIC: read, +1, write (race!)\n}\n\n// synchronized: visible AND atomic\nclass SynchronizedExample {\n    private int counter = 0;\n\n    synchronized void increment() { counter++; } // atomic: one thread at a time\n    synchronized int get() { return counter; }    // atomic: fresh read\n}\n\n// Correct volatile + atomic: use AtomicInteger\nclass AtomicExample {\n    volatile boolean flag = false;                 // volatile for boolean flag\n    AtomicInteger counter = new AtomicInteger(0); // atomic for counter\n\n    void setFlag() { flag = true; }\n    void increment() { counter.incrementAndGet(); }\n}\n"
+    },
+    {
+      "type": "rule"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: What does the final field guarantee provide and when does it NOT apply?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: The final field guarantee (JLS §17.5): a thread that obtains a reference to an object after its\nconstructor finished sees the values the constructor wrote to its final fields — without\nsynchronization, even if the reference arrived through a data race — provided the object is\nPROPERLY CONSTRUCTED. (It is its own rule, not a happens-before edge.)\n\n\"Properly constructed\" means: the 'this' reference does not escape during the constructor.\nIf any code in the constructor passes 'this' to another thread (directly or indirectly), the\nguarantee is void, and the reading thread may see the default (zero) value for the final field.\n\nWhen the guarantee DOES apply (object properly constructed, reference safely published):\n- Reading threads can access all final fields without synchronization.\n- The JVM may aggressively cache final field values.\n- This is the foundation of immutable objects in Java.\n\nWhen the guarantee does NOT apply:\n1. 'this' escapes during construction.\n2. Deserialization (bypasses constructors — use readObject() to re-establish invariants).\n3. Reflection bypassing final (setAccessible + Field.set on a final field after construction).\n\nThis is why immutable objects like String, Integer, and record types are safe to share across\nthreads without additional synchronization — their state is held in final fields set in the\nconstructor. (String also caches its hash code in a non-final field; that race is benign by design.)\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Correct: Immutable object with final fields — no synchronization needed at read sites\npublic final class ImmutablePoint {\n    private final int x;\n    private final int y;\n\n    public ImmutablePoint(int x, int y) {\n        this.x = x; // (W1) — constructor write\n        this.y = y; // (W2) — constructor write\n        // 'this' does NOT escape here — guarantee is intact\n    }\n\n    public int getX() { return x; } // no synchronization needed\n    public int getY() { return y; } // no synchronization needed\n}\n\n// Broken: 'this' escapes — final field guarantee VOID\npublic class EscapingThis {\n    static EscapingThis instance;\n    final int value;\n\n    EscapingThis() {\n        instance = this; // ESCAPES 'this' before value is assigned!\n        value = 42;      // Reader may see 0 for value!\n    }\n}\n"
+    },
+    {
+      "type": "rule"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: What is \"safe publication\" and how do synchronized, volatile, and final fields achieve it?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: Safe publication means making an object reference visible to other threads in a way that\nguarantees they also see the object's fully initialized state. Without safe publication, a\nthread might see the object reference but read uninitialized (default) field values.\n\nThe four safe publication idioms in Java:\n1. Initializing an object reference from a static initializer (class loading lock).\n2. Storing a reference in a volatile field (volatile rule).\n3. Storing a reference in a field guarded by a lock (monitor lock rule).\n4. Storing a reference in a final field (final field rule).\n\nUnsound publication (data race on the reference):\n   // Thread 1:  obj = new MyObject(); // reference stored without synchronization\n   // Thread 2:  if (obj != null) obj.use(); // may see partially initialized obj\n\nAll four safe publication mechanisms ensure that when Thread 2 sees the reference,\nit also sees all the object's fields in their initialized state.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Safe publication via volatile\nclass SafePublicationViaVolatile {\n    volatile MyObject obj; // volatile reference\n\n    void publish() {\n        MyObject local = new MyObject(42, \"data\"); // construct first\n        obj = local; // volatile write — safe publication\n    }\n\n    void consume() {\n        MyObject ref = obj; // volatile read\n        if (ref != null) ref.use(); // sees fully initialized object\n    }\n}\n\n// Safe publication via final field (immutable objects)\nfinal class ImmutableConfig {\n    final String host;\n    final int port;\n\n    ImmutableConfig(String host, int port) {\n        this.host = host; // final write in constructor\n        this.port = port;\n    }\n}\n// Once ImmutableConfig is safely published (via volatile/synchronized/static init),\n// all threads can read host and port without synchronization.\n\n// Safe publication via static initializer\nclass SafePublicationViaStatic {\n    private static final MyObject SINGLETON = new MyObject(42, \"data\");\n    // static initializer hb any thread's first access to SINGLETON\n\n    static MyObject getInstance() { return SINGLETON; }\n}\n"
+    },
+    {
+      "type": "rule"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: Why is double-checked locking (DCL) only safe in Java 5+ with volatile?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Double-checked locking is an optimization for lazy initialization that attempts to avoid\nsynchronization on every getInstance() call. The classic (broken) version:\n\n    if (instance == null) {          // first check (no lock)\n        synchronized (MyClass.class) {\n            if (instance == null) {  // second check (with lock)\n                instance = new MyClass(); // 3 operations: alloc, init, assign\n            }\n        }\n    }\n    return instance;\n\nThe problem: without volatile, the JVM can reorder the three operations of 'new MyClass()'.\nSpecifically, it may assign the reference to 'instance' BEFORE finishing initialization.\nThread B doing the first check could see instance != null and return a partially initialized object.\n\nIn Java 5+, making 'instance' volatile fixes this:\n- The volatile write of 'instance' has release semantics.\n- No store of any field can be reordered to appear after the volatile write.\n- Thread B's volatile read of 'instance' creates happens-before from Thread A's write,\n  ensuring Thread B sees the fully initialized object.\n\nBefore Java 5, even volatile was broken in this scenario due to a JMM bug (JSR-133 fixed it).\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Java 5+ DCL — CORRECT with volatile\npublic class DCLSingleton {\n    private static volatile DCLSingleton instance; // VOLATILE is essential\n\n    private final int value;\n\n    private DCLSingleton() {\n        value = 42;\n    }\n\n    public static DCLSingleton getInstance() {\n        if (instance == null) {                    // first check (no lock, fast path)\n            synchronized (DCLSingleton.class) {\n                if (instance == null) {            // second check (under lock)\n                    instance = new DCLSingleton(); // volatile write — full barrier\n                }\n            }\n        }\n        return instance; // volatile read — sees fully initialized object\n    }\n\n    public int getValue() { return value; }\n}\n\n// Better alternative: Initialization-on-Demand Holder (no volatile needed)\npublic class IoDHSingleton {\n    private IoDHSingleton() {}\n\n    private static class Holder {\n        static final IoDHSingleton INSTANCE = new IoDHSingleton();\n    }\n\n    public static IoDHSingleton getInstance() {\n        return Holder.INSTANCE; // class init hb this read\n    }\n}\n"
+    },
+    {
+      "type": "rule"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: How does Java 9's VarHandle improve on volatile for performance-critical code?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: VarHandle (java.lang.invoke.VarHandle, JEP 193) provides four memory ordering modes that\nallow programmers to choose the exact memory barrier strength needed:\n\n1. PLAIN (setPlain/getPlain): No ordering guarantees. Same as non-volatile field access.\n   Use: within a single thread or with external synchronization.\n\n2. OPAQUE (setOpaque/getOpaque): Prevents tearing (atomic reads/writes of any type).\n   Coherent per variable (all threads see its writes in one order) and eventually visible,\n   but no ordering with other variables. Use: progress indicators.\n\n3. RELEASE/ACQUIRE (setRelease/getAcquire): One-sided barriers.\n   - setRelease: All prior stores are visible before this store. (Producer side.)\n   - getAcquire: No later load or store can be reordered before this load. (Consumer side.)\n   Use: lock-free publish-subscribe patterns. Lighter than full volatile.\n\n4. VOLATILE (setVolatile/getVolatile): Full bidirectional memory barrier.\n   Equivalent to volatile keyword. Use: when full happens-before is needed.\n\nRELEASE/ACQUIRE is the key addition — it allows a producer to publish with RELEASE and a\nconsumer to read with ACQUIRE, establishing happens-before with less overhead than volatile\n(which is always a full bidirectional barrier).\n\nThis is important in lock-free data structures (queues, stacks) where the producer only needs\nto ensure its writes are visible before the reference, and the consumer only needs to ensure\nit reads everything after acquiring the reference.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.lang.invoke.MethodHandles;\nimport java.lang.invoke.VarHandle;\n\n// VarHandle RELEASE/ACQUIRE for producer-consumer\nclass VarHandleDemo {\n    private int data = 0;\n    private int published = 0;\n\n    private static final VarHandle PUBLISHED;\n    static {\n        try {\n            PUBLISHED = MethodHandles.lookup()\n                .findVarHandle(VarHandleDemo.class, \"published\", int.class);\n        } catch (ReflectiveOperationException e) {\n            throw new ExceptionInInitializerError(e);\n        }\n    }\n\n    // Producer: use RELEASE to ensure data is visible before published\n    void produce(int value) {\n        data = value;                              // plain write of data\n        PUBLISHED.setRelease(this, 1);             // RELEASE: data write hb this write\n    }\n\n    // Consumer: use ACQUIRE to ensure all subsequent reads see the producer's writes\n    int consume() {\n        if ((int) PUBLISHED.getAcquire(this) == 1) { // ACQUIRE: this read hb subsequent reads\n            return data; // guaranteed to see the value written by producer\n        }\n        return -1;\n    }\n}\n"
+    },
+    {
+      "type": "rule"
+    },
+    {
+      "type": "para",
+      "text": "**Q6: What are the synchronization implications when using virtual threads in Java 21?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A6: Virtual threads (JEP 444) are lightweight threads managed by the JVM and scheduled on\nplatform threads. They obey the same JMM happens-before rules as platform threads:\n- Thread.start() on a virtual thread hb any action in that virtual thread.\n- All actions in a virtual thread hb Thread.join() returning.\n- volatile, synchronized, and final fields work identically.\n\nThe KEY CAVEAT: synchronized blocks in virtual threads can \"pin\" the virtual thread to its\ncarrier platform thread, preventing the JVM from unmounting it when it blocks.\nThis eliminates the scalability benefit of virtual threads.\n\nIf a virtual thread blocks inside a synchronized block (e.g., waiting for I/O), the carrier\nplatform thread is also blocked — defeating the purpose of virtual threads.\n\nRecommendation:\n- Use java.util.concurrent.locks.ReentrantLock (or ReadWriteLock, StampedLock) instead of\n  synchronized for I/O-bound operations in virtual-thread-heavy code. These locks do not pin.\n- Reserve synchronized for very short critical sections where blocking is highly unlikely.\n- Java 24 (JEP 491) removed this limitation: synchronized no longer pins in Java 24+. In Java 21\n  the advice above applies.\n\nJava 21's StructuredTaskScope provides a higher-level API with automatic happens-before\nfrom all child tasks to the joiner, making concurrent result collection safe.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Preferred pattern for virtual threads: ReentrantLock instead of synchronized\nimport java.util.concurrent.locks.ReentrantLock;\n\nclass VirtualThreadFriendlyCounter {\n    private final ReentrantLock lock = new ReentrantLock();\n    private int count = 0;\n\n    void increment() {\n        lock.lock(); // does NOT pin virtual thread on block\n        try {\n            count++;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    int get() {\n        lock.lock();\n        try {\n            return count;\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n\n// Structured concurrency — happens-before from all tasks to the joiner\n// StructuredTaskScope is a PREVIEW API in Java 21: compile and run with --enable-preview\nimport java.util.concurrent.StructuredTaskScope;\n\nclass StructuredDemo {\n    int fetchData() throws InterruptedException, java.util.concurrent.ExecutionException {\n        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n            var f1 = scope.fork(() -> compute(1)); // fork tasks\n            var f2 = scope.fork(() -> compute(2));\n            scope.join(); // join() hb any reads of f1.get(), f2.get()\n            scope.throwIfFailed();\n            return f1.get() + f2.get(); // safely sees all task results\n        }\n    }\n\n    private int compute(int x) { return x * 10; }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Source: [SynchronizationActions.java](src/main/java/com/github/msorkhpar/claudejavatutor/happensbefore/SynchronizationActions.java)",
+        "Test: [SynchronizationActionsTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/happensbefore/SynchronizationActionsTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 13,
+    "paras": 24,
+    "code": 22,
+    "tables": 0,
+    "lists": 17,
+    "images": 0,
+    "videos": 0,
+    "rules": 5,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "5760caddfa6d1c3ee5ea23117d8852cf41249452fb0b33c67493b18047c1dc20"
+}

@@ -1,0 +1,340 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "17-java-memory-model"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Overview of the Java Memory Model",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "5.1.1. Overview of the Java Memory Model"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "The Java Memory Model (JMM), formally specified in Chapter 17 of the Java Language Specification, defines the rules governing how threads interact through memory. It answers a deceptively simple question: \"If thread A writes a value, when can thread B read it?\" Without the JMM, every platform—x86, ARM, SPARC—could provide different answers, making concurrent Java programs non-portable."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Imagine a team of software engineers (threads) sharing a whiteboard (main memory). The JMM governs the rules of this collaboration: when can one engineer see what another has written? Can one engineer read a stale note that has already been updated? The JMM provides the rulebook that all engineers and the JVM must follow."
+    },
+    {
+      "type": "para",
+      "text": "The JMM was introduced in Java 1.0 but had well-known flaws. Java 5 (JSR-133) introduced a corrected and comprehensive JMM that remains in effect today. It is usually explained with the following picture:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Main Memory**: The shared memory area visible to all threads. This conceptually maps to heap memory where objects and static fields live.",
+        "**Working Memory (CPU Cache / Registers)**: Each thread has its own working memory — a thread-local view of the data it is currently using. This conceptually maps to CPU registers and caches.",
+        "**Happens-Before Relationships**: A partial order over all actions in a program. If action X happens-before action Y, then X's effects are visible to Y. The JMM defines which actions establish happens-before edges."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Items 1 and 2 are a mental model, not the specification: the pre-Java 5 JMM was written in terms of main and working memory, but the current JMM (JLS §17.4) defines no memory regions or caches at all. It is defined through actions, program order, synchronization order and happens-before (item 3), which is what the guarantees below rest on. The \"working memory\" picture predicts the same failures and is used throughout these lessons as a shorthand."
+    },
+    {
+      "type": "para",
+      "text": "Without understanding the JMM, you may write code that:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Works perfectly in single-threaded tests but fails intermittently in production",
+        "Behaves correctly on your development machine (x86) but fails on ARM servers",
+        "Passes a code review but is silently broken by compiler or JIT optimizations"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Key actions defined by the JMM include: reads and writes to variables, lock acquisitions and releases, thread starts, and thread joins. Each of these actions may or may not create happens-before edges between threads."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "The JMM is about **visibility** and **ordering**, not just atomicity.",
+        "Threads may work with **stale cached copies** of variables unless proper synchronization is used.",
+        "The **happens-before** relationship is the primary mechanism for reasoning about memory visibility.",
+        "The JMM was significantly revised in **Java 5 (JSR-133)** to fix the broken double-checked locking pattern and related bugs.",
+        "**Volatile reads/writes**, **synchronized blocks**, **thread start/join**, and **Lock operations** all establish happens-before edges.",
+        "The JMM is an **abstraction**—it describes what the JVM must guarantee, not how hardware implements it.",
+        "**Memory consistency errors** (reading stale values) are the most common JMM-related bugs.",
+        "The JMM applies to both **heap variables** and **class-level (static) variables** — NOT to local variables, which are always thread-local."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Virtual Threads (JEP 444)**: Java 21 makes virtual threads standard. Virtual threads follow the same JMM rules as platform threads. Synchronized blocks work correctly with virtual threads, though `ReentrantLock` is preferred since virtual threads can be pinned to a carrier thread inside `synchronized`.",
+        "**Structured Concurrency (JEP 453, Preview)**: Provides a higher-level model where the lifetimes of subtasks are scoped to a structured block, making happens-before relationships more predictable.",
+        "**VarHandle API (Java 9+)**: Fine-grained memory-ordering operations (plain, opaque, release/acquire, volatile) that expose the JMM's ordering guarantees directly without requiring full `synchronized` blocks.",
+        "**StampedLock**: An alternative to `synchronized` and `ReentrantLock` that provides optimistic reads, useful when understanding JMM visibility implications."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Assuming variables are visible across threads without synchronization**"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BROKEN: stopRequested may never be seen as true by the background thread\nprivate boolean stopRequested = false;\n\npublic void runBroken() throws InterruptedException {\n    Thread t = new Thread(() -> {\n        while (!stopRequested) { /* spin */ }\n    });\n    t.start();\n    Thread.sleep(100);\n    stopRequested = true; // may not be visible to t\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Fix**: Declare `stopRequested` as `volatile` or use `synchronized`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "private volatile boolean stopRequested = false;\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Check-then-act without synchronization**"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BROKEN: another thread may update between the check and the act\nif (!map.containsKey(key)) {\n    map.put(key, computeValue(key));\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Fix**: Use `ConcurrentHashMap.computeIfAbsent()` or explicit synchronization."
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Publishing objects without synchronization**"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BROKEN: another thread may see a partially constructed object\npublic class UnsafePublisher {\n    static Helper helper;\n    static void initialize() { helper = new Helper(); }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Fix**: Use `volatile`, `final` fields, or synchronization for safe publication."
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Over-trusting unit tests** — JMM bugs are timing-dependent and may not manifest in tests run on specific hardware. Use tools like `jcstress` for stress-testing concurrency correctness."
+      ],
+      "start": 4
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Prefer immutability**: Immutable objects are inherently thread-safe because they are safely published via final fields and their state never changes.",
+        "**Use `volatile` for simple flags**: For single boolean flags or reference publication, `volatile` is sufficient and has lower overhead than `synchronized`.",
+        "**Use `java.util.concurrent` classes**: `AtomicInteger`, `ConcurrentHashMap`, `CountDownLatch`, etc. are built with correct JMM semantics and save you from rolling your own synchronization.",
+        "**Document thread-safety contracts**: Use `@GuardedBy`, `@ThreadSafe`, and `@NotThreadSafe` annotations (from `com.google.code.findbugs:jsr305`) to communicate intent.",
+        "**Use the minimum synchronization needed**: Over-synchronization kills performance; under-synchronization causes bugs. Use `volatile` when only visibility is needed, `synchronized` when atomicity is also required.",
+        "**Understand happens-before before using `volatile`**: Volatile guarantees visibility of the volatile variable itself and all writes made before the volatile write (happens-before \"piggybacking\")."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**64-bit long and double reads/writes**: Without `volatile`, reads and writes to `long` and `double` fields are NOT atomic on 32-bit JVMs — they may be split into two 32-bit operations. Modern 64-bit JVMs guarantee atomicity, but the JMM does not. Always use `volatile` or `AtomicLong` for shared `long`/`double` values.",
+        "**Final fields**: Final fields have their own guarantee (JLS §17.5), separate from happens-before: any thread that obtains a reference to the object after its constructor finishes sees the values the constructor wrote to its final fields (and to objects reachable through them), even if the reference itself was shared through a data race — but ONLY if `this` did not escape (leak) before the constructor finished.",
+        "**Static initializers**: Class initialization is guaranteed to be thread-safe by the JVM (via the class loading lock). Static final fields set during class initialization are visible to all threads without additional synchronization.",
+        "**Lazy initialization with volatile**: The double-checked locking pattern requires both `volatile` and `synchronized` to be correct (since Java 5)."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers expect senior engineers to:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Explain the JMM in plain English**: \"What happens when thread A writes to a variable — when does thread B see it?\"",
+        "**Know happens-before rules from memory**: volatile, synchronized, thread start/join — plus the separate final-field guarantee",
+        "**Identify JMM bugs in code snippets**: spotting missing `volatile`, unsafe publication, double-checked locking errors",
+        "**Distinguish atomicity, visibility, and ordering**: These are three separate concerns and require different solutions",
+        "**Know the history**: Why JSR-133 (Java 5) was needed; what was broken before"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Common tricky interview questions:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"Is `i++` atomic?\" (No — it's read-modify-write, three separate operations)",
+        "\"Can `volatile` replace `synchronized`?\" (Only for visibility; not for compound actions like check-then-act)",
+        "\"Why was double-checked locking broken before Java 5?\" (partial construction / reordering without `volatile`)"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the Java Memory Model and why does it exist?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: The Java Memory Model (JMM) is a specification (Java Language Specification, Chapter 17) that defines the rules\ngoverning how threads in a Java program interact through shared memory.\n\nIt exists because:\n1. Modern hardware uses caches, registers, and out-of-order execution — so writes by one CPU core are not\n   immediately visible to another.\n2. Compilers and JIT optimizers reorder instructions for performance.\n3. Without a well-defined model, programs that work on one hardware/JVM combination could silently produce incorrect\n   results on another.\n\nThe JMM abstracts over all of this hardware complexity and provides one portable set of rules for Java programmers:\n\"As long as you synchronize correctly using the primitives defined by the JMM, your program will behave correctly\non every JVM and hardware platform.\"\n\nBefore JSR-133 (Java 5), the JMM had known bugs — for example, the double-checked locking pattern was broken\nbecause compilers were allowed to reorder object construction with the store of the reference. JSR-133 fixed this\nand provided a cleaner happens-before model.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// JMM in action: visibility without synchronization\npublic class JmmVisibilityDemo {\n    private boolean running = true; // NOT volatile\n\n    public void stop() {\n        running = false; // Thread A writes\n    }\n\n    public void run() {\n        // Thread B might spin forever — it may see a cached 'true'\n        while (running) {\n            // work\n        }\n    }\n    // Fix: declare running as volatile\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: What is a happens-before relationship?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: A happens-before relationship is a partial order over actions in a Java program. If action X happens-before\naction Y, then:\n- All memory writes performed by X (and everything that happened-before X) are visible to Y.\n- X appears to execute before Y.\n\nHappens-before edges are established by:\n1. Program order: Within a single thread, action A that appears before action B in code happens-before B.\n2. Monitor lock: An unlock of a monitor happens-before every subsequent lock of that same monitor.\n3. Volatile write: A write to a volatile field happens-before every subsequent read of that field.\n4. Thread start: Thread.start() happens-before any action in the started thread.\n5. Thread join: All actions in a thread happen-before Thread.join() returns.\nFinal fields are NOT a happens-before rule: JLS §17.5 gives them a separate guarantee — a thread that sees a\nreference to an object after its constructor finished sees the constructor's values of its final fields, even\nwithout synchronization, provided the reference did not leak from the constructor.\n\nHappens-before is TRANSITIVE: if X happens-before Y and Y happens-before Z, then X happens-before Z.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class HappensBeforeDemo {\n    private int value = 0;\n    private volatile boolean ready = false;\n\n    // Thread A\n    public void writer() {\n        value = 42;          // (1)\n        ready = true;        // (2) volatile write\n    }\n\n    // Thread B\n    public void reader() {\n        if (ready) {         // (3) volatile read — happens-after (2)\n            // (2) happens-after (1) by program order\n            // (3) happens-after (2) by volatile\n            // Therefore: (1) happens-before (3)\n            System.out.println(value); // Guaranteed to print 42\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: What is the difference between atomicity, visibility, and ordering in the context of the JMM?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: These are three distinct concerns:\n\n1. ATOMICITY: An operation is atomic if it appears to happen as a single, indivisible unit.\n   - int read/write: atomic by JMM spec\n   - long/double read/write: NOT guaranteed atomic (may be split into two 32-bit ops) without volatile\n   - i++: NOT atomic — it is read, increment, write (three ops)\n   - Solution: synchronized blocks, AtomicInteger, AtomicLong, etc.\n\n2. VISIBILITY: When thread A writes a value, will thread B see the updated value or a stale cached copy?\n   - Without synchronization: NO guarantee\n   - volatile: a write happens-before every later read of the same field, so a read that sees the write also sees\n     everything the writer did before it (pictured as \"flush on write, refresh on read\")\n   - synchronized: an unlock happens-before every later lock of the same monitor (pictured as \"flush on exit,\n     refresh on entry\")\n\n3. ORDERING: Can the compiler/JIT/CPU reorder instructions?\n   - Without synchronization: YES — compilers and CPUs reorder instructions aggressively\n   - volatile: establishes happens-before ordering; writes before a volatile write cannot be moved after it\n   - synchronized: code inside the block may be reordered within it but not moved out of it, and threads that use\n     the same lock observe the block's effects as a unit\n\nSenior engineers understand that different problems need different tools:\n- Only atomicity? → AtomicInteger\n- Only visibility? → volatile\n- Both atomicity and visibility? → synchronized / explicit Lock\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class ThreeConcernsDemo {\n    // Visibility issue only\n    private volatile boolean flag = false;\n\n    // Atomicity issue only (on 32-bit JVM)\n    private volatile long largeCounter = 0L; // volatile fixes split-word reads\n\n    // Both atomicity and visibility\n    private int compound = 0;\n\n    public synchronized void incrementCompound() {\n        compound++; // read-modify-write: needs synchronized for atomicity + visibility\n    }\n\n    // Better: use AtomicInteger for lock-free atomicity\n    private final java.util.concurrent.atomic.AtomicInteger atomic =\n            new java.util.concurrent.atomic.AtomicInteger(0);\n\n    public void incrementAtomic() {\n        atomic.incrementAndGet(); // atomic + visible\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: What happens-before rules does the JMM define for synchronized blocks?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: For synchronized blocks, the JMM provides two critical rules:\n\n1. UNLOCK → LOCK (monitor release happens-before subsequent acquisition):\n   When thread A releases a monitor (exits synchronized block), all writes made by thread A before the release —\n   inside the block or earlier — are flushed to main memory. When thread B subsequently acquires the same monitor, thread B's working\n   memory is invalidated and it refreshes from main memory. Therefore, thread B sees all writes made by thread A.\n\n2. Within a thread, all actions within a synchronized block have program-order happens-before edges between them.\n\nBy transitivity, this means:\n- All writes by thread A inside synchronized(lock){...}\n- are visible to thread B after thread B enters synchronized(lock){...}\n\nThis provides BOTH visibility and atomicity for the protected code region.\n\nImportant subtlety: The happens-before edge is only established for threads that synchronize on the SAME monitor\nobject. Synchronizing on different objects provides no cross-thread visibility guarantees.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class SynchronizedHappensBefore {\n    private final Object lock = new Object();\n    private int sharedValue = 0;\n    private String sharedName = null;\n\n    public void writer() {\n        synchronized (lock) {\n            sharedValue = 100;    // (1)\n            sharedName = \"Alice\"; // (2)\n        } // monitor release (3): flushes (1) and (2)\n    }\n\n    public void reader() {\n        synchronized (lock) { // monitor acquire (4): invalidates cache\n            // (4) happens-after (3) by monitor rule\n            // (3) happens-after (1) and (2) by program order\n            // Therefore: if the reader's acquire comes after the writer's release, it sees\n            // sharedValue=100, sharedName=\"Alice\"; if it acquires first, it sees 0 and null\n            System.out.println(sharedValue + \" \" + sharedName);\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: How does the JMM handle final fields and safe publication?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: The JMM provides a special guarantee for final fields:\n\nFINAL FIELD RULE (JLS 17.5, a guarantee separate from happens-before): a thread that obtains a reference to an\nobject after its constructor has finished is guaranteed to see the values the constructor wrote to the object's\nfinal fields — and, through a final field, the state of the referenced object as of the end of the constructor —\neven if the reference was passed through a data race, provided the reference to the object is not published\n(leaked) before the constructor completes.\n\nThis means:\n- An object whose ALL mutable state is set through final fields is inherently thread-safe without additional\n  synchronization, assuming no reference escape from the constructor.\n- This is why immutable classes (all fields final, no mutation after construction) are the gold standard for\n  thread safety.\n\nSafe publication methods (ways to make an object's reference visible to other threads safely):\n1. Store it in a static field during class initialization (static initializers are thread-safe)\n2. Store it in a volatile field or AtomicReference\n3. Store it in a field guarded by a lock (synchronized setter)\n4. Store it in a final field (then publish the holder object)\n\nUnsafe publication:\n- Storing in a plain non-volatile, non-final, non-synchronized field allows other threads to see a\n  partially constructed object.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Safe publication via final fields\npublic final class ImmutablePoint {\n    private final int x;\n    private final int y;\n\n    public ImmutablePoint(int x, int y) {\n        this.x = x;\n        this.y = y;\n        // Constructor completes — final field guarantee kicks in\n    }\n\n    public int getX() { return x; }\n    public int getY() { return y; }\n    // No synchronization needed — final fields ensure visibility\n}\n\n// Safe publication via volatile\npublic class SafePublisher {\n    private volatile ImmutablePoint point;\n\n    public void publish(int x, int y) {\n        point = new ImmutablePoint(x, y); // volatile write\n    }\n\n    public ImmutablePoint get() {\n        return point; // volatile read — sees latest write\n    }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Source: [JmmOverview.java](src/main/java/com/github/msorkhpar/claudejavatutor/javamemorymodel/JmmOverview.java)",
+        "Test: [JmmOverviewTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/javamemorymodel/JmmOverviewTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 10,
+    "paras": 16,
+    "code": 14,
+    "tables": 0,
+    "lists": 13,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "ee2f7a69dd32e99538b1719444c6ea90c699a9400ba38d730282a75590178651"
+}

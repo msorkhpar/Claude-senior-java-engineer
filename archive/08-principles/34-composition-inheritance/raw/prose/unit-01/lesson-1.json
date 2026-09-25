@@ -1,0 +1,285 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Definition and purpose of Composition over Inheritance",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "8.4.1. Definition and Purpose of Composition over Inheritance"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "The Composition over Inheritance principle (also known as \"favor composition over inheritance\") is a fundamental object-oriented design guideline stating that classes should achieve polymorphic behavior and code reuse by containing instances of other classes (composition) rather than inheriting from a base or parent class."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Consider building a car. The inheritance approach would be like saying \"a sports car IS a car IS a vehicle IS a machine\" and trying to encode every variation through a class hierarchy. The composition approach says \"a car HAS an engine, HAS a transmission, HAS brakes\" -- each component can be independently designed, tested, and swapped. You can put a turbocharged engine into a sedan or a hybrid drivetrain into an SUV without redesigning the entire vehicle hierarchy."
+    },
+    {
+      "type": "para",
+      "text": "In Java, inheritance establishes an \"is-a\" relationship (`SportsCar extends Car`), while composition establishes a \"has-a\" relationship (`Car` has an `Engine` field). The principle does not say \"never use inheritance\" -- it says that when choosing between the two, composition should be the default choice unless inheritance is clearly the better fit (e.g., when there is a genuine is-a relationship and the superclass is designed for extension)."
+    },
+    {
+      "type": "para",
+      "text": "Joshua Bloch, in *Effective Java*, dedicates Item 18 to this principle: \"Favor composition over inheritance.\" The key insight is that inheritance violates encapsulation because a subclass depends on the implementation details of its superclass. When those details change, the subclass can break -- this is the **fragile base class problem**."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Inheritance creates tight coupling between parent and child classes; composition creates loose coupling through interfaces.",
+        "The fragile base class problem occurs when changes to a superclass inadvertently break subclasses that depend on its internal behavior.",
+        "Composition delegates work to contained objects, while inheritance overrides behavior in subclasses.",
+        "Use inheritance only when there is a genuine \"is-a\" relationship AND the superclass is designed and documented for extension.",
+        "The **forwarding/wrapper pattern** (Effective Java Item 18) uses composition + delegation to wrap an existing class and add behavior safely.",
+        "Composition supports runtime flexibility: you can change the composed object's behavior at runtime by swapping the delegate.",
+        "Java's single-inheritance constraint makes composition even more valuable, since a class can compose multiple behaviors but can only extend one class."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Records** (JEP 395): Records are implicitly final and cannot be extended. They naturally encourage composition since you cannot build inheritance hierarchies with them.",
+        "**Sealed classes** (JEP 409): Sealed classes restrict which classes can extend them, providing controlled inheritance. They pair well with composition by defining a closed set of types while delegating behavior through composed objects.",
+        "**Pattern matching for switch** (JEP 441): When using sealed types with composition, pattern matching allows clean decomposition of behavior without requiring inheritance-based polymorphism.",
+        "**Interfaces with default methods**: Since Java 8, interfaces can have default methods, enabling a form of multiple inheritance of behavior. This reduces the need for abstract base classes and supports composition through interface delegation.",
+        "**Functional interfaces and lambdas**: Composing behavior through `Function`, `Predicate`, `Consumer`, etc. is a lightweight form of composition that avoids class hierarchies entirely."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        [
+          "**The fragile base class problem with inheritance**",
+          "When a subclass overrides a method that the superclass calls internally, the subclass's behavior becomes dependent on implementation details:"
+        ]
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// PROBLEM: InstrumentedHashSet extends HashSet\npublic class InstrumentedHashSet<E> extends HashSet<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // BUG: HashSet.addAll calls add() internally!\n    }\n    // addCount will be double the actual adds when using addAll\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Fix**: Use forwarding wrapper (composition):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) { super(delegate); }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // ForwardingSet.addAll delegates directly, no double-counting\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        [
+          "**Over-engineering with unnecessary composition layers**",
+          "Adding too many wrapper/decorator layers when simple inheritance is appropriate creates complexity without benefit.",
+          "**Fix**: Use composition when you need flexibility, runtime behavior changes, or wrapping existing classes. Use inheritance for genuine \"is-a\" relationships with well-designed base classes."
+        ],
+        [
+          "**Forgetting to delegate all methods in a wrapper**",
+          "When creating a forwarding class, the compiler makes you implement the interface's abstract methods, but not `equals`, `hashCode` and `toString`. Forgetting those leaves `Object`'s identity-based versions, so the wrapper breaks the `Set` contract (`wrapper.equals(sameSet)` is `false` while `sameSet.equals(wrapper)` is `true`).",
+          "**Fix**: Create a complete forwarding class that delegates all interface methods and the `Object` methods `equals`, `hashCode` and `toString`, as shown in the `ForwardingSet` pattern."
+        ],
+        [
+          "**Breaking the Liskov Substitution Principle with inheritance**",
+          "Subclasses that change the semantics of inherited methods violate LSP. Composition avoids this by not establishing an is-a relationship.",
+          "**Fix**: When behavior needs to differ significantly, compose rather than inherit."
+        ]
+      ],
+      "start": 2
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Design interfaces first, then compose implementations**: Define behavior contracts through interfaces and compose implementations using delegation.",
+        "**Use the forwarding/wrapper pattern for extending third-party classes**: You cannot control how third-party classes evolve, so wrapping them with composition is safer than extending them.",
+        "**Prefer constructor injection for composed dependencies**: This makes dependencies explicit and supports immutability.",
+        "**Keep composed objects immutable when possible**: Immutable composed objects are inherently thread-safe and easier to reason about.",
+        "**Use Java records for simple value compositions**: Records provide a concise way to compose data without inheritance.",
+        "**Leverage functional interfaces for lightweight composition**: Instead of creating new classes, compose behavior using lambdas and method references."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Null delegates**: Always validate that composed objects are not null in constructors using `Objects.requireNonNull()`.",
+        "**Circular composition**: Avoid A composing B composing A. Use interfaces to break circular dependencies.",
+        "**Serialization with composition**: Composed objects must be serializable if the containing class is serializable. Consider using `transient` for non-serializable components.",
+        "**Equality and hashCode**: When using composition, define `equals()` and `hashCode()` based on the composed state, not on identity.",
+        "**Deep vs. shallow copying**: Composed objects may need deep copying to avoid shared mutable state."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers frequently ask about this principle because it tests understanding of OOP design trade-offs. Key areas:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The classic `InstrumentedHashSet` example from Effective Java (Item 18) -- be ready to explain the double-counting bug and the forwarding wrapper solution.",
+        "When inheritance IS appropriate (genuine is-a, designed-for-extension superclass like `AbstractList`).",
+        "How composition supports the Open/Closed Principle (open for extension via new composed behaviors, closed for modification).",
+        "The relationship between composition and the Strategy, Decorator, and Adapter patterns.",
+        "How Java's single inheritance limitation makes composition essential for combining multiple behaviors."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the Composition over Inheritance principle and why does it matter?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: The Composition over Inheritance principle states that classes should achieve\ncode reuse and polymorphic behavior by containing instances of other classes\n(composition/delegation) rather than inheriting from them.\n\nIt matters because:\n1. Inheritance creates tight coupling -- subclasses depend on superclass\n   implementation details (fragile base class problem).\n2. Composition creates loose coupling -- the composed object interacts only\n   through a well-defined interface.\n3. Composition allows runtime flexibility -- you can swap behaviors at runtime.\n4. Inheritance is constrained to single inheritance in Java; composition has\n   no such limitation.\n5. Composition makes code easier to test -- you can mock composed dependencies.\n\nThis does NOT mean \"never use inheritance.\" Use inheritance when there is a\ngenuine is-a relationship and the superclass is designed for extension.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Inheritance approach (fragile)\nclass CountingList<E> extends ArrayList<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n    // What about addAll? It may call add() internally -- fragile!\n}\n\n// Composition approach (robust)\nclass CountingList<E> implements List<E> {\n    private final List<E> delegate = new ArrayList<>();\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return delegate.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return delegate.addAll(c); // no double-counting risk\n    }\n    // ... delegate all other List methods\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: What is the fragile base class problem? Give a concrete Java example.**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: The fragile base class problem occurs when a subclass depends on the\ninternal implementation details of its superclass. If the superclass changes\nhow it implements a method, the subclass can break silently.\n\nThe classic example is extending HashSet to count element insertions.\nHashSet.addAll() internally calls add() for each element. If a subclass\noverrides both add() and addAll() to count insertions, addAll() will\ndouble-count because the superclass's addAll() calls the overridden add().\n\nThis is fragile because:\n- The subclass depends on the IMPLEMENTATION of HashSet.addAll(), not just\n  its CONTRACT.\n- If a future JDK version changes how addAll() works internally, the\n  subclass breaks.\n- The developer cannot know this without reading HashSet's source code.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Demonstrates the fragile base class problem\npublic class CountingInheritanceStack<E> extends InheritanceStack<E> {\n    private int pushCount = 0;\n\n    @Override\n    public void push(E item) {\n        pushCount++;\n        super.push(item);\n    }\n\n    @Override\n    public void pushAll(Collection<E> items) {\n        pushCount += items.size();\n        super.pushAll(items); // BUG: super.pushAll calls push() for each item!\n    }\n    // After pushAll(List.of(\"a\",\"b\",\"c\")):\n    //   pushCount = 6 (3 from pushAll + 3 from push called by super.pushAll)\n    //   Expected: 3\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: Explain the forwarding wrapper pattern and when to use it.**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: The forwarding wrapper pattern (from Effective Java Item 18) is a\ncomposition-based alternative to inheritance. It consists of two parts:\n\n1. A forwarding class that implements the same interface as the class to\n   wrap, delegating all method calls to a contained instance.\n2. A wrapper class that extends the forwarding class and overrides only\n   the methods it needs to add behavior to.\n\nWhen to use it:\n- When you need to add behavior to an existing class but cannot (or should\n  not) modify it.\n- When extending a concrete class that was not designed for inheritance.\n- When wrapping third-party library classes.\n- When you need to decorate or instrument behavior without risking the\n  fragile base class problem.\n\nThe pattern works with any class that implements an interface, because the\nforwarding class delegates through the interface contract, not through\nimplementation details.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Step 1: Forwarding class delegates all calls\npublic class ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    public ForwardingSet(Set<E> delegate) {\n        this.delegate = Objects.requireNonNull(delegate);\n    }\n\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }\n    @Override public int hashCode() { return delegate.hashCode(); }\n    // ... all other Set methods (and toString) delegated\n}\n\n// Step 2: Wrapper adds behavior\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) { super(delegate); }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);  // delegates to ForwardingSet, which delegates to actual Set\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c);  // no double-counting!\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: When is inheritance the better choice over composition?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Inheritance is appropriate when ALL of these conditions are met:\n\n1. There is a genuine \"is-a\" relationship (a Dog IS an Animal, an ArrayList\n   IS a List).\n2. The superclass is designed and documented for extension (e.g., AbstractList,\n   AbstractMap in the JDK).\n3. The subclass does not need to work with multiple unrelated types (since\n   Java has single inheritance).\n4. The subclass genuinely extends the superclass's behavior rather than\n   restricting or altering it.\n\nExamples of appropriate inheritance:\n- Extending AbstractList to create a custom List implementation.\n- Creating a SpecificException that extends a base ApplicationException.\n- Sealed class hierarchies (Java 17+) where the set of subtypes is fixed\n  and known.\n\nRed flags that suggest composition instead:\n- You want to \"reuse code\" but there is no is-a relationship.\n- You are extending a concrete class not designed for inheritance.\n- You override methods primarily to restrict or nullify behavior.\n- You need to combine behaviors from multiple sources.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Good use of inheritance: AbstractList is designed for extension\npublic class ImmutableArrayList<E> extends AbstractList<E> {\n    private final E[] elements;\n\n    @SuppressWarnings(\"unchecked\")\n    public ImmutableArrayList(Collection<E> source) {\n        this.elements = (E[]) source.toArray();\n    }\n\n    @Override\n    public E get(int index) {\n        return elements[index];\n    }\n\n    @Override\n    public int size() {\n        return elements.length;\n    }\n    // AbstractList provides all other methods via get() and size()\n}\n\n// Good use of sealed classes with inheritance\npublic sealed interface Shape permits Circle, Rectangle, Triangle {\n    double area();\n}\npublic record Circle(double radius) implements Shape {\n    public double area() { return Math.PI * radius * radius; }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: How does composition relate to common design patterns?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: Many classic design patterns are implementations of composition:\n\n1. Strategy Pattern: Compose an algorithm object instead of inheriting\n   different algorithm variants. Example: a Sorter class that composes a\n   Comparator rather than creating SortByName, SortByAge subclasses.\n\n2. Decorator Pattern: Wrap an object to add behavior. Each decorator\n   composes the original object and delegates to it. Example: BufferedReader\n   wrapping FileReader.\n\n3. Adapter Pattern: Compose an existing class and present a different\n   interface. Adapts one interface to another via delegation.\n\n4. Observer Pattern: A subject composes a list of observers rather than\n   inheriting notification behavior.\n\n5. Builder Pattern: Composes parts of a complex object step by step.\n\n6. Dependency Injection: The entire DI paradigm is built on composition --\n   dependencies are composed (injected) rather than created via inheritance.\n\nIn modern Java, functional interfaces (Function, Predicate, Consumer) enable\nlightweight composition without creating explicit classes, replacing many\nuses of the Strategy and Command patterns.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Strategy via composition (modern Java style)\npublic class TextProcessor {\n    private final List<Function<String, String>> transformations = new ArrayList<>();\n\n    public TextProcessor addTransformation(Function<String, String> t) {\n        transformations.add(t);\n        return this;\n    }\n\n    public String process(String input) {\n        String result = input;\n        for (var t : transformations) {\n            result = t.apply(result);\n        }\n        return result;\n    }\n}\n\n// Usage: compose behaviors at runtime\nvar processor = new TextProcessor()\n    .addTransformation(String::trim)\n    .addTransformation(String::toUpperCase)\n    .addTransformation(s -> s.replace(\" \", \"_\"));\n\nprocessor.process(\"  hello world  \"); // \"HELLO_WORLD\"\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Source: [CompositionBasics.java](src/main/java/com/github/msorkhpar/claudejavatutor/compositioninheritance/CompositionBasics.java)",
+        "Test: [CompositionBasicsTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/compositioninheritance/CompositionBasicsTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 10,
+    "paras": 11,
+    "code": 12,
+    "tables": 0,
+    "lists": 8,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "4688eda55f16d5d9a15b4f4c8b1ca39ced14a56b4d95c70da1b8745df946349c"
+}

@@ -1,0 +1,335 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "41-reflection"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Class and Object Introspection",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "10.3.1. Class and Object Introspection"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "Class and object introspection is the ability to examine the structure, properties, and metadata of classes and objects at runtime. Through the Java Reflection API (primarily in `java.lang.reflect`), a program can discover a class's name, superclass, interfaces, fields, methods, constructors, modifiers, and annotations without knowing any of this information at compile time."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Imagine you receive a sealed box with no label. Introspection is like using an X-ray machine to examine its contents, discover what compartments it has, what materials it is made of, and how those compartments are connected -- all without opening the box or knowing what was put inside at the factory."
+    },
+    {
+      "type": "para",
+      "text": "At the heart of reflection is the `java.lang.Class` object. Every loaded type in the JVM has exactly one `Class` instance. You can obtain it three ways:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**`object.getClass()`** -- from any instance at runtime",
+        "**`TypeName.class`** -- a compile-time class literal",
+        "**`Class.forName(\"fully.qualified.Name\")`** -- loading a class dynamically by name"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Once you have a `Class` object, you can query the full class hierarchy (superclasses, interfaces), modifiers (public, abstract, final, static), whether it is an interface, enum, record, array, or primitive, and enumerate its declared fields, methods, and constructors."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Every type in Java (including primitives, arrays, and `void`) has a corresponding `Class` object.",
+        "`Class.forName()` triggers class loading and static initialization; `obj.getClass()` needs no loading (the class of an existing object is already loaded), and a `TypeName.class` literal may load the class the first time it is evaluated but never initializes it.",
+        "`getInterfaces()` returns only directly declared interfaces; to get all inherited interfaces you must walk the hierarchy.",
+        "`getDeclaredFields()`/`getDeclaredMethods()` return members declared in that class only (including private), while `getFields()`/`getMethods()` return all public members including inherited ones.",
+        "`getModifiers()` returns an `int` bitmask; use `java.lang.reflect.Modifier` helper methods to decode it.",
+        "`isInstance(obj)` is the reflective equivalent of the `instanceof` operator.",
+        "`getComponentType()` returns the element type of an array class, or `null` for non-array types.",
+        "`getSuperclass()` returns `null` for `Object`, interfaces, primitives, and `void`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Records** (`clazz.isRecord()`, `clazz.getRecordComponents()`): Java 16+ introduced first-class record support in the reflection API, letting you discover record component names and types.",
+        "**Sealed classes** (`clazz.isSealed()`, `clazz.getPermittedSubclasses()`): Java 17+ added methods to inspect sealed class hierarchies reflectively.",
+        "**Pattern matching for `instanceof`**: While not a reflection feature per se, it works alongside reflection when you need runtime type narrowing combined with compile-time pattern matching.",
+        "**Module system** (`clazz.getModule()`): Since Java 9, the module system gates reflective access; `--add-opens` may be needed for deep reflection into JDK internals."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        [
+          "**Confusing `getDeclaredFields()` with `getFields()`**",
+          "`getFields()` only returns **public** fields (including inherited ones). `getDeclaredFields()` returns all fields declared in the class itself, regardless of access modifier, but does **not** include inherited fields."
+        ]
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG: Expecting to see private fields\nField[] fields = clazz.getFields(); // Only public!\n\n// CORRECT: To see all fields of a class including private\nField[] fields = clazz.getDeclaredFields();\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Forgetting that `Class.forName()` throws a checked exception**"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// WRONG: Uncaught checked exception\nClass<?> c = Class.forName(\"com.example.MyClass\");\n\n// CORRECT: Handle ClassNotFoundException\ntry {\n    Class<?> c = Class.forName(\"com.example.MyClass\");\n} catch (ClassNotFoundException e) {\n    // handle gracefully\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        [
+          "**Assuming `getSuperclass()` always returns a class**",
+          "For interfaces, primitives, and `Object` itself, `getSuperclass()` returns `null`."
+        ]
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Class<?> superclass = Serializable.class.getSuperclass(); // null!\nClass<?> primSuper = int.class.getSuperclass();            // null!\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        [
+          "**Not walking the full hierarchy for interface discovery**",
+          "`getInterfaces()` only returns directly declared interfaces. To find all interfaces (including those inherited from superclasses), you must traverse the class hierarchy recursively."
+        ],
+        [
+          "**Module access restrictions in Java 9+**",
+          "Reflectively using a member your code cannot access throws `IllegalAccessException`, and `setAccessible(true)` on a member of a package in a named module that is not opened to your module throws `InaccessibleObjectException` (a `RuntimeException`). Use `--add-opens` JVM flags or `opens` directives in module declarations to grant access."
+        ]
+      ],
+      "start": 4
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Cache `Class` objects** -- they are singletons per classloader and safe to cache.",
+        "**Prefer `instanceof` / pattern matching over reflective type checks** when the type is known at compile time.",
+        "**Use `Class.isInstance(obj)` instead of manual `getClass()` comparisons** for polymorphic checks.",
+        "**Walk the hierarchy only once** and cache the result if you need all interfaces or all fields including inherited ones.",
+        "**Avoid `Class.forName()` in hot loops** -- it involves classloader lookups and synchronization.",
+        "**Use `getSimpleName()` for logging** and `getName()` (the binary name, e.g. `Outer$Inner`, which `Class.forName()` accepts) when you need a name for serialization or persistence; `getCanonicalName()` gives the source-style `Outer.Inner`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Primitive types**: `int.class` is a valid `Class` object but `isPrimitive()` is `true`, it has no fields, no methods, and `getSuperclass()` returns `null`.",
+        "**Array types**: `int[].class` has `isArray() == true` and `getComponentType() == int.class`. Multi-dimensional arrays are arrays of arrays.",
+        "**Anonymous classes**: Have an empty simple name (`getSimpleName()` returns `\"\"`).",
+        "**Lambda classes**: Synthetic classes with `isSynthetic() == true`.",
+        "**`void.class`**: A valid `Class` object with `isPrimitive() == true`.",
+        "**Null input**: Always guard against `null` before calling `getClass()` -- it will throw `NullPointerException`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers commonly probe:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Whether you understand the three ways to obtain a `Class` object and the semantic differences between them.",
+        "The distinction between `getDeclaredXxx()` and `getXxx()` families of methods.",
+        "How the class hierarchy traversal works and why `getInterfaces()` is shallow.",
+        "Real-world scenarios: plugin systems, serialization frameworks, ORM mapping, and dependency injection all rely on introspection.",
+        "Module system restrictions and how they affect reflective access."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Tricky questions to expect:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"What does `int.class == Integer.TYPE` evaluate to?\" (Answer: `true`)",
+        "\"Can you get a `Class` object for `void`?\" (Answer: yes, `void.class` or `Void.TYPE`)",
+        "\"Does `Class.forName()` call the static initializer?\" (Answer: yes, by default)"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What are the three ways to obtain a Class object in Java, and how do they differ?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: The three ways are:\n\n1. object.getClass() -- Called on an instance at runtime. Returns the actual runtime\n   class, which may be a subclass of the declared type. Requires a non-null instance.\n\n2. TypeName.class -- A class literal. Does not require an instance and works for\n   primitives (int.class) and void (void.class). The first time it is evaluated at run\n   time, the JVM loads the class if it is not loaded yet, but it does NOT initialize it\n   (no static initializer runs).\n\n3. Class.forName(\"fully.qualified.Name\") -- Loads the class dynamically by its\n   fully-qualified name at runtime. Triggers static initialization by default. Throws\n   ClassNotFoundException if the class cannot be found.\n\nKey differences:\n- .getClass() gives the runtime type, which may differ from the declared type due to polymorphism.\n- .class is resolved at compile time and is the most efficient.\n- Class.forName() is the most dynamic but also the slowest and can fail at runtime.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Example demonstrating all three approaches\npublic class ClassObjectDemo {\n    public static void main(String[] args) throws ClassNotFoundException {\n        // 1. From an instance\n        String str = \"Hello\";\n        Class<?> c1 = str.getClass(); // java.lang.String\n\n        // 2. Class literal\n        Class<?> c2 = String.class;\n\n        // 3. Dynamic loading\n        Class<?> c3 = Class.forName(\"java.lang.String\");\n\n        // All three refer to the same Class object\n        assert c1 == c2 && c2 == c3; // true\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: What is the difference between `getDeclaredFields()` and `getFields()`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: These methods differ in two important dimensions -- visibility and inheritance:\n\ngetDeclaredFields():\n- Returns ALL fields declared in the class itself (public, protected, default, private).\n- Does NOT include inherited fields from superclasses.\n- Use this when you need to inspect the class's own structure.\n\ngetFields():\n- Returns ONLY public fields.\n- INCLUDES inherited public fields from superclasses and interfaces.\n- Use this when you want to discover the publicly accessible field API.\n\nThe same pattern applies to getMethods()/getDeclaredMethods() and\ngetConstructors()/getDeclaredConstructors().\n\nTo get all fields (including private inherited fields), you must walk the\nclass hierarchy:\n\n  Class<?> current = clazz;\n  while (current != null) {\n      Field[] fields = current.getDeclaredFields();\n      // process fields...\n      current = current.getSuperclass();\n  }\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class FieldDiscoveryDemo {\n    static class Parent {\n        public String publicField = \"public\";\n        private String privateField = \"private\";\n    }\n\n    static class Child extends Parent {\n        public int childPublic = 1;\n        private int childPrivate = 2;\n    }\n\n    public static void main(String[] args) {\n        // getDeclaredFields -- own fields only, all access levels\n        Field[] declared = Child.class.getDeclaredFields();\n        // [childPublic, childPrivate]\n\n        // getFields -- public fields, including inherited\n        Field[] publicFields = Child.class.getFields();\n        // [childPublic, publicField] (the order of the returned array is not specified)\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: How do you traverse the complete class hierarchy of a class?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: Java does not provide a single method to get the complete hierarchy. You must\nwalk up the chain using getSuperclass() in a loop:\n\n1. Start with the target class.\n2. Call getSuperclass() to get the parent.\n3. Repeat until getSuperclass() returns null (reached Object or an interface/primitive).\n\nFor interfaces, you also need getInterfaces() at each level, and interfaces\nthemselves can extend other interfaces, so this becomes a recursive traversal\n(essentially a graph traversal since a class can implement multiple interfaces\nand interfaces can extend multiple interfaces).\n\nImportant: getSuperclass() returns null for:\n- java.lang.Object\n- Interfaces\n- Primitives (int.class, etc.)\n- void.class\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class HierarchyTraversal {\n    public static List<Class<?>> getFullHierarchy(Class<?> clazz) {\n        List<Class<?>> hierarchy = new ArrayList<>();\n        Class<?> current = clazz;\n        while (current != null) {\n            hierarchy.add(current);\n            current = current.getSuperclass();\n        }\n        return hierarchy;\n    }\n\n    public static Set<Class<?>> getAllInterfaces(Class<?> clazz) {\n        Set<Class<?>> interfaces = new LinkedHashSet<>();\n        collectInterfaces(clazz, interfaces);\n        return interfaces;\n    }\n\n    private static void collectInterfaces(Class<?> clazz, Set<Class<?>> result) {\n        if (clazz == null) return;\n        for (Class<?> iface : clazz.getInterfaces()) {\n            result.add(iface);\n            collectInterfaces(iface, result); // interfaces can extend interfaces\n        }\n        collectInterfaces(clazz.getSuperclass(), result);\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: What does `Class.isInstance(obj)` do and how does it differ from `instanceof`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Class.isInstance(obj) is the dynamic equivalent of the instanceof operator.\n\nSimilarities:\n- Both check whether an object is an instance of a given type.\n- Both handle null safely (return false for null).\n- Both consider the full type hierarchy (subclasses, implemented interfaces).\n\nDifferences:\n- instanceof is a compile-time operator; the type on the right must be known at\n  compile time.\n- isInstance() is a runtime method; the type (Class object) can be determined\n  dynamically at runtime.\n\nUse isInstance() when:\n- The type to check against is not known at compile time.\n- You are writing generic reflection-based code (e.g., a framework, serializer).\n\nUse instanceof (with pattern matching in Java 21) when:\n- The type is known at compile time.\n- You want type narrowing with pattern variables.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class InstanceCheckDemo {\n    public static void main(String[] args) {\n        Object obj = \"Hello\";\n\n        // Compile-time instanceof\n        if (obj instanceof String s) {\n            System.out.println(\"Length: \" + s.length());\n        }\n\n        // Dynamic isInstance -- type determined at runtime\n        Class<?> targetType = String.class; // could come from configuration\n        if (targetType.isInstance(obj)) {\n            System.out.println(\"Object is a \" + targetType.getSimpleName());\n        }\n\n        // Null handling\n        System.out.println(String.class.isInstance(null)); // false\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: How do records and sealed classes interact with the Reflection API?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: Java 16+ and 17+ added reflection support for records and sealed classes:\n\nRecords (Java 16+):\n- Class.isRecord() returns true for record types.\n- Class.getRecordComponents() returns an array of RecordComponent objects\n  describing each component (name, type, accessor method, annotations).\n- Record components maintain their declaration order.\n- Records always have a canonical constructor whose parameters match the components.\n\nSealed classes (Java 17+):\n- Class.isSealed() returns true for sealed types.\n- Class.getPermittedSubclasses() returns an array of Class objects representing\n  the permitted subtypes.\n- This is valuable for building exhaustive pattern matching or framework code\n  that needs to discover all subtypes of a sealed hierarchy.\n\nBoth features enhance the reflection API by making the JVM metadata richer and\nmore queryable. Frameworks like Jackson, Hibernate, and Spring leverage these\nfor automatic mapping, serialization, and dependency injection.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class RecordSealedReflection {\n    record Point(int x, int y) {}\n\n    sealed interface Shape permits Circle, Rectangle {}\n    record Circle(double radius) implements Shape {}\n    record Rectangle(double width, double height) implements Shape {}\n\n    public static void main(String[] args) {\n        // Record introspection\n        System.out.println(Point.class.isRecord()); // true\n        var components = Point.class.getRecordComponents();\n        for (var comp : components) {\n            System.out.println(comp.getName() + \": \" + comp.getType().getSimpleName());\n        }\n        // Output: x: int, y: int\n\n        // Sealed class introspection\n        System.out.println(Shape.class.isSealed()); // true\n        Class<?>[] permitted = Shape.class.getPermittedSubclasses();\n        for (var sub : permitted) {\n            System.out.println(\"Permitted: \" + sub.getSimpleName());\n        }\n        // Output: Permitted: Circle, Permitted: Rectangle\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q6: What happens when you call `Class.forName()` with a class that has a static initializer?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A6: By default, Class.forName(String) loads the class AND runs its static\ninitializer (static blocks and static field assignments). This is the\n\"initialize\" variant.\n\nThere is an overloaded version:\n  Class.forName(String name, boolean initialize, ClassLoader loader)\n\nIf you pass initialize=false, the class is loaded but NOT initialized. The\nstatic initializer will run later, when the class is first actively used.\n\nThis distinction matters for:\n1. Side effects in static initializers (database connections, logging, registrations).\n2. Performance: avoiding unnecessary initialization.\n3. JDBC: Class.forName(\"com.mysql.cj.jdbc.Driver\") traditionally relied on\n   the static initializer to register the driver with DriverManager.\n\nIn modern Java (JDBC 4.0+), drivers use ServiceLoader, so explicit Class.forName()\nis no longer needed for JDBC drivers.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class ForNameDemo {\n    static class Eager {\n        static {\n            System.out.println(\"Eager initialized!\");\n        }\n    }\n\n    public static void main(String[] args) throws ClassNotFoundException {\n        // Triggers static initializer\n        Class.forName(\"ForNameDemo$Eager\");\n        // Output: \"Eager initialized!\"\n\n        // Does NOT trigger static initializer\n        Class.forName(\"ForNameDemo$Eager\", false,\n                ForNameDemo.class.getClassLoader());\n        // No output (already initialized in this case, but for a fresh class it would defer)\n    }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Test: [ClassIntrospectionTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/reflection/ClassIntrospectionTest.java)",
+        "Source: [ClassIntrospection.java](src/main/java/com/github/msorkhpar/claudejavatutor/reflection/ClassIntrospection.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 10,
+    "paras": 12,
+    "code": 15,
+    "tables": 0,
+    "lists": 12,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "91d380aaf35f233781c18049054f8f1537c9d965bf82b73d4fd5e324929e33e7"
+}

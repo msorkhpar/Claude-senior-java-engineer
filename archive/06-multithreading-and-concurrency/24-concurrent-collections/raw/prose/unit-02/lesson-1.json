@@ -1,0 +1,292 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "24-concurrent-collections"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Thread Safety of Common Data Structures",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "6.5.2. Thread Safety of Common Data Structures"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "Thread safety in the context of collections means that a data structure can be safely accessed and modified by multiple threads concurrently without causing data corruption, inconsistent reads, or unexpected exceptions."
+    },
+    {
+      "type": "para",
+      "text": "Java provides two primary approaches to making collections thread-safe:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Synchronization wrappers** (`Collections.synchronizedXXX()`): Wrap an existing non-thread-safe collection with a synchronized decorator that locks on the wrapper object for every method call.",
+        "**Concurrent collections** (`java.util.concurrent` package): Purpose-built data structures designed from the ground up for concurrent access, using fine-grained locking, CAS operations, or copy-on-write semantics."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Synchronization wrappers are like putting a single-entry turnstile at a library's front door -- only one person can enter or exit at a time, but the library itself is unchanged. Concurrent collections are like redesigning the library with multiple help desks, self-checkout stations, and independent reading rooms -- many people can work simultaneously without interfering with each other."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**No standard collection is thread-safe by default**: `ArrayList`, `HashMap`, `HashSet`, `LinkedList` are all non-thread-safe.",
+        "**`Collections.synchronizedXXX()` wraps collections with coarse-grained locking**: Every method call acquires the same lock, creating a bottleneck under contention.",
+        "**Synchronized wrappers do NOT make iteration thread-safe**: You must manually synchronize on the wrapper during iteration.",
+        "**`ConcurrentHashMap`** uses per-bin locking and CAS for fine-grained concurrency; it outperforms synchronized HashMap by orders of magnitude under contention.",
+        "**`CopyOnWriteArrayList`** trades write performance for read performance: zero-cost reads, expensive writes.",
+        "**Legacy synchronized collections** (`Vector`, `Hashtable`) exist but are generally discouraged in favor of modern alternatives.",
+        "**Thread safety != atomic compound operations**: Even with thread-safe collections, \"check-then-act\" sequences (like `if (!map.containsKey(k)) map.put(k, v)`) require atomic methods like `putIfAbsent()`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Virtual threads (JEP 444)**: Concurrent collections work well with virtual threads. However, be cautious with `synchronized` blocks inside virtual thread tasks as they pin the carrier thread; prefer `ReentrantLock` instead.",
+        "**Structured concurrency (Preview)**: When using `StructuredTaskScope`, concurrent collections are often used to aggregate results from subtasks.",
+        "**Scoped values (Preview, JEP 446)**: Can replace some uses of `ThreadLocal` for sharing immutable data with subtasks in structured concurrency patterns (they are not a replacement for a concurrent collection)."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Iterating a synchronized collection without holding the lock**"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Iterator is not protected by the synchronized wrapper\nList<String> syncList = Collections.synchronizedList(new ArrayList<>());\nsyncList.add(\"a\");\nsyncList.add(\"b\");\nfor (String s : syncList) { // ConcurrentModificationException possible!\n    System.out.println(s);\n}\n\n// FIX: Manually synchronize on the wrapper\nsynchronized (syncList) {\n    for (String s : syncList) {\n        System.out.println(s);\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Assuming synchronized wrappers provide atomic compound operations**"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Race condition between containsKey and put\nMap<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());\nif (!syncMap.containsKey(\"key\")) { // Thread A checks\n    syncMap.put(\"key\", 1);         // Thread B might have inserted between check and put\n}\n\n// FIX: Use ConcurrentHashMap with atomic operations\nConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>();\nconcMap.putIfAbsent(\"key\", 1); // Atomic operation\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using CopyOnWriteArrayList for write-heavy workloads**"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Each add copies the entire array - O(n) per write\nCopyOnWriteArrayList<Integer> cowList = new CopyOnWriteArrayList<>();\nfor (int i = 0; i < 100_000; i++) {\n    cowList.add(i); // 100,000 array copies!\n}\n\n// FIX: Use synchronizedList or a concurrent queue for write-heavy scenarios\nList<Integer> syncList = Collections.synchronizedList(new ArrayList<>());\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Not using the right level of atomicity**"
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Two separate atomic operations are NOT collectively atomic\nConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();\nInteger old = map.get(\"counter\"); // Atomic read\nmap.put(\"counter\", old + 1);      // Atomic write, but NOT atomic read-modify-write\n\n// FIX: Use merge() or compute() for atomic read-modify-write\nmap.merge(\"counter\", 1, Integer::sum); // Atomic increment\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Prefer concurrent collections over synchronized wrappers**: `ConcurrentHashMap` typically offers 10-100x better throughput than `Collections.synchronizedMap()` under contention.",
+        "**Use `ConcurrentHashMap.computeIfAbsent()` for lazy initialization**: It is atomic and avoids double-computation.",
+        "**Use `CopyOnWriteArrayList` for event listener registries**: The read-heavy, write-rare pattern is a perfect match.",
+        "**Measure before choosing**: Profile your application's read/write ratio before selecting a concurrent collection.",
+        "**Use `AtomicInteger`/`AtomicLong` with ConcurrentHashMap** for thread-safe counters.",
+        "**Avoid holding locks while performing I/O**: This applies to both synchronized wrappers and explicit locks."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Empty concurrent collections**: All concurrent collections handle empty state correctly. `ConcurrentHashMap.get()` returns null for missing keys; `CopyOnWriteArrayList.iterator()` on an empty list returns an empty iterator.",
+        "**Single-writer / multiple-reader**: If only one thread writes, `CopyOnWriteArrayList` is optimal. If writes come from multiple threads, use `Collections.synchronizedList()` or a `ConcurrentLinkedQueue`.",
+        "**Size queries**: `ConcurrentHashMap.size()` may return stale values during concurrent modification. Use `mappingCount()` for a long-valued count that avoids overflow.",
+        "**Serialization**: Both synchronized wrappers and concurrent collections are serializable (a wrapper only if its backing collection is). Deserializing a synchronized wrapper gives back a synchronized wrapper around a copy of the backing collection."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers commonly test:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The difference between synchronized wrappers and concurrent collections (locking granularity, performance)",
+        "Why `ConcurrentHashMap` outperforms `Collections.synchronizedMap()`",
+        "When to use `CopyOnWriteArrayList` vs. `synchronizedList`",
+        "How to avoid the \"check-then-act\" race condition",
+        "Understanding of `volatile`, `synchronized`, and CAS in the context of collection internals",
+        "Why `Hashtable` and `Vector` are discouraged"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the difference between `Collections.synchronizedMap()` and `ConcurrentHashMap`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: The key differences are:\n\n1. Locking granularity:\n   - synchronizedMap: Locks the ENTIRE map for every operation (single monitor lock)\n   - ConcurrentHashMap: Locks only individual buckets (bins) or uses CAS operations\n\n2. Performance under contention:\n   - synchronizedMap: All threads compete for one lock -> severe contention bottleneck\n   - ConcurrentHashMap: Multiple threads can read/write different bins simultaneously\n\n3. Iteration safety:\n   - synchronizedMap: Iterator is fail-fast; requires external synchronization during iteration\n   - ConcurrentHashMap: Weakly consistent iterators; never throws ConcurrentModificationException\n\n4. Null handling:\n   - synchronizedMap: Allows null keys and values (delegates to underlying HashMap)\n   - ConcurrentHashMap: Does NOT allow null keys or values\n\n5. Atomic compound operations:\n   - synchronizedMap: putIfAbsent(), compute(), merge() etc. are atomic too (each runs under the\n     one map lock), but every other thread waits while the function runs\n   - ConcurrentHashMap: Provides atomic compute(), merge(), putIfAbsent(), computeIfAbsent(),\n     locking only the affected bin\n\n6. Bulk operations:\n   - synchronizedMap: No parallel bulk operations\n   - ConcurrentHashMap: forEach(), search(), reduce() with parallelism threshold\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Synchronized map - coarse-grained locking\nMap<String, Integer> syncMap = Collections.synchronizedMap(new HashMap<>());\nsyncMap.put(\"key\", 1);\n// Must synchronize for iteration\nsynchronized (syncMap) {\n    syncMap.forEach((k, v) -> System.out.println(k + \"=\" + v));\n}\n\n// ConcurrentHashMap - fine-grained locking\nConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>();\nconcMap.put(\"key\", 1);\n// Safe iteration without external synchronization\nconcMap.forEach((k, v) -> System.out.println(k + \"=\" + v));\n// Atomic compound operations\nconcMap.merge(\"key\", 1, Integer::sum);\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: How do you safely increment a counter in a ConcurrentHashMap?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: There are several approaches, ranked from best to worst:\n\n1. merge() - Most idiomatic for simple increment:\n   map.merge(\"counter\", 1, Integer::sum);\n   This atomically adds 1 if absent or increments the existing value.\n\n2. compute() - For more complex transformations:\n   map.compute(\"counter\", (k, v) -> v == null ? 1 : v + 1);\n\n3. AtomicInteger values - For high-contention counters:\n   ConcurrentHashMap<String, AtomicInteger> map = new ConcurrentHashMap<>();\n   map.computeIfAbsent(\"counter\", k -> new AtomicInteger(0)).incrementAndGet();\n\n4. LongAdder values - For extremely high contention:\n   ConcurrentHashMap<String, LongAdder> map = new ConcurrentHashMap<>();\n   map.computeIfAbsent(\"counter\", k -> new LongAdder()).increment();\n\nThe LongAdder approach has the highest throughput under extreme contention because it distributes \nthe counter across multiple cells to reduce CAS contention.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();\n\n// Approach 1: merge (best for simple cases)\nmap.merge(\"visits\", 1, Integer::sum);\nmap.merge(\"visits\", 1, Integer::sum);\n// map.get(\"visits\") == 2\n\n// Approach 2: compute\nmap.compute(\"score\", (k, v) -> v == null ? 10 : v + 10);\n\n// Approach 3: AtomicInteger for high-contention\nConcurrentHashMap<String, AtomicInteger> atomicMap = new ConcurrentHashMap<>();\natomicMap.computeIfAbsent(\"counter\", k -> new AtomicInteger(0)).incrementAndGet();\n\n// Approach 4: LongAdder for extreme contention\nConcurrentHashMap<String, java.util.concurrent.atomic.LongAdder> adderMap = new ConcurrentHashMap<>();\nadderMap.computeIfAbsent(\"counter\", k -> new java.util.concurrent.atomic.LongAdder()).increment();\nlong count = adderMap.get(\"counter\").sum();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: When should you use CopyOnWriteArrayList vs. Collections.synchronizedList()?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: The choice depends on the read/write ratio:\n\nCopyOnWriteArrayList:\n- Best when: reads vastly outnumber writes (e.g., 1000:1 ratio)\n- Reads: Lock-free, O(1) array access, no synchronization overhead\n- Writes: O(n) because the entire array is copied\n- Iteration: Returns a snapshot; never throws ConcurrentModificationException\n- Use cases: Listener lists, configuration caches, security policy lists\n\nCollections.synchronizedList():\n- Best when: reads and writes are balanced, or writes are frequent\n- Reads: Requires acquiring a lock (monitor)\n- Writes: O(1) amortized for add (same as ArrayList)\n- Iteration: Must be manually synchronized; throws ConcurrentModificationException on concurrent modification\n- Use cases: General-purpose thread-safe lists, write-heavy workloads\n\nKey decision criteria:\n- Small list + rare writes -> CopyOnWriteArrayList\n- Large list OR frequent writes -> synchronizedList\n- Need safe iteration without locking -> CopyOnWriteArrayList\n- Need high write throughput -> synchronizedList or ConcurrentLinkedQueue\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// CopyOnWriteArrayList - for listener registries (read-heavy)\nCopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();\nlisteners.add(() -> System.out.println(\"Listener 1\"));\n\n// Safe iteration without locks\nfor (Runnable r : listeners) {\n    r.run(); // Another thread can safely call listeners.add() here\n}\n\n// synchronizedList - for balanced read/write workloads\nList<String> syncList = Collections.synchronizedList(new ArrayList<>());\nsyncList.add(\"item1\"); // Fast write\n\n// MUST synchronize for iteration\nsynchronized (syncList) {\n    for (String s : syncList) {\n        System.out.println(s);\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: What is wrong with Vector and Hashtable? Why are they discouraged?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Vector and Hashtable are legacy synchronized collections from Java 1.0 that are discouraged for \nseveral reasons:\n\n1. Coarse-grained synchronization: Every method is synchronized, even when no contention exists. This \n   causes unnecessary overhead in single-threaded or low-contention scenarios.\n\n2. Compound sequences are not atomic: each method is synchronized, but a sequence such as\n   if (!vector.contains(x)) vector.add(x) is two calls, so it still needs external locking.\n   (Hashtable does get synchronized putIfAbsent(), compute() and merge() since Java 8.)\n\n3. API design: They expose implementation details (e.g., Vector.capacity(), Hashtable.elements()) \n   and have legacy methods that don't align with the Collections Framework.\n\n4. Iteration: Their Enumeration-based iterators are not fail-fast. Their Collection-based iterators \n   ARE fail-fast but still require external synchronization.\n\n5. Performance: Under contention, they perform similarly to synchronized wrappers (same bottleneck). \n   Modern alternatives like ConcurrentHashMap vastly outperform Hashtable.\n\nModern replacements:\n- Vector -> ArrayList (non-concurrent) or CopyOnWriteArrayList (concurrent)\n- Hashtable -> HashMap (non-concurrent) or ConcurrentHashMap (concurrent)\n- Stack (extends Vector) -> ArrayDeque\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// LEGACY - Avoid these\nVector<String> vector = new Vector<>();\nHashtable<String, Integer> hashtable = new Hashtable<>();\n\n// MODERN replacements\n// For non-concurrent use:\nList<String> list = new ArrayList<>();\nMap<String, Integer> map = new HashMap<>();\n\n// For concurrent use:\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>();\nConcurrentHashMap<String, Integer> concMap = new ConcurrentHashMap<>();\n\n// For stack:\nDeque<String> stack = new ArrayDeque<>();\nstack.push(\"item\");\nString top = stack.pop();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: How can you demonstrate a race condition with a non-thread-safe HashMap?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: A classic race condition with HashMap occurs when multiple threads perform read-modify-write \noperations concurrently:\n\nThe problem:\n1. Thread A reads counter = 5\n2. Thread B reads counter = 5\n3. Thread A writes counter = 6\n4. Thread B writes counter = 6  (should be 7, but Thread B used stale value)\n\nThis results in a \"lost update.\" In extreme cases with HashMap, concurrent structural modifications \n(like rehashing) can cause infinite loops, corrupted data structures, or even thrown exceptions.\n\nAdditional dangers of concurrent HashMap access:\n- During resize, entries can be lost or duplicated\n- The internal linked list/tree structure can become corrupted\n- get() can return wrong values or enter infinite loops (in older Java versions)\n\nThis is why you must ALWAYS use ConcurrentHashMap or external synchronization when multiple threads \naccess a map.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// DANGEROUS: Race condition with HashMap\nMap<String, Integer> unsafeMap = new HashMap<>();\nunsafeMap.put(\"counter\", 0);\n\nExecutorService executor = Executors.newFixedThreadPool(4);\nfor (int i = 0; i < 4; i++) {\n    executor.submit(() -> {\n        for (int j = 0; j < 1000; j++) {\n            int current = unsafeMap.get(\"counter\"); // Read\n            unsafeMap.put(\"counter\", current + 1);   // Write (race condition!)\n        }\n    });\n}\nexecutor.shutdown();\nexecutor.awaitTermination(10, TimeUnit.SECONDS);\n// Expected: 4000, Actual: often less (lost updates), and it varies from run to run\n\n// SAFE: Using ConcurrentHashMap.merge()\nConcurrentHashMap<String, Integer> safeMap = new ConcurrentHashMap<>();\nsafeMap.put(\"counter\", 0);\n\nExecutorService safeExecutor = Executors.newFixedThreadPool(4);\nfor (int i = 0; i < 4; i++) {\n    safeExecutor.submit(() -> {\n        for (int j = 0; j < 1000; j++) {\n            safeMap.merge(\"counter\", 1, Integer::sum); // Atomic!\n        }\n    });\n}\nsafeExecutor.shutdown();\nsafeExecutor.awaitTermination(10, TimeUnit.SECONDS);\n// Always: 4000\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Test: [ThreadSafetyExamplesTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/concurrentcollections/ThreadSafetyExamplesTest.java)",
+        "Source: [ThreadSafetyExamples.java](src/main/java/com/github/msorkhpar/claudejavatutor/concurrentcollections/ThreadSafetyExamples.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 10,
+    "paras": 9,
+    "code": 14,
+    "tables": 0,
+    "lists": 11,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "ce158ea8176b7a05de991dfca38543f8165d08a4fbcb0c112a55517366e25bcb"
+}

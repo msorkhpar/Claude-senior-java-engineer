@@ -1,0 +1,317 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "33-dry-principle"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Applying DRY in concurrent programming",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "8.3.2. Applying DRY in Concurrent Programming"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "Concurrent programming involves boilerplate-heavy patterns -- acquiring locks, managing executor lifecycles, handling retries, caching results thread-safely. When these patterns are copy-pasted across classes, any bug fix or improvement must be applied in every copy. DRY in concurrency means **extracting reusable patterns** so the locking strategy, retry logic, or executor lifecycle is defined once and shared everywhere."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Imagine every office in a building has its own independent security system with its own keypad code. When the building manager changes the access policy, every office must be reconfigured individually -- and forgetting one creates a security hole. DRY says: use one centralized access control system that every office relies on."
+    },
+    {
+      "type": "para",
+      "text": "This section covers two sub-topics:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**8.3.2.1. Extracting reusable concurrency patterns** -- encapsulating lock/try/finally, parallel execution, retry logic into reusable utilities.",
+        "**8.3.2.2. Avoiding duplication of synchronization logic** -- ensuring all code paths use the same synchronization mechanism rather than each class implementing its own."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The lock-try-finally pattern is the most frequently duplicated concurrency code -- extract it into a `LockExecutor`.",
+        "ExecutorService lifecycle management (create, submit, shutdown, awaitTermination) is another common duplication target.",
+        "Retry logic for transient failures should live in a single `RetryExecutor`, not be pasted into every call site.",
+        "Thread-safe caching (using `ConcurrentHashMap.computeIfAbsent`) should be encapsulated in a reusable cache class.",
+        "When duplicated synchronization logic diverges (e.g., one copy uses `synchronized`, another uses `ReentrantLock`), subtle concurrency bugs emerge."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Virtual threads (JEP 444)**: Simplify executor management -- `Executors.newVirtualThreadPerTaskExecutor()` reduces the need for custom thread pool boilerplate.",
+        "**Structured concurrency (JEP 453, preview)**: `StructuredTaskScope` eliminates duplicated fork-join-cancel patterns.",
+        "**Records**: Ideal for immutable results returned from reusable concurrent utilities.",
+        "**`try-with-resources`**: ExecutorService implements `AutoCloseable` (since Java 19), reducing shutdown boilerplate."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Duplicated lock-try-finally across methods**"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// VIOLATION: Same pattern in deposit(), withdraw(), getBalance()\nlock.lock();\ntry { balance += amount; return balance; }\nfinally { lock.unlock(); }\n"
+    },
+    {
+      "type": "para",
+      "text": "**Solution**: Extract into a `LockExecutor.withLock(Supplier)` utility method."
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Inconsistent executor shutdown patterns**"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Copy A: executor.shutdown(); executor.awaitTermination(5, SECONDS);\n// Copy B: executor.shutdownNow(); // forgot awaitTermination!\n"
+    },
+    {
+      "type": "para",
+      "text": "**Solution**: Centralize into a `ParallelComputation.executeAll()` method."
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Duplicated retry logic with different error handling**"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// ServiceA retries 3 times, ServiceB retries 5 times, ServiceC has no delay\n"
+    },
+    {
+      "type": "para",
+      "text": "**Solution**: Use a configurable `RetryExecutor(maxRetries, delayMs)`."
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Rolling your own cache in every service**"
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Each service creates its own ConcurrentHashMap + computeIfAbsent\n"
+    },
+    {
+      "type": "para",
+      "text": "**Solution**: Use a reusable `ThreadSafeCache<K,V>` class."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Parameterize the varying part**: Use `Supplier<T>`, `Callable<T>`, and `Runnable` to inject behavior into reusable lock/retry/execution wrappers.",
+        "**Make utilities immutable and thread-safe**: `LockExecutor` and `RetryExecutor` should be safe to share across threads.",
+        "**Use `try-with-resources` for executors in Java 21**: `ExecutorService` is `AutoCloseable`.",
+        "**Prefer `invokeAll` over manual future collection**: Reduces boilerplate and handles exceptions consistently.",
+        "**Keep retry configuration external**: Pass `maxRetries` and `delay` as constructor parameters, not hard-coded values."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Null actions**: `LockExecutor.withLock(null)` should throw `NullPointerException` immediately, not after acquiring the lock.",
+        "**Zero retries**: `RetryExecutor(0, 0)` should execute exactly once with no retry.",
+        "**Exceptions in locked actions**: The lock must be released even if the action throws -- the `finally` block in the reusable utility guarantees this.",
+        "**Empty task lists**: `ParallelComputation.executeAll(emptyList, 4)` should return an empty list, not throw.",
+        "**Negative thread counts**: Should throw `IllegalArgumentException` with a clear message."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers look for:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Whether you recognize the lock-try-finally pattern as a DRY opportunity",
+        "Your ability to use higher-order functions (`Supplier`, `Callable`) to parameterize concurrent utilities",
+        "Understanding of why inconsistent synchronization is dangerous",
+        "Awareness of Java 21 features (virtual threads, structured concurrency) that reduce boilerplate"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Tricky questions:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"How would you refactor three classes that each have their own ReentrantLock management?\" (Extract a `LockExecutor`.)",
+        "\"What happens if your shared retry utility has a bug?\" (Single point of failure -- but also a single point of fix.)"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: How would you eliminate duplicated lock-try-finally boilerplate in Java?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: Create a reusable LockExecutor class that accepts a Lock and provides withLock(Supplier<T>)\nand withLockRun(Runnable) methods. The lock acquisition, try block, and finally-unlock pattern\nis written exactly once. All callers pass their business logic as a lambda.\n\nBenefits:\n1. The locking pattern is correct in one place -- no risk of forgetting unlock.\n2. Changing lock type (e.g., to ReadWriteLock) only requires modifying LockExecutor.\n3. The calling code focuses on business logic, not concurrency mechanics.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class LockExecutor {\n    private final Lock lock;\n    public LockExecutor(Lock lock) { this.lock = lock; }\n\n    public <T> T withLock(Supplier<T> action) {\n        lock.lock();\n        try { return action.get(); }\n        finally { lock.unlock(); }\n    }\n}\n\n// Usage: no duplicated lock boilerplate\nclass Account {\n    private final LockExecutor locker = new LockExecutor(new ReentrantLock());\n    private int balance = 0;\n\n    public int deposit(int amount) {\n        return locker.withLock(() -> { balance += amount; return balance; });\n    }\n    public int getBalance() {\n        return locker.withLock(() -> balance);\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: Why is duplicated executor lifecycle management dangerous?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: ExecutorService requires careful lifecycle management: create, submit tasks, shutdown,\nand awaitTermination. When this pattern is duplicated:\n\n1. One copy might forget shutdown() -- causing thread leaks.\n2. Another might use shutdownNow() instead of shutdown() -- canceling running tasks.\n3. A third might skip awaitTermination() -- returning results before tasks complete.\n\nBy extracting a reusable ParallelComputation utility, the lifecycle is correct everywhere.\nSince Java 19, ExecutorService implements AutoCloseable, so try-with-resources handles shutdown\nautomatically -- an even DRYer approach.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// DRY: Reusable parallel execution utility\npublic class ParallelComputation {\n    public <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount)\n            throws InterruptedException {\n        ExecutorService executor = Executors.newFixedThreadPool(threadCount);\n        try {\n            List<Future<T>> futures = executor.invokeAll(tasks);\n            List<T> results = new ArrayList<>();\n            for (Future<T> f : futures) {\n                try { results.add(f.get()); }\n                catch (ExecutionException e) { throw new RuntimeException(e); }\n            }\n            return results;\n        } finally {\n            executor.shutdown();\n            executor.awaitTermination(5, TimeUnit.SECONDS);\n        }\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: How does a reusable retry pattern improve concurrent systems?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: Concurrent systems frequently encounter transient failures (network timeouts,\nlock contention, temporary resource unavailability). A reusable RetryExecutor:\n\n1. Centralizes retry count and delay configuration -- no magic numbers scattered around.\n2. Ensures consistent behavior -- all retries use the same backoff strategy.\n3. Makes testing easier -- inject a RetryExecutor with 0 retries for fast tests.\n4. Handles edge cases correctly -- what if maxRetries is 0? What if the delay is 0?\n\nWithout DRY, each caller implements its own retry loop, often with subtle differences\nin error handling or delay logic.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class RetryExecutor {\n    private final int maxRetries;\n    private final long retryDelayMs;\n\n    public RetryExecutor(int maxRetries, long retryDelayMs) {\n        this.maxRetries = maxRetries;\n        this.retryDelayMs = retryDelayMs;\n    }\n\n    public <T> T executeWithRetry(Callable<T> action) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt <= maxRetries; attempt++) {\n            try { return action.call(); }\n            catch (Exception e) {\n                lastException = e;\n                if (attempt < maxRetries && retryDelayMs > 0) Thread.sleep(retryDelayMs);\n            }\n        }\n        throw lastException;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: How does ConcurrentHashMap.computeIfAbsent help with DRY caching?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Many services need thread-safe caching -- compute a value on first access and return\nthe cached value on subsequent calls. Without DRY, each service creates its own\nConcurrentHashMap and calls computeIfAbsent directly. With DRY, a reusable\nThreadSafeCache<K,V> encapsulates this:\n\n1. Thread-safe by construction -- ConcurrentHashMap guarantees atomicity.\n2. Consistent API -- getOrCompute, get, invalidate, clear.\n3. Single place to add features like TTL, max size, or metrics.\n\nThis is the same idea behind Guava's LoadingCache or Caffeine, but at a simpler scale.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class ThreadSafeCache<K, V> {\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    public V getOrCompute(K key, Function<K, V> computeFunction) {\n        return cache.computeIfAbsent(key, computeFunction);\n    }\n\n    public Optional<V> get(K key) {\n        return Optional.ofNullable(cache.get(key));\n    }\n\n    public void invalidate(K key) { cache.remove(key); }\n    public int size() { return cache.size(); }\n    public void clear() { cache.clear(); }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: How does Java 21's structured concurrency reduce duplicated fork-join patterns?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: Before structured concurrency, the fork-join pattern was duplicated everywhere:\ncreate executor, submit tasks, collect futures, handle exceptions, shutdown.\nJava 21's StructuredTaskScope (preview) provides a single, reusable abstraction:\n\n1. StructuredTaskScope.ShutdownOnFailure -- cancel all if one fails.\n2. StructuredTaskScope.ShutdownOnSuccess -- return first result.\n3. Automatic lifecycle -- try-with-resources handles shutdown.\n4. Child threads are bounded to parent scope -- no orphaned threads.\n\nThis is DRY at the framework level: the platform provides the correct fork-join\npattern so developers don't have to rewrite it in every service.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Java 21 structured concurrency (preview) -- DRY fork-join\ntry (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n    Subtask<String> user = scope.fork(() -> fetchUser(id));\n    Subtask<String> order = scope.fork(() -> fetchOrder(id));\n    scope.join().throwIfFailed();\n    return new UserOrder(user.get(), order.get());\n}\n// No manual executor creation, shutdown, or future handling!\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Test: [DryConcurrencyPatternsTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/dryprinciple/DryConcurrencyPatternsTest.java)",
+        "Source: [DryConcurrencyPatterns.java](src/main/java/com/github/msorkhpar/claudejavatutor/dryprinciple/DryConcurrencyPatterns.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 10,
+    "paras": 14,
+    "code": 14,
+    "tables": 0,
+    "lists": 12,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "028c5ebc8da9e213d7376419807f3310e7c11c56c93591171679f5174215f674"
+}

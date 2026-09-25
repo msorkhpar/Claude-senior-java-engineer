@@ -1,0 +1,271 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "03-exception-handling",
+    "12-custom-exception"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Creating custom exception classes",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "3.2.1. Creating Custom Exception Classes"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "Custom exceptions in Java allow developers to create specific error types tailored to their application's needs. These exceptions can carry additional information and provide more meaningful error messages than a general-purpose exception such as `RuntimeException`."
+    },
+    {
+      "type": "para",
+      "text": "A custom exception is an ordinary class in the `Throwable` hierarchy. To create one:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Create a new class that extends either `Exception` (for a checked exception) or `RuntimeException` (for an unchecked exception). Which one to choose is the subject of [3.2.4](README_3.2.4.md).",
+        "Implement constructors that pass the message and, where there is one, the cause up to the superclass.",
+        "Optionally, add fields and getters that carry extra information about the error."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Example:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class InvalidUserException extends RuntimeException {\n    private final String userId;\n\n    public InvalidUserException(String message, String userId) {\n        super(message);\n        this.userId = userId;\n    }\n\n    public String getUserId() {\n        return userId;\n    }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "The standard constructors"
+    },
+    {
+      "type": "para",
+      "text": "`Throwable` stores two things that every exception should be able to carry: a detail message and a cause (the exception that led to this one). `Exception` and `RuntimeException` each offer four public constructors for them, and a custom exception usually mirrors the ones it needs:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class ReportGenerationException extends Exception {\n    public ReportGenerationException() {\n        super();\n    }\n\n    public ReportGenerationException(String message) {\n        super(message);\n    }\n\n    public ReportGenerationException(String message, Throwable cause) {\n        super(message, cause);\n    }\n\n    public ReportGenerationException(Throwable cause) {\n        super(cause); // the message becomes cause.toString()\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "The `(message, cause)` constructor is the important one: without it, code that catches a low-level exception and throws yours cannot keep the original exception as the cause, and its stack trace is lost."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Adding context"
+    },
+    {
+      "type": "para",
+      "text": "A custom exception can carry data that the handler needs, not just a string. Make such fields `final` and set them in the constructor, so the exception is immutable once thrown:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class FileProcessingException extends Exception {\n    private final String fileName;\n\n    public FileProcessingException(String message, String fileName, Throwable cause) {\n        super(message, cause);\n        this.fileName = fileName;\n    }\n\n    public String getFileName() {\n        return fileName;\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "A handler can then react to `e.getFileName()` instead of parsing the message text."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "A custom exception extends `Exception` (checked) or `RuntimeException` (unchecked). Do not extend `Throwable` or `Error` directly: `catch (Exception e)` does not catch them, and `Error` is meant for JVM-level problems.",
+        "Pass the message and the cause to the superclass constructor; do not store them in your own fields.",
+        "Extra fields should be `final` and exposed through getters.",
+        "`Throwable` implements `Serializable`, so every exception class is serializable. Declare a `private static final long serialVersionUID` if the exception may be serialized (for example by RMI or a distributed cache); `javac -Xlint:serial` warns when it is missing. Fields that are not serializable make serialization fail at run time.",
+        "An exception class cannot be generic: `class GenericException<T> extends Exception` is a compile error (\"a generic class may not extend java.lang.Throwable\"), because a `catch` clause cannot check a type argument at run time.",
+        "A record cannot be an exception: records implicitly extend `java.lang.Record` and cannot extend another class."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Java 1.4**: exception chaining — the `(message, cause)` and `(cause)` constructors and `getCause()`.",
+        "**Java 7**: `Throwable(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace)`, a protected constructor also available in `Exception` and `RuntimeException`. A subclass can pass `writableStackTrace = false` to skip capturing the stack trace.",
+        "**Java 17**: sealed classes (JEP 409) can close an exception hierarchy, so the compiler knows every subtype.",
+        "**Java 21**: pattern matching for `switch` (JEP 441) can then handle a sealed exception hierarchy exhaustively, without a `default` branch."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public sealed abstract class PaymentException extends Exception\n        permits CardDeclinedException, PaymentTimeoutException {\n    protected PaymentException(String message) {\n        super(message);\n    }\n}\n\npublic final class CardDeclinedException extends PaymentException {\n    public CardDeclinedException(String message) {\n        super(message);\n    }\n}\n\npublic final class PaymentTimeoutException extends PaymentException {\n    public PaymentTimeoutException(String message) {\n        super(message);\n    }\n}\n\n// Exhaustive: no default branch needed, and adding a new permitted subclass is a compile error here\nstatic String describe(PaymentException e) {\n    return switch (e) {\n        case CardDeclinedException d -> \"declined: \" + d.getMessage();\n        case PaymentTimeoutException t -> \"retry later\";\n    };\n}\n// describe(new CardDeclinedException(\"insufficient limit\")) returns \"declined: insufficient limit\"\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**No cause constructor**: the exception cannot wrap the original failure, so the root cause disappears from logs. Always provide `(String message, Throwable cause)` when the exception may be thrown from a `catch` block.",
+        "**Duplicating the message in a field**: storing `message` in your own field and overriding `getMessage()` is unnecessary; `super(message)` already does it, and `toString()` and stack traces use it.",
+        "**Mutable context fields**: an exception can be caught, logged and rethrown by several layers. Mutable fields let one layer change what another reads. Use `final` fields.",
+        "**Extending the wrong class**: extending `Exception` when every caller would just wrap it in a `RuntimeException` adds boilerplate without value; extending `RuntimeException` for a condition callers must handle hides it from the compiler. See [3.2.4](README_3.2.4.md)."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "End the class name with `Exception` and name the problem, not the place: `InsufficientFundsException`, not `BankAccountException2`.",
+        "Provide the constructors the exception needs, and always the `(message, cause)` one.",
+        "Carry context as typed, `final` fields with getters.",
+        "Consider one base exception per module or domain (for example `PaymentException`) with specific subclasses, so callers can catch either the family or one case."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**An exception without a stack trace**: for an exception that is thrown very often and whose stack trace is never read (a validation failure mapped straight to a response, for example), the protected four-argument constructor can switch the stack trace off. Only do this when profiling shows exception creation is a real cost."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class ValidationException extends RuntimeException {\n    public ValidationException(String message) {\n        super(message, null, false, false); // no suppression, no stack trace\n    }\n}\n// new ValidationException(\"bad\").getStackTrace().length == 0\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Setting the cause later**: `initCause(Throwable)` sets the cause after construction, for exception classes that have no cause constructor. It can be called only once, and not at all if a constructor already set the cause; a second call throws `IllegalStateException`."
+      ],
+      "start": 2
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Be ready to write a custom exception with the standard constructors from memory.",
+        "Know why the `(message, cause)` constructor matters (exception chaining keeps the root cause).",
+        "Know the language restrictions: no generic exception classes, and records cannot be exceptions.",
+        "Be able to explain how a sealed exception hierarchy works with an exhaustive `switch` in Java 21."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A"
+    },
+    {
+      "type": "para",
+      "text": "Q1: How would you create a custom checked exception in Java?"
+    },
+    {
+      "type": "para",
+      "text": "A1: Extend `Exception` (not `RuntimeException`) and provide the constructors callers need, passing the message and cause to the superclass:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class CustomCheckedException extends Exception {\n    public CustomCheckedException() {\n        super();\n    }\n\n    public CustomCheckedException(String message) {\n        super(message);\n    }\n\n    public CustomCheckedException(String message, Throwable cause) {\n        super(message, cause);\n    }\n\n    public CustomCheckedException(Throwable cause) {\n        super(cause);\n    }\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "A custom unchecked exception looks the same but extends `RuntimeException`."
+    },
+    {
+      "type": "para",
+      "text": "Q2: Why can't an exception class be generic?"
+    },
+    {
+      "type": "para",
+      "text": "A2: The compiler rejects `class MyException<T> extends Exception` with \"a generic class may not extend java.lang.Throwable\". A `catch` clause selects a handler by the exception's run-time class, and because of type erasure `MyException<String>` and `MyException<Integer>` would be the same class at run time, so `catch (MyException<String> e)` could never be checked. Carry the varying data in a field of type `Object` or of a common supertype instead."
+    },
+    {
+      "type": "para",
+      "text": "Q3: How do you add extra information to a custom exception?"
+    },
+    {
+      "type": "para",
+      "text": "A3: Add `final` fields, set them in the constructor alongside `super(message)` or `super(message, cause)`, and expose them with getters. For example, `FileProcessingException` in this module's code carries the `fileName` that failed, so a handler can use it directly instead of parsing the message."
+    },
+    {
+      "type": "para",
+      "text": "Q4: Should a custom exception declare a `serialVersionUID`?"
+    },
+    {
+      "type": "para",
+      "text": "A4: Every exception is `Serializable`, because `Throwable` implements it. If instances may be serialized (remote calls, some caches and message brokers), declare `private static final long serialVersionUID = 1L;` so that recompiling the class does not change its computed serial version, and keep extra fields serializable. `javac -Xlint:serial` reports exception classes that lack it."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Test: [CustomExceptionDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemoTest.java)",
+        "Source: [CustomExceptionDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/CustomExceptionDemo.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 12,
+    "paras": 16,
+    "code": 6,
+    "tables": 0,
+    "lists": 9,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "95d92e187098dd42a8a1e9eab82184ee5c7ddcf215b69fb5e9686707229104d1"
+}

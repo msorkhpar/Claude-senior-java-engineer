@@ -1,0 +1,250 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "03-exception-handling",
+    "12-custom-exception"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Best practices for custom exceptions",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "3.2.3. Best Practices for Custom Exceptions"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "[3.2.1](README_3.2.1.md) showed how to write a custom exception class and [3.2.2](README_3.2.2.md) how to throw one. This lesson covers the judgement around them: when a custom exception is worth creating, what it should contain, and how to throw and handle it so that the error stays useful from the place it happens to the place it is handled or logged."
+    },
+    {
+      "type": "para",
+      "text": "The module's `BankAccount` example follows these practices:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public void withdraw(double amount) throws InvalidAmountException, InsufficientFundsException {\n    if (amount <= 0) {\n        throw new InvalidAmountException(\"Withdrawal amount must be positive\");\n    }\n    if (amount > balance) {\n        throw new InsufficientFundsException(\"Insufficient funds for withdrawal\", amount, balance);\n    }\n    balance -= amount;\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The exception names say what went wrong (`InsufficientFundsException`), not where.",
+        "`InsufficientFundsException` carries the requested amount and the balance as fields, so a caller can build a precise response without parsing the message.",
+        "Both checks run **before** the balance changes, so a failed withdrawal leaves the account exactly as it was."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Reuse standard exceptions when they fit.** `IllegalArgumentException` (bad argument), `IllegalStateException` (object not in the right state), `NullPointerException` (null where not allowed), `UnsupportedOperationException`, `NoSuchElementException` and `IndexOutOfBoundsException` are understood by every Java developer. Create a custom exception when the error is part of your domain and callers need to tell it apart (`InsufficientFundsException`), or when it must carry extra data.",
+        "**Name it after the problem** and end the name with `Exception`.",
+        "**Choose checked or unchecked deliberately** ([3.2.4](README_3.2.4.md)): checked when a caller can reasonably recover and should be forced to consider it, unchecked for programming errors and conditions callers cannot fix.",
+        "**Carry context**: typed `final` fields for data a handler may use, and a message that includes the offending values.",
+        "**Never lose the cause**: when translating one exception into another, pass the original as the cause.",
+        "**Fail atomically**: validate before changing state, so a thrown exception leaves the object as it was.",
+        "**Document it**: every exception a public method can throw, checked or unchecked, gets a Javadoc `@throws` tag."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Java 1.4**: exception chaining (`getCause()`, cause constructors), which exception translation relies on.",
+        "**Java 7**: multi-catch (`catch (IOException | SQLException e)`) reduces duplicated handlers, and try-with-resources records exceptions from `close()` as suppressed instead of losing them.",
+        "**Java 17 / 21**: a sealed exception hierarchy (Java 17) can be handled exhaustively with pattern matching for `switch` (Java 21); see [3.2.1](README_3.2.1.md)."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Swallowing exceptions**: an empty `catch` block hides the failure and the program continues in a wrong state. Handle it, rethrow it, or at least log it with its stack trace.",
+        "**Logging and rethrowing**: logging an exception and then rethrowing it makes every layer log the same failure. Log it once, where it is finally handled.",
+        "**Catching too broadly**: `catch (Exception e)` also catches `RuntimeException`s such as `NullPointerException` that indicate bugs. Catch the specific types you can handle.",
+        "**Exceptions for normal control flow**: using an exception to end a loop or to signal an ordinary outcome is slower and harder to read than a return value or an `Optional`. Exceptions are for exceptional conditions.",
+        "**Sensitive data in messages**: exception messages end up in logs and sometimes in responses. Do not put passwords, tokens or full card numbers in them.",
+        "**Too many exception classes**: one class per method or per message makes the hierarchy hard to use. Keep it shallow, for example one base exception per module or domain and a few specific subclasses."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Throw early (validate inputs at the top of the method), catch late (where the caller can actually do something).",
+        "Translate exceptions at layer boundaries: a service should not leak a `SQLException` from its data layer. Wrap it in an exception of the service's own level of abstraction, keeping it as the cause."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class OrderLookupException extends Exception {\n    public OrderLookupException(String message, Throwable cause) {\n        super(message, cause);\n    }\n}\n\npublic Order findOrder(long id) throws OrderLookupException {\n    try {\n        return orderDao.load(id); // may throw SQLException\n    } catch (SQLException e) {\n        throw new OrderLookupException(\"Could not load order \" + id, e);\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Make exception objects immutable: `final` fields, no setters.",
+        "Write messages for the person reading the log: what failed, with which values.",
+        "Keep the exception hierarchy shallow and meaningful to callers."
+      ],
+      "start": 3
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Exceptions from constructors**: if a constructor throws, no object reference is returned to the caller. Validate arguments in the constructor so an invalid object can never exist.",
+        "**Failure atomicity is not automatic**: if a method changes several fields and throws in the middle, the object is left half-updated. Validate first, or compute the new state in local variables and assign it only at the end."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Be ready to say when you would create a custom exception and when a standard one is enough.",
+        "Know exception translation and why the cause must be kept.",
+        "Know failure atomicity and how to achieve it.",
+        "Be able to name common anti-patterns: swallowing, log-and-rethrow, catching `Exception`, exceptions for flow control."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A"
+    },
+    {
+      "type": "para",
+      "text": "Q1: What's the difference between throwing a custom exception and a built-in Java exception?"
+    },
+    {
+      "type": "para",
+      "text": "A1: The main difference lies in the specificity and context provided by the custom exception. Custom exceptions allow you to create error types specific to your application's domain, so callers can catch exactly that case, and they can carry additional fields. Built-in exceptions are general-purpose; they are the right choice when the error is a generic one (a bad argument, a wrong state) that callers do not need to distinguish."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Custom exception: a domain rule that callers may want to handle specifically\nif (user.getAge() < 18) {\n    throw new UnderageUserException(\"User must be 18 or older to proceed.\");\n}\n\n// Built-in exception: a plain invalid argument\nif (age < 0) {\n    throw new IllegalArgumentException(\"Age cannot be negative: \" + age);\n}\n"
+    },
+    {
+      "type": "para",
+      "text": "Q2: What is exception translation, and why should the cause be kept?"
+    },
+    {
+      "type": "para",
+      "text": "A2: Exception translation is catching a lower-level exception and throwing one that fits the current layer's abstraction, such as turning a `SQLException` into an `OrderLookupException` in a service. Callers then depend only on the service's API, not on its storage technology. Passing the original exception as the cause keeps its message and stack trace, so the real reason is still visible in the logs (`Caused by: java.sql.SQLException: ...`)."
+    },
+    {
+      "type": "para",
+      "text": "Q3: What is failure atomicity, and how does `BankAccount.withdraw` achieve it?"
+    },
+    {
+      "type": "para",
+      "text": "A3: A method is failure-atomic if, when it throws, the object is left in the state it had before the call. `BankAccount.withdraw` checks the amount and the balance first and subtracts only after both checks have passed, so a withdrawal that throws `InsufficientFundsException` leaves the balance unchanged. This module's `BankAccountTest` checks exactly that."
+    },
+    {
+      "type": "para",
+      "text": "Q4: What are some best practices for creating and using custom exceptions in Java?"
+    },
+    {
+      "type": "para",
+      "text": "A4: Here are some best practices for creating and using custom exceptions:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Reuse standard exceptions when they describe the error; create custom ones for domain-specific errors.",
+        "Use descriptive names that end with \"Exception\".",
+        "Extend the appropriate base class (`Exception` for checked, `RuntimeException` for unchecked).",
+        "Provide constructors that accept a message and a cause.",
+        "Include additional context as `final` fields, and useful values in the message (never secrets).",
+        "Document your exceptions with Javadoc `@throws`.",
+        "Keep the exception hierarchy shallow.",
+        "Throw exceptions at the appropriate level of abstraction, translating lower-level ones and keeping the cause.",
+        "Validate before changing state, so a thrown exception leaves the object unchanged.",
+        "Do not swallow exceptions, and log each one once."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "This module's `InsufficientFundsException` shows several of these:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "class InsufficientFundsException extends Exception {\n    private final double requestedAmount;\n    private final double accountBalance;\n\n    public InsufficientFundsException(String message, double requestedAmount, double accountBalance) {\n        super(message);\n        this.requestedAmount = requestedAmount;\n        this.accountBalance = accountBalance;\n    }\n\n    public double getRequestedAmount() {\n        return requestedAmount;\n    }\n\n    public double getAccountBalance() {\n        return accountBalance;\n    }\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Test: [BankAccountTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/exceptions/BankAccountTest.java)",
+        "Source: [BankAccount.java](src/main/java/com/github/msorkhpar/claudejavatutor/exceptions/BankAccount.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 10,
+    "paras": 11,
+    "code": 4,
+    "tables": 0,
+    "lists": 10,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "7b4fea6c9e69969a2842de717c4652160c5b83a74ed85d4016c1e6b580930584"
+}

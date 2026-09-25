@@ -1,0 +1,406 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "23-executors"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "lesson",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Callable and Future for returning results",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "text": "6.4.2. Callable and Future for Returning Results"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Concept Explanation"
+    },
+    {
+      "type": "para",
+      "text": "While `Runnable` has been part of Java since version 1.0, it has a fundamental limitation: it cannot return a result or throw a checked exception. Java 5 introduced `Callable<V>` and `Future<V>` to address these gaps, enabling asynchronous computation with result retrieval and proper error handling."
+    },
+    {
+      "type": "para",
+      "text": "**Real-world analogy**: Think of `Callable` and `Future` like ordering food at a busy restaurant's counter. When you place your order (submit a `Callable`), the cashier hands you a receipt with a number (a `Future`). You can go sit down and do other things. When your order is ready, you present your receipt to pick up the food (`Future.get()`). If the kitchen had a problem with your order (exception), you find out when you try to pick it up. You can also decide to cancel your order (`Future.cancel()`) or check whether it's ready yet (`Future.isDone()`)."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Callable vs Runnable"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Runnable: no return value, no checked exceptions\n@FunctionalInterface\npublic interface Runnable {\n    void run();\n}\n\n// Callable: returns a value and can throw checked exceptions\n@FunctionalInterface\npublic interface Callable<V> {\n    V call() throws Exception;\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Future Interface"
+    },
+    {
+      "type": "para",
+      "text": "`Future<V>` represents the result of an asynchronous computation. It provides methods to:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Wait for the result**: `get()` blocks until the result is available",
+        "**Wait with a timeout**: `get(long timeout, TimeUnit unit)` blocks for at most the specified time",
+        "**Check completion**: `isDone()` returns `true` if the computation is complete",
+        "**Cancel the computation**: `cancel(boolean mayInterruptIfRunning)`",
+        "**Check cancellation**: `isCancelled()` returns `true` if the task was cancelled"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Batch Execution"
+    },
+    {
+      "type": "para",
+      "text": "`ExecutorService` provides two powerful batch methods:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**`invokeAll(Collection<Callable>)`**: Submits all tasks and blocks until ALL complete. Returns a list of `Future` objects in the same order as the input.",
+        "**`invokeAny(Collection<Callable>)`**: Submits all tasks and returns the result of the FIRST one to complete successfully. Remaining tasks are cancelled."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "CompletionService"
+    },
+    {
+      "type": "para",
+      "text": "`CompletionService` wraps an `ExecutorService` and provides a way to process results in **completion order** rather than submission order, using an internal `BlockingQueue` of completed `Future` objects."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Key Points to Remember"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "`Callable<V>` is a functional interface, so it can be expressed as a lambda expression.",
+        "`Future.get()` is a blocking call -- it will block the calling thread until the result is available.",
+        "`Future.get(timeout, unit)` throws `TimeoutException` if the result is not available within the specified time.",
+        "If a `Callable` throws an exception, it is wrapped in `ExecutionException` and rethrown by `Future.get()`. Use `getCause()` to access the original exception.",
+        "`Future.cancel(true)` sends an interrupt to the running thread; `cancel(false)` only prevents the task from starting if it hasn't already.",
+        "Calling `get()` on a cancelled `Future` throws `CancellationException`.",
+        "`invokeAll()` blocks until all tasks complete; `invokeAny()` blocks until the first task completes.",
+        "`invokeAll()` with a timeout cancels tasks that have not completed when time expires.",
+        "`invokeAny()` throws `ExecutionException` if ALL tasks fail; it only needs ONE to succeed.",
+        "`CompletionService` is useful when you want to process results as they become available, rather than waiting for the slowest task."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Relevant Java 21 Features"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**CompletableFuture**: While `Future` is the basic building block, `CompletableFuture` (Java 8+) implements `Future` (and `CompletionStage`) with a rich API for chaining, combining, and composing asynchronous operations without blocking. `Future.get()` is blocking; `CompletableFuture.thenApply()` is non-blocking.",
+        "**Virtual Threads**: With virtual threads (Java 21), blocking on `Future.get()` is much less costly because virtual threads are cheap to park and resume. This reduces the need for complex non-blocking patterns in many cases.",
+        "**Structured Concurrency (Preview in Java 21, JEP 453)**: `StructuredTaskScope` provides a structured way to fork multiple tasks and join them, with built-in cancellation and error propagation, serving as a modern alternative to manual `invokeAll()` patterns."
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// CompletableFuture (non-blocking chain)\nCompletableFuture.supplyAsync(() -> fetchData())\n    .thenApply(data -> process(data))\n    .thenAccept(result -> saveResult(result))\n    .exceptionally(ex -> { log.error(\"Failed\", ex); return null; });\n\n// Structured Concurrency (Java 21 preview: compile and run with --enable-preview)\ntry (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n    Subtask<String> user = scope.fork(() -> fetchUser());\n    Subtask<Integer> order = scope.fork(() -> fetchOrder());\n    scope.join();\n    scope.throwIfFailed();\n    return new Response(user.get(), order.get());\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Common Pitfalls and How to Avoid Them"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Blocking the main thread indefinitely with `Future.get()`**"
+      ]
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Blocks forever if task hangs\nString result = future.get();\n\n// GOOD: Always use a timeout\nString result = future.get(30, TimeUnit.SECONDS);\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Not checking for exceptions in submitted tasks**"
+      ],
+      "start": 2
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Exception is silently swallowed\nFuture<?> future = executor.submit(() -> {\n    throw new RuntimeException(\"Error!\");\n});\n// future is never inspected\n\n// GOOD: Always check the Future\ntry {\n    future.get(5, TimeUnit.SECONDS);\n} catch (ExecutionException e) {\n    log.error(\"Task failed\", e.getCause());\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Confusing `ExecutionException` with the actual cause**"
+      ],
+      "start": 3
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Catching the wrapper instead of the cause\ntry {\n    future.get();\n} catch (ExecutionException e) {\n    throw e; // This wraps the real exception\n}\n\n// GOOD: Unwrap the cause\ntry {\n    future.get();\n} catch (ExecutionException e) {\n    Throwable cause = e.getCause();\n    if (cause instanceof IOException ioe) {\n        handleIOException(ioe);\n    } else {\n        throw new RuntimeException(\"Unexpected failure\", cause);\n    }\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Forgetting to cancel the Future on timeout**"
+      ],
+      "start": 4
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Task continues running after timeout\ntry {\n    result = future.get(5, TimeUnit.SECONDS);\n} catch (TimeoutException e) {\n    // Task is still running in the background!\n}\n\n// GOOD: Cancel the task on timeout\ntry {\n    result = future.get(5, TimeUnit.SECONDS);\n} catch (TimeoutException e) {\n    future.cancel(true); // interrupt the running task\n    result = defaultValue;\n}\n"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Using `invokeAll()` when you only need the first result**"
+      ],
+      "start": 5
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// BAD: Waits for ALL tasks even though you only need the fastest\nList<Future<String>> futures = executor.invokeAll(tasks);\nString result = futures.get(0).get();\n\n// GOOD: Use invokeAny() for first-to-complete semantics\nString result = executor.invokeAny(tasks);\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Best Practices and Optimization Techniques"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Always set timeouts** on `Future.get()` to prevent indefinite blocking.",
+        "**Use `CompletionService`** when processing results as they arrive is important (avoids head-of-line blocking).",
+        "**Prefer `Callable` over `Runnable`** when you need a return value or need to propagate checked exceptions.",
+        "**Use `invokeAny()`** for redundant computation patterns (e.g., querying multiple replicas and using the first response).",
+        "**Unwrap `ExecutionException`** to handle the root cause, not the wrapper.",
+        "**Cancel tasks you no longer need** to free up thread pool resources.",
+        "**Consider `CompletableFuture`** for complex async workflows with chaining, composition, and non-blocking callbacks.",
+        "**Implement retry logic** with exponential backoff for transient failures.",
+        "**Use `invokeAll(tasks, timeout, unit)`** to prevent long-running tasks from blocking the entire batch."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Edge Cases and Their Handling"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Empty task list**: `invokeAll(emptyList)` returns an empty list immediately. `invokeAny(emptyList)` throws `IllegalArgumentException`.",
+        "**All tasks fail in `invokeAny()`**: Throws `ExecutionException` with one of the task's exceptions.",
+        "**`Future.get()` after `cancel()`**: Throws `CancellationException`, regardless of the `mayInterruptIfRunning` flag.",
+        "**Interrupted thread calling `Future.get()`**: `InterruptedException` is thrown. You must decide whether to re-interrupt and propagate, or retry.",
+        "**Task returning `null`**: `Future.get()` returns `null`. This is valid but can be confusing -- consider using `Optional<V>` as the Callable's return type.",
+        "**Double `get()` call**: `Future.get()` is idempotent -- calling it multiple times returns the same result (or throws the same exception).",
+        "**`cancel(false)` vs `cancel(true)`**: `cancel(false)` only prevents an un-started task from running. If the task has already started, it continues. `cancel(true)` also sends an interrupt, but the task must check `Thread.interrupted()` or catch `InterruptedException` to cooperatively stop."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview-specific Insights"
+    },
+    {
+      "type": "para",
+      "text": "Interviewers commonly focus on:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The difference between `Callable` and `Runnable` and why `Callable` was introduced.",
+        "How exceptions are propagated through `Future.get()`.",
+        "The blocking nature of `Future.get()` and how to mitigate it.",
+        "The semantics of `cancel()` and its interaction with `get()`.",
+        "`invokeAll()` vs `invokeAny()` and their use cases.",
+        "Progression from `Future` to `CompletableFuture` and what problems each solves.",
+        "How to implement patterns like timeout, retry, and parallel fan-out/fan-in."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Tricky questions:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"What happens if you call `Future.get()` on a cancelled Future?\"",
+        "\"What is the difference between `cancel(true)` and `cancel(false)`?\"",
+        "\"How would you implement a timeout for a batch of tasks?\"",
+        "\"When would you use `invokeAny()` over `invokeAll()`?\""
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interview Q&A Section"
+    },
+    {
+      "type": "para",
+      "text": "**Q1: What is the difference between `Callable` and `Runnable`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A1: Callable and Runnable are both functional interfaces for defining tasks,\nbut they differ in two key ways:\n\n1. Return value:\n   - Runnable.run() returns void\n   - Callable.call() returns a value of type V (generic)\n\n2. Exception handling:\n   - Runnable.run() cannot throw checked exceptions\n   - Callable.call() can throw any Exception, including checked exceptions\n\n3. Usage with ExecutorService:\n   - Runnable can be used with both execute() and submit()\n   - Callable cannot be passed to execute(); use submit() (returns Future<V>), invokeAll() or invokeAny()\n\nWhen Callable was introduced in Java 5, it solved the long-standing problem\nof getting results back from asynchronous tasks without resorting to shared\nmutable state (like using AtomicReference or CountDownLatch with Runnable).\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newFixedThreadPool(2);\n\n// Runnable - no return value, no checked exceptions\nRunnable runnable = () -> System.out.println(\"Hello from Runnable\");\nexecutor.execute(runnable);\n\n// Callable - returns a value, can throw checked exceptions\nCallable<Integer> callable = () -> {\n    // Can throw checked exceptions here\n    return 42;\n};\nFuture<Integer> future = executor.submit(callable);\nint result = future.get(); // 42\n\nexecutor.shutdown();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q2: How does exception handling work with `Future.get()`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A2: When a Callable (or Runnable submitted via submit()) throws an exception,\nit is captured by the Future and rethrown when get() is called:\n\n1. RuntimeException thrown in task -> wrapped in ExecutionException -> thrown by get()\n2. Checked Exception thrown in task -> wrapped in ExecutionException -> thrown by get()\n3. Error thrown in task -> wrapped in ExecutionException -> thrown by get()\n\nFuture.get() can throw four types of exceptions:\n- ExecutionException: The task failed. Use getCause() to get the original exception.\n- InterruptedException: The waiting thread was interrupted.\n- CancellationException: The task was cancelled before or during execution.\n- TimeoutException: (only for get(timeout, unit)) The timeout expired.\n\nThe original exception is always accessible via ExecutionException.getCause().\nYou should use instanceof or pattern matching to handle different failure types.\n\nImportant: If you never call get(), the exception is silently lost! This is a\ncommon source of bugs -- always inspect the Future for tasks that might fail.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newSingleThreadExecutor();\n\n// Task that throws a checked exception\nFuture<String> future = executor.submit(() -> {\n    throw new java.io.IOException(\"File not found\");\n});\n\ntry {\n    String result = future.get();\n} catch (ExecutionException e) {\n    Throwable cause = e.getCause();\n    // cause is the original IOException\n    System.out.println(\"Cause type: \" + cause.getClass().getSimpleName());\n    System.out.println(\"Message: \" + cause.getMessage());\n\n    // Pattern matching (Java 21)\n    switch (cause) {\n        case java.io.IOException ioe -> System.out.println(\"IO error: \" + ioe.getMessage());\n        case IllegalArgumentException iae -> System.out.println(\"Bad arg: \" + iae.getMessage());\n        default -> throw new RuntimeException(\"Unexpected\", cause);\n    }\n} catch (InterruptedException e) {\n    Thread.currentThread().interrupt();\n}\n\nexecutor.shutdown();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q3: What is the difference between `cancel(true)` and `cancel(false)`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A3: Future.cancel(boolean mayInterruptIfRunning) attempts to cancel the task:\n\ncancel(false):\n- If the task hasn't started yet: prevents it from running (returns true)\n- If the task is already running: does nothing (returns false)\n- If the task is already done/cancelled: returns false\n\ncancel(true):\n- If the task hasn't started yet: prevents it from running (returns true)\n- If the task is already running: sends an interrupt to the executing thread (returns true)\n- If the task is already done/cancelled: returns false\n\nKey subtlety: cancel(true) sends an interrupt, but it doesn't guarantee the task stops.\nThe task must cooperatively check for interruption:\n- Check Thread.currentThread().isInterrupted()\n- Catch InterruptedException from blocking operations (sleep, wait, I/O)\n\nAfter cancellation (regardless of the flag):\n- isDone() returns true\n- isCancelled() returns true\n- get() throws CancellationException\n\nA task that ignores interrupts will continue running even after cancel(true),\nbut the Future will report it as cancelled and get() will throw CancellationException.\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newSingleThreadExecutor();\n\n// Task that cooperatively checks for interruption\nFuture<?> future = executor.submit(() -> {\n    while (!Thread.currentThread().isInterrupted()) {\n        // Do work...\n        try {\n            Thread.sleep(100); // Throws InterruptedException if interrupted\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt(); // Restore interrupt status\n            break; // Exit gracefully\n        }\n    }\n    System.out.println(\"Task stopped cooperatively\");\n    return null;\n});\n\nThread.sleep(250);\nboolean cancelled = future.cancel(true); // Interrupts the running thread\nSystem.out.println(\"Cancel result: \" + cancelled);    // true\nSystem.out.println(\"Is cancelled: \" + future.isCancelled()); // true\nSystem.out.println(\"Is done: \" + future.isDone());           // true\n\ntry {\n    future.get(); // Throws CancellationException\n} catch (CancellationException e) {\n    System.out.println(\"Cannot get result of cancelled task\");\n}\n\nexecutor.shutdown();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q4: What is the difference between `invokeAll()` and `invokeAny()`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A4: Both are batch execution methods on ExecutorService, but they serve different purposes:\n\ninvokeAll(Collection<Callable<T>>):\n- Submits all tasks and BLOCKS until ALL are complete\n- Returns List<Future<T>> in the same order as input\n- Every Future in the result list will have isDone() == true\n- Tasks that threw exceptions have ExecutionException in their Future\n- With timeout: tasks not finished are cancelled\n- Use case: parallel fan-out where you need ALL results (e.g., scatter-gather)\n\ninvokeAny(Collection<Callable<T>>):\n- Submits all tasks and BLOCKS until the FIRST succeeds\n- Returns the result of the first successfully completed task (not a Future)\n- Remaining tasks are cancelled automatically\n- If ALL tasks fail, throws ExecutionException\n- With timeout: throws TimeoutException if no task completes in time\n- Use case: redundant computation, querying replicas for fastest response\n\nKey differences:\n| Aspect          | invokeAll()                  | invokeAny()              |\n|-----------------|------------------------------|--------------------------|\n| Returns         | List<Future<T>>              | T (direct result)        |\n| Waits for       | ALL tasks                    | FIRST success            |\n| Failed tasks    | Future contains exception    | Ignored (if at least one succeeds) |\n| Cancellation    | Only with timeout variant    | Remaining tasks cancelled |\n| Empty input     | Returns empty list           | Throws IllegalArgumentException |\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newFixedThreadPool(3);\nList<Callable<String>> tasks = List.of(\n    () -> { Thread.sleep(300); return \"slow\"; },\n    () -> { Thread.sleep(100); return \"fast\"; },\n    () -> { Thread.sleep(200); return \"medium\"; }\n);\n\n// invokeAll - waits for ALL tasks\nList<Future<String>> allResults = executor.invokeAll(tasks);\nfor (Future<String> f : allResults) {\n    System.out.println(f.get()); // slow, fast, medium (in submission order)\n}\n\n// invokeAny - returns FIRST successful result\nString fastest = executor.invokeAny(tasks);\nSystem.out.println(\"Fastest: \" + fastest); // \"fast\" (completed in 100ms)\n\nexecutor.shutdown();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q5: What is `CompletionService` and when should you use it?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A5: CompletionService is an interface (implemented by ExecutorCompletionService)\nthat decouples task submission from result retrieval by maintaining an internal\nqueue of completed Future objects.\n\nProblem it solves:\nWith a list of Future objects, if you iterate in order and call get() on each,\nyou block on the first one even if later tasks have already completed. This is\ncalled \"head-of-line blocking.\"\n\nHow it works:\n1. You submit tasks via completionService.submit(callable)\n2. As tasks complete, their Futures are placed into an internal BlockingQueue\n3. You call take() (blocking) or poll() (non-blocking) to get the next completed Future\n4. Results come back in COMPLETION ORDER, not submission order\n\nUse cases:\n- Processing results as soon as they are available (e.g., rendering web page\n  components as each loads)\n- Implementing timeout for a batch: process whatever completes within the deadline\n- Load balancing: feed results to downstream processing as they arrive\n\nCompletionService vs invokeAll:\n- invokeAll blocks until ALL tasks complete, then you process results\n- CompletionService lets you process results INCREMENTALLY as they complete\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newFixedThreadPool(3);\nCompletionService<String> cs = new ExecutorCompletionService<>(executor);\n\n// Submit tasks with varying durations\ncs.submit(() -> { Thread.sleep(300); return \"task-3 (300ms)\"; });\ncs.submit(() -> { Thread.sleep(100); return \"task-1 (100ms)\"; });\ncs.submit(() -> { Thread.sleep(200); return \"task-2 (200ms)\"; });\n\n// Process results in completion order (fastest first)\nfor (int i = 0; i < 3; i++) {\n    Future<String> completed = cs.take(); // blocks for next completed task\n    System.out.println(\"Completed: \" + completed.get());\n}\n// Output order: task-1 (100ms), task-2 (200ms), task-3 (300ms)\n\n// With timeout - process whatever completes within 150ms\ncs.submit(() -> { Thread.sleep(50); return \"fast\"; });\ncs.submit(() -> { Thread.sleep(500); return \"slow\"; });\n\nFuture<String> result = cs.poll(150, TimeUnit.MILLISECONDS);\nif (result != null) {\n    System.out.println(\"Got: \" + result.get()); // \"fast\"\n}\n\nexecutor.shutdown();\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q6: How would you implement a timeout for an asynchronous operation using `Future`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A6: There are several approaches to implementing timeouts with Future:\n\n1. Future.get(timeout, unit): The simplest approach. Blocks for at most the\n   specified time, then throws TimeoutException.\n\n2. invokeAll(tasks, timeout, unit): For batch operations. Tasks not completed\n   within the timeout are cancelled.\n\n3. invokeAny(tasks, timeout, unit): For first-result semantics with a deadline.\n\n4. ScheduledExecutorService: Schedule a cancellation task that runs after the timeout.\n\nBest practice pattern:\n- Call get(timeout, unit) wrapped in try-catch\n- On TimeoutException, cancel the Future with interrupt\n- Return a default value or rethrow\n\nImportant considerations:\n- Always cancel the Future on timeout to free pool resources\n- Remember that cancel(true) only sends an interrupt -- the task must cooperate\n- For strict timeouts, consider wrapping the task to check elapsed time internally\n- Virtual threads (Java 21) make blocking on get() less expensive\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newSingleThreadExecutor();\n\n// Pattern 1: Simple timeout with fallback\npublic <T> T computeWithTimeout(Callable<T> task, long timeoutMs, T fallback) {\n    Future<T> future = executor.submit(task);\n    try {\n        return future.get(timeoutMs, TimeUnit.MILLISECONDS);\n    } catch (TimeoutException e) {\n        future.cancel(true); // Stop the task\n        return fallback;\n    } catch (ExecutionException e) {\n        throw new RuntimeException(\"Task failed\", e.getCause());\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n        future.cancel(true);\n        return fallback;\n    }\n}\n\n// Pattern 2: Scheduled cancellation\nScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);\nFuture<String> future = executor.submit(() -> {\n    Thread.sleep(5000);\n    return \"result\";\n});\n\n// Auto-cancel after 1 second\nscheduler.schedule(() -> future.cancel(true), 1, TimeUnit.SECONDS);\n"
+    },
+    {
+      "type": "para",
+      "text": "**Q7: What is the retry pattern with `Callable` and `Future`?**"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "A7: The retry pattern re-submits a failed Callable up to a maximum number of attempts.\nThis is useful for transient failures like network timeouts or temporary service\nunavailability.\n\nKey design decisions:\n1. Max retries: How many times to retry (usually 2-3)\n2. Backoff strategy: How long to wait between retries\n   - Fixed delay: sleep(1000ms) between retries\n   - Exponential backoff: sleep(1000ms, 2000ms, 4000ms, ...)\n   - Jitter: Add randomness to prevent thundering herd\n3. Retryable exceptions: Not all exceptions should be retried\n   (e.g., retry IOException but not IllegalArgumentException)\n4. Timeout per attempt: Each attempt should have its own timeout\n\nImplementation considerations:\n- Use a new Future for each retry (don't reuse the old one)\n- Log each retry attempt for debugging\n- Have a circuit breaker to stop retrying if the system is consistently failing\n- Consider using a library like Resilience4j for production retry logic\n"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public <T> T executeWithRetry(ExecutorService executor, Callable<T> task,\n                               int maxRetries, long delayMs) throws Exception {\n    Exception lastException = null;\n\n    for (int attempt = 0; attempt <= maxRetries; attempt++) {\n        Future<T> future = executor.submit(task);\n        try {\n            return future.get(5, TimeUnit.SECONDS);\n        } catch (ExecutionException e) {\n            // the cause may be an Error, which is not an Exception\n            lastException = e.getCause() instanceof Exception cause ? cause : e;\n            System.out.printf(\"Attempt %d failed: %s%n\", attempt + 1, lastException.getMessage());\n\n            if (attempt < maxRetries) {\n                // Exponential backoff with jitter\n                long backoff = delayMs * (1L << attempt);\n                long jitter = (long) (backoff * 0.2 * Math.random());\n                Thread.sleep(backoff + jitter);\n            }\n        } catch (TimeoutException e) {\n            future.cancel(true); // do not leave the timed-out attempt running\n            lastException = e;\n            System.out.printf(\"Attempt %d timed out%n\", attempt + 1);\n        }\n    }\n\n    throw new RuntimeException(\"All \" + (maxRetries + 1) + \" attempts failed\", lastException);\n}\n"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Code Examples"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Source: [CallableFutureDemo.java](src/main/java/com/github/msorkhpar/claudejavatutor/executors/CallableFutureDemo.java)",
+        "Test: [CallableFutureDemoTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/executors/CallableFutureDemoTest.java)"
+      ]
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 14,
+    "paras": 14,
+    "code": 21,
+    "tables": 0,
+    "lists": 14,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 0
+  },
+  "content_sha256": "310d5ac806ae32b6c17286fe1a7a8a4f20eea283143b4c7d07eb44cf88d5065a"
+}
