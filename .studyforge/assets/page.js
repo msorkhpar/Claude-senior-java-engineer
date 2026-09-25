@@ -2419,7 +2419,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     entry.built = {};
     frames.reloadWhenBlocked(where.main.url);
     show(part(entry, 'editor'), true);
-    show(part(entry, 'controls'), !!where.runs);
+    show(part(entry, 'controls'), !!where.runs && runs);
     select(entry, 'main');
     setTimeout(function () { remember(null); }, 5000);
   }
@@ -2480,7 +2480,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     var stop = entry.details.querySelector('[' + ACT + '="stop"]');
     act.addEventListener('click', function () {
       var where = entry.where;
-      if (!where || !where.runs) { return; }
+      if (!where || !where.runs || !runs) { return; }
       var status = part(entry, 'status');
       var output = part(entry, 'output');
       act.disabled = true;
@@ -2520,17 +2520,22 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     });
   }
 
-  /* ⭐ Only an editor that is UP, over a corpus that can run code now, makes an
-     entry open the editor; until then each entry is its lines and the built
-     sentence, and every link is the file's plain view. ⛔ A declared runner
-     that is down runs no test, so it offers no Run tests either. */
+  /* ⭐ Only an editor that is UP makes an entry open the editor; until then
+     each entry is its lines and the editor's sentence, and every link is the
+     file's plain view. ⭐ The runner is its own service: with the editor up and
+     a declared runner down, the editor still opens the files, and only Run
+     tests is withheld, with the runner's sentence — each panel names the
+     service that is missing, from the run index's `editor` and `runnable`. */
+  var runs = false;
   var runnable = run.runnable ? run.runnable(entries[0].corpus) : Promise.resolve(true);
   Promise.all([run.editor(entries[0].corpus), runnable]).then(function (both) {
     var found = both[0];
-    if (!found || !both[1]) { return; }
+    if (!found) { return; }
+    runs = !!both[1];
     entries.forEach(function (entry) {
       show(part(entry, 'plain'), false);
       show(part(entry, 'copy'), true);
+      show(part(entry, 'no-runner'), !runs);
       wire(entry);
     });
     var kept = reopened();
