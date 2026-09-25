@@ -1,6 +1,6 @@
 # Skill — reconnaissance (pinned)
 
-pin: f5b5a95014c42c5c5a4795e40953cbe7696de834
+pin: f72a1dde0fc04ba3131fcc31b50460b326dac858
 version: 0.1.0
 
 The procedure ships inside the installed `studyforge` library, at the
