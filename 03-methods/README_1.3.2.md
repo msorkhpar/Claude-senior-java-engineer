@@ -173,7 +173,7 @@ A4:
 Java methods can only return a single value, but there are several ways to return multiple values:
 
 1. Return an array or collection:
-    ```java
+   ```java
    public static int[] getMinMax(int[] numbers) {
    int min = Arrays.stream(numbers).min().orElse(Integer.MIN_VALUE);
    int max = Arrays.stream(numbers).max().orElse(Integer.MAX_VALUE);
