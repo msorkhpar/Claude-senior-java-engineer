@@ -389,7 +389,7 @@ String formatted = names.stream()
 String emailList = employees.stream()
     .filter(Employee::isActive)
     .map(Employee::email)
-    .collect(Collectors.joining("; ")); // "alice@co.com; bob@co.com"
+    .collect(Collectors.joining("; ")); // "alice@example.com; bob@example.com"
 
 // Joining with prefix/suffix for SQL IN clause
 String inClause = ids.stream()

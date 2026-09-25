@@ -260,7 +260,7 @@ class ReportService {
     private final PdfRenderer pdf;     // Used by rendering methods
 
     List<Order> fetchOrders() { return db.query("SELECT ..."); }
-    void notifyManager(String msg) { email.send("manager@co.com", msg); }
+    void notifyManager(String msg) { email.send("manager@example.com", msg); }
     byte[] renderPdf(List<Order> orders) { return pdf.render(orders); }
 }
 

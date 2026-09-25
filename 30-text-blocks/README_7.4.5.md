@@ -314,9 +314,9 @@ public class TextBlockVsTemplateEngine {
     // But for test fixtures, text blocks are perfect
     String testFixture = """
             id,name,email,active
-            1,Alice,alice@test.com,true
-            2,Bob,bob@test.com,false
-            3,Charlie,charlie@test.com,true""";
+            1,Alice,alice@example.com,true
+            2,Bob,bob@example.com,false
+            3,Charlie,charlie@example.com,true""";
 
     // For configuration defaults
     String defaultConfig = """
@@ -614,8 +614,8 @@ public class TestingWithTextBlocks {
     // Test fixture
     String csvFixture = """
             id,name,email
-            1,Alice,alice@test.com
-            2,Bob,bob@test.com""";
+            1,Alice,alice@example.com
+            2,Bob,bob@example.com""";
 
     // WireMock stub body
     String mockResponse = """
@@ -630,8 +630,8 @@ public class TestingWithTextBlocks {
     // SQL for test setup
     String setupSql = """
             INSERT INTO users (id, name, email, active) VALUES
-            (1, 'Alice', 'alice@test.com', true),
-            (2, 'Bob', 'bob@test.com', false)""";
+            (1, 'Alice', 'alice@example.com', true),
+            (2, 'Bob', 'bob@example.com', false)""";
 
     // Multi-line error message in assertion
     // assertThat(result)

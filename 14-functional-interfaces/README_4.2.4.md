@@ -421,11 +421,11 @@ System.out.println(strongPwd.test("Passw0rd!"));    // true
 System.out.println(strongPwd.test("password"));     // false (no upper, no digit, no special)
 
 // Apply to a list
-List<String> emails = List.of("a@b.com", "invalid", "c@d.org", "bad");
+List<String> emails = List.of("a@example.org", "invalid", "c@example.org", "bad");
 List<String> validEmails = emails.stream()
     .filter(validEmail)
     .collect(Collectors.toList());
-// ["a@b.com", "c@d.org"]
+// ["a@example.org", "c@example.org"]
 ```
 
 ---

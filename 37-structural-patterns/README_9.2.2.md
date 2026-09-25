@@ -58,7 +58,7 @@ Evolution across Java versions:
 
 2. **Identity comparisons breaking**: Since the decorator wraps the original object, `==` and identity-based checks will fail. Use `equals()` that respects the wrapper chain.
    ```java
-   Notifier original = new EmailNotifier("a@b.com");
+   Notifier original = new EmailNotifier("a@example.org");
    Notifier decorated = new SmsDecorator(original, "+1");
    // original == decorated is FALSE
    // original.equals(decorated) depends on equals() implementation
@@ -149,7 +149,7 @@ class SlackNotifier extends EmailNotifier { }
 class SmsSlackNotifier extends EmailNotifier { } // need all combinations!
 
 // Decorator approach — compose freely
-Notifier notifier = new EmailNotifier("a@b.com");
+Notifier notifier = new EmailNotifier("a@example.org");
 notifier = new SmsDecorator(notifier, "+1234");
 notifier = new SlackDecorator(notifier, "#alerts");
 // Any combination, any order, at runtime
@@ -226,7 +226,7 @@ MAY stop at any handler. Strategy selects ONE algorithm from many options.
 
 ```java
 // Decorator: all layers always execute
-Notifier n = new SlackDecorator(new SmsDecorator(new EmailNotifier("a@b.com"), "+1"), "#ch");
+Notifier n = new SlackDecorator(new SmsDecorator(new EmailNotifier("a@example.org"), "+1"), "#ch");
 n.send("alert"); // Email + SMS + Slack — ALL execute
 
 // Strategy: one algorithm selected

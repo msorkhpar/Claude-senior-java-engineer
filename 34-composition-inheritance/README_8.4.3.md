@@ -208,9 +208,9 @@ void testNotificationService() {
     var formatter = new TemplateFormatter();
     var service = new NotificationService(sender, formatter);
 
-    service.notify("admin@test.com", "Alert: ${event}", Map.of("event", "login"));
+    service.notify("admin@example.com", "Alert: ${event}", Map.of("event", "login"));
     assertThat(sender.getSentMessages())
-        .containsExactly("admin@test.com: Alert: login");
+        .containsExactly("admin@example.com: Alert: login");
 }
 
 // Test 4: Concurrent access to NotificationService
@@ -416,8 +416,8 @@ var prodService = new NotificationService(new EmailSender(), new TemplateFormatt
 // Testing: in-memory sender + same formatter
 var testSender = new InMemoryNotificationSender();
 var testService = new NotificationService(testSender, new TemplateFormatter());
-testService.notify("user@test.com", "Hello ${name}!", Map.of("name", "Alice"));
-assertThat(testSender.getSentMessages()).containsExactly("user@test.com: Hello Alice!");
+testService.notify("user@example.com", "Hello ${name}!", Map.of("name", "Alice"));
+assertThat(testSender.getSentMessages()).containsExactly("user@example.com: Hello Alice!");
 ```
 
 ## Code Examples

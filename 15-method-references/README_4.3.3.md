@@ -476,10 +476,10 @@ public class PredicateMethodRefDemo {
 
     public static void main(String[] args) {
         List<User> users = List.of(
-                new User("alice", "alice@x.com", true, 25),
+                new User("alice", "alice@example.com", true, 25),
                 new User("bob", "", false, 30),
-                new User("charlie", "c@x.com", false, 16),
-                new User("diana", "d@x.com", true, 22)
+                new User("charlie", "c@example.com", false, 16),
+                new User("diana", "d@example.com", true, 22)
         );
 
         // Unbound instance method ref as Predicate
