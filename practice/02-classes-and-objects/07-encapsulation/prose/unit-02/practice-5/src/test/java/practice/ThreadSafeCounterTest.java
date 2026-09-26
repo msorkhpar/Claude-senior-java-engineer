@@ -1,8 +1,10 @@
 package practice;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
@@ -12,40 +14,37 @@ class ThreadSafeCounterTest {
 
     @Test
     void countsIncrements() {
-        ThreadSafeCounter counter = new ThreadSafeCounter();
+        AtomicInteger steps = new AtomicInteger();
+        ThreadSafeCounter counter = new ThreadSafeCounter(steps::incrementAndGet);
         assertThat(counter.getCount()).isZero();
         counter.incrementCount();
         counter.incrementCount();
         counter.incrementCount();
         assertThat(counter.getCount()).isEqualTo(3);
+        assertThat(steps.get()).isEqualTo(3);
+        assertThat(new ThreadSafeCounter().getCount()).isZero();
     }
 
     @Test
     void noIncrementIsLostAcrossThreads() throws InterruptedException {
-        ThreadSafeCounter counter = new ThreadSafeCounter();
-        int threads = 8;
-        int each = 100_000;
-        CountDownLatch start = new CountDownLatch(1);
-        List<Thread> workers = new ArrayList<>();
-        for (int t = 0; t < threads; t++) {
-            Thread worker = new Thread(() -> {
-                try {
-                    start.await();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                for (int i = 0; i < each; i++) {
-                    counter.incrementCount();
-                }
-            });
-            workers.add(worker);
-            worker.start();
-        }
-        start.countDown();
-        for (Thread worker : workers) {
-            worker.join();
-        }
-        assertThat(counter.getCount()).isEqualTo(threads * each);
+        // Each increment waits (up to two seconds) in its step for the other thread to reach
+        // its own step: an increment that lets both threads read before either writes loses one.
+        CyclicBarrier bothRead = new CyclicBarrier(2);
+        ThreadSafeCounter counter = new ThreadSafeCounter(() -> {
+            try {
+                bothRead.await(2, TimeUnit.SECONDS);
+            } catch (TimeoutException | BrokenBarrierException e) {
+                // the other thread could not arrive meanwhile: the increments did not overlap
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        Thread first = new Thread(counter::incrementCount);
+        Thread second = new Thread(counter::incrementCount);
+        first.start();
+        second.start();
+        first.join();
+        second.join();
+        assertThat(counter.getCount()).isEqualTo(2);
     }
 }

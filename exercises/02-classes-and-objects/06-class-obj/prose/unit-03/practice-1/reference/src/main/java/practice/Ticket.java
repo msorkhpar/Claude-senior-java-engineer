@@ -1,18 +1,21 @@
 package practice;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 public class Ticket {
-    private static final AtomicInteger ISSUED = new AtomicInteger();
+    private static int issued;
 
     private final int number;
 
     public Ticket() {
-        this.number = ISSUED.incrementAndGet();
+        this.number = nextNumber();
     }
 
-    public static int issued() {
-        return ISSUED.get();
+    private static synchronized int nextNumber() {
+        issued++;
+        return issued;
+    }
+
+    public static synchronized int issued() {
+        return issued;
     }
 
     public int number() {

@@ -14,6 +14,8 @@ start at 0 and apply every transaction in order, as it affects `account`:
 - a transfer takes its cents from `from` and adds them to `to`;
 - anything about other accounts does not change the balance.
 
+An account is identified by its name: two `String`s with the same text name the same account.
+
 Use a `switch` over the transaction; since `Transaction` is sealed, it needs
 no `default`. Balances may go negative.
 

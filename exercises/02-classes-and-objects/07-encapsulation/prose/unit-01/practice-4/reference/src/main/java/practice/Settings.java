@@ -1,18 +1,27 @@
 package practice;
 
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Settings {
 
     private static final AtomicInteger CREATED = new AtomicInteger();
 
+    /** Opens once two loads have started. */
+    private static final CountDownLatch LOADS = new CountDownLatch(2);
+
     private final Map<String, String> values;
 
-    /** Loads the settings; slow on purpose, and not to be changed. */
+    /**
+     * Loads the settings. Given, and not to be changed: a load takes two seconds, and
+     * it finishes early when a second load starts, which a singleton must never allow.
+     */
     private Settings() {
+        LOADS.countDown();
         try {
-            Thread.sleep(100);
+            LOADS.await(2, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

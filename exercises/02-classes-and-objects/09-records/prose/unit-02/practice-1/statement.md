@@ -7,7 +7,7 @@ constructor and accessors are written. Write the other three so that a
 `PersonBean` behaves exactly like the record would:
 
 - `equals(Object)`: `true` for another `PersonBean` with an equal `name` (which
-  may be `null`) and the same `age`; `false` for `null` and for any other type;
+  may be `null`, and which may be a different `String` object with the same text) and the same `age`; `false` for `null` and for any other type;
 - `hashCode()`: equal beans have equal hash codes (`Objects.hash` helps);
 - `toString()`: `PersonBean[name=<name>, age=<age>]`, the record's format.
 

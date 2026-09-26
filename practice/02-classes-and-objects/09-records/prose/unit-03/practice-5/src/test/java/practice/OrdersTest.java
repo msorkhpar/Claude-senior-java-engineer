@@ -37,4 +37,12 @@ class OrdersTest {
     void noOrdersGiveNoTotals() {
         assertThat(Orders.totals(List.of())).isEmpty();
     }
+
+    @Test
+    void namesBuiltSeparatelyAreOneCustomer() {
+        List<Orders.Order> orders = List.of(
+                new Orders.Order(new String("ann"), 500),
+                new Orders.Order(new StringBuilder("an").append('n').toString(), 250));
+        assertThat(Orders.totals(orders)).containsExactly(new Orders.CustomerTotal("ann", 750, 2));
+    }
 }

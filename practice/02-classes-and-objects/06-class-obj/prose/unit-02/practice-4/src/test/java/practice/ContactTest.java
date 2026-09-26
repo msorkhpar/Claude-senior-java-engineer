@@ -1,6 +1,7 @@
 package practice;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,15 @@ class ContactTest {
         ada.addPhone("555-0199");
         assertThat(ada.getPhones()).containsExactly("555-0100", "555-0199");
         assertThat(copy.getPhones()).containsExactly("555-0100");
+    }
+
+    @Test
+    void theCallersListIsNotShared() {
+        List<String> phones = new ArrayList<>(List.of("555-0100"));
+        Contact ada = new Contact("Ada", BORN, "ada@example.com", phones);
+        phones.add("555-0199");
+        phones.set(0, "555-0000");
+        assertThat(ada.getPhones()).containsExactly("555-0100");
     }
 
     @Test

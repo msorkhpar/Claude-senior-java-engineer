@@ -8,8 +8,10 @@ Write the general tool behind a safe lazy singleton, `Lazy<T>`:
   **nothing** yet;
 - `get()` returns the value, creating it with the supplier on the first call only.
   Every later call returns the same object.
-- `get()` is safe when many threads call it at the same moment: the supplier runs
-  **exactly once**, and every thread gets that one object.
+- `get()` is safe when several threads call it at once: while one thread is still
+  running the supplier, another thread calling `get()` must **wait** for that value
+  rather than run the supplier again. The supplier runs **exactly once**, and every
+  thread gets that one object.
 
 You may assume the supplier never returns `null`.
 

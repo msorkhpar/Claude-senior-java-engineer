@@ -4,7 +4,9 @@ very collection it keeps its state in, so they can change that state behind
 its back.
 
 Write `Inventory`, which keeps stock counts by item name however you like, and
-exposes only these methods:
+exposes only these methods. Two item names are the same item when their text
+is equal, whichever `String` objects carry it.
+
 
 - `void add(String item, int quantity)`: adds stock; a quantity of 0 or less
   throws `IllegalArgumentException`.

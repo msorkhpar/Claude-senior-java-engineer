@@ -37,6 +37,18 @@ class InventoryTest {
     }
 
     @Test
+    void itemsAreMatchedByNameNotByObject() {
+        Inventory inventory = new Inventory();
+        String added = new String("bolt");
+        String asked = new StringBuilder("bo").append("lt").toString();
+        inventory.add(added, 3);
+        inventory.add(new String("bolt"), 2);
+        assertThat(inventory.quantityOf(asked)).isEqualTo(5);
+        inventory.remove(new String("bolt"), 5);
+        assertThat(inventory.items()).isEmpty();
+    }
+
+    @Test
     void anItemRemovedToZeroIsNoLongerListed() {
         Inventory inventory = new Inventory();
         inventory.add("bolt", 3);

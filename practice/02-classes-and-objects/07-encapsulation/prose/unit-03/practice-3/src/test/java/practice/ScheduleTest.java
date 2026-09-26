@@ -2,6 +2,7 @@ package practice;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -37,5 +38,14 @@ class ScheduleTest {
             assertThat(Modifier.isPrivate(field.getModifiers())).as("%s is private", field.getName()).isTrue();
             assertThat(Modifier.isFinal(field.getModifiers())).as("%s is final", field.getName()).isTrue();
         }
+    }
+
+    @Test
+    void theCallersListIsNotShared() {
+        List<String> given = new ArrayList<>(List.of("09:00", "11:00"));
+        Schedule monday = new Schedule("Mon", given);
+        given.add("18:00");
+        given.set(0, "07:00");
+        assertThat(monday.getSlots()).containsExactly("09:00", "11:00");
     }
 }

@@ -13,6 +13,8 @@ one:
 | `lock(s, code)` | refused | `Locked(code)` | unchanged |
 | `unlock(s, code)` | unchanged | unchanged | `Closed` if `code` equals `c`, else unchanged |
 
+A code matches when its text is the same.
+
 "Refused" means throw `IllegalStateException`. "Unchanged" means return the
 state you were given. Switch over the state; `State` is sealed, so no
 `default` is needed.

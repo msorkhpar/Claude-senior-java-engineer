@@ -36,4 +36,16 @@ class CountingSetTest {
         assertThat(set.getAddCount()).isEqualTo(2);
         assertThat(set.size()).isEqualTo(1);
     }
+
+    @Test
+    void equalElementsAreOneElement() {
+        CountingSet<String> set = new CountingSet<>();
+        String first = new String("apple");
+        String second = new String("apple");
+        assertThat(set.add(first)).isTrue();
+        assertThat(set.add(second)).isFalse();
+        assertThat(set.size()).isEqualTo(1);
+        assertThat(set.contains(new String("apple"))).isTrue();
+        assertThat(set.getAddCount()).isEqualTo(2);
+    }
 }

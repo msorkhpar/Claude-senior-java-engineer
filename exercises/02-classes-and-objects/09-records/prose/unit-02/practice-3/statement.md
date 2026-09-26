@@ -6,7 +6,8 @@ mutable, so a record holding one is only shallowly immutable.
 Complete `record Reading(String sensor, double[] values)` so that it behaves
 like a value:
 
-- `equals`: equal `sensor` and equal array **contents** (`Arrays.equals`);
+- `equals`: an equal `sensor` (compared by its text, not by which `String`
+  object it is) and equal array **contents** (`Arrays.equals`);
 - `hashCode`: consistent with that `equals` (`Arrays.hashCode`);
 - `toString`: `Reading[sensor=<sensor>, values=<Arrays.toString(values)>]`;
 - the compact constructor keeps a **copy** of the array it is given, and the

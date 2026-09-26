@@ -7,6 +7,8 @@ constructor.
 Write `Inventory`:
 
 - `Inventory()` creates an empty inventory;
+- items are identified by their name's **text**: two `String` objects with the same
+  characters are the same item;
 - `add(String item, int quantity)` adds stock (`quantity` is positive);
 - `remove(String item, int quantity)` takes stock away. Removing more than is held
   throws `IllegalArgumentException`, and then nothing changes;

@@ -36,6 +36,14 @@ class PersonTest {
         Person a = Person.createAdult("Charlie");
         assertThat(a).isEqualTo(new Person("Charlie", 18));
         assertThat(a.hashCode()).isEqualTo(new Person("Charlie", 18).hashCode());
-        assertThat(a).isNotEqualTo(new Person("Charlie", 41));
+        assertThat(a).isNotEqualTo(new Person(new String("Charlie"), 41));
+    }
+
+    @Test
+    void equalNamesBuiltSeparatelyAreEqual() {
+        Person built = Person.createAdult(new StringBuilder("Cha").append("rlie").toString());
+        Person other = new Person(new String("Charlie"), 18);
+        assertThat(built).isEqualTo(other);
+        assertThat(built.hashCode()).isEqualTo(other.hashCode());
     }
 }

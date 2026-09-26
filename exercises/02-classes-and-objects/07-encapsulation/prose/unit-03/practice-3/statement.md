@@ -11,6 +11,7 @@ Write `Schedule`, an immutable list of time slots with a name:
 - `Schedule withSlot(String slot)` returns a **new** schedule with `slot` added at
   the end. The schedule it was called on stays as it was.
 
+Changing the list passed to the constructor afterwards does not change the schedule.
 The class cannot be extended, and every field it declares is `private` and `final`.
 
 Examples:

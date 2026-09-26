@@ -9,6 +9,8 @@ Write `CountingSet<E>`, a set that also counts how many elements anyone has
 in both would count twice.
 
 - `boolean add(E e)`: counts one attempt; returns what the set's `add` returns.
+  Elements are the same when they are **equal** (`equals`), not only when they
+  are the same object.
 - `boolean addAll(Collection<? extends E> c)`: counts one attempt per element
   of `c`; returns `true` if the set changed.
 - `int getAddCount()`: the number of attempts so far.
@@ -20,4 +22,5 @@ in both would count twice.
 add("a"); add("b"); add("c")    -> getAddCount() == 3, size() == 3
 addAll(List.of("x", "y", "z"))  -> getAddCount() == 3
 add("a"); add("a")              -> second add returns false, getAddCount() == 2, size() == 1
+add(new String("x")); add(new String("x"))  -> one element: equal, not the same object
 ```

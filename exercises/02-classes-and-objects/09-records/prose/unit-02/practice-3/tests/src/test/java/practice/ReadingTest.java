@@ -49,4 +49,12 @@ class ReadingTest {
         reading.values()[1] = 99;
         assertThat(reading.values()).containsExactly(1.5, 2.0);
     }
+
+    @Test
+    void sensorNamesBuiltSeparatelyMatch() {
+        Reading a = new Reading(new StringBuilder("s").append(1).toString(), new double[] {1.5, 2.0});
+        Reading b = new Reading(new String("s1"), new double[] {1.5, 2.0});
+        assertThat(a.equals(b)).isTrue();
+        assertThat(a.hashCode()).isEqualTo(b.hashCode());
+    }
 }

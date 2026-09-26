@@ -56,4 +56,14 @@ class InventoryTest {
         assertThat(inventory.remove("pear", 2)).isTrue();
         assertThat(inventory.items()).isEqualTo(Map.of("apple", 1));
     }
+
+    @Test
+    void anItemIsFoundByAnEqualName() {
+        Inventory inventory = new Inventory();
+        inventory.add(new String("apple"), 1);
+        inventory.add(new String("apple"), 2);
+        assertThat(inventory.count(new String("apple"))).isEqualTo(3);
+        assertThat(inventory.remove(new String("apple"), 3)).isTrue();
+        assertThat(inventory.items()).isEmpty();
+    }
 }

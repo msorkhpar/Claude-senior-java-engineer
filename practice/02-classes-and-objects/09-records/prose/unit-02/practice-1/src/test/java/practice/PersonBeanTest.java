@@ -22,15 +22,15 @@ class PersonBeanTest {
     void aNullNameIsHandled() {
         PersonBean nameless = new PersonBean(null, 5);
         assertThat(nameless.equals(new PersonBean(null, 5))).isTrue();
-        assertThat(nameless.equals(new PersonBean("Alice", 5))).isFalse();
-        assertThat(new PersonBean("Alice", 5).equals(nameless)).isFalse();
+        assertThat(nameless.equals(new PersonBean(new String("Alice"), 5))).isFalse();
+        assertThat(new PersonBean(new String("Alice"), 5).equals(nameless)).isFalse();
         assertThat(nameless.hashCode()).isEqualTo(new PersonBean(null, 5).hashCode());
     }
 
     @Test
     void equalBeansHashAlike() {
-        PersonBean a = new PersonBean("Charlie", 40);
-        PersonBean b = new PersonBean("Charlie", 40);
+        PersonBean a = new PersonBean(new String("Charlie"), 40);
+        PersonBean b = new PersonBean(new String("Charlie"), 40);
         assertThat(a.hashCode()).isEqualTo(b.hashCode());
         Set<PersonBean> set = new HashSet<>();
         set.add(a);
@@ -40,8 +40,16 @@ class PersonBeanTest {
 
     @Test
     void otherTypesAndNullAreNeverEqual() {
-        PersonBean alice = new PersonBean("Alice", 30);
+        PersonBean alice = new PersonBean(new String("Alice"), 30);
         assertThat(alice.equals(null)).isFalse();
         assertThat(alice.equals("Alice")).isFalse();
+    }
+
+    @Test
+    void equalNamesBuiltSeparatelyAreEqual() {
+        String first = new StringBuilder("Al").append("ice").toString();
+        String second = new String("Alice");
+        assertThat(new PersonBean(first, 30).equals(new PersonBean(second, 30))).isTrue();
+        assertThat(new PersonBean(first, 30).hashCode()).isEqualTo(new PersonBean(second, 30).hashCode());
     }
 }

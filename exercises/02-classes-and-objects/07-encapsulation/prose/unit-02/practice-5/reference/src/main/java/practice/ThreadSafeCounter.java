@@ -2,13 +2,25 @@ package practice;
 
 public class ThreadSafeCounter {
 
-    private volatile int count = 0;
+    private final Runnable step;
+    private int count;
 
-    public synchronized void incrementCount() {
-        count++;
+    public ThreadSafeCounter() {
+        this(() -> { });
     }
 
-    public int getCount() {
+    /** {@code step} runs inside every increment, between reading the count and writing it back. */
+    public ThreadSafeCounter(Runnable step) {
+        this.step = step;
+    }
+
+    public synchronized void incrementCount() {
+        int read = count;
+        step.run();
+        count = read + 1;
+    }
+
+    public synchronized int getCount() {
         return count;
     }
 }

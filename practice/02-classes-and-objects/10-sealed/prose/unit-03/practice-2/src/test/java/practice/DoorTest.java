@@ -37,4 +37,10 @@ class DoorTest {
         assertThat(Door.unlock(new Door.Locked("1234"), "0000")).isEqualTo(new Door.Locked("1234"));
         assertThat(Door.close(new Door.Locked("1234"))).isEqualTo(new Door.Locked("1234"));
     }
+
+    @Test
+    void theCodeIsComparedByItsText() {
+        Door.State locked = Door.lock(new Door.Closed(), new String("1234"));
+        assertThat(Door.unlock(locked, new String("1234"))).isEqualTo(new Door.Closed());
+    }
 }

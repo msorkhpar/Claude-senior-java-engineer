@@ -28,6 +28,9 @@ class PersonTest {
         assertThatThrownBy(() -> new Person("", 20))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Name cannot be null or empty");
+        assertThatThrownBy(() -> new Person(new String(""), 20))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Name cannot be null or empty");
     }
 
     @Test

@@ -34,4 +34,11 @@ class MoneyTest {
     void aMissingCurrencyIsRefused() {
         assertThatThrownBy(() -> new Money(100, null)).isInstanceOf(NullPointerException.class);
     }
+
+    @Test
+    void currenciesBuiltSeparatelyMatch() {
+        Money a = new Money(1050, new String("EUR"));
+        Money b = new Money(225, new StringBuilder("EU").append('R').toString());
+        assertThat(a.plus(b)).isEqualTo(new Money(1275, "EUR"));
+    }
 }

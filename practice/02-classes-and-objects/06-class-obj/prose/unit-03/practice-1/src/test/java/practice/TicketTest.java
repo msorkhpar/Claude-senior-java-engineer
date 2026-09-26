@@ -1,18 +1,16 @@
 package practice;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class TicketTest {
 
@@ -37,33 +35,51 @@ class TicketTest {
         assertThat(first.number()).isEqualTo(firstNumber);
     }
 
+    /**
+     * No race decides this test. While the test holds the class's lock, a thread
+     * creating a ticket must be parked waiting for it; an unguarded count finishes
+     * at once and is caught every time.
+     */
     @Test
-    void ticketsIssuedAtOnceAreAllCounted() throws Exception {
-        int threads = 8;
-        int perThread = 20_000;
-        int before = Ticket.issued();
-        Set<Integer> numbers = ConcurrentHashMap.newKeySet();
-        CountDownLatch start = new CountDownLatch(1);
-        ExecutorService pool = Executors.newFixedThreadPool(threads);
-        try {
-            List<Future<?>> done = new ArrayList<>();
+    void ticketsIssuedAtOnceAreAllCounted() {
+        assertTimeoutPreemptively(Duration.ofSeconds(30), () -> {
+            new Ticket();
+            int before = Ticket.issued();
+            Thread creator = new Thread(Ticket::new, "creator");
+            boolean waited;
+            synchronized (Ticket.class) {
+                creator.start();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (System.nanoTime() < deadline
+                        && creator.isAlive()
+                        && creator.getState() != Thread.State.BLOCKED) {
+                    Thread.sleep(10);
+                }
+                waited = creator.isAlive() && creator.getState() == Thread.State.BLOCKED;
+            }
+            creator.join(10_000);
+            assertThat(waited).as("creating a ticket waited for the class's lock").isTrue();
+            assertThat(Ticket.issued()).isEqualTo(before + 1);
+
+            int threads = 4;
+            int perThread = 2_000;
+            int start = Ticket.issued();
+            Set<Integer> numbers = ConcurrentHashMap.newKeySet();
+            List<Thread> workers = new ArrayList<>();
             for (int t = 0; t < threads; t++) {
-                done.add(pool.submit(() -> {
-                    start.await();
+                Thread worker = new Thread(() -> {
                     for (int i = 0; i < perThread; i++) {
                         numbers.add(new Ticket().number());
                     }
-                    return null;
-                }));
+                });
+                workers.add(worker);
+                worker.start();
             }
-            start.countDown();
-            for (Future<?> future : done) {
-                future.get(30, TimeUnit.SECONDS);
+            for (Thread worker : workers) {
+                worker.join(20_000);
             }
-        } finally {
-            pool.shutdownNow();
-        }
-        assertThat(Ticket.issued()).isEqualTo(before + threads * perThread);
-        assertThat(numbers).hasSize(threads * perThread);
+            assertThat(Ticket.issued()).isEqualTo(start + threads * perThread);
+            assertThat(numbers).hasSize(threads * perThread);
+        });
     }
 }

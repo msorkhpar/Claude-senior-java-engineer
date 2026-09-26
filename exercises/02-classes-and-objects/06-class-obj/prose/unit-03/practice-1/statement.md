@@ -12,7 +12,9 @@ Write `Ticket`:
 - A ticket's number never changes afterwards.
 - The page warns that static mutable fields are shared by every thread: tickets
   created by many threads at the same moment must all be counted, and no two
-  tickets may get the same number.
+  tickets may get the same number. Guard the shared count with **the class's own
+  lock**: a `static synchronized` method, or a `synchronized (Ticket.class)` block.
+  While another thread holds that lock, creating a ticket waits.
 
 **Examples**
 
