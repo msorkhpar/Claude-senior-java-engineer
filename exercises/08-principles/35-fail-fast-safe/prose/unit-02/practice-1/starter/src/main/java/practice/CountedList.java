@@ -1,0 +1,66 @@
+package practice;
+
+import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
+
+/** A list that counts its structural changes; its iterator is fail-fast on that count. */
+public class CountedList<E> implements Iterable<E> {
+
+    private final List<E> items = new ArrayList<>();
+    private int modCount;
+
+    public int modCount() {
+        return modCount;
+    }
+
+    public int size() {
+        return items.size();
+    }
+
+    public E get(int index) {
+        return items.get(index);
+    }
+
+    public void add(E item) {
+        throw new UnsupportedOperationException("write add");
+    }
+
+    public E remove(int index) {
+        throw new UnsupportedOperationException("write remove");
+    }
+
+    public E set(int index, E item) {
+        throw new UnsupportedOperationException("write set");
+    }
+
+    public void clear() {
+        throw new UnsupportedOperationException("write clear");
+    }
+
+    @Override
+    public Iterator<E> iterator() {
+        return new Iterator<>() {
+            private int cursor;
+            private final int expectedModCount = modCount;
+
+            @Override
+            public boolean hasNext() {
+                return cursor < items.size();
+            }
+
+            @Override
+            public E next() {
+                if (modCount != expectedModCount) {
+                    throw new ConcurrentModificationException();
+                }
+                if (cursor >= items.size()) {
+                    throw new NoSuchElementException();
+                }
+                return items.get(cursor++);
+            }
+        };
+    }
+}
