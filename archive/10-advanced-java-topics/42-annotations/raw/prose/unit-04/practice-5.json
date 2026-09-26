@@ -1,0 +1,164 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "42-annotations"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 5,
+  "ingested": "2026-09-24",
+  "title": "Generate a field-name list with an annotation processor",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "A compile-time processor extends `AbstractProcessor`, declares what it handles with `@SupportedAnnotationTypes`, and runs inside `javac`. It inspects elements through `javax.lang.model`, generates new files through the `Filer`, and reports problems through the `Messager`: a problem reported as an **ERROR fails the compilation**, with the message on the element."
+    },
+    {
+      "type": "para",
+      "text": "`FieldNamesProcessor.FieldNames` (given, `SOURCE` retention) marks a class. Write `FieldNamesProcessor.process(...)`: for each class marked `@FieldNames`, generate a class `<Name>Fields` **in the marked class's own package** with"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public static final java.util.List<String> NAMES = java.util.List.of(...);"
+    },
+    {
+      "type": "para",
+      "text": "listing the class's **instance** fields (not its `static` ones) in declaration order. `@FieldNames` on anything that is not a class is reported as an error on that element whose message contains `@FieldNames`."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "source",
+        "generated"
+      ],
+      "rows": [
+        [
+          "`@FieldNames class Point { int x; int y; String label; }`",
+          "`PointFields.NAMES` = `[x, y, label]`"
+        ],
+        [
+          "`package demo.geo; @FieldNames class Place { static int COUNT; String name; double lat; }`",
+          "`demo.geo.PlaceFields.NAMES` = `[name, lat]`"
+        ],
+        [
+          "`@FieldNames interface Shape { }`",
+          "compilation fails with an error on `Shape`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The tests hand your processor to `javac` themselves, so no `META-INF/services` file is needed."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.Writer;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\nimport javax.annotation.processing.AbstractProcessor;\nimport javax.annotation.processing.RoundEnvironment;\nimport javax.annotation.processing.SupportedAnnotationTypes;\nimport javax.lang.model.SourceVersion;\nimport javax.lang.model.element.Element;\nimport javax.lang.model.element.ElementKind;\nimport javax.lang.model.element.Modifier;\nimport javax.lang.model.element.TypeElement;\nimport javax.lang.model.element.VariableElement;\nimport javax.lang.model.util.ElementFilter;\nimport javax.tools.Diagnostic;\nimport javax.tools.JavaFileObject;\n\n@SupportedAnnotationTypes(\"practice.FieldNamesProcessor.FieldNames\")\npublic final class FieldNamesProcessor extends AbstractProcessor {\n\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    public @interface FieldNames {\n    }\n\n    @Override\n    public SourceVersion getSupportedSourceVersion() {\n        return SourceVersion.latestSupported();\n    }\n\n    @Override\n    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {\n        for (Element element : round.getElementsAnnotatedWith(FieldNames.class)) {\n            if (element.getKind() != ElementKind.CLASS) {\n                processingEnv.getMessager().printMessage(\n                        Diagnostic.Kind.ERROR, \"@FieldNames needs a class\", element);\n                continue;\n            }\n            generate((TypeElement) element);\n        }\n        return true;\n    }\n\n    private void generate(TypeElement type) {\n        String pkg = processingEnv.getElementUtils().getPackageOf(type).getQualifiedName().toString();\n        String name = type.getSimpleName() + \"Fields\";\n        List<String> quoted = new ArrayList<>();\n        for (VariableElement field : ElementFilter.fieldsIn(type.getEnclosedElements())) {\n            if (!field.getModifiers().contains(Modifier.STATIC)) {\n                quoted.add(\"\\\"\" + field.getSimpleName() + \"\\\"\");\n            }\n        }\n        String qualified = pkg.isEmpty() ? name : pkg + \".\" + name;\n        try {\n            JavaFileObject file = processingEnv.getFiler().createSourceFile(qualified, type);\n            try (Writer out = file.openWriter()) {\n                if (!pkg.isEmpty()) {\n                    out.write(\"package \" + pkg + \";\\n\");\n                }\n                out.write(\"public final class \" + name + \" {\\n\"\n                        + \"    private \" + name + \"() {}\\n\"\n                        + \"    public static final java.util.List<String> NAMES = java.util.List.of(\"\n                        + String.join(\", \", quoted) + \");\\n\"\n                        + \"}\\n\");\n            }\n        } catch (IOException e) {\n            processingEnv.getMessager().printMessage(\n                    Diagnostic.Kind.ERROR, \"Failed to generate \" + qualified + \": \" + e.getMessage(), type);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.Writer;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\nimport javax.annotation.processing.AbstractProcessor;\nimport javax.annotation.processing.RoundEnvironment;\nimport javax.annotation.processing.SupportedAnnotationTypes;\nimport javax.lang.model.SourceVersion;\nimport javax.lang.model.element.Element;\nimport javax.lang.model.element.ElementKind;\nimport javax.lang.model.element.Modifier;\nimport javax.lang.model.element.TypeElement;\nimport javax.lang.model.element.VariableElement;\nimport javax.lang.model.util.ElementFilter;\nimport javax.tools.Diagnostic;\nimport javax.tools.JavaFileObject;\n\n@SupportedAnnotationTypes(\"practice.FieldNamesProcessor.FieldNames\")\npublic final class FieldNamesProcessor extends AbstractProcessor {\n\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    public @interface FieldNames {\n    }\n\n    @Override\n    public SourceVersion getSupportedSourceVersion() {\n        return SourceVersion.latestSupported();\n    }\n\n    @Override\n    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 4,
+    "code": 2,
+    "tables": 1,
+    "lists": 0,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "a2a9033b4c1b3d8f2f01d12cea723ebad66bcd812c8ab62f4f41d89fb491afab",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.io.Writer;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Set;\n\nimport javax.annotation.processing.AbstractProcessor;\nimport javax.annotation.processing.RoundEnvironment;\nimport javax.annotation.processing.SupportedAnnotationTypes;\nimport javax.lang.model.SourceVersion;\nimport javax.lang.model.element.Element;\nimport javax.lang.model.element.ElementKind;\nimport javax.lang.model.element.Modifier;\nimport javax.lang.model.element.TypeElement;\nimport javax.lang.model.element.VariableElement;\nimport javax.lang.model.util.ElementFilter;\nimport javax.tools.Diagnostic;\nimport javax.tools.JavaFileObject;\n\n@SupportedAnnotationTypes(\"practice.FieldNamesProcessor.FieldNames\")\npublic final class FieldNamesProcessor extends AbstractProcessor {\n\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    public @interface FieldNames {\n    }\n\n    @Override\n    public SourceVersion getSupportedSourceVersion() {\n        return SourceVersion.latestSupported();\n    }\n\n    @Override\n    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-5/src/main/java/practice/FieldNamesProcessor.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-5/src/test/java/practice/FieldNamesProcessorTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-5/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-5/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.FieldNamesProcessorTest#generatesTheFieldNamesOfAClass",
+        "kind": "main",
+        "says": "Compiling @FieldNames class Point { int x; int y; String label; ... } generates PointFields whose NAMES is [x, y, label]."
+      },
+      {
+        "id": "practice.FieldNamesProcessorTest#theGeneratedClassSitsInTheMarkedClassesPackage",
+        "kind": "edge",
+        "says": "For demo.geo.Place the generated class is demo.geo.PlaceFields with NAMES [name, lat]."
+      },
+      {
+        "id": "practice.FieldNamesProcessorTest#staticFieldsAreLeftOut",
+        "kind": "edge",
+        "says": "Counter's static COUNT and static final UNIT are left out: NAMES is [total, owner]."
+      },
+      {
+        "id": "practice.FieldNamesProcessorTest#aMarkOnANonClassFailsTheCompilation",
+        "kind": "edge",
+        "says": "@FieldNames on interface Shape fails the compilation with an ERROR on Shape.java whose message contains @FieldNames."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-5/target/surefire-reports"
+    },
+    "origin": {
+      "path": "42-annotations/README_10.4.4.md",
+      "section": "Two Processing Approaches"
+    },
+    "concepts": [
+      "A compile-time processor extends AbstractProcessor, names its annotations with @SupportedAnnotationTypes and its version with @SupportedSourceVersion, and generates files through the Filer.",
+      "A processor reports problems through the Messager, and an ERROR diagnostic fails the compilation."
+    ]
+  }
+}

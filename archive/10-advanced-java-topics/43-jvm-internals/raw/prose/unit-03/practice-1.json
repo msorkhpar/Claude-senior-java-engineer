@@ -1,0 +1,233 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "43-jvm-internals"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Read the JIT settings from a java command line",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "HotSpot's JIT is steered by `-XX` flags: `-XX:+Name` turns a boolean on, **`-XX:-Name` turns it off**, and `-XX:Name=value` sets a number. When a flag appears more than once, **the last one wins**."
+    },
+    {
+      "type": "para",
+      "text": "Write `JitFlags.parse(args)` for these flags, ignoring every other argument:"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "flag",
+        "kind",
+        "default"
+      ],
+      "rows": [
+        [
+          "`TieredCompilation`",
+          "boolean",
+          "on"
+        ],
+        [
+          "`TieredStopAtLevel`",
+          "number, **0 to 4**",
+          "4"
+        ],
+        [
+          "`MaxInlineSize`",
+          "number",
+          "35"
+        ],
+        [
+          "`FreqInlineSize`",
+          "number",
+          "325"
+        ],
+        [
+          "`PrintCompilation`",
+          "boolean",
+          "off"
+        ],
+        [
+          "`PrintInlining`",
+          "boolean, diagnostic",
+          "off"
+        ],
+        [
+          "`UnlockDiagnosticVMOptions`",
+          "boolean",
+          "off"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The result answers `tiered()`, `topTier()`, `maxInlineSize()`, `freqInlineSize()`, `printCompilation()` and `printInlining()`. `topTier()` is the stop level when tiered compilation is on, and 4 (C2 alone) when it is off."
+    },
+    {
+      "type": "para",
+      "text": "A stop level outside 0 to 4 is refused with `IllegalArgumentException`, and so is `PrintInlining` turned on **without `-XX:+UnlockDiagnosticVMOptions`**."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "args",
+        "result"
+      ],
+      "rows": [
+        [
+          "`-Xmx4g`",
+          "tiered, top tier 4, inline sizes 35 and 325"
+        ],
+        [
+          "`-XX:TieredStopAtLevel=1`",
+          "tiered, top tier 1 (C1 only)"
+        ],
+        [
+          "`-XX:-TieredCompilation`",
+          "not tiered, top tier 4"
+        ],
+        [
+          "`-XX:TieredStopAtLevel=1 -XX:-TieredCompilation`",
+          "not tiered, top tier 4"
+        ],
+        [
+          "`-XX:MaxInlineSize=50 -XX:MaxInlineSize=20`",
+          "max inline size 20"
+        ],
+        [
+          "`-XX:TieredStopAtLevel=5`",
+          "`IllegalArgumentException`"
+        ],
+        [
+          "`-XX:+PrintInlining`",
+          "`IllegalArgumentException`"
+        ],
+        [
+          "`-XX:-UnlockDiagnosticVMOptions -XX:+PrintInlining`",
+          "`IllegalArgumentException`"
+        ],
+        [
+          "`-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining`",
+          "prints inlining"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\npublic final class JitFlags {\n\n    private final Map<String, String> values;\n\n    private JitFlags(Map<String, String> values) {\n        this.values = values;\n    }\n\n    /** Reads the JIT flags from a java command line; other arguments are ignored. */\n    public static JitFlags parse(List<String> args) {\n        Map<String, String> values = new HashMap<>();\n        for (String arg : args) {\n            if (!arg.startsWith(\"-XX:\") || arg.length() < 5) {\n                continue;\n            }\n            String body = arg.substring(4);\n            if (body.startsWith(\"+\")) {\n                values.put(body.substring(1), \"true\");\n            } else if (body.startsWith(\"-\")) {\n                values.put(body.substring(1), \"false\");\n            } else if (body.contains(\"=\")) {\n                int eq = body.indexOf('=');\n                values.put(body.substring(0, eq), body.substring(eq + 1));\n            }\n        }\n        JitFlags flags = new JitFlags(values);\n        int level = flags.number(\"TieredStopAtLevel\", 4);\n        if (level < 0 || level > 4) {\n            throw new IllegalArgumentException(\"TieredStopAtLevel must be 0 to 4: \" + level);\n        }\n        if (flags.bool(\"PrintInlining\", false) && !flags.bool(\"UnlockDiagnosticVMOptions\", false)) {\n            throw new IllegalArgumentException(\"PrintInlining needs -XX:+UnlockDiagnosticVMOptions\");\n        }\n        return flags;\n    }\n\n    private boolean bool(String name, boolean fallback) {\n        String v = values.get(name);\n        return v == null ? fallback : Boolean.parseBoolean(v);\n    }\n\n    private int number(String name, int fallback) {\n        String v = values.get(name);\n        return v == null ? fallback : Integer.parseInt(v);\n    }\n\n    public boolean tiered() {\n        return bool(\"TieredCompilation\", true);\n    }\n\n    /** The highest compilation tier: the stop level when tiered, 4 when not. */\n    public int topTier() {\n        return tiered() ? number(\"TieredStopAtLevel\", 4) : 4;\n    }\n\n    public int maxInlineSize() {\n        return number(\"MaxInlineSize\", 35);\n    }\n\n    public int freqInlineSize() {\n        return number(\"FreqInlineSize\", 325);\n    }\n\n    public boolean printCompilation() {\n        return bool(\"PrintCompilation\", false);\n    }\n\n    public boolean printInlining() {\n        return bool(\"PrintInlining\", false);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\n\npublic final class JitFlags {\n\n    private JitFlags() {\n    }\n\n    /** Reads the JIT flags from a java command line; other arguments are ignored. */\n    public static JitFlags parse(List<String> args) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean tiered() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The highest compilation tier: the stop level when tiered, 4 when not. */\n    public int topTier() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int maxInlineSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int freqInlineSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean printCompilation() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean printInlining() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 4,
+    "code": 1,
+    "tables": 2,
+    "lists": 0,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "75caf90ee764ec13dd981e3d6a61032ae48054f5cd163298fe4b6926383c293c",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class JitFlags {\n\n    private JitFlags() {\n    }\n\n    /** Reads the JIT flags from a java command line; other arguments are ignored. */\n    public static JitFlags parse(List<String> args) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean tiered() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The highest compilation tier: the stop level when tiered, 4 when not. */\n    public int topTier() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int maxInlineSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int freqInlineSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean printCompilation() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean printInlining() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-1/src/main/java/practice/JitFlags.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-1/src/test/java/practice/JitFlagsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.JitFlagsTest#readsTheJitFlagsAndSkipsTheRest",
+        "kind": "main",
+        "says": "With no JIT flags the defaults hold (tiered, top tier 4, inline sizes 35 and 325); given flags change them and unrelated flags such as -Xmx4g are ignored."
+      },
+      {
+        "id": "practice.JitFlagsTest#aMinusTurnsAFlagOff",
+        "kind": "edge",
+        "says": "-XX:-TieredCompilation turns tiered compilation off, leaving C2 alone at tier 4, even when a stop level is also given."
+      },
+      {
+        "id": "practice.JitFlagsTest#theLastOccurrenceWins",
+        "kind": "edge",
+        "says": "When a flag appears twice, the later value is the one that counts."
+      },
+      {
+        "id": "practice.JitFlagsTest#theStopLevelIsZeroToFour",
+        "kind": "edge",
+        "says": "TieredStopAtLevel accepts 0 (interpreter only) through 4 and refuses anything else with IllegalArgumentException."
+      },
+      {
+        "id": "practice.JitFlagsTest#printInliningNeedsTheDiagnosticUnlock",
+        "kind": "edge",
+        "says": "PrintInlining is refused with IllegalArgumentException unless -XX:+UnlockDiagnosticVMOptions is also given; -XX:-UnlockDiagnosticVMOptions does not unlock it."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-03/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "43-jvm-internals/README_10.5.3.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "PrintCompilation shows what is compiled, and PrintInlining is a diagnostic flag that needs UnlockDiagnosticVMOptions.",
+      "Tiered compilation starts in the interpreter, compiles hot methods with C1 while profiling and recompiles the hottest with C2, and -XX:-TieredCompilation or TieredStopAtLevel change that path."
+    ]
+  }
+}

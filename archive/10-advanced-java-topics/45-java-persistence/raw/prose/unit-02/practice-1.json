@@ -1,0 +1,165 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "A first-level cache: one instance per id",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's fifth pitfall: `em.find(Employee.class, 1)` twice in one persistence context gives `e1 == e2`. The `EntityManager` keeps each loaded entity in its first-level cache, keyed by id, and hands back the same managed instance. Build that cache by hand."
+    },
+    {
+      "type": "para",
+      "text": "`ProductSession` is given an open `Connection` to `products(id INT PRIMARY KEY, name VARCHAR, price DECIMAL(10,2))`. `find(id)` returns `Optional<Product>`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "The first `find` of an id loads the row; later calls in the same session return the same instance and **run no query**.",
+        "**Ids are compared by value**, so id 1000 is cached like id 7.",
+        "**Each session has its own cache**: a new session loads its own instance.",
+        "An id with no row gives `Optional.empty()`."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "calls",
+        "answer",
+        "queries run"
+      ],
+      "rows": [
+        [
+          "`s.find(7)`, `s.find(7)`",
+          "the same `Product[7, Pen, 1.50]` twice",
+          "1"
+        ],
+        [
+          "`s.find(1000)`, `s.find(1000)`",
+          "the same instance twice",
+          "1"
+        ],
+        [
+          "`s1.find(7)`, `s2.find(7)`",
+          "two different instances",
+          "2"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\n\npublic final class ProductSession {\n\n    /** A managed entity: mutable, one instance per id within a session. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    private final Connection connection;\n    private final Map<Integer, Product> managed = new HashMap<>();\n\n    public ProductSession(Connection connection) {\n        this.connection = Objects.requireNonNull(connection, \"connection\");\n    }\n\n    /** The product with this id: loaded once per session, then the same instance. */\n    public Optional<Product> find(int id) throws SQLException {\n        Product known = managed.get(id);\n        if (known != null) {\n            return Optional.of(known);\n        }\n        try (PreparedStatement statement = connection.prepareStatement(\n                \"SELECT id, name, price FROM products WHERE id = ?\")) {\n            statement.setInt(1, id);\n            try (ResultSet rows = statement.executeQuery()) {\n                if (!rows.next()) {\n                    return Optional.empty();\n                }\n                Product product = new Product(rows.getInt(\"id\"), rows.getString(\"name\"), rows.getBigDecimal(\"price\"));\n                managed.put(id, product);\n                return Optional.of(product);\n            }\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.Optional;\n\npublic final class ProductSession {\n\n    /** A managed entity: mutable, one instance per id within a session. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    public ProductSession(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The product with this id: loaded once per session, then the same instance. */\n    public Optional<Product> find(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "2bbc432d73e25b2b834b016d18717527865c1c26431b3ec5ad647a09cd8e3e93",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.Optional;\n\npublic final class ProductSession {\n\n    /** A managed entity: mutable, one instance per id within a session. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    public ProductSession(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The product with this id: loaded once per session, then the same instance. */\n    public Optional<Product> find(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/src/main/java/practice/ProductSession.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/src/test/java/practice/ProductSessionTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ProductSessionTest#findingAnIdTwiceGivesTheSameInstance",
+        "kind": "main",
+        "says": "find(7) twice in one session returns the very same Product instance, mapped from the row."
+      },
+      {
+        "id": "practice.ProductSessionTest#theSecondFindRunsNoQuery",
+        "kind": "edge",
+        "says": "find(7) twice in one session runs exactly one query: the second call is answered from the session."
+      },
+      {
+        "id": "practice.ProductSessionTest#largeIdsAreCachedByValue",
+        "kind": "edge",
+        "says": "find(1000) twice returns the same instance too: ids are compared by value, not by the identity of a boxed Integer."
+      },
+      {
+        "id": "practice.ProductSessionTest#twoSessionsDoNotShareInstances",
+        "kind": "edge",
+        "says": "Two sessions each return their own instance for id 7, and each runs its own query."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.2.md",
+      "section": "5. Ignoring the First-Level Cache"
+    },
+    "concepts": [
+      "The persistence context is a first-level cache: finding the same id twice in one EntityManager returns the same managed instance.",
+      "Objects have identity through == and equals() while rows have it through the primary key, which an ORM reconciles."
+    ]
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "42-annotations"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 5,
+  "ingested": "2026-09-24",
+  "title": "Constraints composed through meta-annotations",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Annotations cannot extend each other (Q6). The page's workarounds are composition: an annotation **annotated with another annotation**, and an element of type `Class<?>` that names the code to run, as in `@Constraint(validatedBy = NotEmptyValidator.class)`."
+    },
+    {
+      "type": "para",
+      "text": "Given: `Check` (`boolean ok(Object value)`), the meta-annotation `@Constraint(validatedBy)`, the constraints `@NotBlank` and `@Positive` that carry it, and `@Label`, which does not. Write `Checks.failures(Object bean)`: for every field the bean's class declares, and every constraint that applies to it, create the constraint's `validatedBy` class through its no-argument constructor and call `ok(value)`. Return `\"<field>: <ConstraintSimpleName>\"` for each failure, sorted."
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "A constraint is an annotation whose type carries `@Constraint`. That works for constraints the checker has never heard of.",
+        "**Every constraint on a field is checked**, not only the first.",
+        "**A composed annotation brings its constraints**: a field annotation that is not a constraint itself applies each constraint on its annotation type (one level deep)."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "field",
+        "value",
+        "failures"
+      ],
+      "rows": [
+        [
+          "`@NotBlank name`",
+          "`\" \"`",
+          "`name: NotBlank`"
+        ],
+        [
+          "`@Positive @Even count`",
+          "`-3`",
+          "`count: Even`, `count: Positive`"
+        ],
+        [
+          "`@Label(\"Nick\") nick`",
+          "`null`",
+          "none"
+        ],
+        [
+          "`@Username login` (`@Username` is annotated `@NotBlank`)",
+          "`\"\"`",
+          "`login: NotBlank`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Field;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Checks {\n\n    private Checks() {\n    }\n\n    public interface Check {\n        boolean ok(Object value);\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.ANNOTATION_TYPE)\n    public @interface Constraint {\n        Class<? extends Check> validatedBy();\n    }\n\n    public static final class NotBlankCheck implements Check {\n        @Override\n        public boolean ok(Object value) {\n            return value instanceof String s && !s.isBlank();\n        }\n    }\n\n    public static final class PositiveCheck implements Check {\n        @Override\n        public boolean ok(Object value) {\n            return value instanceof Number n && n.longValue() > 0;\n        }\n    }\n\n    @Constraint(validatedBy = NotBlankCheck.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})\n    public @interface NotBlank {\n    }\n\n    @Constraint(validatedBy = PositiveCheck.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})\n    public @interface Positive {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    public @interface Label {\n        String value();\n    }\n\n    /** \"<field>: <ConstraintSimpleName>\" for every failed constraint, sorted. */\n    public static List<String> failures(Object bean) {\n        List<String> failures = new ArrayList<>();\n        for (Field field : bean.getClass().getDeclaredFields()) {\n            field.setAccessible(true);\n            Object value = read(field, bean);\n            for (Annotation annotation : field.getDeclaredAnnotations()) {\n                for (Annotation constraint : constraintsOf(annotation)) {\n                    Constraint c = constraint.annotationType().getAnnotation(Constraint.class);\n                    if (!create(c.validatedBy()).ok(value)) {\n                        failures.add(field.getName() + \": \" + constraint.annotationType().getSimpleName());\n                    }\n                }\n            }\n        }\n        failures.sort(null);\n        return failures;\n    }\n\n    private static List<Annotation> constraintsOf(Annotation annotation) {\n        if (annotation.annotationType().isAnnotationPresent(Constraint.class)) {\n            return List.of(annotation);\n        }\n        List<Annotation> composed = new ArrayList<>();\n        for (Annotation meta : annotation.annotationType().getDeclaredAnnotations()) {\n            if (meta.annotationType().isAnnotationPresent(Constraint.class)) {\n                composed.add(meta);\n            }\n        }\n        return composed;\n    }\n\n    private static Object read(Field field, Object bean) {\n        try {\n            return field.get(bean);\n        } catch (IllegalAccessException e) {\n            throw new IllegalStateException(\"cannot read \" + field.getName(), e);\n        }\n    }\n\n    private static Check create(Class<? extends Check> type) {\n        try {\n            var constructor = type.getDeclaredConstructor();\n            constructor.setAccessible(true);\n            return constructor.newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot create \" + type.getName(), e);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Field;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Checks {\n\n    private Checks() {\n    }\n\n    public interface Check {\n        boolean ok(Object value);\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.ANNOTATION_TYPE)\n    public @interface Constraint {\n        Class<? extends Check> validatedBy();\n    }\n\n    public static final class NotBlankCheck implements Check {\n        @Override\n        public boolean ok(Object value) {\n            return value instanceof String s && !s.isBlank();\n        }\n    }\n\n    public static final class PositiveCheck implements Check {\n        @Override\n        public boolean ok(Object value) {\n            return value instanceof Number n && n.longValue() > 0;\n        }\n    }\n\n    @Constraint(validatedBy = NotBlankCheck.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})\n    public @interface NotBlank {\n    }\n\n    @Constraint(validatedBy = PositiveCheck.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})\n    public @interface Positive {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    public @interface Label {\n        String value();\n    }\n\n    /** \"<field>: <ConstraintSimpleName>\" for every failed constraint, sorted. */\n    public static List<String> failures(Object bean) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "f7134ed60ed8eda28bb275cbd548589c0342f5f46c25402716b663fb553a6fe5",
+  "starting_code": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Field;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Checks {\n\n    private Checks() {\n    }\n\n    public interface Check {\n        boolean ok(Object value);\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.ANNOTATION_TYPE)\n    public @interface Constraint {\n        Class<? extends Check> validatedBy();\n    }\n\n    public static final class NotBlankCheck implements Check {\n        @Override\n        public boolean ok(Object value) {\n            return value instanceof String s && !s.isBlank();\n        }\n    }\n\n    public static final class PositiveCheck implements Check {\n        @Override\n        public boolean ok(Object value) {\n            return value instanceof Number n && n.longValue() > 0;\n        }\n    }\n\n    @Constraint(validatedBy = NotBlankCheck.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})\n    public @interface NotBlank {\n    }\n\n    @Constraint(validatedBy = PositiveCheck.class)\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target({ElementType.FIELD, ElementType.ANNOTATION_TYPE})\n    public @interface Positive {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    public @interface Label {\n        String value();\n    }\n\n    /** \"<field>: <ConstraintSimpleName>\" for every failed constraint, sorted. */\n    public static List<String> failures(Object bean) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-5/src/main/java/practice/Checks.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-5/src/test/java/practice/ChecksTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-5/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-5/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ChecksTest#runsTheCheckEachConstraintNames",
+        "kind": "main",
+        "says": "@NotBlank, @Positive and a constraint the test declares itself each run the Check class their @Constraint names; @Label, which has no @Constraint, is ignored."
+      },
+      {
+        "id": "practice.ChecksTest#everyConstraintOnAFieldIsChecked",
+        "kind": "edge",
+        "says": "A field carrying @Positive and @Even with value -3 fails both."
+      },
+      {
+        "id": "practice.ChecksTest#aComposedAnnotationBringsItsConstraints",
+        "kind": "edge",
+        "says": "@Username, itself annotated with @NotBlank, makes a blank field fail NotBlank."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/42-annotations/prose/unit-02/practice-5/target/surefire-reports"
+    },
+    "origin": {
+      "path": "42-annotations/README_10.4.2.md",
+      "section": "Interview-specific Insights"
+    },
+    "concepts": [
+      "Annotations cannot extend each other; meta-annotations and Class-valued elements compose them instead."
+    ]
+  }
+}

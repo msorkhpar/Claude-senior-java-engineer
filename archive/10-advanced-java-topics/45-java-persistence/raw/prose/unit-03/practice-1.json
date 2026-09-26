@@ -1,0 +1,188 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "An all-or-nothing transfer",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's bank transfer: debit A and credit B as one unit of work, so money never vanishes halfway. In JDBC, `setAutoCommit(false)` opens the transaction and `commit()` or `rollback()` ends it."
+    },
+    {
+      "type": "para",
+      "text": "Write `Bank.transfer(connection, fromId, toId, amount)` over `accounts(id INT PRIMARY KEY, owner VARCHAR, balance DECIMAL(15,2))`. The connection is the caller's (do not close it)."
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Debit with `UPDATE ... SET balance = balance - ? WHERE id = ? AND balance >= ?`: **the debit only happens when the balance covers the amount**. If it changes no row, roll back and return `false`.",
+        "Credit the destination. If it changes no row, return `false`: **a failed credit rolls back the debit**.",
+        "Otherwise commit and return `true`. On `SQLException`, roll back and rethrow.",
+        "**`autoCommit` is restored to `true` in a `finally` block**, success or not.",
+        "**A negative amount is refused** with `IllegalArgumentException`."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "balances (1, 2)",
+        "call",
+        "result",
+        "balances after"
+      ],
+      "rows": [
+        [
+          "100.00, 50.00",
+          "`transfer(1, 2, 30.00)`",
+          "`true`",
+          "70.00, 80.00"
+        ],
+        [
+          "70.00, 80.00",
+          "`transfer(1, 2, 70.00)`",
+          "`true`",
+          "0.00, 150.00"
+        ],
+        [
+          "100.00, 50.00",
+          "`transfer(1, 99, 30.00)`",
+          "`false`",
+          "100.00, 50.00"
+        ],
+        [
+          "100.00, 50.00",
+          "`transfer(1, 2, 100.01)`",
+          "`false`",
+          "100.00, 50.00"
+        ],
+        [
+          "100.00, 50.00",
+          "`transfer(1, 2, -5.00)`",
+          "`IllegalArgumentException`",
+          "100.00, 50.00"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\npublic final class Bank {\n\n    private Bank() {\n    }\n\n    /** Moves the amount in one transaction; true if it moved, false if nothing changed. */\n    public static boolean transfer(Connection connection, int fromId, int toId, BigDecimal amount) throws SQLException {\n        if (amount.signum() < 0) {\n            throw new IllegalArgumentException(\"amount must not be negative: \" + amount);\n        }\n        connection.setAutoCommit(false);\n        try (PreparedStatement debit = connection.prepareStatement(\n                     \"UPDATE accounts SET balance = balance - ? WHERE id = ? AND balance >= ?\");\n             PreparedStatement credit = connection.prepareStatement(\n                     \"UPDATE accounts SET balance = balance + ? WHERE id = ?\")) {\n            debit.setBigDecimal(1, amount);\n            debit.setInt(2, fromId);\n            debit.setBigDecimal(3, amount);\n            if (debit.executeUpdate() == 0) {\n                connection.rollback();\n                return false;\n            }\n            credit.setBigDecimal(1, amount);\n            credit.setInt(2, toId);\n            if (credit.executeUpdate() == 0) {\n                connection.rollback();\n                return false;\n            }\n            connection.commit();\n            return true;\n        } catch (SQLException e) {\n            connection.rollback();\n            throw e;\n        } finally {\n            connection.setAutoCommit(true);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Bank {\n\n    private Bank() {\n    }\n\n    /** Moves the amount in one transaction; true if it moved, false if nothing changed. */\n    public static boolean transfer(Connection connection, int fromId, int toId, BigDecimal amount) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "8afdd371158a49540c04210f8fd753fd3c9362562e53982d03374e71b61f010a",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Bank {\n\n    private Bank() {\n    }\n\n    /** Moves the amount in one transaction; true if it moved, false if nothing changed. */\n    public static boolean transfer(Connection connection, int fromId, int toId, BigDecimal amount) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-1/src/main/java/practice/Bank.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-1/src/test/java/practice/BankTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.BankTest#movesMoneyAndCommits",
+        "kind": "main",
+        "says": "transfer(1, 2, 30.00) then transfer(1, 2, 70.00) both return true and leave 0.00 and 150.00, visible to another connection."
+      },
+      {
+        "id": "practice.BankTest#aMissingDestinationUndoesTheDebit",
+        "kind": "edge",
+        "says": "A transfer to an account that does not exist returns false and the source keeps its full balance."
+      },
+      {
+        "id": "practice.BankTest#insufficientFundsChangesNothing",
+        "kind": "edge",
+        "says": "Moving 100.01 out of 100.00 returns false and neither balance changes."
+      },
+      {
+        "id": "practice.BankTest#autoCommitIsRestored",
+        "kind": "edge",
+        "says": "After a transfer, successful or not, the connection is back in autoCommit mode."
+      },
+      {
+        "id": "practice.BankTest#aNegativeAmountIsRefused",
+        "kind": "edge",
+        "says": "transfer(1, 2, -5.00) throws IllegalArgumentException and moves nothing."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.3.md",
+      "section": "ACID Properties"
+    },
+    "concepts": [
+      "A transaction is all or nothing: the transfer's debit and credit both commit or both roll back.",
+      "Consistency is kept by the statement itself: the debit's WHERE balance >= ? refuses to go below zero.",
+      "setAutoCommit(false) starts a manual transaction that ends with commit() or rollback()."
+    ]
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "44-java-security"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 4,
+  "ingested": "2026-09-24",
+  "title": "Hybrid encryption: RSA wraps the key, AES carries the data",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "RSA is slow and **can only encrypt data shorter than its key**; AES is fast but needs a shared key. The page's hybrid encryption uses both: a fresh AES session key encrypts the message with AES-GCM, and the recipient's RSA public key encrypts only that session key, with **OAEP padding** (`RSA/ECB/OAEPWithSHA-256AndMGF1Padding`). **Every message gets its own session key.**"
+    },
+    {
+      "type": "para",
+      "text": "Write `Hybrid`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`seal(plaintext, recipient, random)` returns `Sealed(encryptedKey, data)`: `encryptedKey` is a new 256-bit AES key encrypted with RSA-OAEP under `recipient`; `data` is `IV (12 bytes) + ciphertext + tag` of `plaintext` under that key, with `AES/GCM/NoPadding` and a 128-bit tag;",
+        "`open(sealed, privateKey)` reverses it."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "message",
+        "result"
+      ],
+      "rows": [
+        [
+          "`\"Contract: Alice pays Bob $100\"`",
+          "`open(seal(m))` = `m`"
+        ],
+        [
+          "10 000 bytes",
+          "`open(seal(m))` = `m`"
+        ],
+        [
+          "any, sealed twice",
+          "two different session keys"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.security.GeneralSecurityException;\nimport java.security.PrivateKey;\nimport java.security.PublicKey;\nimport java.security.SecureRandom;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.KeyGenerator;\nimport javax.crypto.SecretKey;\nimport javax.crypto.spec.GCMParameterSpec;\nimport javax.crypto.spec.SecretKeySpec;\n\npublic final class Hybrid {\n\n    public record Sealed(byte[] encryptedKey, byte[] data) {\n    }\n\n    private Hybrid() {\n    }\n\n    private static final String RSA = \"RSA/ECB/OAEPWithSHA-256AndMGF1Padding\";\n    private static final String AES = \"AES/GCM/NoPadding\";\n\n    /** Encrypts plaintext for the holder of recipient's private key. */\n    public static Sealed seal(byte[] plaintext, PublicKey recipient, SecureRandom random)\n            throws GeneralSecurityException {\n        KeyGenerator generator = KeyGenerator.getInstance(\"AES\");\n        generator.init(256, random);\n        SecretKey session = generator.generateKey();\n\n        byte[] iv = new byte[12];\n        random.nextBytes(iv);\n        Cipher aes = Cipher.getInstance(AES);\n        aes.init(Cipher.ENCRYPT_MODE, session, new GCMParameterSpec(128, iv));\n        byte[] body = aes.doFinal(plaintext);\n        byte[] data = new byte[iv.length + body.length];\n        System.arraycopy(iv, 0, data, 0, iv.length);\n        System.arraycopy(body, 0, data, iv.length, body.length);\n\n        Cipher rsa = Cipher.getInstance(RSA);\n        rsa.init(Cipher.ENCRYPT_MODE, recipient, random);\n        return new Sealed(rsa.doFinal(session.getEncoded()), data);\n    }\n\n    /** Decrypts a sealed message with the recipient's private key. */\n    public static byte[] open(Sealed sealed, PrivateKey privateKey) throws GeneralSecurityException {\n        Cipher rsa = Cipher.getInstance(RSA);\n        rsa.init(Cipher.DECRYPT_MODE, privateKey);\n        SecretKey session = new SecretKeySpec(rsa.doFinal(sealed.encryptedKey()), \"AES\");\n        byte[] data = sealed.data();\n        Cipher aes = Cipher.getInstance(AES);\n        aes.init(Cipher.DECRYPT_MODE, session, new GCMParameterSpec(128, data, 0, 12));\n        return aes.doFinal(data, 12, data.length - 12);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.security.GeneralSecurityException;\nimport java.security.PrivateKey;\nimport java.security.PublicKey;\nimport java.security.SecureRandom;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.KeyGenerator;\nimport javax.crypto.SecretKey;\nimport javax.crypto.spec.GCMParameterSpec;\nimport javax.crypto.spec.SecretKeySpec;\n\npublic final class Hybrid {\n\n    public record Sealed(byte[] encryptedKey, byte[] data) {\n    }\n\n    private Hybrid() {\n    }\n\n    /** Encrypts plaintext for the holder of recipient's private key. */\n    public static Sealed seal(byte[] plaintext, PublicKey recipient, SecureRandom random)\n            throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Decrypts a sealed message with the recipient's private key. */\n    public static byte[] open(Sealed sealed, PrivateKey privateKey) throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "a9fdacdbd2593c7cf3b3266fed967bf8bab0d8b0559c05dc96c75f3aaf291877",
+  "starting_code": "package practice;\n\nimport java.security.GeneralSecurityException;\nimport java.security.PrivateKey;\nimport java.security.PublicKey;\nimport java.security.SecureRandom;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.KeyGenerator;\nimport javax.crypto.SecretKey;\nimport javax.crypto.spec.GCMParameterSpec;\nimport javax.crypto.spec.SecretKeySpec;\n\npublic final class Hybrid {\n\n    public record Sealed(byte[] encryptedKey, byte[] data) {\n    }\n\n    private Hybrid() {\n    }\n\n    /** Encrypts plaintext for the holder of recipient's private key. */\n    public static Sealed seal(byte[] plaintext, PublicKey recipient, SecureRandom random)\n            throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Decrypts a sealed message with the recipient's private key. */\n    public static byte[] open(Sealed sealed, PrivateKey privateKey) throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-4/src/main/java/practice/Hybrid.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-4/src/test/java/practice/HybridTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-4/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-4/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.HybridTest#opensWhatWasSealedForIt",
+        "kind": "main",
+        "says": "\"Contract: Alice pays Bob $100\" sealed for a 2048-bit RSA key opens back to the same bytes."
+      },
+      {
+        "id": "practice.HybridTest#aLongMessageIsCarriedByAes",
+        "kind": "edge",
+        "says": "A 10 000-byte message, far longer than RSA can encrypt, round-trips."
+      },
+      {
+        "id": "practice.HybridTest#theSessionKeyIsWrappedWithOaep",
+        "kind": "edge",
+        "says": "Any OAEP recipient can unwrap encryptedKey into a 32-byte AES key that decrypts data."
+      },
+      {
+        "id": "practice.HybridTest#everyMessageGetsItsOwnSessionKey",
+        "kind": "edge",
+        "says": "Two messages sealed one after the other carry different session keys."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-4/target/surefire-reports"
+    },
+    "origin": {
+      "path": "44-java-security/README_10.6.3.md",
+      "section": "Symmetric vs. Asymmetric Encryption"
+    },
+    "concepts": [
+      "Hybrid encryption: a fresh AES session key encrypts the data and RSA-OAEP encrypts only that key, because RSA handles only small data."
+    ]
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 6,
+  "ingested": "2026-09-24",
+  "title": "Pessimistic locks, always taken in the same order",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Pessimistic locking reads a row with `SELECT ... FOR UPDATE`, which holds a write lock until commit or rollback. Two transfers that lock A then B and B then A can each wait for the other forever. The page's fix: **lock in a consistent order**, lower id first."
+    },
+    {
+      "type": "para",
+      "text": "Write `LockedTransfer.transfer(connection, fromId, toId, amount)` over `accounts(id INT PRIMARY KEY, balance DECIMAL(15,2))`, in one transaction:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "Lock both rows with `SELECT id, balance FROM accounts WHERE id = ? FOR UPDATE`, **in ascending id order, whatever the direction of the transfer**.",
+        "**A missing account on either side changes nothing**: roll back, return `false`.",
+        "**Check the balance on the locked row**, never with a read made before the lock. Too little money: roll back, return `false`.",
+        "Otherwise debit, credit, commit, return `true`. On `SQLException`, roll back and rethrow. Restore autoCommit to `true` at the end. The amount is never negative in these tests."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "balances (1, 2)",
+        "call",
+        "locks, in order",
+        "result",
+        "balances after"
+      ],
+      "rows": [
+        [
+          "100.00, 50.00",
+          "`transfer(2, 1, 30.00)`",
+          "1, 2",
+          "`true`",
+          "130.00, 20.00"
+        ],
+        [
+          "100.00, 50.00",
+          "`transfer(1, 99, 30.00)`",
+          "1, 99",
+          "`false`",
+          "100.00, 50.00"
+        ],
+        [
+          "100.00, 50.00",
+          "`transfer(2, 1, 60.00)`",
+          "1, 2",
+          "`false`",
+          "100.00, 50.00"
+        ],
+        [
+          "130.00, 20.00",
+          "`transfer(2, 1, 20.00)`",
+          "1, 2",
+          "`true`",
+          "150.00, 0.00"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.HashMap;\nimport java.util.Map;\n\npublic final class LockedTransfer {\n\n    private LockedTransfer() {\n    }\n\n    /** Locks both rows (lower id first), then moves the amount; false if nothing changed. */\n    public static boolean transfer(Connection connection, int fromId, int toId, BigDecimal amount) throws SQLException {\n        connection.setAutoCommit(false);\n        try {\n            Map<Integer, BigDecimal> locked = new HashMap<>();\n            try (PreparedStatement lock = connection.prepareStatement(\n                    \"SELECT id, balance FROM accounts WHERE id = ? FOR UPDATE\")) {\n                for (int id : new int[] {Math.min(fromId, toId), Math.max(fromId, toId)}) {\n                    lock.setInt(1, id);\n                    try (ResultSet rows = lock.executeQuery()) {\n                        if (rows.next()) {\n                            locked.put(id, rows.getBigDecimal(\"balance\"));\n                        }\n                    }\n                }\n            }\n            if (!locked.containsKey(fromId) || !locked.containsKey(toId)\n                    || locked.get(fromId).compareTo(amount) < 0) {\n                connection.rollback();\n                return false;\n            }\n            move(connection, fromId, amount.negate());\n            move(connection, toId, amount);\n            connection.commit();\n            return true;\n        } catch (SQLException e) {\n            connection.rollback();\n            throw e;\n        } finally {\n            connection.setAutoCommit(true);\n        }\n    }\n\n    private static void move(Connection connection, int id, BigDecimal delta) throws SQLException {\n        try (PreparedStatement update = connection.prepareStatement(\n                \"UPDATE accounts SET balance = balance + ? WHERE id = ?\")) {\n            update.setBigDecimal(1, delta);\n            update.setInt(2, id);\n            update.executeUpdate();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class LockedTransfer {\n\n    private LockedTransfer() {\n    }\n\n    /** Locks both rows (lower id first), then moves the amount; false if nothing changed. */\n    public static boolean transfer(Connection connection, int fromId, int toId, BigDecimal amount) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "84efd41c39ca22fc4579c523cc64a3f664e31ab2503e1ffe9282c00563f350f0",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class LockedTransfer {\n\n    private LockedTransfer() {\n    }\n\n    /** Locks both rows (lower id first), then moves the amount; false if nothing changed. */\n    public static boolean transfer(Connection connection, int fromId, int toId, BigDecimal amount) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-6/src/main/java/practice/LockedTransfer.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-6/src/test/java/practice/LockedTransferTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-6/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-6/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.LockedTransferTest#movesMoneyUnderRowLocks",
+        "kind": "main",
+        "says": "transfer(2, 1, 30.00) returns true and leaves 130.00 and 20.00, committed; 60.00 more is refused, and exactly the 20.00 left is moved."
+      },
+      {
+        "id": "practice.LockedTransferTest#locksTheLowerIdFirst",
+        "kind": "edge",
+        "says": "transfer(2, 1, ...) runs SELECT ... FOR UPDATE for account 1 before account 2."
+      },
+      {
+        "id": "practice.LockedTransferTest#theBalanceIsReadUnderTheLock",
+        "kind": "edge",
+        "says": "Every SELECT the transfer runs on accounts is a SELECT ... FOR UPDATE: the balance is not checked before the lock is held."
+      },
+      {
+        "id": "practice.LockedTransferTest#aMissingAccountChangesNothing",
+        "kind": "edge",
+        "says": "transfer(1, 99, 30.00) returns false and account 1 keeps 100.00."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-6/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.3.md",
+      "section": "2. Deadlocks from Inconsistent Lock Ordering"
+    },
+    "concepts": [
+      "Deadlocks are prevented by always acquiring locks in one global order, such as ascending primary key.",
+      "Pessimistic locking reads with SELECT ... FOR UPDATE, holding a write lock until commit or rollback."
+    ]
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "A transaction template that never hides the cause",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's fourth pitfall: `catch (SQLException e) { conn.rollback(); throw e; }` loses the real error when `rollback()` itself throws. The fix catches the rollback's exception and attaches it with `e.addSuppressed(...)`."
+    },
+    {
+      "type": "para",
+      "text": "Write `Transactions.inTransaction(connection, work)`. It turns autoCommit off, runs `work.run(connection)` and commits."
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "If the work throws, roll back and rethrow the work's exception. **If the rollback fails too, add its exception as suppressed and throw the original error.**",
+        "**An unchecked exception from the work rolls back too**, and is rethrown unchanged. (Careful: turning autoCommit back on commits an open transaction.)",
+        "**`autoCommit` is restored after a failure as well** as after success."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "work",
+        "`rollback()`",
+        "thrown",
+        "rows kept"
+      ],
+      "rows": [
+        [
+          "insert 1, insert 2",
+          "-",
+          "nothing",
+          "1, 2"
+        ],
+        [
+          "insert 1, throw `SQLException(\"insert failed\")`",
+          "throws `SQLException(\"rollback failed\")`",
+          "`insert failed`, suppressed: `rollback failed`",
+          "-"
+        ],
+        [
+          "insert 1, throw `IllegalStateException`",
+          "works",
+          "`IllegalStateException`",
+          "none"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    @FunctionalInterface\n    public interface Work {\n        void run(Connection connection) throws SQLException;\n    }\n\n    /** Runs the work in one transaction: commit on success, roll back on any exception. */\n    public static void inTransaction(Connection connection, Work work) throws SQLException {\n        connection.setAutoCommit(false);\n        try {\n            work.run(connection);\n            connection.commit();\n        } catch (SQLException | RuntimeException e) {\n            try {\n                connection.rollback();\n            } catch (SQLException rollbackFailure) {\n                e.addSuppressed(rollbackFailure);\n            }\n            throw e;\n        } finally {\n            connection.setAutoCommit(true);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    @FunctionalInterface\n    public interface Work {\n        void run(Connection connection) throws SQLException;\n    }\n\n    /** Runs the work in one transaction: commit on success, roll back on any exception. */\n    public static void inTransaction(Connection connection, Work work) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "7ee165498344af6f7f65112c04d99115e7612d6dd6e92c9c85c050172f576596",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    @FunctionalInterface\n    public interface Work {\n        void run(Connection connection) throws SQLException;\n    }\n\n    /** Runs the work in one transaction: commit on success, roll back on any exception. */\n    public static void inTransaction(Connection connection, Work work) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/src/main/java/practice/Transactions.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/src/test/java/practice/TransactionsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.TransactionsTest#commitsTheWorkAndRestoresAutoCommit",
+        "kind": "main",
+        "says": "Work that inserts two rows is committed (another connection sees both) and autoCommit is true again."
+      },
+      {
+        "id": "practice.TransactionsTest#aFailingRollbackIsSuppressedNotThrown",
+        "kind": "edge",
+        "says": "When the work throws and rollback() throws too, the work's exception is thrown, with the rollback's exception in getSuppressed()."
+      },
+      {
+        "id": "practice.TransactionsTest#aRuntimeExceptionAlsoRollsBack",
+        "kind": "edge",
+        "says": "Work that inserts a row and then throws IllegalStateException leaves no row, and the IllegalStateException reaches the caller."
+      },
+      {
+        "id": "practice.TransactionsTest#autoCommitIsRestoredAfterAFailure",
+        "kind": "edge",
+        "says": "After work that throws SQLException, the connection is back in autoCommit mode."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.3.md",
+      "section": "4. Swallowing Rollback Exceptions"
+    },
+    "concepts": [
+      "autoCommit is restored in a finally block, so a pooled connection is not handed on in manual mode.",
+      "A rollback that fails is attached to the original exception with addSuppressed, so the real cause is not lost."
+    ]
+  }
+}

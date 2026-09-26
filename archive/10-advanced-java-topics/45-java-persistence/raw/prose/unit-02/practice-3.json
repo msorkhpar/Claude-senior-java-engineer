@@ -1,0 +1,169 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "A lazy collection and its LazyInitializationException",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "`@OneToMany` is LAZY by default: the collection is fetched the first time it is used. The page's third pitfall touches it after the `EntityManager` is closed, which throws `LazyInitializationException`. Build that behaviour by hand."
+    },
+    {
+      "type": "para",
+      "text": "`Catalog` is given an open `Connection` to `categories(id, name)` and `products(id, name, category_id)`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`category(id)` returns `Optional<Category>` with its id and name. **The products are not loaded until `products()` is first called.**",
+        "`Category.products()` returns the product names, ordered by id. **They are queried once, then kept.**",
+        "`close()` closes the catalog (not the connection, which is the caller's). **Loading after close throws `Catalog.LazyInitializationException`**, but **products loaded before close stay readable after it**."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "steps",
+        "result"
+      ],
+      "rows": [
+        [
+          "`category(1)`",
+          "`Books`, 1 query so far"
+        ],
+        [
+          "`products()`, `products()`",
+          "`[Dune, Emma]` both times, 2 queries in all"
+        ],
+        [
+          "`category(1)`, `close()`, `products()`",
+          "`LazyInitializationException`"
+        ],
+        [
+          "`category(1)`, `products()`, `close()`, `products()`",
+          "`[Dune, Emma]`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.Optional;\n\npublic final class Catalog implements AutoCloseable {\n\n    /** Thrown when a lazy collection is first read after its catalog was closed. */\n    public static final class LazyInitializationException extends RuntimeException {\n        public LazyInitializationException(String message) {\n            super(message);\n        }\n    }\n\n    private final Connection connection;\n    private boolean closed;\n\n    public Catalog(Connection connection) {\n        this.connection = Objects.requireNonNull(connection, \"connection\");\n    }\n\n    /** The category, with its products not yet loaded. */\n    public Optional<Category> category(int id) throws SQLException {\n        try (PreparedStatement statement = connection.prepareStatement(\"SELECT id, name FROM categories WHERE id = ?\")) {\n            statement.setInt(1, id);\n            try (ResultSet rows = statement.executeQuery()) {\n                return rows.next()\n                        ? Optional.of(new Category(rows.getInt(\"id\"), rows.getString(\"name\")))\n                        : Optional.empty();\n            }\n        }\n    }\n\n    /** Closes the catalog; the connection stays open. */\n    @Override\n    public void close() {\n        closed = true;\n    }\n\n    public final class Category {\n        private final int id;\n        private final String name;\n        private List<String> products;\n\n        private Category(int id, String name) {\n            this.id = id;\n            this.name = name;\n        }\n\n        public int id() {\n            return id;\n        }\n\n        public String name() {\n            return name;\n        }\n\n        /** The product names, ordered by id: loaded on first call, then kept. */\n        public List<String> products() throws SQLException {\n            if (products == null) {\n                if (closed) {\n                    throw new LazyInitializationException(\"category \" + id + \": catalog is closed\");\n                }\n                products = load();\n            }\n            return products;\n        }\n\n        private List<String> load() throws SQLException {\n            List<String> names = new ArrayList<>();\n            try (PreparedStatement statement = connection.prepareStatement(\n                    \"SELECT name FROM products WHERE category_id = ? ORDER BY id\")) {\n                statement.setInt(1, id);\n                try (ResultSet rows = statement.executeQuery()) {\n                    while (rows.next()) {\n                        names.add(rows.getString(\"name\"));\n                    }\n                }\n            }\n            return List.copyOf(names);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Catalog implements AutoCloseable {\n\n    /** Thrown when a lazy collection is first read after its catalog was closed. */\n    public static final class LazyInitializationException extends RuntimeException {\n        public LazyInitializationException(String message) {\n            super(message);\n        }\n    }\n\n    public Catalog(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The category, with its products not yet loaded. */\n    public Optional<Category> category(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Closes the catalog; the connection stays open. */\n    @Override\n    public void close() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public final class Category {\n\n        public int id() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        /** The product names, ordered by id: loaded on first call, then kept. */\n        public List<String> products() throws SQLException {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "9dc46775486eab4e9a25831e5aae9aa377dd6a9e93c9f4cb7c753e0ae16b10ca",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Catalog implements AutoCloseable {\n\n    /** Thrown when a lazy collection is first read after its catalog was closed. */\n    public static final class LazyInitializationException extends RuntimeException {\n        public LazyInitializationException(String message) {\n            super(message);\n        }\n    }\n\n    public Catalog(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The category, with its products not yet loaded. */\n    public Optional<Category> category(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Closes the catalog; the connection stays open. */\n    @Override\n    public void close() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public final class Category {\n\n        public int id() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        public String name() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        /** The product names, ordered by id: loaded on first call, then kept. */\n        public List<String> products() throws SQLException {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/src/main/java/practice/Catalog.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/src/test/java/practice/CatalogTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.CatalogTest#loadsACategoryAndItsProducts",
+        "kind": "main",
+        "says": "category(1) gives Books, and its products() are the product names ordered by id."
+      },
+      {
+        "id": "practice.CatalogTest#productsAreNotQueriedUntilAsked",
+        "kind": "edge",
+        "says": "category(1) alone runs one query: the products are not loaded until products() is called."
+      },
+      {
+        "id": "practice.CatalogTest#productsAreQueriedOnlyOnce",
+        "kind": "edge",
+        "says": "Calling products() twice runs the product query once."
+      },
+      {
+        "id": "practice.CatalogTest#firstAccessAfterCloseThrows",
+        "kind": "edge",
+        "says": "After the catalog is closed, a first call to products() throws LazyInitializationException."
+      },
+      {
+        "id": "practice.CatalogTest#productsLoadedBeforeCloseStayReadable",
+        "kind": "edge",
+        "says": "products() read before close() can still be read after it, with no query."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.2.md",
+      "section": "3. LazyInitializationException"
+    },
+    "concepts": [
+      "Touching a lazy collection that was never loaded after its EntityManager closed throws LazyInitializationException.",
+      "A lazy association is fetched on first access; @OneToMany is LAZY and @ManyToOne EAGER by default."
+    ]
+  }
+}

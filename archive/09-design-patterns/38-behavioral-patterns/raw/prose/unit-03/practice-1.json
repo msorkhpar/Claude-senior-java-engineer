@@ -1,0 +1,175 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "09-design-patterns",
+    "38-behavioral-patterns"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Insert and delete commands that can undo themselves",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "A command turns a request into an object: it holds its **receiver** and its parameters, and knows how to `execute()` and `undo()` it. The page's first pitfall is a delete that cannot be undone because nothing remembered the deleted text. **The text must be saved when `execute()` runs**, not when the command is built: the page's key point 7."
+    },
+    {
+      "type": "para",
+      "text": "`Command` and the receiver `TextEditor` are given (`insert(pos, text)`, `delete(pos, len)`, `getContent()`). Write:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`InsertCommand(editor, position, text)`: `execute()` inserts `text` at `position`; `undo()` removes that text **from that same position**. `description()` is `\"Insert '<text>' at position <position>\"`.",
+        "`DeleteCommand(editor, position, length)`: `execute()` saves the text it is about to delete, then deletes it; `undo()` puts that text back. **`undo()` before any `execute()` throws `IllegalStateException`** and changes nothing. `description()` is `\"Delete <length> chars at position <position>\"`.",
+        "Both constructors refuse a `null` editor (and `InsertCommand` a `null` text) with `IllegalArgumentException`."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "text before",
+        "command",
+        "after `execute()`",
+        "after `undo()`"
+      ],
+      "rows": [
+        [
+          "`\"Hello\"`",
+          "`Insert(5, \" World\")`",
+          "`\"Hello World\"`",
+          "`\"Hello\"`"
+        ],
+        [
+          "`\"xyz\"`",
+          "`Insert(1, \"ab\")`",
+          "`\"xabyz\"`",
+          "`\"xyz\"`"
+        ],
+        [
+          "`\"Hello World\"`",
+          "`Delete(5, 6)`",
+          "`\"Hello\"`",
+          "`\"Hello World\"`"
+        ],
+        [
+          "`\"abc\"`",
+          "`Delete(0, 1)`, never executed",
+          "",
+          "`IllegalStateException`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\npublic final class Editing {\n\n    private Editing() {\n    }\n\n    /** The receiver: a text buffer. */\n    public static final class TextEditor {\n        private final StringBuilder content = new StringBuilder();\n\n        public void insert(int position, String text) {\n            if (position < 0 || position > content.length()) {\n                throw new IndexOutOfBoundsException(\"Position \" + position + \" is out of bounds for length \" + content.length());\n            }\n            content.insert(position, text);\n        }\n\n        public void delete(int position, int length) {\n            if (position < 0 || length < 0 || position + length > content.length()) {\n                throw new IndexOutOfBoundsException(\"Cannot delete \" + length + \" chars at position \" + position);\n            }\n            content.delete(position, position + length);\n        }\n\n        public String getContent() {\n            return content.toString();\n        }\n\n        public int length() {\n            return content.length();\n        }\n    }\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public static final class InsertCommand implements Command {\n        private final TextEditor editor;\n        private final int position;\n        private final String text;\n\n        public InsertCommand(TextEditor editor, int position, String text) {\n            if (editor == null) {\n                throw new IllegalArgumentException(\"Editor cannot be null\");\n            }\n            if (text == null) {\n                throw new IllegalArgumentException(\"Text cannot be null\");\n            }\n            this.editor = editor;\n            this.position = position;\n            this.text = text;\n        }\n\n        @Override\n        public void execute() {\n            editor.insert(position, text);\n        }\n\n        @Override\n        public void undo() {\n            editor.delete(position, text.length());\n        }\n\n        @Override\n        public String description() {\n            return \"Insert '\" + text + \"' at position \" + position;\n        }\n    }\n\n    public static final class DeleteCommand implements Command {\n        private final TextEditor editor;\n        private final int position;\n        private final int length;\n        private String deletedText;\n\n        public DeleteCommand(TextEditor editor, int position, int length) {\n            if (editor == null) {\n                throw new IllegalArgumentException(\"Editor cannot be null\");\n            }\n            this.editor = editor;\n            this.position = position;\n            this.length = length;\n        }\n\n        @Override\n        public void execute() {\n            deletedText = editor.getContent().substring(position, position + length);\n            editor.delete(position, length);\n        }\n\n        @Override\n        public void undo() {\n            if (deletedText == null) {\n                throw new IllegalStateException(\"Cannot undo a command that was never executed\");\n            }\n            editor.insert(position, deletedText);\n        }\n\n        @Override\n        public String description() {\n            return \"Delete \" + length + \" chars at position \" + position;\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\npublic final class Editing {\n\n    private Editing() {\n    }\n\n    /** The receiver: a text buffer. */\n    public static final class TextEditor {\n        private final StringBuilder content = new StringBuilder();\n\n        public void insert(int position, String text) {\n            if (position < 0 || position > content.length()) {\n                throw new IndexOutOfBoundsException(\"Position \" + position + \" is out of bounds for length \" + content.length());\n            }\n            content.insert(position, text);\n        }\n\n        public void delete(int position, int length) {\n            if (position < 0 || length < 0 || position + length > content.length()) {\n                throw new IndexOutOfBoundsException(\"Cannot delete \" + length + \" chars at position \" + position);\n            }\n            content.delete(position, position + length);\n        }\n\n        public String getContent() {\n            return content.toString();\n        }\n\n        public int length() {\n            return content.length();\n        }\n    }\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public static final class InsertCommand implements Command {\n\n        public InsertCommand(TextEditor editor, int position, String text) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n\n    public static final class DeleteCommand implements Command {\n\n        public DeleteCommand(TextEditor editor, int position, int length) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "dd4415a70c14511928d50861054e332929e3e1dc1524a09ea91c2ca8c915080c",
+  "starting_code": "package practice;\n\npublic final class Editing {\n\n    private Editing() {\n    }\n\n    /** The receiver: a text buffer. */\n    public static final class TextEditor {\n        private final StringBuilder content = new StringBuilder();\n\n        public void insert(int position, String text) {\n            if (position < 0 || position > content.length()) {\n                throw new IndexOutOfBoundsException(\"Position \" + position + \" is out of bounds for length \" + content.length());\n            }\n            content.insert(position, text);\n        }\n\n        public void delete(int position, int length) {\n            if (position < 0 || length < 0 || position + length > content.length()) {\n                throw new IndexOutOfBoundsException(\"Cannot delete \" + length + \" chars at position \" + position);\n            }\n            content.delete(position, position + length);\n        }\n\n        public String getContent() {\n            return content.toString();\n        }\n\n        public int length() {\n            return content.length();\n        }\n    }\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public static final class InsertCommand implements Command {\n\n        public InsertCommand(TextEditor editor, int position, String text) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n\n    public static final class DeleteCommand implements Command {\n\n        public DeleteCommand(TextEditor editor, int position, int length) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/src/main/java/practice/Editing.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/src/test/java/practice/EditingTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.EditingTest#executesAndUndoesInsertsAndDeletes",
+        "kind": "main",
+        "says": "Two inserts build \"Hello World\", a delete removes \" World\", and undoing the delete and then the second insert gives \"Hello World\" and \"Hello\"."
+      },
+      {
+        "id": "practice.EditingTest#aMiddleInsertUndoesAtItsOwnPosition",
+        "kind": "edge",
+        "says": "Undoing an insert made in the middle of the text removes exactly that text from that position, even when the same text also appears later."
+      },
+      {
+        "id": "practice.EditingTest#deleteSavesTheTextWhenItRuns",
+        "kind": "edge",
+        "says": "If the text changes between building a DeleteCommand and executing it, undo restores what execute() really deleted."
+      },
+      {
+        "id": "practice.EditingTest#undoBeforeExecuteIsRefused",
+        "kind": "edge",
+        "says": "undo() on a DeleteCommand that never ran throws IllegalStateException and leaves the text as it was."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "38-behavioral-patterns/README_9.3.3.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "A command object holds its receiver and parameters and knows how to execute and undo the request it stands for.",
+      "A command saves the state its undo needs when execute() runs, not when it is constructed.",
+      "Undoing a command that never executed throws IllegalStateException instead of corrupting the receiver."
+    ]
+  }
+}
