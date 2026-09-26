@@ -1,0 +1,185 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "18-happens-before"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "Find the data races in a trace",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page defines a **data race**: two threads access the same variable, at least one access is a write, and there is **no happens-before** between the two accesses. The JMM does not make a racy program undefined, but it lets the reader see stale values."
+    },
+    {
+      "type": "para",
+      "text": "A trace is the list of actions one run performed, in the order they ran, as in the previous practice: each `Action` has a thread, a `Kind` (`READ`, `WRITE`, `VOLATILE_READ`, `VOLATILE_WRITE`, `LOCK`, `UNLOCK`, `START`, `JOIN`) and a target (a variable, a monitor, or the thread started or joined). Happens-before follows the page's six rules: program order, monitor lock, volatile variable, thread start, thread join, and transitivity. You may reuse your happens-before from the previous practice."
+    },
+    {
+      "type": "para",
+      "text": "Write `DataRaces.find(List<Action> trace)`. It returns every data race as a pair `[i, j]` of trace indices with `i < j`, sorted by `i` then `j`. Only `READ` and `WRITE` are plain accesses; a volatile access is a synchronization action and never races."
+    },
+    {
+      "type": "para",
+      "text": "The page's broken flag, where neither `ready` nor `data` is volatile:"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "#",
+        "thread",
+        "action"
+      ],
+      "rows": [
+        [
+          "0",
+          "T1",
+          "`WRITE data`"
+        ],
+        [
+          "1",
+          "T1",
+          "`WRITE ready`"
+        ],
+        [
+          "2",
+          "T2",
+          "`READ ready`"
+        ],
+        [
+          "3",
+          "T2",
+          "`READ data`"
+        ]
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "trace",
+        "answer"
+      ],
+      "rows": [
+        [
+          "the broken flag",
+          "`[[0, 3], [1, 2]]`"
+        ],
+        [
+          "the same, with `ready` volatile",
+          "`[]`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class DataRaces {\n\n    private DataRaces() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns every data race as a pair [i, j] with i < j, sorted. */\n    public static List<int[]> find(List<Action> trace) {\n        boolean[][] hb = happensBefore(trace);\n        List<int[]> races = new ArrayList<>();\n        for (int i = 0; i < trace.size(); i++) {\n            for (int j = i + 1; j < trace.size(); j++) {\n                if (conflict(trace.get(i), trace.get(j)) && !hb[i][j] && !hb[j][i]) {\n                    races.add(new int[] {i, j});\n                }\n            }\n        }\n        return races;\n    }\n\n    private static boolean plain(Action a) {\n        return a.kind() == Kind.READ || a.kind() == Kind.WRITE;\n    }\n\n    private static boolean conflict(Action x, Action y) {\n        return plain(x) && plain(y) && x.target().equals(y.target())\n                && (x.kind() == Kind.WRITE || y.kind() == Kind.WRITE);\n    }\n\n    private static boolean[][] happensBefore(List<Action> trace) {\n        int n = trace.size();\n        boolean[][] hb = new boolean[n][n];\n        for (int i = 0; i < n; i++) {\n            for (int j = 0; j < n; j++) {\n                hb[i][j] = i != j && edge(trace.get(i), i, trace.get(j), j);\n            }\n        }\n        for (int k = 0; k < n; k++) {\n            for (int i = 0; i < n; i++) {\n                for (int j = 0; j < n; j++) {\n                    if (hb[i][k] && hb[k][j]) {\n                        hb[i][j] = true;\n                    }\n                }\n            }\n        }\n        return hb;\n    }\n\n    private static boolean edge(Action x, int i, Action y, int j) {\n        if (x.thread().equals(y.thread())) {\n            return i < j;\n        }\n        if (x.kind() == Kind.START && x.target().equals(y.thread())) {\n            return true;\n        }\n        if (y.kind() == Kind.JOIN && y.target().equals(x.thread())) {\n            return i < j;\n        }\n        if (i > j) {\n            return false;\n        }\n        if (x.kind() == Kind.UNLOCK && y.kind() == Kind.LOCK) {\n            return x.target().equals(y.target());\n        }\n        if (x.kind() == Kind.VOLATILE_WRITE && y.kind() == Kind.VOLATILE_READ) {\n            return x.target().equals(y.target());\n        }\n        return false;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\n\npublic final class DataRaces {\n\n    private DataRaces() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns every data race as a pair [i, j] with i < j, sorted. */\n    public static List<int[]> find(List<Action> trace) {\n        throw new UnsupportedOperationException(\"write find\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 4,
+    "code": 1,
+    "tables": 2,
+    "lists": 0,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "657f5912862b1de33f6fcced84a9a6742b6bcf30b2cb73b0d000ec9d423fb39d",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class DataRaces {\n\n    private DataRaces() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK, START, JOIN }\n\n    /** One action of a trace: the thread that did it, what it did, and what it did it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Returns every data race as a pair [i, j] with i < j, sorted. */\n    public static List<int[]> find(List<Action> trace) {\n        throw new UnsupportedOperationException(\"write find\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/src/main/java/practice/DataRaces.java",
+    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/src/test/java/practice/DataRacesTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.DataRacesTest#findsTheBrokenFlagRaces",
+        "kind": "main",
+        "says": "It reports every pair of conflicting plain accesses that no happens-before orders, in the page's broken flag example."
+      },
+      {
+        "id": "practice.DataRacesTest#readsNeverConflict",
+        "kind": "edge",
+        "says": "Two reads of one variable are not a conflict, so they are never a data race."
+      },
+      {
+        "id": "practice.DataRacesTest#volatileAccessesAreNotDataRaces",
+        "kind": "edge",
+        "says": "Accesses to a volatile variable are synchronization actions, never data races."
+      },
+      {
+        "id": "practice.DataRacesTest#startAndJoinOrderTheAccesses",
+        "kind": "edge",
+        "says": "Accesses ordered by thread start or thread join are not races, though they are in different threads."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/18-happens-before/prose/unit-01/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "18-happens-before/README_5.2.1.md",
+      "section": "What Happens Without Happens-before"
+    },
+    "concepts": [
+      "A data race is two accesses to one variable, at least one a write, with no happens-before between them.",
+      "Volatile accesses are synchronization actions and never data races, though volatileCount++ is still a race condition in the logic."
+    ]
+  }
+}

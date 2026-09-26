@@ -1,0 +1,161 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "21-synchronization"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 6,
+  "ingested": "2026-09-24",
+  "title": "Call listeners outside the lock",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Two of the page's pitfalls meet here. A lock held too long costs every other thread that wants it, and **calling alien code**, such as a listener, while holding a lock is risky: the listener may block, or take another lock and deadlock. The page's fix is to update the state under the lock, **release it**, and only then call the listener."
+    },
+    {
+      "type": "para",
+      "text": "Write `Thermostat`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`void addListener(IntConsumer listener)`.",
+        "`void set(int temperature)` stores the temperature under the thermostat's lock, then calls **every** listener with it, **after** the lock is released.",
+        "`int get()` reads the temperature under the same lock.",
+        "A listener may call `get()`, and may add another listener while it runs. A listener added during a `set` is called from the next `set` on."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "calls",
+        "the listener hears"
+      ],
+      "rows": [
+        [
+          "`set(20)`, `set(22)`",
+          "`20`, then `22`"
+        ],
+        [
+          "a listener that calls `get()` during `set(25)`",
+          "`get()` returns `25`"
+        ],
+        [
+          "a listener that asks another thread to `get()` and waits for it",
+          "that thread gets its answer while the listener is still running"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.IntConsumer;\n\npublic final class Thermostat {\n\n    private final Object lock = new Object();\n    private final List<IntConsumer> listeners = new ArrayList<>();\n    private int temperature;\n\n    public void addListener(IntConsumer listener) {\n        synchronized (lock) {\n            listeners.add(listener);\n        }\n    }\n\n    /** Stores the temperature under the lock, then calls every listener with it, outside the lock. */\n    public void set(int temperature) {\n        List<IntConsumer> toCall;\n        synchronized (lock) {\n            this.temperature = temperature;\n            toCall = List.copyOf(listeners);\n        }\n        for (IntConsumer listener : toCall) {\n            listener.accept(temperature);\n        }\n    }\n\n    public int get() {\n        synchronized (lock) {\n            return temperature;\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.function.IntConsumer;\n\npublic final class Thermostat {\n\n    public void addListener(IntConsumer listener) {\n        throw new UnsupportedOperationException(\"write addListener\");\n    }\n\n    /** Stores the temperature under the lock, then calls every listener with it, outside the lock. */\n    public void set(int temperature) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    public int get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "9926bfc5f014e15defd9b3ac4ef46157818ba7664f125ed1b9bb87dfe319327d",
+  "starting_code": "package practice;\n\nimport java.util.function.IntConsumer;\n\npublic final class Thermostat {\n\n    public void addListener(IntConsumer listener) {\n        throw new UnsupportedOperationException(\"write addListener\");\n    }\n\n    /** Stores the temperature under the lock, then calls every listener with it, outside the lock. */\n    public void set(int temperature) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    public int get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-6/src/main/java/practice/Thermostat.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-6/src/test/java/practice/ThermostatTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-6/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-6/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ThermostatTest#listenersHearEachChange",
+        "kind": "main",
+        "says": "Every listener is called with each new temperature, in the order the changes were made."
+      },
+      {
+        "id": "practice.ThermostatTest#listenersRunWithoutTheLock",
+        "kind": "edge",
+        "says": "A listener runs after the lock is released, so another thread can read the thermostat while a listener is still running."
+      },
+      {
+        "id": "practice.ThermostatTest#listenersSeeTheNewValue",
+        "kind": "edge",
+        "says": "When a listener runs, the thermostat already holds the new temperature."
+      },
+      {
+        "id": "practice.ThermostatTest#aListenerMayAddAnother",
+        "kind": "edge",
+        "says": "A listener that adds another listener while it is being called does not break the notification."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-6/target/surefire-reports"
+    },
+    "origin": {
+      "path": "21-synchronization/README_6.2.1.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "Calling unknown code such as a listener while holding a lock risks deadlock, so the state is updated under the lock and the listener is called after release.",
+      "A lock is held only as long as the shared state needs it, and slow work stays outside the critical section."
+    ]
+  }
+}

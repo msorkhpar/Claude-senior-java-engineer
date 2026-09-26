@@ -1,0 +1,167 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "21-synchronization"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "Polite walkers: a livelock and its random backoff",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's livelock: two people in a hallway keep stepping to the same side to let each other pass. Nobody is blocked, yet nobody gets through. It needs the two to react **in step**, and its fix is to break the symmetry, for example with **randomized backoff**. The course's `LivelockDemo` makes the two walker threads move in lock step with a `Phaser`, and a round limit makes the livelock end."
+    },
+    {
+      "type": "para",
+      "text": "Write `Hallway`, with two walker threads that move in lock step, round by round:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "Each walker decides whether it **steps forward** this round, and makes that decision visible to the other.",
+        "When both have decided, each looks at the other. A walker that stepped forward while the other did not **gets through**: it is done, and from then on it no longer takes part in the lock step. If both stepped forward, that is a **conflict**, and both politely step back.",
+        "A walker that has used `maxRounds` rounds without getting through stops."
+      ]
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`Outcome runPolite(int maxRounds)`: a polite walker steps forward every round.",
+        "`Outcome runWithBackoff(int maxRounds, long seed)`: a walker steps forward in its first round, and in each round after a conflict it steps forward only when its own `Random`'s `nextBoolean()` is `true`. Walker 1 uses `new Random(seed)`, walker 2 `new Random(seed + 1)`."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "`Outcome(walker1Done, walker2Done, walker1Rounds, walker2Rounds)` is given; a walker's rounds are the number of rounds it took part in. Both methods return only when both walker threads have finished."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "call",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`runPolite(25)`",
+          "neither is done; both used 25 rounds"
+        ],
+        [
+          "`runWithBackoff(1, 7)`",
+          "neither is done; both used 1 round"
+        ],
+        [
+          "`runWithBackoff(200, seed)` for any seed",
+          "both are done, in different rounds"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Random;\nimport java.util.concurrent.Phaser;\nimport java.util.concurrent.atomic.AtomicBoolean;\n\npublic final class Hallway {\n\n    /** Whether each walker got through, and how many rounds each one took part in. */\n    public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {\n    }\n\n    private final AtomicBoolean[] stepsForward = {new AtomicBoolean(), new AtomicBoolean()};\n    private final Phaser lockStep = new Phaser(2);\n    private final Random[] randoms;\n    private final int maxRounds;\n\n    private Hallway(Random[] randoms, int maxRounds) {\n        this.randoms = randoms;\n        this.maxRounds = maxRounds;\n    }\n\n    /** Two polite walkers in lock step: each steps forward every round. */\n    public static Outcome runPolite(int maxRounds) throws InterruptedException {\n        return new Hallway(null, maxRounds).run();\n    }\n\n    /** The same walkers, with random backoff after a conflict: walker 1 uses new Random(seed), walker 2 new Random(seed + 1). */\n    public static Outcome runWithBackoff(int maxRounds, long seed) throws InterruptedException {\n        return new Hallway(new Random[] {new Random(seed), new Random(seed + 1)}, maxRounds).run();\n    }\n\n    private Outcome run() throws InterruptedException {\n        boolean[] done = new boolean[2];\n        int[] rounds = new int[2];\n        Thread w1 = new Thread(() -> walk(0, done, rounds), \"walker-1\");\n        Thread w2 = new Thread(() -> walk(1, done, rounds), \"walker-2\");\n        w1.setDaemon(true);\n        w2.setDaemon(true);\n        w1.start();\n        w2.start();\n        w1.join();\n        w2.join();\n        return new Outcome(done[0], done[1], rounds[0], rounds[1]);\n    }\n\n    private void walk(int me, boolean[] done, int[] rounds) {\n        int other = 1 - me;\n        boolean afterConflict = false;\n        for (int round = 1; round <= maxRounds; round++) {\n            rounds[me] = round;\n            boolean stepForward = !afterConflict || randoms == null || randoms[me].nextBoolean();\n            stepsForward[me].set(stepForward);\n            lockStep.arriveAndAwaitAdvance();\n            boolean goThrough = stepForward && !stepsForward[other].get();\n            if (stepForward && !goThrough) {\n                afterConflict = true;\n            }\n            lockStep.arriveAndAwaitAdvance();\n            if (goThrough) {\n                done[me] = true;\n                stepsForward[me].set(false);\n                lockStep.arriveAndDeregister();\n                return;\n            }\n        }\n        lockStep.arriveAndDeregister();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\npublic final class Hallway {\n\n    /** Whether each walker got through, and how many rounds each one took part in. */\n    public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {\n    }\n\n    /** Two polite walkers in lock step: each steps forward every round. */\n    public static Outcome runPolite(int maxRounds) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runPolite\");\n    }\n\n    /** The same walkers, with random backoff after a conflict: walker 1 uses new Random(seed), walker 2 new Random(seed + 1). */\n    public static Outcome runWithBackoff(int maxRounds, long seed) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runWithBackoff\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 2,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "bc6a2d70376e5803c66ac23b71aa352b836286bf94e1af783264c9b1863adc71",
+  "starting_code": "package practice;\n\npublic final class Hallway {\n\n    /** Whether each walker got through, and how many rounds each one took part in. */\n    public record Outcome(boolean walker1Done, boolean walker2Done, int walker1Rounds, int walker2Rounds) {\n    }\n\n    /** Two polite walkers in lock step: each steps forward every round. */\n    public static Outcome runPolite(int maxRounds) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runPolite\");\n    }\n\n    /** The same walkers, with random backoff after a conflict: walker 1 uses new Random(seed), walker 2 new Random(seed + 1). */\n    public static Outcome runWithBackoff(int maxRounds, long seed) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write runWithBackoff\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/src/main/java/practice/Hallway.java",
+    "test_path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/src/test/java/practice/HallwayTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.HallwayTest#backoffLetsBothThrough",
+        "kind": "main",
+        "says": "With random backoff after a conflict, both walkers get through, in different rounds, within the round limit."
+      },
+      {
+        "id": "practice.HallwayTest#politeWalkersLivelock",
+        "kind": "edge",
+        "says": "Two polite walkers in lock step keep giving way to each other: neither gets through, and both use every round up to the limit."
+      },
+      {
+        "id": "practice.HallwayTest#theLimitAlsoStopsBackoff",
+        "kind": "edge",
+        "says": "The round limit stops the backoff run too: with one round, both walkers step forward, conflict and stop."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/21-synchronization/prose/unit-01/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "21-synchronization/README_6.2.1.md",
+      "section": "Deadlocks and Starvation"
+    },
+    "concepts": [
+      "In a livelock the threads keep running and keep reacting to each other in step, yet none makes progress.",
+      "Randomized backoff breaks the symmetry that keeps a livelock going, so the threads get through."
+    ]
+  }
+}

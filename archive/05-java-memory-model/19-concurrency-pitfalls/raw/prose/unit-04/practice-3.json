@@ -1,0 +1,154 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "19-concurrency-pitfalls"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "Compute outside the lock, store inside it",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's `WideLock` runs a 500 ms computation while holding its lock, so every other thread waits. Its fix: **compute outside, mutate inside**. Hold the lock only for the state change. And a method that returns internal state returns a **defensive copy**, or callers change it outside the lock."
+    },
+    {
+      "type": "para",
+      "text": "Write `ResultLog`, a thread-safe log of results:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`processAndStore(String input, UnaryOperator<String> transform)` computes `transform.apply(input)` **without holding the lock**, then appends the result to the log under the lock, and returns it.",
+        "`results()` returns the log in the order results were stored, as a list the caller owns: changing it does not touch the log, and later stores do not show up in it."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "calls",
+        "`results()`"
+      ],
+      "rows": [
+        [
+          "`processAndStore(\"a\", String::toUpperCase)`, then `processAndStore(\"b\", s -> s + \"!\")`",
+          "`[A, b!]`"
+        ],
+        [
+          "`results().add(\"x\")`, then `results()`",
+          "still `[A, b!]`"
+        ],
+        [
+          "thread 1's `transform` is still running",
+          "thread 2's `processAndStore` still finishes"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\nimport java.util.function.UnaryOperator;\n\npublic final class ResultLog {\n\n    private final ReentrantLock lock = new ReentrantLock();\n    private final List<String> results = new ArrayList<>();\n\n    /** Transforms the input outside the lock, then appends the result under the lock and returns it. */\n    public String processAndStore(String input, UnaryOperator<String> transform) {\n        String result = transform.apply(input);\n        lock.lock();\n        try {\n            results.add(result);\n        } finally {\n            lock.unlock();\n        }\n        return result;\n    }\n\n    /** The stored results, in order, as a copy the caller owns. */\n    public List<String> results() {\n        lock.lock();\n        try {\n            return new ArrayList<>(results);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.UnaryOperator;\n\npublic final class ResultLog {\n\n    /** Transforms the input outside the lock, then appends the result under the lock and returns it. */\n    public String processAndStore(String input, UnaryOperator<String> transform) {\n        throw new UnsupportedOperationException(\"write processAndStore\");\n    }\n\n    /** The stored results, in order, as a copy the caller owns. */\n    public List<String> results() {\n        throw new UnsupportedOperationException(\"write results\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "473de5abb9f33c5c08ac6a1a5a518ec1dee75c9fed7e5c4f8af730c64307c33d",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.UnaryOperator;\n\npublic final class ResultLog {\n\n    /** Transforms the input outside the lock, then appends the result under the lock and returns it. */\n    public String processAndStore(String input, UnaryOperator<String> transform) {\n        throw new UnsupportedOperationException(\"write processAndStore\");\n    }\n\n    /** The stored results, in order, as a copy the caller owns. */\n    public List<String> results() {\n        throw new UnsupportedOperationException(\"write results\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/src/main/java/practice/ResultLog.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/src/test/java/practice/ResultLogTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ResultLogTest#storesEachTransformedInput",
+        "kind": "main",
+        "says": "processAndStore(input, transform) returns transform(input) and appends it to the log, and results() lists the log in order."
+      },
+      {
+        "id": "practice.ResultLogTest#aSlowTransformDoesNotHoldUpOthers",
+        "kind": "edge",
+        "says": "While one thread's transform is still running, another thread's processAndStore completes, because the transform runs outside the lock."
+      },
+      {
+        "id": "practice.ResultLogTest#resultsIsASnapshot",
+        "kind": "edge",
+        "says": "results() returns a copy: changing it does not change the log, and later stores do not change it."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "19-concurrency-pitfalls/README_5.3.4.md",
+      "section": "3. Holding locks during expensive operations"
+    },
+    "concepts": [
+      "A method returning internal state returns a copy, so callers cannot change it outside the lock.",
+      "Expensive work is done outside the lock and only the state change is made under it."
+    ]
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "19-concurrency-pitfalls"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Swap an immutable config atomically",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's `MutableConfig` lets a reader see a new host with an old port. Its fix: an immutable record for the configuration, and a store that swaps in a whole new record at once, so every reader gets a consistent snapshot."
+    },
+    {
+      "type": "para",
+      "text": "Write `ConfigStore` and its nested record `AppConfig(String host, int port, boolean ssl, int maxRetries)`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`AppConfig`'s compact constructor refuses a `null` host (`NullPointerException`), a port outside `0..65535` and a negative `maxRetries` (`IllegalArgumentException`). `withHost` and `withPort` return a new config and leave the original unchanged.",
+        "`ConfigStore(AppConfig initial)`, `get()` and `set(AppConfig next)` hand out and replace whole snapshots (`null` is refused).",
+        "`update(UnaryOperator<AppConfig> change)` applies `change` to the current config and stores the result, **atomically**: when two threads update at the same time, both changes end up in the store. `change` may be called more than once, so it must have no side effects; return the stored config."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "calls",
+        "`get()`"
+      ],
+      "rows": [
+        [
+          "`new ConfigStore(new AppConfig(\"localhost\", 8080, false, 3))`",
+          "`AppConfig[host=localhost, port=8080, ssl=false, maxRetries=3]`"
+        ],
+        [
+          "`update(c -> c.withPort(9090))`",
+          "port `9090`, everything else unchanged"
+        ],
+        [
+          "thread A `update(c -> c.withHost(\"db\"))` and thread B `update(c -> c.withPort(5432))` together",
+          "host `db` **and** port `5432`"
+        ],
+        [
+          "`new AppConfig(\"h\", 70000, false, 0)`",
+          "`IllegalArgumentException`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.function.UnaryOperator;\n\npublic final class ConfigStore {\n\n    public record AppConfig(String host, int port, boolean ssl, int maxRetries) {\n\n        public AppConfig {\n            Objects.requireNonNull(host, \"host\");\n            if (port < 0 || port > 65535) {\n                throw new IllegalArgumentException(\"invalid port: \" + port);\n            }\n            if (maxRetries < 0) {\n                throw new IllegalArgumentException(\"maxRetries must be non-negative\");\n            }\n        }\n\n        public AppConfig withHost(String newHost) {\n            return new AppConfig(newHost, port, ssl, maxRetries);\n        }\n\n        public AppConfig withPort(int newPort) {\n            return new AppConfig(host, newPort, ssl, maxRetries);\n        }\n    }\n\n    private final AtomicReference<AppConfig> current;\n\n    public ConfigStore(AppConfig initial) {\n        current = new AtomicReference<>(Objects.requireNonNull(initial));\n    }\n\n    public AppConfig get() {\n        return current.get();\n    }\n\n    public void set(AppConfig next) {\n        current.set(Objects.requireNonNull(next));\n    }\n\n    /** Applies change to the current config atomically and returns what was stored. */\n    public AppConfig update(UnaryOperator<AppConfig> change) {\n        return current.updateAndGet(c -> Objects.requireNonNull(change.apply(c)));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.function.UnaryOperator;\n\npublic final class ConfigStore {\n\n    public record AppConfig(String host, int port, boolean ssl, int maxRetries) {\n\n        public AppConfig {\n            // validate here\n        }\n\n        public AppConfig withHost(String newHost) {\n            throw new UnsupportedOperationException(\"write withHost\");\n        }\n\n        public AppConfig withPort(int newPort) {\n            throw new UnsupportedOperationException(\"write withPort\");\n        }\n    }\n\n    public ConfigStore(AppConfig initial) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public AppConfig get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public void set(AppConfig next) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    /** Applies change to the current config atomically and returns what was stored. */\n    public AppConfig update(UnaryOperator<AppConfig> change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "90450426d7d66305131a5e07427b92c14156436550c398829216489c0ddcfe02",
+  "starting_code": "package practice;\n\nimport java.util.function.UnaryOperator;\n\npublic final class ConfigStore {\n\n    public record AppConfig(String host, int port, boolean ssl, int maxRetries) {\n\n        public AppConfig {\n            // validate here\n        }\n\n        public AppConfig withHost(String newHost) {\n            throw new UnsupportedOperationException(\"write withHost\");\n        }\n\n        public AppConfig withPort(int newPort) {\n            throw new UnsupportedOperationException(\"write withPort\");\n        }\n    }\n\n    public ConfigStore(AppConfig initial) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public AppConfig get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public void set(AppConfig next) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    /** Applies change to the current config atomically and returns what was stored. */\n    public AppConfig update(UnaryOperator<AppConfig> change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/main/java/practice/ConfigStore.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/test/java/practice/ConfigStoreTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ConfigStoreTest#replacesWholeSnapshots",
+        "kind": "main",
+        "says": "An AppConfig is validated and changed only by building a new one, and the store hands out whole snapshots, replaced by set or update."
+      },
+      {
+        "id": "practice.ConfigStoreTest#invalidConfigsAreRefused",
+        "kind": "edge",
+        "says": "A null host, a port outside 0..65535 or negative retries is refused when the config is built."
+      },
+      {
+        "id": "practice.ConfigStoreTest#racingUpdatesAreBothKept",
+        "kind": "edge",
+        "says": "Two threads updating the store at the same time both have their change kept: an update is never lost."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "19-concurrency-pitfalls/README_5.3.4.md",
+      "section": "1. Using mutable shared state when immutability would suffice"
+    },
+    "concepts": [
+      "State is replaced by swapping the reference to a new immutable value atomically, so no update is lost and readers see whole snapshots.",
+      "Shared configuration is safest as an immutable record, validated once and changed only by building a new one."
+    ]
+  }
+}
