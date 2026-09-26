@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -56,5 +58,25 @@ class RegistryTest {
             assertThat(seen.get(i)).isSameAs(one);
         }
         assertThat(Registry.instancesCreated()).isEqualTo(1);
+    }
+
+    @Test
+    @Order(3)
+    void theHolderIdiomNeedsNoLockAndNoMutableStatic() throws NoSuchMethodException {
+        List<Class<?>> classes = new ArrayList<>(List.of(Registry.class.getDeclaredClasses()));
+        classes.add(Registry.class);
+        for (Class<?> type : classes) {
+            for (Field field : type.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) {
+                    assertThat(Modifier.isFinal(field.getModifiers()))
+                            .as(type.getSimpleName() + "." + field.getName() + " is a final static field")
+                            .isTrue();
+                }
+            }
+        }
+        assertThat(Modifier.isSynchronized(Registry.class.getDeclaredMethod("getInstance").getModifiers()))
+                .as("getInstance() takes no lock")
+                .isFalse();
+        assertThat(Registry.getInstance()).isSameAs(Registry.getInstance());
     }
 }

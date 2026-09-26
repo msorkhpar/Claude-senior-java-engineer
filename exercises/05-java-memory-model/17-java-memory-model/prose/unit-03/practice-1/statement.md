@@ -13,6 +13,7 @@ take seconds) and keeps what it fetched in a `HashMap` guarded by one lock:
 - `size()` returns how many pages are cached.
 - Code outside the class that runs `synchronized (cache) { … }` must not hold up any of
   these methods.
+- The lock, like every field of the cache, is a `private final` field.
 
 | calls | answer |
 |---|---|

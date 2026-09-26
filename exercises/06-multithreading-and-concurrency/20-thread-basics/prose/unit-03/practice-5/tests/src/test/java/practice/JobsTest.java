@@ -10,6 +10,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,5 +82,29 @@ class JobsTest {
     @Test
     void cancelWakesASleepingTask() throws Exception {
         assertThat(cancelThenRunAnother(60_000)).as("the executor ran the next task").isEqualTo(42);
+    }
+
+    @Test
+    void anInterruptedSleepRestoresTheFlag() throws InterruptedException {
+        CountDownLatch firstStep = new CountDownLatch(1);
+        Callable<Integer> task = Jobs.countingTask(5, 60_000, i -> firstStep.countDown());
+        AtomicReference<Integer> result = new AtomicReference<>();
+        AtomicBoolean flagAfterCall = new AtomicBoolean();
+        Thread runner = new Thread(() -> {
+            try {
+                result.set(task.call());
+            } catch (Exception e) {
+                // the result stays null
+            }
+            flagAfterCall.set(Thread.currentThread().isInterrupted());
+        });
+        runner.setDaemon(true);
+        runner.start();
+        assertThat(firstStep.await(5, TimeUnit.SECONDS)).as("the task began").isTrue();
+        runner.interrupt();
+        runner.join(5_000);
+        assertThat(runner.isAlive()).as("the interrupt stopped the task").isFalse();
+        assertThat(result.get()).as("the steps run so far").isEqualTo(1);
+        assertThat(flagAfterCall.get()).as("the interrupt flag is set again after the sleep was interrupted").isTrue();
     }
 }

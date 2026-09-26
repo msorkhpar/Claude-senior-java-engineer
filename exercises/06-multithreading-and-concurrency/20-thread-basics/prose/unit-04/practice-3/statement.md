@@ -14,5 +14,6 @@ Write `Gate`, which uses **the `Gate` object itself** as its monitor:
 |---|---|
 | `pass()` while the gate is closed | the thread is `WAITING` |
 | another thread calls `open()` | the waiting thread returns from `pass()` |
+| two threads wait, then `open()` | both return from `pass()` |
 | a thread is woken while the gate is still closed | it waits again |
 | `open()`, then `pass()` | `pass()` returns at once |

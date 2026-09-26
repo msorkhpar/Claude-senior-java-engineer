@@ -53,4 +53,13 @@ class ReorderingTest {
         assertThat(canSwap(op(UNLOCK, "m"), op(READ, "x"))).isTrue();
         assertThat(canSwap(op(UNLOCK, "m"), op(LOCK, "n"))).isFalse();
     }
+
+    @Test
+    void aVolatileAccessNeverSwapsWithAMonitorOperation() {
+        assertThat(canSwap(op(VOLATILE_WRITE, "ready"), op(LOCK, "m"))).isFalse();
+        assertThat(canSwap(op(UNLOCK, "m"), op(VOLATILE_READ, "ready"))).isFalse();
+        assertThat(canSwap(op(VOLATILE_READ, "ready"), op(LOCK, "m"))).isFalse();
+        assertThat(canSwap(op(UNLOCK, "m"), op(VOLATILE_WRITE, "ready"))).isFalse();
+        assertThat(canSwap(op(WRITE, "x"), op(LOCK, "m"))).isTrue();
+    }
 }

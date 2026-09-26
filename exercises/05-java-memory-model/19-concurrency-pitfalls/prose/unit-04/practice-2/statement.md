@@ -22,3 +22,4 @@ Write `ServiceRegistry`, safe to use from many threads:
 | `register("auth", "http://other:1")` | `false`; `lookup("auth")` is still `http://auth:8080` |
 | `resolve("billing", n -> "http://" + n + ":9000")` | `http://billing:9000`, now registered |
 | `unregister("nope")` | `false` |
+| another thread's `resolve("billing", …)` is still resolving; `register("billing", "http://other:1")` | `false`, once that resolve ends; `lookup("billing")` is the resolved endpoint |

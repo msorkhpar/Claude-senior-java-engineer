@@ -59,6 +59,20 @@ class HappensBeforeTest {
     }
 
     @Test
+    void aLockBeforeTheUnlockGetsNoEdge() {
+        List<HappensBefore.Action> trace = List.of(
+                act("A", LOCK, "m"),
+                act("A", READ, "x"),
+                act("A", UNLOCK, "m"),
+                act("B", LOCK, "m"),
+                act("B", WRITE, "x"),
+                act("B", UNLOCK, "m"));
+        assertThat(happensBefore(trace, 1, 4)).isTrue();
+        assertThat(happensBefore(trace, 4, 1)).isFalse();
+        assertThat(happensBefore(trace, 5, 0)).isFalse();
+    }
+
+    @Test
     void aReadBeforeTheWriteGetsNoEdge() {
         List<HappensBefore.Action> early = List.of(
                 act("B", VOLATILE_READ, "ready"),

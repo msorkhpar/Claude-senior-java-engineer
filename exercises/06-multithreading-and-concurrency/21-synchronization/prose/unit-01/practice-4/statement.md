@@ -1,7 +1,8 @@
 The page's intrinsic locks are **reentrant**: the JVM keeps a hold count per
 lock, a thread that already holds the lock can take it again, and the lock is
 free only when the count is back to zero. A waiting thread is woken through the
-monitor: `wait()` in a loop, and `notifyAll()` when the state changes.
+monitor: `wait()` **in a loop**, since a woken thread may find the mutex taken again,
+and `notifyAll()` when the state changes.
 
 Write `ReentrantMutex`, a reentrant lock of your own, built on one monitor
 (`synchronized`, `wait()`, `notifyAll()`):
@@ -22,3 +23,4 @@ Write `ReentrantMutex`, a reentrant lock of your own, built on one monitor
 | `lock()`, `lock()`, `unlock()`; another thread's `tryLock()` | `false` |
 | then `unlock()`; another thread's `tryLock()` | `true` |
 | `unlock()` on a mutex this thread does not hold | `IllegalMonitorStateException` |
+| held; two other threads call `lock()`, then `unlock()` | one of them takes it; the other keeps waiting |

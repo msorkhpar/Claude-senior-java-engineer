@@ -3,6 +3,8 @@ package practice;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.management.ManagementFactory;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -136,5 +138,65 @@ class ReentrantMutexTest {
         mutex.unlock();
         waiter.join(5_000);
         assertThat(got.get()).as("the waiter got the mutex after it was released").isTrue();
+    }
+
+    private static long waitedCount(Thread thread) {
+        return ManagementFactory.getThreadMXBean().getThreadInfo(thread.threadId()).getWaitedCount();
+    }
+
+    @Test
+    void aWokenWaiterChecksAgain() throws InterruptedException {
+        ReentrantMutex mutex = new ReentrantMutex();
+        mutex.lock();
+        CountDownLatch end = new CountDownLatch(1);
+        AtomicBoolean firstHolds = new AtomicBoolean();
+        AtomicBoolean secondHolds = new AtomicBoolean();
+        Thread first = holder(mutex, firstHolds, end);
+        Thread second = holder(mutex, secondHolds, end);
+        try {
+            long setup = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!(waitsInLock(first) && waitsInLock(second)) && System.nanoTime() < setup) {
+                Thread.sleep(1);
+            }
+            assertThat(waitsInLock(first) && waitsInLock(second)).as("both threads wait in lock()").isTrue();
+            long firstWaits = waitedCount(first);
+            long secondWaits = waitedCount(second);
+            mutex.unlock();
+            // one waiter takes the mutex; the other must check again and go back to waiting,
+            // which shows as a second entry into wait inside lock()
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+            while (System.nanoTime() < deadline) {
+                boolean settled = (firstHolds.get() && (secondHolds.get() || waitedCount(second) > secondWaits && waitsInLock(second)))
+                        || (secondHolds.get() && (firstHolds.get() || waitedCount(first) > firstWaits && waitsInLock(first)));
+                if (settled) {
+                    break;
+                }
+                Thread.sleep(1);
+            }
+            assertThat(firstHolds.get() || secondHolds.get()).as("one waiter took the mutex").isTrue();
+            assertThat(firstHolds.get() && secondHolds.get()).as("two threads hold the mutex at once").isFalse();
+            Thread other = firstHolds.get() ? second : first;
+            assertThat(waitedCount(other)).as("the other waiter went back to waiting")
+                    .isGreaterThan(other == first ? firstWaits : secondWaits);
+            assertThat(waitsInLock(other)).isTrue();
+        } finally {
+            end.countDown();
+        }
+    }
+
+    /** A daemon thread that locks the mutex, marks that it holds it, then keeps it until the end. */
+    private static Thread holder(ReentrantMutex mutex, AtomicBoolean holds, CountDownLatch end) {
+        Thread thread = new Thread(() -> {
+            try {
+                mutex.lock();
+                holds.set(true);
+                end.await(9, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
     }
 }

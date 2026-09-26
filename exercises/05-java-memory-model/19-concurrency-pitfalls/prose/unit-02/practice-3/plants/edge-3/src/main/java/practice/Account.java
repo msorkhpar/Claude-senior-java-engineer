@@ -16,7 +16,7 @@ public final class Account {
     }
 
     /** Takes from the balance and counts one transaction; false, changing nothing, when too small. */
-    public synchronized boolean withdraw(int amount) {
+    public boolean withdraw(int amount) {
         if (balance < amount) {
             return false;
         }
@@ -26,7 +26,7 @@ public final class Account {
     }
 
     /** Returns the balance and the transaction count, read in one step. */
-    public Snapshot snapshot() {
+    public synchronized Snapshot snapshot() {
         return new Snapshot(balance, transactions);
     }
 }

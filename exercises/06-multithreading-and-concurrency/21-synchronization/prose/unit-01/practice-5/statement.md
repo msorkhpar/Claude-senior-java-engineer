@@ -1,7 +1,7 @@
 The page's `ProducerConsumerMonitor` coordinates a producer and a consumer on one
-monitor: each waits with `wait()` **in a loop** while it cannot go on, and wakes
-the other side with `notifyAll()`. The page also warns never to swallow an
-`InterruptedException`.
+monitor: each waits with `wait()` **in a loop** while it cannot go on, because a
+thread that wakes up may find the condition false again. The page wakes the other
+side with `notifyAll()`, and it warns never to swallow an `InterruptedException`.
 
 Write `BoundedBuffer<T>`, a first-in, first-out buffer of at most `capacity`
 items, on one monitor:
@@ -19,3 +19,4 @@ items, on one monitor:
 | capacity 1: `put("x")`, then another thread's `put("y")` | that `put` waits until a `take()` returns `"x"` |
 | empty: another thread's `take()`, then `put("z")` | that `take` waits, then returns `"z"` |
 | empty: another thread's `take()`, then that thread is interrupted | its `take` throws `InterruptedException` |
+| empty: two other threads each call `take()`, then `put("z")` | one of them returns `"z"`; the other keeps waiting |

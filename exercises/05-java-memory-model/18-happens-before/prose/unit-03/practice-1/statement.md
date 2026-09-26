@@ -19,3 +19,4 @@ also hold `synchronized (stack)` around a compound action of its own.
 | `push(1)`, `push(2)`, `push(3)`, then `pop()` three times | `3`, `2`, `1` |
 | `pop()` on an empty stack | `EmptyStackException`, and `size()` is `0` |
 | 100 pushes | `size()` is `100` |
+| a caller holding `synchronized (stack)` pops the last item while another thread's `pop()` waits for the monitor | that `pop()` throws `EmptyStackException` |

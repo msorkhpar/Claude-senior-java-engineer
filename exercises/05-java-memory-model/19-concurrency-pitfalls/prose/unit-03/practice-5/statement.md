@@ -7,6 +7,8 @@ touches it, so the singleton is lazy with no lock and no `volatile`.
 Write the singleton `Registry`:
 
 - `getInstance()` returns the one `Registry`, to every thread.
+- Use the holder idiom: `getInstance()` takes **no lock**, and every static
+  field (in `Registry` and in its nested classes) is `final`.
 - The constructor is private and counts each instance it builds.
 - `instancesCreated()` returns that count. Calling it (or anything else on
   the class) must **not** create the instance: creation happens on the first

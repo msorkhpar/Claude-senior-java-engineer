@@ -86,14 +86,27 @@ class GateTest {
         AtomicBoolean passed = new AtomicBoolean();
         Thread waiter = passer(gate, passed);
         assertThat(awaitInWait(waiter, null)).as("the waiter waits on the gate's monitor").isTrue();
+        long waitsBefore = MX.getThreadInfo(waiter.threadId()).getWaitedCount();
         synchronized (gate) {
             gate.notifyAll();
         }
-        waiter.join(4_000);
+        // The verdict is taken while the gate is still closed: the woken waiter either waits in pass()
+        // again (its count of waits has risen) or has got through.
+        boolean waitsAgain = false;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!waitsAgain && !passed.get() && System.nanoTime() < deadline) {
+            ThreadInfo info = MX.getThreadInfo(waiter.threadId(), Integer.MAX_VALUE);
+            waitsAgain = info != null && info.getWaitedCount() > waitsBefore
+                    && info.getThreadState() == Thread.State.WAITING && inGateWait(info);
+            if (!waitsAgain) {
+                Thread.sleep(1);
+            }
+        }
         boolean passedWhileClosed = passed.get();
         gate.open();
         waiter.join(5_000);
         assertThat(passedWhileClosed).as("a wakeup let the waiter through a closed gate").isFalse();
+        assertThat(waitsAgain).as("the woken waiter went back to waiting").isTrue();
         assertThat(passed.get()).isTrue();
     }
 
@@ -105,5 +118,43 @@ class GateTest {
         Thread waiter = passer(gate, passed);
         waiter.join(5_000);
         assertThat(passed.get()).as("pass() on an open gate returned").isTrue();
+    }
+
+    @Test
+    void openWakesEveryWaiter() throws InterruptedException {
+        Gate gate = new Gate();
+        AtomicBoolean firstPassed = new AtomicBoolean();
+        AtomicBoolean secondPassed = new AtomicBoolean();
+        Thread first = passer(gate, firstPassed);
+        Thread second = passer(gate, secondPassed);
+        assertThat(awaitInWait(first, Thread.State.WAITING)).as("the first thread waits").isTrue();
+        assertThat(awaitInWait(second, Thread.State.WAITING)).as("the second thread waits").isTrue();
+        gate.open();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        first.join(Math.max(1, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+        second.join(Math.max(1, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+        assertThat(firstPassed.get() && secondPassed.get()).as("open() let both waiting threads through").isTrue();
+    }
+
+    @Test
+    void waitsOnTheGateItself() throws InterruptedException {
+        Gate gate = new Gate();
+        AtomicBoolean passed = new AtomicBoolean();
+        Thread waiter = passer(gate, passed);
+        boolean onTheGate = false;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!onTheGate && System.nanoTime() < deadline) {
+            ThreadInfo info = MX.getThreadInfo(waiter.threadId(), Integer.MAX_VALUE);
+            onTheGate = info != null && inGateWait(info) && info.getThreadState() == Thread.State.WAITING
+                    && info.getLockInfo() != null
+                    && info.getLockInfo().getClassName().equals(Gate.class.getName())
+                    && info.getLockInfo().getIdentityHashCode() == System.identityHashCode(gate);
+            if (!onTheGate) {
+                Thread.sleep(1);
+            }
+        }
+        gate.open();
+        waiter.join(5_000);
+        assertThat(onTheGate).as("the waiter waits on the Gate object's own monitor").isTrue();
     }
 }

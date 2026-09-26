@@ -7,6 +7,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,6 +75,22 @@ class TickerTest {
         thread.join(5_000);
         assertThat(thread.isAlive()).isFalse();
         assertThat(cleanups.get()).as("cleanup runs once").isEqualTo(1);
+    }
+
+    @Test
+    void anInterruptLeavesTheFlagSet() throws InterruptedException {
+        CountDownLatch ticked = new CountDownLatch(1);
+        Ticker ticker = new Ticker(ticked::countDown, 60_000, () -> { });
+        AtomicBoolean flagAfterRun = new AtomicBoolean();
+        Thread thread = daemon(() -> {
+            ticker.run();
+            flagAfterRun.set(Thread.currentThread().isInterrupted());
+        });
+        assertThat(ticked.await(5, TimeUnit.SECONDS)).isTrue();
+        thread.interrupt();
+        thread.join(5_000);
+        assertThat(thread.isAlive()).as("the interrupt stopped the ticker").isFalse();
+        assertThat(flagAfterRun.get()).as("run() returned with the interrupt flag set").isTrue();
     }
 
     @Test

@@ -14,10 +14,13 @@ Write the `Ledger` of an account:
 - `balance()` returns the balance.
 
 Every one of them must use one and the same lock, so that no thread ever sees or changes
-the balance while another thread is inside a deposit.
+the balance while another thread is inside a deposit. Keep that lock out of other code's
+reach: code outside the class that holds `synchronized (ledger)` must not hold up any of
+them.
 
 | calls | answer |
 |---|---|
 | `deposit(100)`, `withdraw(30)`, `balance()` | `70` |
 | then `withdraw(500)` | `IllegalStateException`, and `balance()` is still `70` |
 | a `balance()` from another thread while a deposit's hook runs | waits until the deposit leaves its lock |
+| a `balance()` while another thread holds `synchronized (ledger)` | answers at once |

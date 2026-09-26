@@ -67,4 +67,42 @@ class DataRacesTest {
                 act("main", READ, "result"));
         assertThat(races(trace)).isEmpty();
     }
+
+    @Test
+    void onlyTheSameMonitorOrdersTheAccesses() {
+        List<DataRaces.Action> sameLock = List.of(
+                act("T1", LOCK, "m"),
+                act("T1", WRITE, "count"),
+                act("T1", UNLOCK, "m"),
+                act("T2", LOCK, "m"),
+                act("T2", READ, "count"),
+                act("T2", UNLOCK, "m"));
+        assertThat(races(sameLock)).isEmpty();
+
+        List<DataRaces.Action> twoLocks = List.of(
+                act("T1", LOCK, "m"),
+                act("T1", WRITE, "count"),
+                act("T1", UNLOCK, "m"),
+                act("T2", LOCK, "n"),
+                act("T2", READ, "count"),
+                act("T2", UNLOCK, "n"));
+        assertThat(races(twoLocks)).containsExactly(List.of(1, 4));
+    }
+
+    @Test
+    void aVolatileWriteOrdersOnlyLaterReadsOfIt() {
+        List<DataRaces.Action> otherFlag = List.of(
+                act("T1", WRITE, "data"),
+                act("T1", VOLATILE_WRITE, "ready"),
+                act("T2", VOLATILE_READ, "done"),
+                act("T2", READ, "data"));
+        assertThat(races(otherFlag)).containsExactly(List.of(0, 3));
+
+        List<DataRaces.Action> readTooEarly = List.of(
+                act("T2", VOLATILE_READ, "ready"),
+                act("T1", WRITE, "data"),
+                act("T1", VOLATILE_WRITE, "ready"),
+                act("T2", READ, "data"));
+        assertThat(races(readTooEarly)).containsExactly(List.of(1, 3));
+    }
 }

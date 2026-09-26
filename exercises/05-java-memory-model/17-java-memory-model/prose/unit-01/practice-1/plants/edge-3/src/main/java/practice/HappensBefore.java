@@ -30,11 +30,13 @@ public final class HappensBefore {
                     continue;
                 }
                 Action b = trace.get(j);
-                boolean later = j > i;
+                boolean later = true;
                 boolean edge = (a.thread().equals(b.thread()) && j > i)
                         || (a.kind() == Kind.UNLOCK && b.kind() == Kind.LOCK && j > i && a.target().equals(b.target()))
                         || (a.kind() == Kind.VOLATILE_WRITE && b.kind() == Kind.VOLATILE_READ && later
-                                && a.target().equals(b.target()));
+                                && a.target().equals(b.target()))
+                        || (a.kind() == Kind.START && b.thread().equals(a.target()))
+                        || (b.kind() == Kind.JOIN && a.thread().equals(b.target()));
                 if (edge) {
                     next.get(i).add(j);
                 }

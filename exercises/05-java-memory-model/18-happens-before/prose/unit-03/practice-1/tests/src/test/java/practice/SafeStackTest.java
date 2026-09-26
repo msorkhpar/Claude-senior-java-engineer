@@ -9,6 +9,7 @@ import java.lang.management.ThreadMXBean;
 import java.util.EmptyStackException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -67,20 +68,73 @@ class SafeStackTest {
         assertThat(stack.pop()).isEqualTo(99);
     }
 
+    private static Thread daemon(Runnable body) {
+        Thread t = new Thread(body);
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
     @Test
     void everyMethodTakesTheStacksLock() throws Exception {
         SafeStack<Integer> stack = new SafeStack<>();
         stack.push(7);
+        Thread me = Thread.currentThread();
+
         AtomicInteger seen = new AtomicInteger(-1);
         Thread reader;
         synchronized (stack) {                 // a caller holds the stack's monitor
-            reader = new Thread(() -> seen.set(stack.size()));
-            reader.setDaemon(true);
-            reader.start();
-            assertThat(blockedBy(reader, Thread.currentThread())).as("size() waits for the stack's monitor").isTrue();
+            reader = daemon(() -> seen.set(stack.size()));
+            assertThat(blockedBy(reader, me)).as("size() waits for the stack's monitor").isTrue();
             assertThat(seen).hasValue(-1);
         }
         reader.join(5_000);
         assertThat(seen).hasValue(1);
+
+        Thread pusher;
+        synchronized (stack) {
+            pusher = daemon(() -> stack.push(8));
+            assertThat(blockedBy(pusher, me)).as("push() waits for the stack's monitor").isTrue();
+        }
+        pusher.join(5_000);
+        assertThat(stack.size()).isEqualTo(2);
+
+        AtomicInteger popped = new AtomicInteger(-1);
+        Thread popper;
+        synchronized (stack) {
+            popper = daemon(() -> popped.set(stack.pop()));
+            assertThat(blockedBy(popper, me)).as("pop() waits for the stack's monitor").isTrue();
+            assertThat(popped).hasValue(-1);
+        }
+        popper.join(5_000);
+        assertThat(popped).hasValue(8);
+        assertThat(stack.size()).isEqualTo(1);
+    }
+
+    @Test
+    void popChecksAndTakesUnderOneLock() throws Exception {
+        SafeStack<String> stack = new SafeStack<>();
+        stack.push(new String("last"));
+        Thread me = Thread.currentThread();
+        AtomicReference<Object> popped = new AtomicReference<>();
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        Thread popper;
+        boolean waited;
+        synchronized (stack) {                 // a caller holds the monitor for a compound action
+            popper = daemon(() -> {
+                try {
+                    popped.set(stack.pop());
+                } catch (Throwable t) {
+                    thrown.set(t);
+                }
+            });
+            waited = blockedBy(popper, me);
+            assertThat(stack.pop()).isEqualTo("last");   // the caller takes the last item first
+        }
+        popper.join(5_000);
+        assertThat(waited).as("pop() waited for the monitor before it looked at the stack").isTrue();
+        assertThat(popped.get()).isNull();
+        assertThat(thrown.get()).as("the other pop found the stack empty").isInstanceOf(EmptyStackException.class);
+        assertThat(stack.size()).isZero();
     }
 }

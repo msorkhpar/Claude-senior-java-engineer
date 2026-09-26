@@ -12,8 +12,10 @@ and any number of reader threads read from.
   published, and `Optional.empty()` before.
 
 Keep `title` and `total` in plain (non-volatile) fields and the "published"
-state in one `boolean` flag that makes them visible to readers. Write the
-data first and the flag last; read the flag first.
+state in one `boolean` flag that makes them visible to readers. Follow the
+page's order as well: the writer writes the data first and the flag last, and
+a reader reads the flag first. The tests check the flag but cannot check that
+order, because the interleaving a wrong order breaks cannot be forced.
 
 | calls | `read()` |
 |---|---|

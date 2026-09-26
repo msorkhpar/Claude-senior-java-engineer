@@ -22,6 +22,11 @@ class WorkBufferTest {
      * java.util.concurrent lock or condition, or in Object.wait on a monitor; true if parked there.
      */
     private static boolean parked(Thread t) {
+        return parked(t, "put");
+    }
+
+    /** As parked(t), for the named WorkBuffer method. */
+    private static boolean parked(Thread t, String method) {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         while (System.nanoTime() < deadline) {
             Thread.State state = t.getState();
@@ -30,7 +35,7 @@ class WorkBufferTest {
             }
             ThreadInfo info = THREADS.getThreadInfo(t.threadId(), Integer.MAX_VALUE);
             if ((state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING)
-                    && info != null && info.getLockInfo() != null && insidePut(info)
+                    && info != null && info.getLockInfo() != null && inside(info, method)
                     && (info.getLockInfo().getClassName().startsWith("java.util.concurrent.")
                         || waitsOnMonitor(info))) {
                 return true;
@@ -40,9 +45,9 @@ class WorkBufferTest {
         return false;
     }
 
-    private static boolean insidePut(ThreadInfo info) {
+    private static boolean inside(ThreadInfo info, String method) {
         for (StackTraceElement frame : info.getStackTrace()) {
-            if (frame.getClassName().equals("practice.WorkBuffer") && frame.getMethodName().equals("put")) {
+            if (frame.getClassName().equals("practice.WorkBuffer") && frame.getMethodName().equals(method)) {
                 return true;
             }
         }
@@ -121,5 +126,44 @@ class WorkBufferTest {
         assertThat(buffer.size()).isEqualTo(1);
         assertThat(buffer.produced()).isEqualTo(1);
         assertThat(buffer.consumed()).isZero();
+    }
+
+    @Test
+    void offerWaitsForRoomWithinItsTimeout() throws InterruptedException {
+        WorkBuffer<String> buffer = new WorkBuffer<>(1);
+        buffer.put("a");
+        AtomicReference<Boolean> added = new AtomicReference<>();
+        Thread producer = daemon(() -> {
+            try {
+                added.set(buffer.offer("b", 30_000));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertThat(parked(producer, "offer")).as("offer waits on a full buffer, within its timeout").isTrue();
+        assertThat(buffer.take()).isEqualTo("a");
+        producer.join(20_000);
+        assertThat(producer.isAlive()).isFalse();
+        assertThat(added.get()).as("room appeared within the timeout").isTrue();
+        assertThat(buffer.take()).isEqualTo("b");
+    }
+
+    @Test
+    void pollWaitsForAnItemWithinItsTimeout() throws InterruptedException {
+        WorkBuffer<String> buffer = new WorkBuffer<>(1);
+        AtomicReference<String> received = new AtomicReference<>();
+        Thread consumer = daemon(() -> {
+            try {
+                received.set(buffer.poll(30_000));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertThat(parked(consumer, "poll")).as("poll waits on an empty buffer, within its timeout").isTrue();
+        buffer.put("z");
+        consumer.join(20_000);
+        assertThat(consumer.isAlive()).isFalse();
+        assertThat(received.get()).as("an item appeared within the timeout").isEqualTo("z");
+        assertThat(buffer.consumed()).isEqualTo(1);
     }
 }

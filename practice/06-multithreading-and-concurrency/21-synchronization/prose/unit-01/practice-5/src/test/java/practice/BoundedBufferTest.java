@@ -3,6 +3,8 @@ package practice;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,6 +49,12 @@ class BoundedBufferTest {
             Thread.sleep(1);
         }
         return inWait(thread, method);
+    }
+
+    /** How many times the thread has entered Object.wait (or another waiting state) so far. */
+    private static long waitedCount(Thread thread) {
+        ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+        return threads.getThreadInfo(thread.threadId()).getWaitedCount();
     }
 
     @Test
@@ -107,5 +115,42 @@ class BoundedBufferTest {
         consumer.join(5_000);
         assertThat(consumer.isAlive()).as("the interrupted take is still waiting").isFalse();
         assertThat(thrown.get()).isInstanceOf(InterruptedException.class);
+    }
+
+    @Test
+    void aWokenTakerChecksAgain() throws InterruptedException {
+        BoundedBuffer<String> buffer = new BoundedBuffer<>(2);
+        AtomicReference<String> firstTaken = new AtomicReference<>();
+        AtomicReference<String> secondTaken = new AtomicReference<>();
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        Thread first = daemon(() -> firstTaken.set(buffer.take()), thrown);
+        Thread second = daemon(() -> secondTaken.set(buffer.take()), thrown);
+        assertThat(waits(first, "take")).as("take on an empty buffer waits").isTrue();
+        assertThat(waits(second, "take")).as("take on an empty buffer waits").isTrue();
+        long firstWaits = waitedCount(first);
+        long secondWaits = waitedCount(second);
+        buffer.put(new String("z"));
+        // one taker gets the item; the other must go back to waiting, which only a taker that
+        // checks the buffer again after waking does (it enters wait a second time)
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+        Thread done = null;
+        Thread other = null;
+        while (System.nanoTime() < deadline) {
+            if (!first.isAlive()) { done = first; other = second; }
+            else if (!second.isAlive()) { done = second; other = first; }
+            if (done != null && (!other.isAlive()
+                    || waitedCount(other) > (other == first ? firstWaits : secondWaits) && inWait(other, "take"))) {
+                break;
+            }
+            Thread.sleep(1);
+        }
+        assertThat(done).as("one taker returned the item").isNotNull();
+        assertThat(thrown.get()).as("no taker failed").isNull();
+        assertThat(done == first ? firstTaken.get() : secondTaken.get()).isEqualTo("z");
+        assertThat(other.isAlive()).as("the other taker is still waiting, not returned").isTrue();
+        assertThat(waitedCount(other)).as("the other taker went back to waiting")
+                .isGreaterThan(other == first ? firstWaits : secondWaits);
+        assertThat(inWait(other, "take")).isTrue();
+        assertThat(buffer.size()).isZero();
     }
 }

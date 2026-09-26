@@ -49,6 +49,25 @@ class AccountTest {
     }
 
     @Test
+    void aWithdrawalTakesTheAccountsLock() throws InterruptedException {
+        Account account = new Account();
+        account.deposit(9);
+        boolean[] took = new boolean[1];
+        Thread withdrawer;
+        synchronized (account) {
+            withdrawer = daemon(() -> took[0] = account.withdraw(4));
+            waitFor(() -> blockedOn(withdrawer, account) || !withdrawer.isAlive(), "the withdrawal to wait or finish");
+            assertThat(blockedOn(withdrawer, account))
+                    .as("withdraw() waits while another thread holds the account's lock")
+                    .isTrue();
+        }
+        withdrawer.join(5_000);
+        assertThat(withdrawer.isAlive()).isFalse();
+        assertThat(took[0]).isTrue();
+        assertThat(account.snapshot()).isEqualTo(new Account.Snapshot(5, 2));
+    }
+
+    @Test
     void aSnapshotTakesTheAccountsLock() throws InterruptedException {
         Account account = new Account();
         account.deposit(5);

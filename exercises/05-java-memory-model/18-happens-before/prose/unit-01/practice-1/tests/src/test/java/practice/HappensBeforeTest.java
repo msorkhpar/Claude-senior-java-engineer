@@ -97,4 +97,25 @@ class HappensBeforeTest {
         assertThat(HappensBefore.happensBefore(trace, 0, 7)).isTrue();
         assertThat(HappensBefore.happensBefore(trace, 2, 6)).isTrue();
     }
+
+    @Test
+    void synchronizationEdgesRunOnlyForward() {
+        List<HappensBefore.Action> readFirst = List.of(
+                act("T2", VOLATILE_READ, "ready"),
+                act("T1", WRITE, "data"),
+                act("T1", VOLATILE_WRITE, "ready"),
+                act("T2", READ, "data"));
+        assertThat(HappensBefore.happensBefore(readFirst, 2, 0)).isFalse();
+        assertThat(HappensBefore.happensBefore(readFirst, 1, 3)).isFalse();
+
+        List<HappensBefore.Action> lockFirst = List.of(
+                act("T2", LOCK, "m"),
+                act("T2", READ, "value"),
+                act("T2", UNLOCK, "m"),
+                act("T1", LOCK, "m"),
+                act("T1", WRITE, "value"),
+                act("T1", UNLOCK, "m"));
+        assertThat(HappensBefore.happensBefore(lockFirst, 1, 4)).isTrue();
+        assertThat(HappensBefore.happensBefore(lockFirst, 4, 1)).isFalse();
+    }
 }

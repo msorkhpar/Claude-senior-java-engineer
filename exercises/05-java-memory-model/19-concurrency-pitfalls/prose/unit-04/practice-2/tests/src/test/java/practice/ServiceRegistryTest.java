@@ -104,4 +104,32 @@ class ServiceRegistryTest {
         assertThat(b.get()).isEqualTo("http://billing:9001");
         assertThat(registry.lookup("billing")).contains("http://billing:9001");
     }
+
+    @Test
+    void aRegistrationDuringAResolveDoesNotOverwriteIt() throws InterruptedException {
+        ServiceRegistry registry = new ServiceRegistry();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<String> resolved = new AtomicReference<>();
+        AtomicReference<Boolean> registered = new AtomicReference<>();
+        Thread resolver = daemon(() -> resolved.set(registry.resolve("billing", n -> {
+            entered.countDown();
+            try {
+                release.await(20, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return "http://billing:9000";
+        })));
+        assertThat(entered.await(20, TimeUnit.SECONDS)).isTrue();
+        Thread registrar = daemon(() -> registered.set(registry.register(fresh("billing"), "http://other:1")));
+        waitsOn(registrar, resolver);
+        release.countDown();
+        resolver.join(20_000);
+        registrar.join(20_000);
+        assertThat(resolver.isAlive() || registrar.isAlive()).isFalse();
+        assertThat(resolved.get()).isEqualTo("http://billing:9000");
+        assertThat(registered.get()).as("the name was already being registered by the resolve").isFalse();
+        assertThat(registry.lookup("billing")).contains("http://billing:9000");
+    }
 }

@@ -108,4 +108,21 @@ class LedgerTest {
         assertThat(other.isAlive()).as("another thread's deposit got the lock").isFalse();
         assertThat(ledger.balance()).isEqualTo(25);
     }
+
+    @Test
+    void outsideCodeCannotHoldTheLedgersLock() throws Exception {
+        Ledger ledger = new Ledger();
+        ledger.deposit(40, () -> { });
+        AtomicLong seen = new AtomicLong(-1);
+        Thread me = Thread.currentThread();
+        Thread reader;
+        boolean heldUp;
+        synchronized (ledger) {
+            reader = daemon(() -> seen.set(ledger.balance()));
+            heldUp = blockedBy(reader, me);
+        }
+        reader.join(5_000);
+        assertThat(heldUp).as("balance() waited for a lock held on the ledger object from outside").isFalse();
+        assertThat(seen.get()).isEqualTo(40);
+    }
 }

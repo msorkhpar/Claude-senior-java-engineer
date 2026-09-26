@@ -3,10 +3,15 @@ package practice;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.LongAccumulator;
+import java.util.concurrent.atomic.LongAdder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,5 +78,26 @@ class LatencyStatsTest {
         assertThat(stats.max()).isEqualTo(Long.MIN_VALUE);
         stats.record(-3);
         assertThat(stats.max()).isEqualTo(-3);
+    }
+
+    @Test
+    void theStatisticsLiveInTheAddersWithoutALock() {
+        int adders = 0;
+        int accumulators = 0;
+        for (Field field : LatencyStats.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            assertThat(Modifier.isFinal(field.getModifiers())).as(field.getName() + " is final").isTrue();
+            assertThat(field.getType()).as(field.getName() + " is a LongAdder or a LongAccumulator")
+                    .isIn(LongAdder.class, LongAccumulator.class);
+            adders += field.getType() == LongAdder.class ? 1 : 0;
+            accumulators += field.getType() == LongAccumulator.class ? 1 : 0;
+        }
+        assertThat(adders).as("the count is a LongAdder").isEqualTo(1);
+        assertThat(accumulators).as("the maximum is a LongAccumulator").isEqualTo(1);
+        for (Method method : LatencyStats.class.getDeclaredMethods()) {
+            assertThat(Modifier.isSynchronized(method.getModifiers())).as(method.getName() + " takes no lock").isFalse();
+        }
     }
 }

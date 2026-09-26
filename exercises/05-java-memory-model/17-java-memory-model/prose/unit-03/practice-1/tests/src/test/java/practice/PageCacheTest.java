@@ -3,6 +3,10 @@ package practice;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -84,5 +88,19 @@ class PageCacheTest {
         b.join(5000);
         assertThat(bWaited).as("the cache waited for a lock held on the cache object").isFalse();
         assertThat(read.get()).isEqualTo("<page a>");
+    }
+
+    @Test
+    void theLockIsAPrivateFinalField() {
+        PageCache cache = new PageCache(url -> "<page " + url + ">");
+        assertThat(cache.load("a")).isEqualTo("<page a>");
+        List<Field> fields = Arrays.stream(PageCache.class.getDeclaredFields())
+                .filter(f -> !Modifier.isStatic(f.getModifiers()) && !f.isSynthetic())
+                .toList();
+        assertThat(fields).isNotEmpty();
+        assertThat(fields).allSatisfy(f -> {
+            assertThat(Modifier.isPrivate(f.getModifiers())).as(f.getName() + " is private").isTrue();
+            assertThat(Modifier.isFinal(f.getModifiers())).as(f.getName() + " is final").isTrue();
+        });
     }
 }

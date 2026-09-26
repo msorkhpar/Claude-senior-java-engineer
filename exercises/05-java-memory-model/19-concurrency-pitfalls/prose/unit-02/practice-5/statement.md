@@ -9,7 +9,9 @@ Write `LatencyStats`:
 - `max()` returns the largest value recorded, or `Long.MIN_VALUE` when none was;
 - `reset()` starts over.
 
-Many threads call `record` at once, so both statistics must be atomic.
+Many threads call `record` at once, so both statistics must be atomic. Use the
+page's tools, **without a lock**: the count is a `LongAdder` and the maximum a
+`LongAccumulator`, each in a `final` field.
 
 | calls | `count()` | `max()` |
 |---|---|---|
