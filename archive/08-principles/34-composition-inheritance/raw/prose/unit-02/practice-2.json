@@ -1,0 +1,151 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "Decorate a runner with logging and a lock",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "A hierarchy such as `BaseTask -> LoggingTask -> SynchronizedLoggingTask` needs a new class for every combination, and each level may add its own synchronization. The page's alternative is **decorators**: every concern implements the same `TaskRunner` interface, holds the runner it wraps, and adds one thing."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "TaskRunner runner = new SynchronizedTaskRunner(\n    new LoggingTaskRunner(\n        new UpperCaseRunner()\n    )\n);"
+    },
+    {
+      "type": "para",
+      "text": "`UpperCaseRunner` is given. Write the two decorators and the factory in `TaskRunners`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`LoggingTaskRunner(delegate, log)` adds `\"START: \" + input` to `log`, runs the delegate, then adds `\"SUCCESS: \" + result` and returns the result. If the delegate throws, it adds `\"ERROR: \" + message` and **rethrows that same exception**: logging must not swallow a failure;",
+        "`SynchronizedTaskRunner(delegate)` holds a lock around the delegate call, so **one call at a time** runs inside the runner it wraps; a second caller waits until the first returns;",
+        "`compose(base, log, logging, threadSafe)` applies exactly the decorators asked for: a `LoggingTaskRunner` alone, a `SynchronizedTaskRunner` alone (which writes nothing to `log`), both, or `base` itself when neither is asked for. The page warns that **decorator order matters**: `compose` puts the lock outermost, so logging happens inside the lock and the log lists each call's lines in the order the calls ran. `compose(new UpperCaseRunner(), log, true, true)` turns `\"hello\"` into `\"HELLO\"` and logs `START: hello`, `SUCCESS: HELLO`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Task runners composed from decorators instead of a deep class hierarchy. */\npublic final class TaskRunners {\n\n    private TaskRunners() {\n    }\n\n    public interface TaskRunner {\n        String run(String input) throws Exception;\n    }\n\n    /** The base runner: pure business logic. */\n    public static final class UpperCaseRunner implements TaskRunner {\n        @Override\n        public String run(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    /** Logs \"START: input\", then \"SUCCESS: result\" or \"ERROR: message\", around its delegate. */\n    public static final class LoggingTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final List<String> log;\n\n        public LoggingTaskRunner(TaskRunner delegate, List<String> log) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.log = Objects.requireNonNull(log, \"log\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            log.add(\"START: \" + input);\n            try {\n                String result = delegate.run(input);\n                log.add(\"SUCCESS: \" + result);\n                return result;\n            } catch (Exception e) {\n                log.add(\"ERROR: \" + e.getMessage());\n                throw e;\n            }\n        }\n    }\n\n    /** Lets one call at a time into its delegate. */\n    public static final class SynchronizedTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final ReentrantLock lock = new ReentrantLock();\n\n        public SynchronizedTaskRunner(TaskRunner delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            lock.lock();\n            try {\n                return delegate.run(input);\n            } finally {\n                lock.unlock();\n            }\n        }\n    }\n\n    /** Wraps base in the decorators asked for: logging inside, the lock outermost. */\n    public static TaskRunner compose(TaskRunner base, List<String> log, boolean logging, boolean threadSafe) {\n        TaskRunner runner = base;\n        if (logging) {\n            runner = new LoggingTaskRunner(runner, log);\n        }\n        if (threadSafe) {\n            runner = new SynchronizedTaskRunner(runner);\n        }\n        return runner;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Task runners composed from decorators instead of a deep class hierarchy. */\npublic final class TaskRunners {\n\n    private TaskRunners() {\n    }\n\n    public interface TaskRunner {\n        String run(String input) throws Exception;\n    }\n\n    /** The base runner: pure business logic. */\n    public static final class UpperCaseRunner implements TaskRunner {\n        @Override\n        public String run(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    /** Logs \"START: input\", then \"SUCCESS: result\" or \"ERROR: message\", around its delegate. */\n    public static final class LoggingTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final List<String> log;\n\n        public LoggingTaskRunner(TaskRunner delegate, List<String> log) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.log = Objects.requireNonNull(log, \"log\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write LoggingTaskRunner.run\");\n        }\n    }\n\n    /** Lets one call at a time into its delegate. */\n    public static final class SynchronizedTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final ReentrantLock lock = new ReentrantLock();\n\n        public SynchronizedTaskRunner(TaskRunner delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write SynchronizedTaskRunner.run\");\n        }\n    }\n\n    /** Wraps base in the decorators asked for: logging inside, the lock outermost. */\n    public static TaskRunner compose(TaskRunner base, List<String> log, boolean logging, boolean threadSafe) {\n        throw new UnsupportedOperationException(\"write compose\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "9783eaa3262c5d07a55797c1f0d2171da7c546e2e169ff5cc762b5946e765648",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** Task runners composed from decorators instead of a deep class hierarchy. */\npublic final class TaskRunners {\n\n    private TaskRunners() {\n    }\n\n    public interface TaskRunner {\n        String run(String input) throws Exception;\n    }\n\n    /** The base runner: pure business logic. */\n    public static final class UpperCaseRunner implements TaskRunner {\n        @Override\n        public String run(String input) {\n            return input.toUpperCase();\n        }\n    }\n\n    /** Logs \"START: input\", then \"SUCCESS: result\" or \"ERROR: message\", around its delegate. */\n    public static final class LoggingTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final List<String> log;\n\n        public LoggingTaskRunner(TaskRunner delegate, List<String> log) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.log = Objects.requireNonNull(log, \"log\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write LoggingTaskRunner.run\");\n        }\n    }\n\n    /** Lets one call at a time into its delegate. */\n    public static final class SynchronizedTaskRunner implements TaskRunner {\n        private final TaskRunner delegate;\n        private final ReentrantLock lock = new ReentrantLock();\n\n        public SynchronizedTaskRunner(TaskRunner delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override\n        public String run(String input) throws Exception {\n            throw new UnsupportedOperationException(\"write SynchronizedTaskRunner.run\");\n        }\n    }\n\n    /** Wraps base in the decorators asked for: logging inside, the lock outermost. */\n    public static TaskRunner compose(TaskRunner base, List<String> log, boolean logging, boolean threadSafe) {\n        throw new UnsupportedOperationException(\"write compose\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/src/main/java/practice/TaskRunners.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/src/test/java/practice/TaskRunnersTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.TaskRunnersTest#decoratorsWrapAnyRunner",
+        "kind": "main",
+        "says": "compose with logging and a lock turns \"hello\" into \"HELLO\" and logs START and SUCCESS."
+      },
+      {
+        "id": "practice.TaskRunnersTest#loggingRecordsAFailureAndRethrowsIt",
+        "kind": "edge",
+        "says": "A failing delegate is logged as \"ERROR: boom\" and its own exception is rethrown."
+      },
+      {
+        "id": "practice.TaskRunnersTest#theSynchronizedRunnerLetsOneCallInAtATime",
+        "kind": "edge",
+        "says": "While one call is inside the synchronized runner, a second call waits and never runs alongside it."
+      },
+      {
+        "id": "practice.TaskRunnersTest#composePutsTheLockOutsideTheLog",
+        "kind": "edge",
+        "says": "A call waiting for compose's lock has logged nothing yet: the lock is outside the logging."
+      },
+      {
+        "id": "practice.TaskRunnersTest#eachRunnerHasItsOwnLock",
+        "kind": "edge",
+        "says": "Each SynchronizedTaskRunner has its own lock: a call waiting inside one runner does not hold up a call to another."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "34-composition-inheritance/README_8.4.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "The order decorators are applied in matters, so a factory method makes it explicit.",
+      "Cross-cutting concerns such as logging and synchronization are independent decorators around one interface, combined in any order instead of a deep class hierarchy.",
+      "Each decorator decides whether to catch, wrap or propagate an exception; a logging decorator records the failure and rethrows it.",
+      "A synchronizing decorator makes the lock explicit: it lets one call at a time into the runner it wraps."
+    ]
+  }
+}

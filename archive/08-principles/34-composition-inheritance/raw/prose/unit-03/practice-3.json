@@ -1,0 +1,139 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "Run items through a composed pipeline in parallel",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "A pipeline composed of independent stages needs no change to process many items at once: each item flows through it on its own virtual thread. The page's example:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "var pipeline = new ProcessingPipeline<String>()\n    .addStage(String::trim)\n    .addStage(String::toUpperCase)\n    .addStage(s -> s + \" [PROCESSED]\");\n\nvar executor = new ConcurrentPipelineExecutor<>(pipeline);\nList<String> results = executor.processAll(\n    List.of(\"  hello  \", \"  world  \", \"  java  \")\n);\n// Results: [\"HELLO [PROCESSED]\", \"WORLD [PROCESSED]\", \"JAVA [PROCESSED]\"]"
+    },
+    {
+      "type": "para",
+      "text": "`addStage` is given. Write `execute` and `processAll` in `Pipelines`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`execute(input)` runs `input` through every stage in order; a pipeline with no stages returns its input unchanged;",
+        "a stage that returns `null` **stops the pipeline**: `execute` returns `null` at once and no later stage is called. In `processAll` such an item keeps its place as `null`: a pipeline that stops `\"drop\"` turns `[\"a\", \"drop\", \"b\"]` into `[\"A\", null, \"B\"]`;",
+        "`processAll(items)` runs the items at the same time, each through the pipeline on **its own virtual thread** (`Executors.newVirtualThreadPerTaskExecutor()`), and returns the results **in the order of the items**, whichever finishes first. An empty list gives an empty list."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.function.Function;\n\n/** A pipeline of stages, and an executor that runs many items through it at once. */\npublic final class Pipelines {\n\n    private Pipelines() {\n    }\n\n    public static final class ProcessingPipeline<T> {\n        private final List<Function<T, T>> stages = new ArrayList<>();\n\n        public ProcessingPipeline<T> addStage(Function<T, T> stage) {\n            stages.add(Objects.requireNonNull(stage, \"stage\"));\n            return this;\n        }\n\n        /** Runs input through every stage in order; a stage that returns null stops the pipeline. */\n        public T execute(T input) {\n            T result = input;\n            for (Function<T, T> stage : stages) {\n                result = stage.apply(result);\n                if (result == null) {\n                    return null;\n                }\n            }\n            return result;\n        }\n    }\n\n    public static final class ConcurrentPipelineExecutor<T> {\n        private final ProcessingPipeline<T> pipeline;\n\n        public ConcurrentPipelineExecutor(ProcessingPipeline<T> pipeline) {\n            this.pipeline = Objects.requireNonNull(pipeline, \"pipeline\");\n        }\n\n        /** Runs each item through the pipeline on its own virtual thread; results in input order. */\n        public List<T> processAll(List<T> items) throws InterruptedException, ExecutionException {\n            if (items.isEmpty()) {\n                return Collections.emptyList();\n            }\n            List<Future<T>> futures = new ArrayList<>();\n            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n                for (T item : items) {\n                    futures.add(executor.submit(() -> pipeline.execute(item)));\n                }\n            }\n            List<T> results = new ArrayList<>();\n            for (Future<T> future : futures) {\n                results.add(future.get());\n            }\n            return results;\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.function.Function;\n\n/** A pipeline of stages, and an executor that runs many items through it at once. */\npublic final class Pipelines {\n\n    private Pipelines() {\n    }\n\n    public static final class ProcessingPipeline<T> {\n        private final List<Function<T, T>> stages = new ArrayList<>();\n\n        public ProcessingPipeline<T> addStage(Function<T, T> stage) {\n            stages.add(Objects.requireNonNull(stage, \"stage\"));\n            return this;\n        }\n\n        /** Runs input through every stage in order; a stage that returns null stops the pipeline. */\n        public T execute(T input) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    }\n\n    public static final class ConcurrentPipelineExecutor<T> {\n        private final ProcessingPipeline<T> pipeline;\n\n        public ConcurrentPipelineExecutor(ProcessingPipeline<T> pipeline) {\n            this.pipeline = Objects.requireNonNull(pipeline, \"pipeline\");\n        }\n\n        /** Runs each item through the pipeline on its own virtual thread; results in input order. */\n        public List<T> processAll(List<T> items) throws InterruptedException, ExecutionException {\n            throw new UnsupportedOperationException(\"write processAll\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "13827284080fd342933ab6595ef423e2d1836871cbe779ecdd3db42a24c983e3",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.function.Function;\n\n/** A pipeline of stages, and an executor that runs many items through it at once. */\npublic final class Pipelines {\n\n    private Pipelines() {\n    }\n\n    public static final class ProcessingPipeline<T> {\n        private final List<Function<T, T>> stages = new ArrayList<>();\n\n        public ProcessingPipeline<T> addStage(Function<T, T> stage) {\n            stages.add(Objects.requireNonNull(stage, \"stage\"));\n            return this;\n        }\n\n        /** Runs input through every stage in order; a stage that returns null stops the pipeline. */\n        public T execute(T input) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n    }\n\n    public static final class ConcurrentPipelineExecutor<T> {\n        private final ProcessingPipeline<T> pipeline;\n\n        public ConcurrentPipelineExecutor(ProcessingPipeline<T> pipeline) {\n            this.pipeline = Objects.requireNonNull(pipeline, \"pipeline\");\n        }\n\n        /** Runs each item through the pipeline on its own virtual thread; results in input order. */\n        public List<T> processAll(List<T> items) throws InterruptedException, ExecutionException {\n            throw new UnsupportedOperationException(\"write processAll\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-3/src/main/java/practice/Pipelines.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-3/src/test/java/practice/PipelinesTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.PipelinesTest#runsEachItemThroughEveryStage",
+        "kind": "main",
+        "says": "The page's three stages turn \"  hello  \" into \"HELLO [PROCESSED]\", for one item and for three processed at once."
+      },
+      {
+        "id": "practice.PipelinesTest#aNullResultStopsThePipeline",
+        "kind": "edge",
+        "says": "A stage returning null for \"drop\" makes execute return null without calling the next stage."
+      },
+      {
+        "id": "practice.PipelinesTest#resultsComeBackInInputOrder",
+        "kind": "edge",
+        "says": "When the second item finishes first, processAll still returns [\"SLOW\", \"FAST\"] in input order."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "34-composition-inheritance/README_8.4.3.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "An empty pipeline returns its input unchanged, and a stage that returns null stops the pipeline.",
+      "A pipeline of independent stages lets each item flow through on its own thread, and the results are gathered in input order."
+    ]
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "31-solid-principles"
+  ],
+  "variant": "prose",
+  "unit": 5,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "A job scheduler that does not know its thread model",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "In concurrent code, DIP lets you swap the execution model. A `JobScheduler` depends on an `ExecutionStrategy` abstraction, and the thread model is a detail behind it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface ExecutionStrategy {\n    <T> Future<T> execute(Callable<T> task);\n    void shutdown();\n}\n\n// Switch thread model without touching JobScheduler\nvar scheduler = new JobScheduler(new VirtualThreadStrategy()); // or FixedPoolStrategy"
+    },
+    {
+      "type": "para",
+      "text": "In `Jobs`, write:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`VirtualThreadStrategy`, which runs each task on a virtual thread through one `Executors.newVirtualThreadPerTaskExecutor()`; its `shutdown()` shuts that executor down, so a task handed to it afterwards is refused with `RejectedExecutionException`;",
+        "`JobScheduler(strategy)`, which takes its strategy through the constructor and rejects `null` there. `scheduleJob(job)` counts the job when it is scheduled (not when it runs) and hands that same job to **the strategy it was given**, `getJobCount()` returns the count, and `shutdown()` shuts the strategy down. (Jobs may be scheduled from many threads, so count them thread-safely; the tests cannot force two counts to collide.)"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The scheduler never creates an executor of its own. That is what makes it testable: as the page says, a test can inject a strategy that runs each job on the caller's own thread, and then nothing about the test depends on thread timing."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic final class Jobs {\n\n    private Jobs() {\n    }\n\n    /** The abstraction the scheduler depends on. */\n    public interface ExecutionStrategy {\n        <T> Future<T> execute(Callable<T> task);\n\n        void shutdown();\n    }\n\n    /** One detail: a virtual thread per task. */\n    public static final class VirtualThreadStrategy implements ExecutionStrategy {\n        private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();\n\n        public <T> Future<T> execute(Callable<T> task) {\n            return executor.submit(task);\n        }\n\n        public void shutdown() {\n            executor.shutdown();\n        }\n    }\n\n    /** The high-level module: knows nothing about thread models. */\n    public static final class JobScheduler {\n        private final ExecutionStrategy strategy;\n        private final AtomicInteger jobs = new AtomicInteger();\n\n        public JobScheduler(ExecutionStrategy strategy) {\n            this.strategy = Objects.requireNonNull(strategy);\n        }\n\n        public <T> Future<T> scheduleJob(Callable<T> job) {\n            jobs.incrementAndGet();\n            return strategy.execute(job);\n        }\n\n        public int getJobCount() {\n            return jobs.get();\n        }\n\n        public void shutdown() {\n            strategy.shutdown();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Future;\n\npublic final class Jobs {\n\n    private Jobs() {\n    }\n\n    /** The abstraction the scheduler depends on. */\n    public interface ExecutionStrategy {\n        <T> Future<T> execute(Callable<T> task);\n\n        void shutdown();\n    }\n\n    /** One detail: a virtual thread per task. */\n    public static final class VirtualThreadStrategy implements ExecutionStrategy {\n\n        public <T> Future<T> execute(Callable<T> task) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n\n    /** The high-level module: knows nothing about thread models. */\n    public static final class JobScheduler {\n\n        public JobScheduler(ExecutionStrategy strategy) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public <T> Future<T> scheduleJob(Callable<T> job) {\n            throw new UnsupportedOperationException(\"write scheduleJob\");\n        }\n\n        public int getJobCount() {\n            throw new UnsupportedOperationException(\"write getJobCount\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "9b121e67f2b1f6e8bea706b8a8db519a6674c0d70b5d33f309bea72d480a9981",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Future;\n\npublic final class Jobs {\n\n    private Jobs() {\n    }\n\n    /** The abstraction the scheduler depends on. */\n    public interface ExecutionStrategy {\n        <T> Future<T> execute(Callable<T> task);\n\n        void shutdown();\n    }\n\n    /** One detail: a virtual thread per task. */\n    public static final class VirtualThreadStrategy implements ExecutionStrategy {\n\n        public <T> Future<T> execute(Callable<T> task) {\n            throw new UnsupportedOperationException(\"write execute\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n\n    /** The high-level module: knows nothing about thread models. */\n    public static final class JobScheduler {\n\n        public JobScheduler(ExecutionStrategy strategy) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public <T> Future<T> scheduleJob(Callable<T> job) {\n            throw new UnsupportedOperationException(\"write scheduleJob\");\n        }\n\n        public int getJobCount() {\n            throw new UnsupportedOperationException(\"write getJobCount\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/src/main/java/practice/Jobs.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/src/test/java/practice/JobsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.JobsTest#jobsRunOnVirtualThreads",
+        "kind": "main",
+        "says": "With a VirtualThreadStrategy, a job sees a virtual thread, another returns 42, and 2 jobs are counted."
+      },
+      {
+        "id": "practice.JobsTest#anInjectedStrategyRunsEveryJob",
+        "kind": "edge",
+        "says": "With a strategy that runs jobs on the caller's thread, every job runs there, through that strategy."
+      },
+      {
+        "id": "practice.JobsTest#shutdownReachesTheStrategy",
+        "kind": "edge",
+        "says": "The scheduler's shutdown() shuts down the strategy it was given."
+      },
+      {
+        "id": "practice.JobsTest#aNullStrategyIsRejected",
+        "kind": "edge",
+        "says": "new JobScheduler(null) throws NullPointerException at once."
+      },
+      {
+        "id": "practice.JobsTest#aJobIsCountedBeforeItRuns",
+        "kind": "edge",
+        "says": "A job is counted when it is scheduled: a job that the strategy runs at once already sees itself counted."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "31-solid-principles/README_8.1.5.md",
+      "section": "8.1.5.2. Applying DIP in Concurrent Programming"
+    },
+    "concepts": [
+      "Injecting a controlled implementation, such as a strategy that runs each job on the caller's thread, makes concurrent code testable deterministically.",
+      "A JobScheduler depends on an ExecutionStrategy abstraction, so platform or virtual threads are chosen without changing the scheduler."
+    ]
+  }
+}

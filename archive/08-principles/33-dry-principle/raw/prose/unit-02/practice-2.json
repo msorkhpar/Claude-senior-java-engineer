@@ -1,0 +1,161 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "33-dry-principle"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "One executor lifecycle for every computation",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "`ExecutorService` needs its whole lifecycle each time: create, submit, `shutdown()`, `awaitTermination`. The page's violation pastes it into `computeSquares` and `computeCubes`, and warns what diverging copies do: one forgets `shutdown()` and leaks threads, another returns results before its tasks complete. Its fix writes the lifecycle **once**, in `ParallelComputation.executeAll`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ExecutorService executor = Executors.newFixedThreadPool(threadCount);\ntry {\n    List<Future<T>> futures = executor.invokeAll(tasks);\n    ...\n} finally {\n    executor.shutdown();\n    executor.awaitTermination(5, TimeUnit.SECONDS);\n}"
+    },
+    {
+      "type": "para",
+      "text": "Complete `ParallelComputation`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`executeAll(tasks, threadCount)` runs every task on a pool of `threadCount` threads and returns their results **in task order**, not in the order the tasks happen to finish. A failed task becomes a new `RuntimeException` that wraps the `ExecutionException` from `get()`, as the page's `new RuntimeException(\"Task execution failed\", e)` does, so its cause's cause is the task's exception, even an unchecked one. A `threadCount` of zero or less throws `IllegalArgumentException`, even for an empty task list, and an empty task list with a valid count gives an empty list;",
+        "**the pool is shut down before `executeAll` returns**, so no thread outlives the call. (Since Java 19, `ExecutorService` is `AutoCloseable`, so try-with-resources is fine too.);",
+        "`squares(numbers, threadCount)` and `cubes(numbers, threadCount)` build their tasks and reuse `executeAll`: neither has a lifecycle of its own. (The tests see their results, not how they were computed, so the reuse is the page's lesson rather than a graded step.)"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Examples:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`squares(List.of(1, 2, 3, 200), 1)` is `[1, 4, 9, 40000]`, and `cubes(List.of(2, 3), 1)` is `[8, 27]`;",
+        "with two threads, when the second task finishes before the first, the result is still `[first, second]`;",
+        "once `executeAll` returns, the pool's threads have ended."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/** The executor lifecycle, written once, and two computations that reuse it. */\npublic final class ParallelComputation {\n\n    private ParallelComputation() {\n    }\n\n    /** Runs every task on a pool of threadCount threads and returns their results in task order. */\n    public static <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount) throws InterruptedException {\n        Objects.requireNonNull(tasks, \"tasks must not be null\");\n        if (threadCount <= 0) {\n            throw new IllegalArgumentException(\"threadCount must be positive\");\n        }\n        ExecutorService executor = Executors.newFixedThreadPool(threadCount);\n        try {\n            List<Future<T>> futures = executor.invokeAll(tasks);\n            List<T> results = new ArrayList<>();\n            for (Future<T> future : futures) {\n                try {\n                    results.add(future.get());\n                } catch (ExecutionException e) {\n                    throw new RuntimeException(\"Task execution failed\", e);\n                }\n            }\n            return results;\n        } finally {\n            executor.shutdown();\n            executor.awaitTermination(5, TimeUnit.SECONDS);\n        }\n    }\n\n    /** The square of each number, computed on threadCount threads. */\n    public static List<Integer> squares(List<Integer> numbers, int threadCount) throws InterruptedException {\n        return executeAll(numbers.stream().<Callable<Integer>>map(n -> () -> n * n).toList(), threadCount);\n    }\n\n    /** The cube of each number, computed on threadCount threads. */\n    public static List<Integer> cubes(List<Integer> numbers, int threadCount) throws InterruptedException {\n        return executeAll(numbers.stream().<Callable<Integer>>map(n -> () -> n * n * n).toList(), threadCount);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/** The executor lifecycle, written once, and two computations that reuse it. */\npublic final class ParallelComputation {\n\n    private ParallelComputation() {\n    }\n\n    /** Runs every task on a pool of threadCount threads and returns their results in task order. */\n    public static <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write executeAll\");\n    }\n\n    /** The square of each number, computed on threadCount threads. */\n    public static List<Integer> squares(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write squares\");\n    }\n\n    /** The cube of each number, computed on threadCount threads. */\n    public static List<Integer> cubes(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write cubes\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 2,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "9cd9fb357a263b6f7a5967974257d189f3e6e366b3ee8399e25d2194d189ccf9",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\n/** The executor lifecycle, written once, and two computations that reuse it. */\npublic final class ParallelComputation {\n\n    private ParallelComputation() {\n    }\n\n    /** Runs every task on a pool of threadCount threads and returns their results in task order. */\n    public static <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write executeAll\");\n    }\n\n    /** The square of each number, computed on threadCount threads. */\n    public static List<Integer> squares(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write squares\");\n    }\n\n    /** The cube of each number, computed on threadCount threads. */\n    public static List<Integer> cubes(List<Integer> numbers, int threadCount) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write cubes\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/src/main/java/practice/ParallelComputation.java",
+    "test_path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/src/test/java/practice/ParallelComputationTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ParallelComputationTest#computationsShareOneLifecycle",
+        "kind": "main",
+        "says": "squares and cubes reuse executeAll, which returns [a, b] for two tasks on one thread."
+      },
+      {
+        "id": "practice.ParallelComputationTest#resultsFollowTaskOrderNotFinishingOrder",
+        "kind": "edge",
+        "says": "When the second task finishes first, the results are still in task order."
+      },
+      {
+        "id": "practice.ParallelComputationTest#thePoolIsShutDownBeforeReturning",
+        "kind": "edge",
+        "says": "Once executeAll returns, the pool's thread has ended: the pool was shut down."
+      },
+      {
+        "id": "practice.ParallelComputationTest#aFailureKeepsTheTasksOwnException",
+        "kind": "edge",
+        "says": "A failed task, even one that throws an unchecked exception, becomes a new RuntimeException wrapping the ExecutionException, whose cause is the task's exception."
+      },
+      {
+        "id": "practice.ParallelComputationTest#theThreadCountIsCheckedFirst",
+        "kind": "edge",
+        "says": "A thread count of 0 is refused even with no tasks: executeAll(List.of(), 0) throws IllegalArgumentException."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/33-dry-principle/prose/unit-02/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "33-dry-principle/README_8.3.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Executor lifecycle (create, invokeAll, shutdown, awaitTermination) lives in one reusable method, so no copy forgets shutdown or returns results out of order."
+    ]
+  }
+}

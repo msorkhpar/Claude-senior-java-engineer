@@ -1,0 +1,170 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "33-dry-principle"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "One read-write lock for every repository",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's violation gives each repository its own copy of the read-write locking:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public String getUser(String id) {\n    rwLock.readLock().lock();\n    try {\n        return users.get(id);\n    } finally {\n        rwLock.readLock().unlock();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Its fix is one shared wrapper, `ReadWriteLockedResource<T>`: every repository uses it, so moving from `ReentrantReadWriteLock` to another lock is a change in one class. `UserRepository` and `ProductRepository` below already use it. Complete the wrapper:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`read(readAction)` applies the action to the resource under the **read** lock and returns its result. **Readers do not block each other**: two reads run at the same time;",
+        "`writeVoid(writeAction)` applies the action under the **write** lock, which **holds back every reader** until the write is done;",
+        "each lock is released in a `finally` block;",
+        "a `null` resource is refused by the constructor, and a `null` action by `read` or `writeVoid`, with `NullPointerException` **before any locking happens**."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Examples:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "a new `UserRepository` returns an empty list from `getAllUsers()`; after `addUser(\"u-1\", \"Ann\")`, `getUser(\"u-1\")` is `\"Ann\"`, and `getUser(\"u-9\")` is `null`;",
+        "two threads that each call `read` can both be inside their read actions at once;",
+        "while a writer is inside `writeVoid`, a thread calling `read` waits, then sees the writer's change;",
+        "`new ReadWriteLockedResource<>(null)` throws `NullPointerException`."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\n\n/** One read-write locking strategy, shared by every repository. */\npublic final class ReadWriteLockedResource<T> {\n\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    /** Guards this resource; a null resource is refused at once. */\n    public ReadWriteLockedResource(T resource) {\n        this.resource = Objects.requireNonNull(resource, \"resource must not be null\");\n    }\n\n    /** Runs a read under the read lock and returns its result. */\n    public <R> R read(Function<T, R> readAction) {\n        Objects.requireNonNull(readAction, \"readAction must not be null\");\n        rwLock.readLock().lock();\n        try {\n            return readAction.apply(resource);\n        } finally {\n            rwLock.readLock().unlock();\n        }\n    }\n\n    /** Runs a write under the write lock. */\n    public void writeVoid(Consumer<T> writeAction) {\n        Objects.requireNonNull(writeAction, \"writeAction must not be null\");\n        rwLock.writeLock().lock();\n        try {\n            writeAction.accept(resource);\n        } finally {\n            rwLock.writeLock().unlock();\n        }\n    }\n\n    /** Users by id, locked by the shared wrapper. */\n    public static final class UserRepository {\n        private final ReadWriteLockedResource<Map<String, String>> users =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addUser(String id, String name) {\n            users.writeVoid(map -> map.put(id, name));\n        }\n\n        public String getUser(String id) {\n            return users.read(map -> map.get(id));\n        }\n\n        public List<String> getAllUsers() {\n            return users.read(map -> new ArrayList<>(map.values()));\n        }\n    }\n\n    /** Prices by product name, locked by the same shared wrapper. */\n    public static final class ProductRepository {\n        private final ReadWriteLockedResource<Map<String, Double>> products =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addProduct(String name, double price) {\n            products.writeVoid(map -> map.put(name, price));\n        }\n\n        public Double getPrice(String name) {\n            return products.read(map -> map.get(name));\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\n\n/** One read-write locking strategy, shared by every repository. */\npublic final class ReadWriteLockedResource<T> {\n\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    /** Guards this resource; a null resource is refused at once. */\n    public ReadWriteLockedResource(T resource) {\n        this.resource = resource;\n    }\n\n    /** Runs a read under the read lock and returns its result. */\n    public <R> R read(Function<T, R> readAction) {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n\n    /** Runs a write under the write lock. */\n    public void writeVoid(Consumer<T> writeAction) {\n        throw new UnsupportedOperationException(\"write writeVoid\");\n    }\n\n    /** Users by id, locked by the shared wrapper. */\n    public static final class UserRepository {\n        private final ReadWriteLockedResource<Map<String, String>> users =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addUser(String id, String name) {\n            users.writeVoid(map -> map.put(id, name));\n        }\n\n        public String getUser(String id) {\n            return users.read(map -> map.get(id));\n        }\n\n        public List<String> getAllUsers() {\n            return users.read(map -> new ArrayList<>(map.values()));\n        }\n    }\n\n    /** Prices by product name, locked by the same shared wrapper. */\n    public static final class ProductRepository {\n        private final ReadWriteLockedResource<Map<String, Double>> products =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addProduct(String name, double price) {\n            products.writeVoid(map -> map.put(name, price));\n        }\n\n        public Double getPrice(String name) {\n            return products.read(map -> map.get(name));\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 2,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "5fe876d1bfe064534bacf01fba49e315453b76b9f1cdbbb0226c3b203a161c8d",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\n\n/** One read-write locking strategy, shared by every repository. */\npublic final class ReadWriteLockedResource<T> {\n\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    /** Guards this resource; a null resource is refused at once. */\n    public ReadWriteLockedResource(T resource) {\n        this.resource = resource;\n    }\n\n    /** Runs a read under the read lock and returns its result. */\n    public <R> R read(Function<T, R> readAction) {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n\n    /** Runs a write under the write lock. */\n    public void writeVoid(Consumer<T> writeAction) {\n        throw new UnsupportedOperationException(\"write writeVoid\");\n    }\n\n    /** Users by id, locked by the shared wrapper. */\n    public static final class UserRepository {\n        private final ReadWriteLockedResource<Map<String, String>> users =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addUser(String id, String name) {\n            users.writeVoid(map -> map.put(id, name));\n        }\n\n        public String getUser(String id) {\n            return users.read(map -> map.get(id));\n        }\n\n        public List<String> getAllUsers() {\n            return users.read(map -> new ArrayList<>(map.values()));\n        }\n    }\n\n    /** Prices by product name, locked by the same shared wrapper. */\n    public static final class ProductRepository {\n        private final ReadWriteLockedResource<Map<String, Double>> products =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addProduct(String name, double price) {\n            products.writeVoid(map -> map.put(name, price));\n        }\n\n        public Double getPrice(String name) {\n            return products.read(map -> map.get(name));\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/src/main/java/practice/ReadWriteLockedResource.java",
+    "test_path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/src/test/java/practice/ReadWriteLockedResourceTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ReadWriteLockedResourceTest#bothRepositoriesShareTheWrapper",
+        "kind": "main",
+        "says": "Both repositories store and read back through the shared wrapper."
+      },
+      {
+        "id": "practice.ReadWriteLockedResourceTest#readersDoNotBlockEachOther",
+        "kind": "edge",
+        "says": "Two readers are inside their read actions at the same time."
+      },
+      {
+        "id": "practice.ReadWriteLockedResourceTest#aWriterHoldsReadersBack",
+        "kind": "edge",
+        "says": "A reader waits while a writer is inside writeVoid."
+      },
+      {
+        "id": "practice.ReadWriteLockedResourceTest#nullsAreRefusedBeforeAnyLocking",
+        "kind": "edge",
+        "says": "A null resource is refused by the constructor, not later."
+      },
+      {
+        "id": "practice.ReadWriteLockedResourceTest#aNullActionIsRefusedWithoutWaiting",
+        "kind": "edge",
+        "says": "read(null) throws NullPointerException at once, even while a writer holds the lock: the check comes before any locking."
+      },
+      {
+        "id": "practice.ReadWriteLockedResourceTest#aThrowingActionStillReleasesTheLock",
+        "kind": "edge",
+        "says": "When a read action throws, its exception reaches the caller and the read lock is released: a later write goes through."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "33-dry-principle/README_8.3.3.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "A null resource or a null action is refused at once, before any locking happens.",
+      "Under a read-write lock, readers do not block each other, while a writer blocks everyone.",
+      "One ReadWriteLockedResource wrapper gives every repository the same locking, so a change of lock strategy is one edit."
+    ]
+  }
+}

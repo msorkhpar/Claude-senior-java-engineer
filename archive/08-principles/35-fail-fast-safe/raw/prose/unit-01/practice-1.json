@@ -1,0 +1,150 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "35-fail-fast-safe"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Build a fail-fast iterator on modCount",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "`ArrayList`, `HashMap` and the other `java.util` collections keep an `int` field, `modCount`, that moves on every structural change. Their iterators copy it when they are created, and check it on each iterator operation. The page shows the shape, simplified from `ArrayList`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "private class Itr implements Iterator<E> {\n    int expectedModCount = modCount; // snapshot at creation\n\n    public E next() {\n        checkForComodification(); // compare modCount == expectedModCount\n        // ... return next element\n    }\n\n    public void remove() {\n        checkForComodification();\n        // ... remove element from underlying list\n        expectedModCount = modCount; // re-sync after iterator's own modification\n    }\n\n    final void checkForComodification() {\n        if (modCount != expectedModCount)\n            throw new ConcurrentModificationException();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`TinyList<E>` is a small growable list. Its `add`, `get`, `size` and `removeAt` are written, and `add` and `removeAt` already move `modCount`. Write `iterator()`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "it returns the elements in order; `hasNext()` is `false` at the end, and `next()` there throws `NoSuchElementException`;",
+        "**the fail-fast check**: the iterator copies `modCount` when it is created. After any structural change made through the list, not through the iterator, the next `next()` throws `ConcurrentModificationException`. The check comes first in `next()`, before the end-of-list check, and it counts changes, not sizes: an `add` followed by a `removeAt` still trips it, and so does a change made before the first `next()`;",
+        "**`remove()` keeps the iterator in step**: it removes the element `next()` last returned, and iteration then carries on with the element after it, with no exception. `remove()` makes the same check first: after an outside change it throws `ConcurrentModificationException` and removes nothing;",
+        "`remove()` with no `next()` before it, or twice for one `next()`, throws `IllegalStateException` and removes nothing."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.NoSuchElementException;\nimport java.util.Objects;\n\n/** A small growable list whose iterator is fail-fast. The list part is written; write iterator(). */\npublic class TinyList<E> implements Iterable<E> {\n\n    private Object[] items = new Object[4];\n    private int size;\n    /** Moves on every structural change: add and removeAt. */\n    private int modCount;\n\n    public void add(E item) {\n        if (size == items.length) {\n            items = Arrays.copyOf(items, size * 2);\n        }\n        items[size++] = item;\n        modCount++;\n    }\n\n    @SuppressWarnings(\"unchecked\")\n    public E get(int index) {\n        Objects.checkIndex(index, size);\n        return (E) items[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public void removeAt(int index) {\n        Objects.checkIndex(index, size);\n        System.arraycopy(items, index + 1, items, index, size - index - 1);\n        items[--size] = null;\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        return new Iterator<>() {\n            private int cursor;\n            private int lastReturned = -1;\n            private int expectedModCount = modCount;\n\n            @Override\n            public boolean hasNext() {\n                return cursor < size;\n            }\n\n            @Override\n            public E next() {\n                checkForComodification();\n                if (cursor >= size) {\n                    throw new NoSuchElementException();\n                }\n                lastReturned = cursor++;\n                return get(lastReturned);\n            }\n\n            @Override\n            public void remove() {\n                if (lastReturned < 0) {\n                    throw new IllegalStateException(\"remove() needs a next() first\");\n                }\n                checkForComodification();\n                removeAt(lastReturned);\n                cursor = lastReturned;\n                lastReturned = -1;\n                expectedModCount = modCount;\n            }\n\n            private void checkForComodification() {\n                if (modCount != expectedModCount) {\n                    throw new ConcurrentModificationException();\n                }\n            }\n        };\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.NoSuchElementException;\nimport java.util.Objects;\n\n/** A small growable list whose iterator is fail-fast. The list part is written; write iterator(). */\npublic class TinyList<E> implements Iterable<E> {\n\n    private Object[] items = new Object[4];\n    private int size;\n    /** Moves on every structural change: add and removeAt. */\n    private int modCount;\n\n    public void add(E item) {\n        if (size == items.length) {\n            items = Arrays.copyOf(items, size * 2);\n        }\n        items[size++] = item;\n        modCount++;\n    }\n\n    @SuppressWarnings(\"unchecked\")\n    public E get(int index) {\n        Objects.checkIndex(index, size);\n        return (E) items[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public void removeAt(int index) {\n        Objects.checkIndex(index, size);\n        System.arraycopy(items, index + 1, items, index, size - index - 1);\n        items[--size] = null;\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        throw new UnsupportedOperationException(\"write iterator\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "44551540c8a492a0c3fb0eccda2f4428555df735ca84242a6d24dc9df17b1b5c",
+  "starting_code": "package practice;\n\nimport java.util.Arrays;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.NoSuchElementException;\nimport java.util.Objects;\n\n/** A small growable list whose iterator is fail-fast. The list part is written; write iterator(). */\npublic class TinyList<E> implements Iterable<E> {\n\n    private Object[] items = new Object[4];\n    private int size;\n    /** Moves on every structural change: add and removeAt. */\n    private int modCount;\n\n    public void add(E item) {\n        if (size == items.length) {\n            items = Arrays.copyOf(items, size * 2);\n        }\n        items[size++] = item;\n        modCount++;\n    }\n\n    @SuppressWarnings(\"unchecked\")\n    public E get(int index) {\n        Objects.checkIndex(index, size);\n        return (E) items[index];\n    }\n\n    public int size() {\n        return size;\n    }\n\n    public void removeAt(int index) {\n        Objects.checkIndex(index, size);\n        System.arraycopy(items, index + 1, items, index, size - index - 1);\n        items[--size] = null;\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        throw new UnsupportedOperationException(\"write iterator\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/src/main/java/practice/TinyList.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/src/test/java/practice/TinyListTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.TinyListTest#iteratesInOrder",
+        "kind": "main",
+        "says": "The iterator returns a, b, c in order and then reports the end."
+      },
+      {
+        "id": "practice.TinyListTest#aWriteOutsideTheIteratorFailsTheNextNext",
+        "kind": "edge",
+        "says": "After list.add(\"d\") in the middle of a traversal, the next next() throws ConcurrentModificationException."
+      },
+      {
+        "id": "practice.TinyListTest#iteratorRemoveKeepsTheIteratorInStep",
+        "kind": "edge",
+        "says": "Removing b and c through the iterator visits all four elements and leaves [a, d]."
+      },
+      {
+        "id": "practice.TinyListTest#removeAlsoChecksForOutsideChanges",
+        "kind": "edge",
+        "says": "After list.add(\"c\") outside the iterator, remove() throws ConcurrentModificationException and removes nothing."
+      },
+      {
+        "id": "practice.TinyListTest#removeNeedsANextBeforeIt",
+        "kind": "edge",
+        "says": "remove() before any next(), or twice for one next(), throws IllegalStateException."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/35-fail-fast-safe/prose/unit-01/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "35-fail-fast-safe/README_8.5.1.md",
+      "section": "Fail-Fast Iterators"
+    },
+    "concepts": [
+      "A fail-fast iterator copies the collection's modCount when it is created, and next() throws ConcurrentModificationException once a structural change made outside the iterator moves it.",
+      "Iterator.remove() removes the element next() last returned, re-syncs the iterator's expected count, and throws IllegalStateException without a preceding next()."
+    ]
+  }
+}

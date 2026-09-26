@@ -1,0 +1,148 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "31-solid-principles"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Split a class that stores users and sends notifications",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's pitfall is a class with more than one reason to change. This one stores users, validates them **and** announces them, so a change to the notification text and a change to how users are kept both land in the same class:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public static class UserServiceViolation {\n    private final Map<String, String> users = new ConcurrentHashMap<>();\n    private final List<String> notifications = new CopyOnWriteArrayList<>();\n\n    public void createUser(String id, String name) {\n        // validates id and name, stores the user, then records \"User created: \" + name\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Split it in `Users` into three nested classes, one responsibility each:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`UserRepository` keeps users, one per id. `save(id, name)` throws `IllegalArgumentException` when either is null or blank, and saving an id again replaces its name. `findById(id)` returns an `Optional`, and `count()` says how many users are kept.",
+        "`NotificationService` sends notifications. `send(message)` rejects a null or blank message with `IllegalArgumentException`, and `sent()` lists what was sent, in order.",
+        "`UserService` coordinates the use case. It is **composed through its constructor** from the repository and the notifier it is given, and rejects a null one with `Objects.requireNonNull`. `createUser(id, name)` saves the user and then sends `\"User created: \" + name`; `findUser(id)` asks the repository."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "For example, after `createUser(\"u1\", \"Alice\")` the service finds `\"Alice\"` under `\"u1\"`, and the notifier has sent `\"User created: Alice\"`. A user that fails validation is neither saved nor announced. (The tests cannot see which of save and send runs first when both succeed, so that order is the page's advice rather than a graded step.)"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\npublic final class Users {\n\n    private Users() {\n    }\n\n    /** Responsibility 1: keeping users. */\n    public static final class UserRepository {\n        private final Map<String, String> users = new ConcurrentHashMap<>();\n\n        public void save(String id, String name) {\n            if (id == null || id.isBlank()) {\n                throw new IllegalArgumentException(\"User ID cannot be null or blank\");\n            }\n            if (name == null || name.isBlank()) {\n                throw new IllegalArgumentException(\"User name cannot be null or blank\");\n            }\n            users.put(id, name);\n        }\n\n        public Optional<String> findById(String id) {\n            return Optional.ofNullable(users.get(id));\n        }\n\n        public int count() {\n            return users.size();\n        }\n    }\n\n    /** Responsibility 2: sending notifications. */\n    public static final class NotificationService {\n        private final List<String> sent = new CopyOnWriteArrayList<>();\n\n        public void send(String message) {\n            if (message == null || message.isBlank()) {\n                throw new IllegalArgumentException(\"Notification message cannot be null or blank\");\n            }\n            sent.add(message);\n        }\n\n        public List<String> sent() {\n            return List.copyOf(sent);\n        }\n    }\n\n    /** Responsibility 3: coordinating the use case. */\n    public static final class UserService {\n        private final UserRepository repository;\n        private final NotificationService notifications;\n\n        public UserService(UserRepository repository, NotificationService notifications) {\n            this.repository = Objects.requireNonNull(repository);\n            this.notifications = Objects.requireNonNull(notifications);\n        }\n\n        public void createUser(String id, String name) {\n            repository.save(id, name);\n            notifications.send(\"User created: \" + name);\n        }\n\n        public Optional<String> findUser(String id) {\n            return repository.findById(id);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Users {\n\n    private Users() {\n    }\n\n    /** Responsibility 1: keeping users. */\n    public static final class UserRepository {\n\n        public void save(String id, String name) {\n            throw new UnsupportedOperationException(\"write save\");\n        }\n\n        public Optional<String> findById(String id) {\n            throw new UnsupportedOperationException(\"write findById\");\n        }\n\n        public int count() {\n            throw new UnsupportedOperationException(\"write count\");\n        }\n    }\n\n    /** Responsibility 2: sending notifications. */\n    public static final class NotificationService {\n\n        public void send(String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        public List<String> sent() {\n            throw new UnsupportedOperationException(\"write sent\");\n        }\n    }\n\n    /** Responsibility 3: coordinating the use case. */\n    public static final class UserService {\n\n        public UserService(UserRepository repository, NotificationService notifications) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public void createUser(String id, String name) {\n            throw new UnsupportedOperationException(\"write createUser\");\n        }\n\n        public Optional<String> findUser(String id) {\n            throw new UnsupportedOperationException(\"write findUser\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "1dd1555e3906dc2b525c4e28a2e18f15d1c67c9851468af87b822f4f26443c5e",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Users {\n\n    private Users() {\n    }\n\n    /** Responsibility 1: keeping users. */\n    public static final class UserRepository {\n\n        public void save(String id, String name) {\n            throw new UnsupportedOperationException(\"write save\");\n        }\n\n        public Optional<String> findById(String id) {\n            throw new UnsupportedOperationException(\"write findById\");\n        }\n\n        public int count() {\n            throw new UnsupportedOperationException(\"write count\");\n        }\n    }\n\n    /** Responsibility 2: sending notifications. */\n    public static final class NotificationService {\n\n        public void send(String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        public List<String> sent() {\n            throw new UnsupportedOperationException(\"write sent\");\n        }\n    }\n\n    /** Responsibility 3: coordinating the use case. */\n    public static final class UserService {\n\n        public UserService(UserRepository repository, NotificationService notifications) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public void createUser(String id, String name) {\n            throw new UnsupportedOperationException(\"write createUser\");\n        }\n\n        public Optional<String> findUser(String id) {\n            throw new UnsupportedOperationException(\"write findUser\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-1/src/main/java/practice/Users.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-1/src/test/java/practice/UsersTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-01/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-01/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.UsersTest#createsAndAnnouncesAUser",
+        "kind": "main",
+        "says": "Creating Alice and Bob finds both through the service and announces both, in order."
+      },
+      {
+        "id": "practice.UsersTest#anInvalidUserIsNeitherSavedNorAnnounced",
+        "kind": "edge",
+        "says": "A user with a blank name or a null id is rejected, and nothing is saved or announced."
+      },
+      {
+        "id": "practice.UsersTest#theServiceUsesTheRepositoryItIsGiven",
+        "kind": "edge",
+        "says": "The service reads and writes the repository passed to its constructor, not one of its own."
+      },
+      {
+        "id": "practice.UsersTest#aMissingCollaboratorIsRejected",
+        "kind": "edge",
+        "says": "Constructing the service with a null repository or a null notifier throws NullPointerException."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "31-solid-principles/README_8.1.1.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "The coordinating service is composed from the focused classes it is given through its constructor, and rejects a missing one with Objects.requireNonNull.",
+      "A class that stores users and also sends notifications is split into a repository, a notifier and a service that coordinates them."
+    ]
+  }
+}

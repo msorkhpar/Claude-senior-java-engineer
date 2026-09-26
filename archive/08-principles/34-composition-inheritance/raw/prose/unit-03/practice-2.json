@@ -1,0 +1,144 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "Inject the sender and formatter a service composes",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Composition makes a service testable: it receives its parts through the constructor, so a test can hand it an in-memory sender that records what was sent. The page's design:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface NotificationSender {\n    boolean send(String recipient, String message);\n}\n\ninterface MessageFormatter {\n    String format(String template, Map<String, String> variables);\n}"
+    },
+    {
+      "type": "para",
+      "text": "Both interfaces are given. Write `TemplateFormatter` and `NotificationService` in `Notifications`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`TemplateFormatter.format` replaces **every** `${key}` with its value, and leaves a placeholder with no value as it is: `\"Hi ${name}, bye ${name}! ${missing}\"` with `name = Ann` is `\"Hi Ann, bye Ann! ${missing}\"`. A key is whatever lies between `${` and `}` (so `${user.name}` works), and a value is inserted exactly as it is: `$5` stays `$5`, and a value that looks like a placeholder, such as `${b}`, is not expanded again;",
+        "`new NotificationService(sender, formatter)` keeps **the parts it is given**, and `notify(recipient, template, variables)` formats with that formatter and sends with that sender. With a recording sender, `notify(\"admin\", \"Alert: ${event}\", {event=login})` sends `\"Alert: login\"` to `admin` and returns `true`;",
+        "`notify` returns what the sender returned, and counts it: `getSuccessCount()` counts sends that returned `true`, `getFailureCount()` those that returned `false`. The page keeps both counts in `AtomicInteger`s so concurrent calls can share the service; the tests here check the counts one call at a time, and do not grade that choice."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** A notification service composed from a formatter and a sender it is given. */\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface NotificationSender {\n        boolean send(String recipient, String message);\n    }\n\n    public interface MessageFormatter {\n        String format(String template, Map<String, String> variables);\n    }\n\n    /** Replaces every ${key} in the template with its value; unknown placeholders stay. */\n    public static final class TemplateFormatter implements MessageFormatter {\n        @Override\n        public String format(String template, Map<String, String> variables) {\n            StringBuilder out = new StringBuilder();\n            int from = 0;\n            while (true) {\n                int open = template.indexOf(\"${\", from);\n                int close = open < 0 ? -1 : template.indexOf('}', open + 2);\n                if (close < 0) {\n                    return out.append(template, from, template.length()).toString();\n                }\n                String value = variables.get(template.substring(open + 2, close));\n                out.append(template, from, open);\n                out.append(value != null ? value : template.substring(open, close + 1));\n                from = close + 1;\n            }\n        }\n    }\n\n    public static final class NotificationService {\n        private final NotificationSender sender;\n        private final MessageFormatter formatter;\n        private final AtomicInteger successCount = new AtomicInteger();\n        private final AtomicInteger failureCount = new AtomicInteger();\n\n        public NotificationService(NotificationSender sender, MessageFormatter formatter) {\n            this.sender = Objects.requireNonNull(sender, \"sender\");\n            this.formatter = Objects.requireNonNull(formatter, \"formatter\");\n        }\n\n        /** Formats the template with the injected formatter, sends it, and counts the outcome. */\n        public boolean notify(String recipient, String template, Map<String, String> variables) {\n            String message = formatter.format(template, variables);\n            boolean sent = sender.send(recipient, message);\n            if (sent) {\n                successCount.incrementAndGet();\n            } else {\n                failureCount.incrementAndGet();\n            }\n            return sent;\n        }\n\n        public int getSuccessCount() {\n            return successCount.get();\n        }\n\n        public int getFailureCount() {\n            return failureCount.get();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** A notification service composed from a formatter and a sender it is given. */\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface NotificationSender {\n        boolean send(String recipient, String message);\n    }\n\n    public interface MessageFormatter {\n        String format(String template, Map<String, String> variables);\n    }\n\n    /** Replaces every ${key} in the template with its value; unknown placeholders stay. */\n    public static final class TemplateFormatter implements MessageFormatter {\n        @Override\n        public String format(String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write format\");\n        }\n    }\n\n    public static final class NotificationService {\n        private final NotificationSender sender;\n        private final MessageFormatter formatter;\n        private final AtomicInteger successCount = new AtomicInteger();\n        private final AtomicInteger failureCount = new AtomicInteger();\n\n        public NotificationService(NotificationSender sender, MessageFormatter formatter) {\n            this.sender = Objects.requireNonNull(sender, \"sender\");\n            this.formatter = Objects.requireNonNull(formatter, \"formatter\");\n        }\n\n        /** Formats the template with the injected formatter, sends it, and counts the outcome. */\n        public boolean notify(String recipient, String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write notify\");\n        }\n\n        public int getSuccessCount() {\n            throw new UnsupportedOperationException(\"write getSuccessCount\");\n        }\n\n        public int getFailureCount() {\n            throw new UnsupportedOperationException(\"write getFailureCount\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "6421a54b82fe7bbdc4dc69be26140d3a97438971dd47c61d77c3b890f591e4a6",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** A notification service composed from a formatter and a sender it is given. */\npublic final class Notifications {\n\n    private Notifications() {\n    }\n\n    public interface NotificationSender {\n        boolean send(String recipient, String message);\n    }\n\n    public interface MessageFormatter {\n        String format(String template, Map<String, String> variables);\n    }\n\n    /** Replaces every ${key} in the template with its value; unknown placeholders stay. */\n    public static final class TemplateFormatter implements MessageFormatter {\n        @Override\n        public String format(String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write format\");\n        }\n    }\n\n    public static final class NotificationService {\n        private final NotificationSender sender;\n        private final MessageFormatter formatter;\n        private final AtomicInteger successCount = new AtomicInteger();\n        private final AtomicInteger failureCount = new AtomicInteger();\n\n        public NotificationService(NotificationSender sender, MessageFormatter formatter) {\n            this.sender = Objects.requireNonNull(sender, \"sender\");\n            this.formatter = Objects.requireNonNull(formatter, \"formatter\");\n        }\n\n        /** Formats the template with the injected formatter, sends it, and counts the outcome. */\n        public boolean notify(String recipient, String template, Map<String, String> variables) {\n            throw new UnsupportedOperationException(\"write notify\");\n        }\n\n        public int getSuccessCount() {\n            throw new UnsupportedOperationException(\"write getSuccessCount\");\n        }\n\n        public int getFailureCount() {\n            throw new UnsupportedOperationException(\"write getFailureCount\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/main/java/practice/Notifications.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/src/test/java/practice/NotificationsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.NotificationsTest#formatsAndSends",
+        "kind": "main",
+        "says": "notify(\"admin\", \"Alert: ${event}\", {event=login}) sends \"Alert: login\" and counts one success."
+      },
+      {
+        "id": "practice.NotificationsTest#aRefusedSendIsCountedAsAFailure",
+        "kind": "edge",
+        "says": "A send that returns false makes notify return false and is counted as a failure."
+      },
+      {
+        "id": "practice.NotificationsTest#theServiceUsesTheFormatterItIsGiven",
+        "kind": "edge",
+        "says": "A service given an upper-casing formatter sends the upper-cased template: it uses the injected formatter."
+      },
+      {
+        "id": "practice.NotificationsTest#everyPlaceholderIsReplaced",
+        "kind": "edge",
+        "says": "Every placeholder is replaced, unknown ones stay, keys may hold a dot, and values ($5, ${b}) are inserted as they are."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "34-composition-inheritance/README_8.4.3.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Dependencies injected through the constructor can be replaced by test doubles, so each composed part is tested in isolation.",
+      "A template formatter replaces every ${key} placeholder with its value."
+    ]
+  }
+}

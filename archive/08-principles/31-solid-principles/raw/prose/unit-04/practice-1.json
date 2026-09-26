@@ -1,0 +1,149 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "31-solid-principles"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Split a fat data store into roles",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's fat interface forces every store to offer every operation, so a read-only store ends up with write methods that can only throw:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "class ReadOnlyStore implements DataStore {\n    public void write(String k, String v) {\n        throw new UnsupportedOperationException(); // ISP violation signal!\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "**Clients should not be forced to depend on methods they do not use.** In `Stores`, the fine-grained interfaces are given: `Readable` (`read`, `exists`), `Writable` (`write`, `delete`) and `Listable` (`listKeys`, `size`, `isEmpty`). Write the two stores:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`ReadWriteStore` implements all three, on a `ConcurrentHashMap`;",
+        "`ReadOnlyStore(Map)` implements **only the roles it can honour**, `Readable` and `Listable`, so it has no write method at all. The starter's `ReadOnlyStore` still implements `Writable` and refuses its methods: take that role away."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "`read` of a missing key is `null`, and `listKeys()` lists the keys in sorted order in both stores, whatever order the underlying map keeps them in. As the page's edge cases say, a read-only store wraps **its own immutable copy** of the map it was given, whatever kind of map that is, so later changes to that map do not reach it (the tests see that; whether your copy is itself immutable, rather than a private map nobody writes, they cannot see), and a `null` map gives an empty store whose `listKeys()` is an empty list, not `null`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Stores {\n\n    private Stores() {\n    }\n\n    public interface Readable<K, V> {\n        V read(K key);\n\n        boolean exists(K key);\n    }\n\n    public interface Writable<K, V> {\n        void write(K key, V value);\n\n        void delete(K key);\n    }\n\n    public interface Listable<K> {\n        List<K> listKeys();\n\n        int size();\n\n        boolean isEmpty();\n    }\n\n    public static final class ReadWriteStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n        private final Map<String, String> data = new ConcurrentHashMap<>();\n\n        public String read(String key) {\n            return data.get(key);\n        }\n\n        public boolean exists(String key) {\n            return data.containsKey(key);\n        }\n\n        public void write(String key, String value) {\n            data.put(key, value);\n        }\n\n        public void delete(String key) {\n            data.remove(key);\n        }\n\n        public List<String> listKeys() {\n            return data.keySet().stream().sorted().toList();\n        }\n\n        public int size() {\n            return data.size();\n        }\n\n        public boolean isEmpty() {\n            return data.isEmpty();\n        }\n    }\n\n    public static final class ReadOnlyStore implements Readable<String, String>, Listable<String> {\n        private final Map<String, String> data;\n\n        public ReadOnlyStore(Map<String, String> data) {\n            this.data = data == null ? Map.of() : Map.copyOf(data);\n        }\n\n        public String read(String key) {\n            return data.get(key);\n        }\n\n        public boolean exists(String key) {\n            return data.containsKey(key);\n        }\n\n        public List<String> listKeys() {\n            return data.keySet().stream().sorted().toList();\n        }\n\n        public int size() {\n            return data.size();\n        }\n\n        public boolean isEmpty() {\n            return data.isEmpty();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class Stores {\n\n    private Stores() {\n    }\n\n    public interface Readable<K, V> {\n        V read(K key);\n\n        boolean exists(K key);\n    }\n\n    public interface Writable<K, V> {\n        void write(K key, V value);\n\n        void delete(K key);\n    }\n\n    public interface Listable<K> {\n        List<K> listKeys();\n\n        int size();\n\n        boolean isEmpty();\n    }\n\n    public static final class ReadWriteStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"write delete\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n\n    /** Before the split: it implements Writable, whose methods it can only refuse. */\n    public static final class ReadOnlyStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public ReadOnlyStore(Map<String, String> data) {\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "a9653903a9b421aa47b75e50dfc5072335c4904eb7b6546579a9af41a3ff402c",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class Stores {\n\n    private Stores() {\n    }\n\n    public interface Readable<K, V> {\n        V read(K key);\n\n        boolean exists(K key);\n    }\n\n    public interface Writable<K, V> {\n        void write(K key, V value);\n\n        void delete(K key);\n    }\n\n    public interface Listable<K> {\n        List<K> listKeys();\n\n        int size();\n\n        boolean isEmpty();\n    }\n\n    public static final class ReadWriteStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"write delete\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n\n    /** Before the split: it implements Writable, whose methods it can only refuse. */\n    public static final class ReadOnlyStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public ReadOnlyStore(Map<String, String> data) {\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/src/main/java/practice/Stores.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/src/test/java/practice/StoresTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.StoresTest#bothStoresReadAndList",
+        "kind": "main",
+        "says": "Both stores read, check and list their keys; the read-write store also writes and deletes."
+      },
+      {
+        "id": "practice.StoresTest#aReadOnlyStoreOffersNoWriteMethods",
+        "kind": "edge",
+        "says": "ReadOnlyStore is not a Writable, while ReadWriteStore is."
+      },
+      {
+        "id": "practice.StoresTest#aReadOnlyStoreKeepsItsOwnCopy",
+        "kind": "edge",
+        "says": "Changing the map after building a read-only store does not change what the store reads or lists."
+      },
+      {
+        "id": "practice.StoresTest#aNullMapIsAnEmptyStore",
+        "kind": "edge",
+        "says": "A read-only store built from null is empty and lists no keys."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "31-solid-principles/README_8.1.4.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "Clients should not be forced to depend on methods they do not use, so one fat interface becomes several focused ones.",
+      "Read, write and listing operations sit in separate interfaces, so a read-only store implements only the ones it can honour.",
+      "A read-only store wraps its own immutable copy of the data, and a null map gives an empty store whose key list is empty, not null.",
+      "An implementation that throws UnsupportedOperationException for an interface method is the signal that it implements an interface too fat for it."
+    ]
+  }
+}
