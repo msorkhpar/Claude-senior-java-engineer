@@ -48,13 +48,13 @@
 <ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b22.i1-a0226998.mp3"><strong>JEP 444: Virtual Threads</strong> — The implementation is based on <code>Continuation</code> (internal API) and uses a dedicated <code>ForkJoinPool</code> for scheduling.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b22.i2-2d4857da.mp3"><strong>Improved `synchronized` behavior</strong> — Java 24 (JEP 491) removes pinning for <code>synchronized</code> blocks, but in Java 21, pinning is still a concern.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b22.i3-e2fbaabd.mp3"><strong>JFR events for virtual threads</strong> — <code>jdk.VirtualThreadStart</code>, <code>jdk.VirtualThreadEnd</code>, <code>jdk.VirtualThreadPinned</code> events for monitoring.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b22.i4-631d5f91.mp3"><strong>`-Djdk.tracePinnedThreads=full|short`</strong> — JVM flag to detect pinning at runtime (prints stack trace when a virtual thread is pinned).</li></ul>
 <h3 id="prose-b22" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b23-0016773a.mp3">Monitoring Pinning</h3>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b24-d4df0ddc.mp3">Java 21 provides a system property to help detect pinning:</p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b25-9199f4ec.mp3"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># Print stack trace when a virtual thread is pinned
+<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># Print stack trace when a virtual thread is pinned
 java -Djdk.tracePinnedThreads=full MyApp
 
 # Print shorter output
 java -Djdk.tracePinnedThreads=short MyApp</code></pre></figure>
 <h2 id="prose-b25" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b26-140f6f78.mp3">Common Pitfalls and How to Avoid Them</h2>
-<ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i1-5c55fb25.mp3"><strong>Using `synchronized` blocks with blocking operations inside</strong> — This pins the virtual thread to its carrier, reducing concurrency.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// PROBLEMATIC: Pinning - carrier thread is blocked
+<ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i1-ea69b2a0.mp3"><strong>Using `synchronized` blocks with blocking operations inside</strong> — This pins the virtual thread to its carrier, reducing concurrency.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// PROBLEMATIC: Pinning - carrier thread is blocked
 synchronized (lock) {
     Thread.sleep(1000); // Virtual thread is pinned during sleep
     result = fetchFromDatabase();
@@ -68,7 +68,7 @@ try {
     result = fetchFromDatabase();
 } finally {
     lock.unlock();
-}</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i2-f1e1756d.mp3"><strong>Assuming virtual threads make code faster</strong> — Virtual threads improve throughput (more concurrent tasks), not latency (individual task speed).<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// MISCONCEPTION: This single task won't run faster on a virtual thread
+}</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i2-dd27859c.mp3"><strong>Assuming virtual threads make code faster</strong> — Virtual threads improve throughput (more concurrent tasks), not latency (individual task speed).<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// MISCONCEPTION: This single task won't run faster on a virtual thread
 Thread.startVirtualThread(() -&gt; {
     // CPU-bound computation takes the same time on virtual or platform thread
     double result = computePI(1_000_000);
@@ -79,18 +79,18 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
     for (var url : urls) {
         executor.submit(() -&gt; fetchUrl(url)); // Each blocks on I/O
     }
-} // Handles thousands of concurrent I/O operations efficiently</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i3-d83d9b3a.mp3"><strong>Treating virtual thread thread-group as configurable</strong> — Virtual threads always belong to the &quot;VirtualThreads&quot; group.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// This does NOT change the virtual thread's group
+} // Handles thousands of concurrent I/O operations efficiently</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i3-a6880ae3.mp3"><strong>Treating virtual thread thread-group as configurable</strong> — Virtual threads always belong to the &quot;VirtualThreads&quot; group.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// This does NOT change the virtual thread's group
 ThreadGroup myGroup = new ThreadGroup(&quot;my-group&quot;);
 // Thread.ofVirtual() does not accept a ThreadGroup parameter
 Thread vt = Thread.ofVirtual().unstarted(() -&gt; {});
-System.out.println(vt.getThreadGroup().getName()); // &quot;VirtualThreads&quot;</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i4-06230d8c.mp3"><strong>Using `Thread.getAllStackTraces()` to monitor virtual threads</strong> — This method does not include virtual threads. Use JFR or thread dumps via <code>jcmd</code> instead.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// WRONG: Does not show virtual threads
+System.out.println(vt.getThreadGroup().getName()); // &quot;VirtualThreads&quot;</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i4-31a8c67b.mp3"><strong>Using `Thread.getAllStackTraces()` to monitor virtual threads</strong> — This method does not include virtual threads. Use JFR or thread dumps via <code>jcmd</code> instead.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// WRONG: Does not show virtual threads
 Map&lt;Thread, StackTraceElement[]&gt; all = Thread.getAllStackTraces();
 
 // CORRECT: Use jcmd for thread dumps that include virtual threads
-// jcmd &lt;pid&gt; Thread.dump_to_file -format=json output.json</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i5-52ee81dc.mp3"><strong>Comparing performance using small numbers of tasks</strong> — Virtual threads show their advantage only when the number of concurrent tasks significantly exceeds the number of available platform threads.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// WRONG benchmark: 10 tasks - no visible difference
+// jcmd &lt;pid&gt; Thread.dump_to_file -format=json output.json</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b27.i5-52e6da48.mp3"><strong>Comparing performance using small numbers of tasks</strong> — Virtual threads show their advantage only when the number of concurrent tasks significantly exceeds the number of available platform threads.<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// WRONG benchmark: 10 tasks - no visible difference
 // CORRECT benchmark: 10,000+ I/O-bound tasks to see the difference</code></pre></figure></li></ol>
 <h2 id="prose-b27" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b28-26690257.mp3">Best Practices and Optimization Techniques</h2>
-<ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i1-1ad8fc80.mp3"><strong>Replace `synchronized` with `ReentrantLock`</strong> in code that will run on virtual threads, especially if blocking operations occur inside the critical section.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i2-e503c889.mp3"><strong>Use `-Djdk.tracePinnedThreads=short`</strong> during development and testing to detect pinning early.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i3-21b6572c.mp3"><strong>Use semaphores to limit resource access</strong>, not thread pools:<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">Semaphore dbSemaphore = new Semaphore(20);
+<ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i1-1ad8fc80.mp3"><strong>Replace `synchronized` with `ReentrantLock`</strong> in code that will run on virtual threads, especially if blocking operations occur inside the critical section.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i2-e503c889.mp3"><strong>Use `-Djdk.tracePinnedThreads=short`</strong> during development and testing to detect pinning early.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i3-4f8c7c67.mp3"><strong>Use semaphores to limit resource access</strong>, not thread pools:<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">Semaphore dbSemaphore = new Semaphore(20);
 try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
     for (var query : queries) {
         executor.submit(() -&gt; {
@@ -102,7 +102,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             }
         });
     }
-}</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i4-d7c916d4.mp3"><strong>Profile with JFR</strong> to understand virtual thread behavior in production:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain">java -XX:StartFlightRecording=filename=recording.jfr,duration=60s MyApp</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i5-b77289a1.mp3"><strong>Migrate gradually</strong> — Start by replacing <code>Executors.newFixedThreadPool()</code> with <code>Executors.newVirtualThreadPerTaskExecutor()</code> for I/O-bound services.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i6-4ddc373b.mp3"><strong>Test with realistic load</strong> — Virtual thread benefits are most visible under high concurrency. Test with thousands of concurrent tasks to validate throughput improvements.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i7-a7e9cf3f.mp3"><strong>Avoid deep synchronized nesting</strong> — Deeply nested synchronized blocks increase the risk and duration of pinning.</li></ol>
+}</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i4-9262009b.mp3"><strong>Profile with JFR</strong> to understand virtual thread behavior in production:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain">java -XX:StartFlightRecording=filename=recording.jfr,duration=60s MyApp</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i5-b77289a1.mp3"><strong>Migrate gradually</strong> — Start by replacing <code>Executors.newFixedThreadPool()</code> with <code>Executors.newVirtualThreadPerTaskExecutor()</code> for I/O-bound services.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i6-4ddc373b.mp3"><strong>Test with realistic load</strong> — Virtual thread benefits are most visible under high concurrency. Test with thousands of concurrent tasks to validate throughput improvements.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b29.i7-a7e9cf3f.mp3"><strong>Avoid deep synchronized nesting</strong> — Deeply nested synchronized blocks increase the risk and duration of pinning.</li></ol>
 <h2 id="prose-b29" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b30-807b7ebc.mp3">Edge Cases and Their Handling</h2>
 <ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b31.i1-36e4e89a.mp3"><strong>Virtual thread joining itself</strong>: Calling <code>join()</code> on the current thread is not detected: without a timeout it waits forever, and <code>join(millis)</code> simply returns after the timeout — the same as for platform threads.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b31.i2-feb52e21.mp3"><strong>Exhausting carrier threads due to pinning</strong>: The scheduler does not compensate for pinning inside <code>synchronized</code> (for example <code>sleep()</code> or socket I/O while holding a monitor): if every carrier is pinned, other virtual threads wait. It does temporarily add carrier threads (up to <code>jdk.virtualThreadScheduler.maxPoolSize</code>) for operations that capture the carrier, such as <code>Object.wait()</code> and most file I/O.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b31.i3-20dcb00b.mp3"><strong>Thread.sleep(0)</strong>: On virtual threads, <code>Thread.sleep(0)</code> yields the virtual thread, potentially allowing other virtual threads to run on the carrier. On platform threads, it may or may not yield.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b31.i4-7c1d075c.mp3"><strong>Virtual threads and `Object.wait()`</strong>: Virtual threads can call <code>wait()</code> on monitors. However, if the monitor was entered via <code>synchronized</code>, the virtual thread is pinned while waiting.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b31.i5-a7beecdc.mp3"><strong>`InheritableThreadLocal` with virtual threads</strong>: Works as expected — child virtual threads inherit values from the parent. But be cautious of memory consumption at scale.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b31.i6-e047f182.mp3"><strong>Creating virtual threads inside `synchronized` blocks</strong>: The virtual thread itself is not pinned just because it was created inside a synchronized block; it only pins when it enters its own synchronized block.</li></ol>
 <h2 id="prose-b31" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b32-07117973.mp3">Interview-specific Insights</h2>
@@ -112,7 +112,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 <ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b36.i1-303b11e5.mp3">Be prepared to sketch the mounting/unmounting lifecycle of a virtual thread on a carrier thread</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b36.i2-2a4aa3ef.mp3">Know how to refactor <code>synchronized</code> to <code>ReentrantLock</code> for virtual thread compatibility</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b36.i3-9d1d535d.mp3">Demonstrate migrating a <code>newFixedThreadPool</code> to <code>newVirtualThreadPerTaskExecutor</code></li></ul>
 <h2 id="prose-b36" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b37-3c3cabb5.mp3">Interview Q&amp;A Section</h2>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b38-b43072fe.mp3"><strong>Q1: What are the key differences between virtual threads and platform threads?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b39-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A1: The differences span several dimensions:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A1: The differences span several dimensions:
 
 1. Resource consumption:
    - Platform threads: ~1 MB stack, one OS thread each
@@ -141,7 +141,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 7. Best use case:
    - Platform threads: CPU-bound work
    - Virtual threads: I/O-bound work with high concurrency</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b40-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Platform thread: expensive, limited scalability
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Platform thread: expensive, limited scalability
 Thread platform = Thread.ofPlatform()
         .name(&quot;platform-worker&quot;)
         .daemon(false)                    // Can be non-daemon
@@ -160,7 +160,7 @@ Thread virtual = Thread.ofVirtual()
 System.out.println(virtual.isVirtual()); // true
 System.out.println(virtual.isDaemon());  // always true</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b41-59a991b1.mp3"><strong>Q2: What is thread pinning and how do you avoid it?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b42-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A2: Thread pinning occurs when a virtual thread cannot unmount from its carrier
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A2: Thread pinning occurs when a virtual thread cannot unmount from its carrier
 thread at a blocking point. This happens in two scenarios:
 
 1. When a virtual thread blocks inside a synchronized block or method
@@ -186,7 +186,7 @@ How to avoid pinning:
 Note: Pinning for short, non-blocking synchronized sections is usually harmless.
 The concern is when blocking operations (sleep, I/O, lock wait) happen inside
 synchronized blocks.</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b43-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// PROBLEMATIC: Pinning due to synchronized + blocking
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// PROBLEMATIC: Pinning due to synchronized + blocking
 public class PinningExample {
     private final Object lock = new Object();
 
@@ -223,7 +223,7 @@ public class NoPinningExample {
     }
 }</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b44-b0309afb.mp3"><strong>Q3: When should you use platform threads instead of virtual threads?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b45-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A3: Platform threads remain the better choice in several scenarios:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A3: Platform threads remain the better choice in several scenarios:
 
 1. CPU-bound computation:
    Virtual threads provide no benefit for CPU-intensive tasks because there are
@@ -253,7 +253,7 @@ public class NoPinningExample {
 
 Rule of thumb: Use virtual threads for I/O-bound work, platform threads for
 CPU-bound work.</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b46-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// CPU-bound: Use platform thread pool
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// CPU-bound: Use platform thread pool
 ExecutorService cpuPool = Executors.newFixedThreadPool(
         Runtime.getRuntime().availableProcessors());
 try {
@@ -275,7 +275,7 @@ try (var ioExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
     );
 }</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b47-5b279ec4.mp3"><strong>Q4: How do virtual threads work with existing concurrency utilities?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b48-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A4: Virtual threads are designed to be fully compatible with the existing
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A4: Virtual threads are designed to be fully compatible with the existing
 java.util.concurrent utilities. This backward compatibility was a deliberate
 design goal of Project Loom.
 
@@ -297,7 +297,7 @@ Migration strategy:
 2. Replace synchronized with ReentrantLock where blocking occurs inside
 3. Replace ThreadLocal with ScopedValue where possible (preview)
 4. Keep everything else the same</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b49-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// All of these work correctly with virtual threads:
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// All of these work correctly with virtual threads:
 
 // 1. CountDownLatch
 CountDownLatch latch = new CountDownLatch(100);
@@ -350,7 +350,7 @@ CompletableFuture.supplyAsync(() -&gt; fetchData(), executor)
         .thenApply(data -&gt; transform(data))
         .thenAccept(result -&gt; save(result));</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b50-ef34b967.mp3"><strong>Q5: How do you monitor and debug virtual threads in production?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b51-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A5: Virtual threads require different monitoring strategies than platform threads
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A5: Virtual threads require different monitoring strategies than platform threads
 because traditional tools may not display them:
 
 1. Thread.getAllStackTraces() does NOT include virtual threads
@@ -381,7 +381,7 @@ Best practices:
 - Use pinning detection during development
 - Monitor carrier thread pool utilization
 - Track virtual thread creation rate and active count</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b52-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Named virtual threads for better debugging
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Named virtual threads for better debugging
 ThreadFactory factory = Thread.ofVirtual()
         .name(&quot;order-processor-&quot;, 0)
         .factory();
@@ -403,7 +403,7 @@ try (var executor = Executors.newThreadPerTaskExecutor(factory)) {
 // java -XX:StartFlightRecording=filename=vt.jfr,duration=60s,
 //       settings=profile MyApp</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b53-66ca4f56.mp3"><strong>Q6: What happens when you migrate an existing application from platform threads to virtual threads?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b54-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A6: Migration is generally straightforward but requires attention to several areas:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A6: Migration is generally straightforward but requires attention to several areas:
 
 Step 1: Replace thread pool creation
 - Change Executors.newFixedThreadPool(N) to
@@ -436,7 +436,7 @@ Common surprises during migration:
 - Higher memory usage due to more concurrent in-flight requests
 - Existing race conditions becoming more visible
 - synchronized-based third-party libraries causing pinning</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b55-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Before migration: fixed thread pool
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Before migration: fixed thread pool
 ExecutorService executor = Executors.newFixedThreadPool(200);
 try {
     for (var request : requests) {
@@ -474,7 +474,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
     }
 } // AutoCloseable: waits for all tasks</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b56-67014186.mp3"><strong>Q7: How does the virtual thread scheduler work internally?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b57-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A7: The virtual thread scheduler is built on a work-stealing ForkJoinPool:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A7: The virtual thread scheduler is built on a work-stealing ForkJoinPool:
 
 Architecture:
 - A dedicated ForkJoinPool serves as the carrier thread pool
@@ -504,7 +504,7 @@ Performance characteristics:
 - Mounting/unmounting is ~100-1000x cheaper than OS context switch
 - Stack storage is heap-allocated and GC-managed
 - No kernel transitions for virtual thread scheduling</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.prose.b58-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// The scheduler can be configured via system properties
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// The scheduler can be configured via system properties
 // Default: parallelism = available processors
 // -Djdk.virtualThreadScheduler.parallelism=8
 // -Djdk.virtualThreadScheduler.maxPoolSize=256
@@ -590,12 +590,12 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 </ol>
 </section>
 <section id="s-practice-prose" data-section="practice-prose" data-kind="practice" data-label="Virtual when it can be, platform when it must be">
-<h2 id="practice-prose-b0" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b2-4dc587b5.mp3">Virtual threads implement the whole <code>Thread</code> API, but two of its settings are fixed: a virtual thread is <strong>always a daemon</strong> (<code>setDaemon(false)</code> throws <code>IllegalArgumentException</code>) and always runs at <strong>`Thread.NORM_PRIORITY`</strong> (<code>setPriority</code> is silently ignored). <code>Thread.ofVirtual()</code> has no <code>daemon()</code> or <code>priority()</code> methods at all. The page's rule of thumb follows: use a virtual thread by default, and a platform thread where you need a non-daemon thread or a priority.</p>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b3-585dd04b.mp3"><code>Spec(String name, boolean daemon, int priority)</code> is given. Write <code>Threads.create(Spec spec, Runnable task)</code>, returning an <strong>unstarted</strong> thread that runs <code>task</code>, named <code>spec.name()</code>:</p>
-<ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b4.i1-6e2f309b.mp3">a <strong>virtual</strong> thread when the spec is a daemon at <code>NORM_PRIORITY</code>;</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b4.i2-2c532168.mp3">otherwise a <strong>platform</strong> thread with the spec's daemon flag and priority.</li></ul>
-<div class="scroll"><table><thead><tr><th>spec</th><th>answer</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b5.r1-78cb0946.mp3"><td><code>Spec(&quot;worker-1&quot;, true, Thread.NORM_PRIORITY)</code></td><td>unstarted virtual thread <code>worker-1</code> (daemon, <code>NORM_PRIORITY</code>)</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b5.r2-a3ef8e19.mp3"><td><code>Spec(&quot;keeper&quot;, false, Thread.NORM_PRIORITY)</code></td><td>unstarted platform thread <code>keeper</code>, not a daemon</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b5.r3-b2d9837d.mp3"><td><code>Spec(&quot;urgent&quot;, true, Thread.MAX_PRIORITY)</code></td><td>unstarted platform thread <code>urgent</code>, daemon, <code>MAX_PRIORITY</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b5.r4-081f8aa2.mp3"><td><code>Spec(&quot;background&quot;, true, Thread.MIN_PRIORITY)</code></td><td>unstarted platform thread <code>background</code>, <code>MIN_PRIORITY</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b5.r5-cd0168f7.mp3"><td><code>Spec(&quot;both&quot;, false, Thread.MAX_PRIORITY)</code></td><td>unstarted platform thread <code>both</code>, not a daemon, <code>MAX_PRIORITY</code></td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b7-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b0">Problem statement</h2>
+<p>Virtual threads implement the whole <code>Thread</code> API, but two of its settings are fixed: a virtual thread is <strong>always a daemon</strong> (<code>setDaemon(false)</code> throws <code>IllegalArgumentException</code>) and always runs at <strong>`Thread.NORM_PRIORITY`</strong> (<code>setPriority</code> is silently ignored). <code>Thread.ofVirtual()</code> has no <code>daemon()</code> or <code>priority()</code> methods at all. The page's rule of thumb follows: use a virtual thread by default, and a platform thread where you need a non-daemon thread or a priority.</p>
+<p><code>Spec(String name, boolean daemon, int priority)</code> is given. Write <code>Threads.create(Spec spec, Runnable task)</code>, returning an <strong>unstarted</strong> thread that runs <code>task</code>, named <code>spec.name()</code>:</p>
+<ul class="items"><li>a <strong>virtual</strong> thread when the spec is a daemon at <code>NORM_PRIORITY</code>;</li><li>otherwise a <strong>platform</strong> thread with the spec's daemon flag and priority.</li></ul>
+<div class="scroll"><table><thead><tr><th>spec</th><th>answer</th></tr></thead><tbody><tr><td><code>Spec(&quot;worker-1&quot;, true, Thread.NORM_PRIORITY)</code></td><td>unstarted virtual thread <code>worker-1</code> (daemon, <code>NORM_PRIORITY</code>)</td></tr><tr><td><code>Spec(&quot;keeper&quot;, false, Thread.NORM_PRIORITY)</code></td><td>unstarted platform thread <code>keeper</code>, not a daemon</td></tr><tr><td><code>Spec(&quot;urgent&quot;, true, Thread.MAX_PRIORITY)</code></td><td>unstarted platform thread <code>urgent</code>, daemon, <code>MAX_PRIORITY</code></td></tr><tr><td><code>Spec(&quot;background&quot;, true, Thread.MIN_PRIORITY)</code></td><td>unstarted platform thread <code>background</code>, <code>MIN_PRIORITY</code></td></tr><tr><td><code>Spec(&quot;both&quot;, false, Thread.MAX_PRIORITY)</code></td><td>unstarted platform thread <code>both</code>, not a daemon, <code>MAX_PRIORITY</code></td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 public final class Threads {
 
@@ -619,8 +619,8 @@ public final class Threads {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-b7" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b8-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose.b9-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b7">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 public final class Threads {
 
@@ -665,12 +665,12 @@ public final class Threads {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-2" data-section="practice-prose-2" data-kind="practice" data-label="A loading cache that parks, not pins">
-<h2 id="practice-prose-2-b0" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b2-51b64b99.mp3">On Java 21 a virtual thread that blocks inside <code>synchronized</code> is <strong>pinned</strong>: its carrier thread stays blocked with it. The page's fix is to guard code that blocks while holding a lock with a <code>ReentrantLock</code> instead, unlocked in <code>finally</code>: a virtual thread waiting for a <code>ReentrantLock</code> parks and frees its carrier. (Pinning itself cannot be tested reliably; what the tests can see is the choice: a thread waiting for a <code>ReentrantLock</code> is <code>WAITING</code>, one waiting to enter <code>synchronized</code> is <code>BLOCKED</code>.)</p>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b3-189279c6.mp3">Write <code>LoadingCache</code>. Its constructor takes a <code>Function&lt;String, String&gt; loader</code>, a slow, blocking call (think of a database query). <code>get(String key)</code>:</p>
-<ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b4.i1-fbae3d81.mp3">returns the cached value for <code>key</code>, or else calls <code>loader.apply(key)</code>, caches the value and returns it;</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b4.i2-4a926250.mp3">guards the whole check, load and store with <strong>one `ReentrantLock`</strong> of the cache, so the loader runs <strong>once per key</strong>, even when several threads ask at the same time;</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b4.i3-c0491adc.mp3">when the loader throws, passes the exception on, caches nothing and still <strong>releases the lock</strong>.</li></ul>
-<div class="scroll"><table><thead><tr><th>calls</th><th>loader calls</th><th>answer</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b5.r1-1dd4bcf8.mp3"><td><code>get(&quot;a&quot;)</code>, then <code>get(&quot;a&quot;)</code></td><td>1</td><td>the loaded value, twice</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b5.r2-ebd27311.mp3"><td><code>get(&quot;a&quot;)</code>, <code>get(&quot;b&quot;)</code></td><td>2</td><td>each key's own value</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b5.r3-19baccc0.mp3"><td>two virtual threads <code>get(&quot;slow&quot;)</code> at once</td><td>1</td><td>both get the same value; the second waits <code>WAITING</code> on the lock</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b5.r4-9d6dc0ce.mp3"><td><code>get(&quot;x&quot;)</code> while the loader throws, then <code>get(&quot;x&quot;)</code> from another thread</td><td>2</td><td>the exception, then the value</td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b7-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b0">Problem statement</h2>
+<p>On Java 21 a virtual thread that blocks inside <code>synchronized</code> is <strong>pinned</strong>: its carrier thread stays blocked with it. The page's fix is to guard code that blocks while holding a lock with a <code>ReentrantLock</code> instead, unlocked in <code>finally</code>: a virtual thread waiting for a <code>ReentrantLock</code> parks and frees its carrier. (Pinning itself cannot be tested reliably; what the tests can see is the choice: a thread waiting for a <code>ReentrantLock</code> is <code>WAITING</code>, one waiting to enter <code>synchronized</code> is <code>BLOCKED</code>.)</p>
+<p>Write <code>LoadingCache</code>. Its constructor takes a <code>Function&lt;String, String&gt; loader</code>, a slow, blocking call (think of a database query). <code>get(String key)</code>:</p>
+<ul class="items"><li>returns the cached value for <code>key</code>, or else calls <code>loader.apply(key)</code>, caches the value and returns it;</li><li>guards the whole check, load and store with <strong>one `ReentrantLock`</strong> of the cache, so the loader runs <strong>once per key</strong>, even when several threads ask at the same time;</li><li>when the loader throws, passes the exception on, caches nothing and still <strong>releases the lock</strong>.</li></ul>
+<div class="scroll"><table><thead><tr><th>calls</th><th>loader calls</th><th>answer</th></tr></thead><tbody><tr><td><code>get(&quot;a&quot;)</code>, then <code>get(&quot;a&quot;)</code></td><td>1</td><td>the loaded value, twice</td></tr><tr><td><code>get(&quot;a&quot;)</code>, <code>get(&quot;b&quot;)</code></td><td>2</td><td>each key's own value</td></tr><tr><td>two virtual threads <code>get(&quot;slow&quot;)</code> at once</td><td>1</td><td>both get the same value; the second waits <code>WAITING</code> on the lock</td></tr><tr><td><code>get(&quot;x&quot;)</code> while the loader throws, then <code>get(&quot;x&quot;)</code> from another thread</td><td>2</td><td>the exception, then the value</td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -703,8 +703,8 @@ public final class LoadingCache {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-2-b7" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b8-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-2.b9-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b7">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.function.Function;
 
@@ -748,12 +748,12 @@ public final class LoadingCache {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-3" data-section="practice-prose-3" data-kind="practice" data-label="A producer-consumer pipeline on virtual threads">
-<h2 id="practice-prose-3-b0" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b2-a2b64cf2.mp3">The page's point about compatibility: <code>java.util.concurrent</code> works unchanged on virtual threads. A <code>BlockingQueue</code> producer-consumer pipeline is written exactly as before; a virtual thread waiting in <code>take()</code> just unmounts instead of holding an OS thread.</p>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b3-73dc42fe.mp3">Write <code>Pipeline.run(List&lt;String&gt; items, Function&lt;String, String&gt; stage, int workers)</code>:</p>
-<ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b4.i1-e293eca0.mp3">One <strong>producer</strong> virtual thread puts every item on a <code>BlockingQueue</code>.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b4.i2-dd6ae1b0.mp3"><code>workers</code> <strong>worker</strong> virtual threads, running at the same time, take items from the queue and pass each through <code>stage</code>.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b4.i3-31136df6.mp3">When the items run out, <strong>every</strong> worker stops (a common way: the producer puts one &quot;poison pill&quot; per worker after the items; compare it by identity).</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b4.i4-e1efe18b.mp3">Workers add their results from several threads, so collect them thread-safely (the tests cannot force two adds to collide, so that part is not graded).</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b4.i5-425a607b.mp3"><code>run</code> returns all the stage results (in any order) only once the producer and all workers have finished, however long a stage call takes.</li></ul>
-<div class="scroll"><table><thead><tr><th>items</th><th>stage</th><th>workers</th><th>answer (any order)</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b5.r1-4d04093c.mp3"><td><code>[&quot;a&quot;, &quot;b&quot;, &quot;c&quot;, &quot;d&quot;]</code></td><td><code>String::toUpperCase</code></td><td>1</td><td><code>[&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;]</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b5.r2-f1a0cb03.mp3"><td><code>[&quot;x&quot;, &quot;y&quot;, &quot;z&quot;]</code></td><td>each call waits until 3 calls are in progress</td><td>3</td><td><code>[&quot;x&quot;, &quot;y&quot;, &quot;z&quot;]</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b5.r3-98864b9d.mp3"><td><code>[&quot;a&quot;]</code></td><td><code>s -&gt; s</code></td><td>3</td><td><code>[&quot;a&quot;]</code>, and <code>run</code> returns</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b5.r4-bd02c3d2.mp3"><td><code>[&quot;slow&quot;]</code></td><td><code>s -&gt; s + &quot;!&quot;</code>, blocked for a while</td><td>2</td><td><code>[&quot;slow!&quot;]</code>, only after the call ends</td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b7-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-3-b0">Problem statement</h2>
+<p>The page's point about compatibility: <code>java.util.concurrent</code> works unchanged on virtual threads. A <code>BlockingQueue</code> producer-consumer pipeline is written exactly as before; a virtual thread waiting in <code>take()</code> just unmounts instead of holding an OS thread.</p>
+<p>Write <code>Pipeline.run(List&lt;String&gt; items, Function&lt;String, String&gt; stage, int workers)</code>:</p>
+<ul class="items"><li>One <strong>producer</strong> virtual thread puts every item on a <code>BlockingQueue</code>.</li><li><code>workers</code> <strong>worker</strong> virtual threads, running at the same time, take items from the queue and pass each through <code>stage</code>.</li><li>When the items run out, <strong>every</strong> worker stops (a common way: the producer puts one &quot;poison pill&quot; per worker after the items; compare it by identity).</li><li>Workers add their results from several threads, so collect them thread-safely (the tests cannot force two adds to collide, so that part is not graded).</li><li><code>run</code> returns all the stage results (in any order) only once the producer and all workers have finished, however long a stage call takes.</li></ul>
+<div class="scroll"><table><thead><tr><th>items</th><th>stage</th><th>workers</th><th>answer (any order)</th></tr></thead><tbody><tr><td><code>[&quot;a&quot;, &quot;b&quot;, &quot;c&quot;, &quot;d&quot;]</code></td><td><code>String::toUpperCase</code></td><td>1</td><td><code>[&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;]</code></td></tr><tr><td><code>[&quot;x&quot;, &quot;y&quot;, &quot;z&quot;]</code></td><td>each call waits until 3 calls are in progress</td><td>3</td><td><code>[&quot;x&quot;, &quot;y&quot;, &quot;z&quot;]</code></td></tr><tr><td><code>[&quot;a&quot;]</code></td><td><code>s -&gt; s</code></td><td>3</td><td><code>[&quot;a&quot;]</code>, and <code>run</code> returns</td></tr><tr><td><code>[&quot;slow&quot;]</code></td><td><code>s -&gt; s + &quot;!&quot;</code>, blocked for a while</td><td>2</td><td><code>[&quot;slow!&quot;]</code>, only after the call ends</td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -802,8 +802,8 @@ public final class Pipeline {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-3-b7" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b8-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-3.b9-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-3-b7">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.List;
 import java.util.function.Function;
@@ -849,13 +849,13 @@ public final class Pipeline {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-4" data-section="practice-prose-4" data-kind="practice" data-label="Name and count your own virtual threads">
-<h2 id="practice-prose-4-b0" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b2-d8fc17fe.mp3">Tools built for platform threads can miss virtual threads: the page's pitfall is <code>Thread.getAllStackTraces()</code>, which does not include them at all. The page's advice is to name virtual threads through a builder factory (<code>Thread.ofVirtual().name(&quot;order-processor-&quot;, 0).factory()</code>) and to watch them with tools that do see them. Here you build a small one yourself.</p>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b3-89af7c0a.mp3">Write <code>CountingFactory</code>, a <code>ThreadFactory</code> for <code>Executors.newThreadPerTaskExecutor(factory)</code>:</p>
-<ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b4.i1-aa4e57e8.mp3"><code>new CountingFactory(prefix)</code>; <code>newThread(r)</code> returns an unstarted <strong>virtual</strong> thread named <code>prefix + n</code>, where <code>n</code> counts the threads made so far, from <code>0</code>.</li><li data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b4.i2-e02a97b3.mp3"><code>running()</code> is the number of <strong>this</strong> factory's threads whose task has started and not yet ended. A task that <strong>throws</strong> has ended too.</li></ul>
-<div class="scroll"><table><thead><tr><th>steps</th><th>answer</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b5.r1-4c34ecd6.mp3"><td><code>new CountingFactory(&quot;order-&quot;)</code>, three tasks submitted</td><td>threads <code>order-0</code>, <code>order-1</code>, <code>order-2</code>, all virtual</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b5.r2-a4ea41ab.mp3"><td>while the three tasks are blocked</td><td><code>running()</code> is <code>3</code> (and <code>Thread.getAllStackTraces()</code> shows none of them)</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b5.r3-3124e629.mp3"><td>after the executor is closed</td><td><code>running()</code> is <code>0</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b5.r4-e647ba03.mp3"><td>a thread whose task throws, after it ends</td><td><code>running()</code> is <code>0</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b5.r5-7a9f9df6.mp3"><td>two threads made, never started</td><td><code>running()</code> is <code>0</code></td></tr></tbody></table></div>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b6-b22f21a8.mp3">Threads start and end on many carriers at once, so keep the count thread-safe; the tests cannot force two updates to collide, so that is good practice rather than graded.</p>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b8-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-4-b0">Problem statement</h2>
+<p>Tools built for platform threads can miss virtual threads: the page's pitfall is <code>Thread.getAllStackTraces()</code>, which does not include them at all. The page's advice is to name virtual threads through a builder factory (<code>Thread.ofVirtual().name(&quot;order-processor-&quot;, 0).factory()</code>) and to watch them with tools that do see them. Here you build a small one yourself.</p>
+<p>Write <code>CountingFactory</code>, a <code>ThreadFactory</code> for <code>Executors.newThreadPerTaskExecutor(factory)</code>:</p>
+<ul class="items"><li><code>new CountingFactory(prefix)</code>; <code>newThread(r)</code> returns an unstarted <strong>virtual</strong> thread named <code>prefix + n</code>, where <code>n</code> counts the threads made so far, from <code>0</code>.</li><li><code>running()</code> is the number of <strong>this</strong> factory's threads whose task has started and not yet ended. A task that <strong>throws</strong> has ended too.</li></ul>
+<div class="scroll"><table><thead><tr><th>steps</th><th>answer</th></tr></thead><tbody><tr><td><code>new CountingFactory(&quot;order-&quot;)</code>, three tasks submitted</td><td>threads <code>order-0</code>, <code>order-1</code>, <code>order-2</code>, all virtual</td></tr><tr><td>while the three tasks are blocked</td><td><code>running()</code> is <code>3</code> (and <code>Thread.getAllStackTraces()</code> shows none of them)</td></tr><tr><td>after the executor is closed</td><td><code>running()</code> is <code>0</code></td></tr><tr><td>a thread whose task throws, after it ends</td><td><code>running()</code> is <code>0</code></td></tr><tr><td>two threads made, never started</td><td><code>running()</code> is <code>0</code></td></tr></tbody></table></div>
+<p>Threads start and end on many carriers at once, so keep the count thread-safe; the tests cannot force two updates to collide, so that is good practice rather than graded.</p>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -888,8 +888,8 @@ public final class CountingFactory implements ThreadFactory {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-4-b8" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b9-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-4.b10-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-4-b8">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.ThreadFactory;
 
@@ -939,8 +939,8 @@ public final class CountingFactory implements ThreadFactory {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-5" data-section="practice-prose-5" data-kind="practice" data-label="Pinning on Java 21">
-<h2 id="practice-prose-5-b0" data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-5.b1-9030f628.mp3">Check yourself</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--26-virtual-threads--unit-02.practice-prose-5.b2-67ecede3.mp3">Questions on what this page has just taught. Choose one answer for each.</p>
+<h2 id="practice-prose-5-b0">Check yourself</h2>
+<p>Questions on what this page has just taught. Choose one answer for each.</p>
 </section>
 <section data-practice-quiz="06-multithreading-and-concurrency/26-virtual-threads/unit-02/practice-prose-5" data-corpus="claude-senior-java-engineer-interview-preparation" aria-label="Questions" tabindex="-1">
 <div data-practice-part="head"><h2>Answer these</h2></div>

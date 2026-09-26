@@ -35,7 +35,7 @@
 <h2 id="prose-b8" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b9-c1745c98.mp3">Relevant Java 21 Features</h2>
 <ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b10.i1-349e540a.mp3"><strong>Structured Concurrency (preview)</strong>: <code>StructuredTaskScope.ShutdownOnFailure</code> provides automatic cancellation of sibling tasks when one fails -- something Fork/Join does not do natively.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b10.i2-44ba2a0f.mp3"><strong>Virtual threads</strong>: For mixed CPU/IO workloads, consider decomposing the CPU part with Fork/Join and the IO part with virtual threads.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b10.i3-cb72edf3.mp3"><strong>Stream Spliterators</strong>: <code>Spliterator.trySplit()</code> in parallel streams uses similar threshold and splitting logic. Understanding Fork/Join splitting helps you write better custom Spliterators.</li></ul>
 <h2 id="prose-b10" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b11-140f6f78.mp3">Common Pitfalls and How to Avoid Them</h2>
-<ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i1-bdeb73a9.mp3"><strong>Threshold = 1 (splitting down to individual elements)</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: each element becomes a separate task
+<ol class="items"><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i1-5cc1c720.mp3"><strong>Threshold = 1 (splitting down to individual elements)</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: each element becomes a separate task
 if (end - start &lt;= 1) {
     return array[start];
 }</code></pre></figure>With N = 1,000,000 this creates ~2 million tasks. The overhead of creating, scheduling, and joining each task vastly exceeds the cost of a single addition. <strong>Fix</strong>: Use a threshold of at least several hundred:<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">private static final int THRESHOLD = 1000;
@@ -43,13 +43,13 @@ if (end - start &lt;= THRESHOLD) {
     long sum = 0;
     for (int i = start; i &lt; end; i++) sum += array[i];
     return sum;
-}</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i2-c5b8026a.mp3"><strong>Joining too early</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: sequential execution disguised as fork/join
+}</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i2-6d9d44d7.mp3"><strong>Joining too early</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: sequential execution disguised as fork/join
 left.fork();
 long leftResult = left.join(); // blocks immediately!
 long rightResult = right.compute();</code></pre></figure><strong>Fix</strong>: Fork first, compute the other subtask, then join:<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">left.fork();
 long rightResult = right.compute(); // do useful work while left runs
-long leftResult = left.join();</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i3-0b8a16cd.mp3"><strong>Unbalanced splits without justification</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: 10/90 split creates deep, unbalanced recursion
-int splitPoint = start + length / 10;</code></pre></figure><strong>Fix</strong>: Split at the midpoint unless you have data-specific reasons not to:<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">int mid = start + length / 2;</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i4-c4f13a7b.mp3"><strong>Creating too many subtasks in multi-way split</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: creating 1000 subtasks for a 1000-element array
+long leftResult = left.join();</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i3-b4224c1f.mp3"><strong>Unbalanced splits without justification</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: 10/90 split creates deep, unbalanced recursion
+int splitPoint = start + length / 10;</code></pre></figure><strong>Fix</strong>: Split at the midpoint unless you have data-specific reasons not to:<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">int mid = start + length / 2;</code></pre></figure></li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i4-faa3d8db.mp3"><strong>Creating too many subtasks in multi-way split</strong><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Problem: creating 1000 subtasks for a 1000-element array
 for (int i = 0; i &lt; array.length; i++) {
     tasks.add(new Task(array, i, i + 1));
 }</code></pre></figure><strong>Fix</strong>: Limit the number of ways to the parallelism level or a small multiple of it.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b12.i5-eb0706c1.mp3"><strong>Not considering the cost of the combine step</strong>: For merge sort, the merge step is O(n) per level. If splits create too many levels, the total merge overhead can dominate.</li></ol>
@@ -61,7 +61,7 @@ for (int i = 0; i &lt; array.length; i++) {
 <ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b18.i1-0ee1bff5.mp3">Interviewers love asking about threshold selection -- know the heuristics and trade-offs.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b18.i2-14c8a3db.mp3">Be able to draw the recursion tree for a given array size and threshold on a whiteboard.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b18.i3-585dd62d.mp3">Explain work-stealing with per-thread deques and LIFO/FIFO semantics.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b18.i4-42ff9fd6.mp3">Know why fork-compute-join is better than fork-fork-join-join.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b18.i5-c0faa4de.mp3">Be ready to discuss how unbalanced splits affect performance and when they might be acceptable.</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b18.i6-924356d7.mp3">Understand the relationship between Fork/Join splits and Spliterator.trySplit() in streams.</li></ul>
 <h2 id="prose-b18" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b19-3c3cabb5.mp3">Interview Q&amp;A Section</h2>
 <p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b20-811d7c3d.mp3"><strong>Q1: How do you choose the right threshold for a fork/join task?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b21-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A1: The threshold determines when to stop splitting and compute sequentially.
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A1: The threshold determines when to stop splitting and compute sequentially.
 Choosing it involves balancing two costs:
 
 1. Too small a threshold: excessive task creation overhead. Each fork()
@@ -83,7 +83,7 @@ JVM, and operation cost.
 
 Rule of thumb for interviews: &quot;between 1,000 and 10,000 for typical
 array operations, adjusted based on profiling.&quot;</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b22-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Threshold that adapts to available parallelism
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Threshold that adapts to available parallelism
 int parallelism = ForkJoinPool.commonPool().getParallelism();
 int threshold = Math.max(1000, array.length / (parallelism * 4));
 
@@ -95,7 +95,7 @@ if (end - start &lt;= threshold) {
     return sum;
 }</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b23-de928007.mp3"><strong>Q2: What is work-stealing and how does it help with load balancing?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b24-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A2: Work-stealing is the algorithm ForkJoinPool uses to balance work
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A2: Work-stealing is the algorithm ForkJoinPool uses to balance work
 across threads without explicit coordination.
 
 How it works:
@@ -121,7 +121,7 @@ Limitations:
 - Work-stealing has overhead (lock-free deque operations)
 - Very small tasks may be stolen before the owning thread processes them
 - Blocking in tasks reduces the effectiveness of stealing</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b25-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Observing work-stealing in action
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Observing work-stealing in action
 ForkJoinPool pool = new ForkJoinPool(4);
 try {
     pool.invoke(new LargeTask(array));
@@ -131,7 +131,7 @@ try {
     pool.shutdown();
 }</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b26-13c88dd5.mp3"><strong>Q3: Why is balanced splitting generally better than unbalanced splitting?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b27-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A3: Balanced splitting (50/50) distributes work evenly across the recursion
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A3: Balanced splitting (50/50) distributes work evenly across the recursion
 tree, while unbalanced splitting (e.g., 10/90) creates asymmetry.
 
 Balanced (50/50) advantages:
@@ -153,7 +153,7 @@ When unbalanced splits ARE appropriate:
 
 In general, default to balanced splitting unless you have specific knowledge
 about the workload distribution.</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b28-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Balanced split
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Balanced split
 int mid = start + (end - start) / 2;
 
 // Unbalanced split (only when justified by data characteristics)
@@ -162,7 +162,7 @@ int splitPoint = start + (end - start) / 10;
 // Both produce the same result, but balanced is generally more efficient
 // for homogeneous workloads</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b29-d5fe3317.mp3"><strong>Q4: What is the correct fork/join pattern and why?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b30-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A4: The correct pattern for RecursiveTask is: fork-compute-join.
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A4: The correct pattern for RecursiveTask is: fork-compute-join.
 
   left.fork();                        // 1. Fork left to another thread
   long rightResult = right.compute(); // 2. Compute right in THIS thread
@@ -194,7 +194,7 @@ Anti-pattern 2: join-before-fork-completes
 
 For RecursiveAction, invokeAll() is preferred because there is no result
 to compute inline.</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b31-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// CORRECT pattern for RecursiveTask
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// CORRECT pattern for RecursiveTask
 @Override
 protected Long compute() {
     if (length &lt;= THRESHOLD) return sequentialSum();
@@ -218,7 +218,7 @@ protected void compute() {
     );
 }</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b32-00c9ce97.mp3"><strong>Q5: When should you use multi-way splitting (more than 2 subtasks)?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b33-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A5: Multi-way splitting creates N subtasks at once instead of the standard 2.
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A5: Multi-way splitting creates N subtasks at once instead of the standard 2.
 
 When to use multi-way splitting:
 1. Very large inputs where binary splits create too many recursion levels
@@ -240,7 +240,7 @@ Multi-way splitting is rarely needed in practice because:
 - The overhead of creating more tasks at each level can offset benefits
 - The recursion depth for binary splitting is only log2(N/T), which is
   manageable even for very large inputs</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b34-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Multi-way split into N subtasks
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Multi-way split into N subtasks
 @Override
 protected Long compute() {
     int length = end - start;
@@ -268,7 +268,7 @@ protected Long compute() {
     return total;
 }</code></pre></figure>
 <p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b35-4579ab8a.mp3"><strong>Q6: How do you verify that your fork/join implementation benefits from parallelism?</strong></p>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b36-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A6: Verification requires both correctness testing and performance measurement:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A6: Verification requires both correctness testing and performance measurement:
 
 Correctness:
 1. Compare parallel results with sequential results for the same input
@@ -293,7 +293,7 @@ Common gotchas:
 - JIT warmup affects measurements (use JMH with warmup iterations)
 - Small arrays may show parallel being SLOWER than sequential
 - GC pauses can skew results</code></pre></figure>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.prose.b37-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Simple performance comparison (use JMH for production benchmarks)
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Simple performance comparison (use JMH for production benchmarks)
 long[] array = LongStream.rangeClosed(1, 10_000_000).toArray();
 
 // Sequential
@@ -374,13 +374,13 @@ assert seqSum == parSum; // correctness check</code></pre></figure>
 </ol>
 </section>
 <section id="s-practice-prose" data-section="practice-prose" data-kind="practice" data-label="A threshold that follows the pool">
-<h2 id="practice-prose-b0" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b2-edc8f57c.mp3">The page's threshold heuristic is **<code>N / (parallelism * 4)</code> with a minimum**: enough tasks for good load balancing without the overhead of tiny ones. Its Q1 reads the parallelism from the pool and takes <code>Math.max(minimum, N / (parallelism * 4))</code>.</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b3-46cabbef.mp3">Write <code>AdaptiveSum.sum(pool, array, floor, probe)</code>: it sums <code>array</code> with a <code>RecursiveTask</code> <strong>run in `pool`</strong>, whose threshold is</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b4-014b49f0.mp3">Math.max(floor, array.length / (pool.getParallelism() * 4))</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b5-8c21d245.mp3">A range of at most that many elements is summed sequentially; a longer one is split at the midpoint into two subtasks. In each base case, call <code>probe.leaf(start, end)</code> once. Values may be as large as a <code>long</code> allows, as may the sum.</p>
-<div class="scroll"><table><thead><tr><th>pool parallelism</th><th>array</th><th>floor</th><th>threshold</th><th>answer</th><th>leaves</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b6.r1-b318bfa3.mp3"><td>2</td><td><code>1..100</code></td><td>10</td><td>12</td><td><code>5050</code></td><td>12 leaves</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b6.r2-167abbaa.mp3"><td>2</td><td>160 ones</td><td>5</td><td>20</td><td><code>160</code></td><td>8 leaves of 20</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b6.r3-afe2a4df.mp3"><td>2</td><td>40 ones</td><td>16</td><td>16</td><td><code>40</code></td><td>4 leaves of 10</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b6.r4-d8985c50.mp3"><td>5</td><td>160 ones</td><td>5</td><td>8</td><td><code>160</code></td><td>32 leaves of 5</td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b8-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b0">Problem statement</h2>
+<p>The page's threshold heuristic is **<code>N / (parallelism * 4)</code> with a minimum**: enough tasks for good load balancing without the overhead of tiny ones. Its Q1 reads the parallelism from the pool and takes <code>Math.max(minimum, N / (parallelism * 4))</code>.</p>
+<p>Write <code>AdaptiveSum.sum(pool, array, floor, probe)</code>: it sums <code>array</code> with a <code>RecursiveTask</code> <strong>run in `pool`</strong>, whose threshold is</p>
+<p>Math.max(floor, array.length / (pool.getParallelism() * 4))</p>
+<p>A range of at most that many elements is summed sequentially; a longer one is split at the midpoint into two subtasks. In each base case, call <code>probe.leaf(start, end)</code> once. Values may be as large as a <code>long</code> allows, as may the sum.</p>
+<div class="scroll"><table><thead><tr><th>pool parallelism</th><th>array</th><th>floor</th><th>threshold</th><th>answer</th><th>leaves</th></tr></thead><tbody><tr><td>2</td><td><code>1..100</code></td><td>10</td><td>12</td><td><code>5050</code></td><td>12 leaves</td></tr><tr><td>2</td><td>160 ones</td><td>5</td><td>20</td><td><code>160</code></td><td>8 leaves of 20</td></tr><tr><td>2</td><td>40 ones</td><td>16</td><td>16</td><td><code>40</code></td><td>4 leaves of 10</td></tr><tr><td>5</td><td>160 ones</td><td>5</td><td>8</td><td><code>160</code></td><td>32 leaves of 5</td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
@@ -437,8 +437,8 @@ public final class AdaptiveSum {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-b8" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b9-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose.b10-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b8">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.ForkJoinPool;
 
@@ -486,13 +486,13 @@ public final class AdaptiveSum {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-2" data-section="practice-prose-2" data-kind="practice" data-label="Fork, compute, then join">
-<h2 id="practice-prose-2-b0" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b2-12853cad.mp3">The page's pitfall 2 is <strong>joining too early</strong>:</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b3-3f311f1d.mp3">left.fork(); long leftResult = left.join(); // blocks immediately! long rightResult = right.compute();</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b4-c1b53b4e.mp3">This is &quot;sequential execution disguised as fork/join&quot;: the current thread waits for the left half before it even starts the right one. The fix is to fork first, compute the other subtask, then join, so <strong>both halves are in progress together</strong>. (Forking both halves and joining both, the page's other anti-pattern, also keeps both in progress; its cost is an extra fork per split, which no test can see, so it is not graded here.)</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b5-c5e8d897.mp3">Write <code>DotProduct(a, b, start, end, threshold, probe)</code>, a <code>RecursiveTask&lt;Long&gt;</code> returning the sum of <code>a[i] * b[i]</code> for <code>i</code> in <code>[start, end)</code> (as a <code>long</code>). Split at the midpoint while the range is longer than <code>threshold</code>, never joining the forked half before the other half has been computed. In each base case, call <code>probe.leaf(start, end)</code> once. Each product <code>a[i] * b[i]</code> may exceed the <code>int</code> range. Arrays of different lengths are refused by the constructor with <code>IllegalArgumentException</code>.</p>
-<div class="scroll"><table><thead><tr><th>a</th><th>b</th><th>threshold</th><th>answer</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b6.r1-b57b0581.mp3"><td><code>1, 2, 3</code></td><td><code>4, 5, 6</code></td><td>1</td><td><code>32</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b6.r2-b19c5067.mp3"><td><code>1, 2, 3, 4</code></td><td><code>1, 1, 1, 1</code></td><td>2</td><td><code>10</code>, and the two leaves are in <code>probe.leaf</code> at the same time</td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b6.r3-fb574d54.mp3"><td><code>1, 2</code></td><td><code>1, 2, 3</code></td><td>1</td><td><code>IllegalArgumentException</code></td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b8-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b0">Problem statement</h2>
+<p>The page's pitfall 2 is <strong>joining too early</strong>:</p>
+<p>left.fork(); long leftResult = left.join(); // blocks immediately! long rightResult = right.compute();</p>
+<p>This is &quot;sequential execution disguised as fork/join&quot;: the current thread waits for the left half before it even starts the right one. The fix is to fork first, compute the other subtask, then join, so <strong>both halves are in progress together</strong>. (Forking both halves and joining both, the page's other anti-pattern, also keeps both in progress; its cost is an extra fork per split, which no test can see, so it is not graded here.)</p>
+<p>Write <code>DotProduct(a, b, start, end, threshold, probe)</code>, a <code>RecursiveTask&lt;Long&gt;</code> returning the sum of <code>a[i] * b[i]</code> for <code>i</code> in <code>[start, end)</code> (as a <code>long</code>). Split at the midpoint while the range is longer than <code>threshold</code>, never joining the forked half before the other half has been computed. In each base case, call <code>probe.leaf(start, end)</code> once. Each product <code>a[i] * b[i]</code> may exceed the <code>int</code> range. Arrays of different lengths are refused by the constructor with <code>IllegalArgumentException</code>.</p>
+<div class="scroll"><table><thead><tr><th>a</th><th>b</th><th>threshold</th><th>answer</th></tr></thead><tbody><tr><td><code>1, 2, 3</code></td><td><code>4, 5, 6</code></td><td>1</td><td><code>32</code></td></tr><tr><td><code>1, 2, 3, 4</code></td><td><code>1, 1, 1, 1</code></td><td>2</td><td><code>10</code>, and the two leaves are in <code>probe.leaf</code> at the same time</td></tr><tr><td><code>1, 2</code></td><td><code>1, 2, 3</code></td><td>1</td><td><code>IllegalArgumentException</code></td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.RecursiveTask;
 
@@ -543,8 +543,8 @@ public final class DotProduct extends RecursiveTask&lt;Long&gt; {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-2-b8" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b9-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-2.b10-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b8">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.RecursiveTask;
 
@@ -593,14 +593,14 @@ public final class DotProduct extends RecursiveTask&lt;Long&gt; {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-3" data-section="practice-prose-3" data-kind="practice" data-label="Split into many ways at once">
-<h2 id="practice-prose-3-b0" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b2-918cab06.mp3">The page's Q5 splits a range into <strong>N subtasks at once</strong> instead of two, and runs them all at the same time. Its way: fork all the chunks except the last one, compute the last chunk in the current thread, then join the forked chunks (in reverse order).</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b3-a30213d7.mp3">Its edge cases add: with <strong>more ways than elements</strong>, reduce the number of ways to the number of elements; and with an odd size, one chunk gets the extra elements.</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b4-6fbbcd64.mp3">Write <code>MultiWaySum(array, start, end, ways, threshold, probe)</code>, a <code>RecursiveTask&lt;Long&gt;</code> summing <code>array[start..end)</code>:</p>
-<ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b5.i1-078a21df.mp3">if the range has at most <code>threshold</code> elements, or <code>ways &lt;= 1</code>, it is a <strong>leaf</strong>: call <code>probe.leaf(start, end)</code> once, then sum it sequentially;</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b5.i2-a1901112.mp3">otherwise use <code>w = min(ways, length)</code> chunks of <code>length / w</code> elements each, the <strong>last chunk running to `end`</strong>, and make each chunk a leaf task (<code>ways = 1</code>).</li></ul>
-<div class="scroll"><table><thead><tr><th>array</th><th>ways</th><th>threshold</th><th>answer</th><th>leaves</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b6.r1-3b2aeff9.mp3"><td><code>1..12</code></td><td>3</td><td>2</td><td><code>78</code></td><td><code>[0,4) [4,8) [8,12)</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b6.r2-ae5464d2.mp3"><td><code>1..10</code></td><td>3</td><td>2</td><td><code>55</code></td><td><code>[0,3) [3,6) [6,10)</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b6.r3-f9510cb3.mp3"><td><code>5, 6, 7</code></td><td>8</td><td>1</td><td><code>18</code></td><td><code>[0,1) [1,2) [2,3)</code></td></tr></tbody></table></div>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b7-ac9df769.mp3">The tests also check, in a pool of three workers, that three chunks are all inside <code>probe.leaf</code> <strong>at the same time</strong>.</p>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b9-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-3-b0">Problem statement</h2>
+<p>The page's Q5 splits a range into <strong>N subtasks at once</strong> instead of two, and runs them all at the same time. Its way: fork all the chunks except the last one, compute the last chunk in the current thread, then join the forked chunks (in reverse order).</p>
+<p>Its edge cases add: with <strong>more ways than elements</strong>, reduce the number of ways to the number of elements; and with an odd size, one chunk gets the extra elements.</p>
+<p>Write <code>MultiWaySum(array, start, end, ways, threshold, probe)</code>, a <code>RecursiveTask&lt;Long&gt;</code> summing <code>array[start..end)</code>:</p>
+<ul class="items"><li>if the range has at most <code>threshold</code> elements, or <code>ways &lt;= 1</code>, it is a <strong>leaf</strong>: call <code>probe.leaf(start, end)</code> once, then sum it sequentially;</li><li>otherwise use <code>w = min(ways, length)</code> chunks of <code>length / w</code> elements each, the <strong>last chunk running to `end`</strong>, and make each chunk a leaf task (<code>ways = 1</code>).</li></ul>
+<div class="scroll"><table><thead><tr><th>array</th><th>ways</th><th>threshold</th><th>answer</th><th>leaves</th></tr></thead><tbody><tr><td><code>1..12</code></td><td>3</td><td>2</td><td><code>78</code></td><td><code>[0,4) [4,8) [8,12)</code></td></tr><tr><td><code>1..10</code></td><td>3</td><td>2</td><td><code>55</code></td><td><code>[0,3) [3,6) [6,10)</code></td></tr><tr><td><code>5, 6, 7</code></td><td>8</td><td>1</td><td><code>18</code></td><td><code>[0,1) [1,2) [2,3)</code></td></tr></tbody></table></div>
+<p>The tests also check, in a pool of three workers, that three chunks are all inside <code>probe.leaf</code> <strong>at the same time</strong>.</p>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -660,8 +660,8 @@ public final class MultiWaySum extends RecursiveTask&lt;Long&gt; {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-3-b9" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b10-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-3.b11-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-3-b9">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.concurrent.RecursiveTask;
 
@@ -710,12 +710,12 @@ public final class MultiWaySum extends RecursiveTask&lt;Long&gt; {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-4" data-section="practice-prose-4" data-kind="practice" data-label="The shape of a split">
-<h2 id="practice-prose-4-b0" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b2-a88ffa8b.mp3">The page asks you to <strong>draw the recursion tree</strong> for an array size and a threshold, and contrasts a <strong>balanced</strong> (50/50) split with an <strong>unbalanced</strong> (10/90) one, whose tree is deeper and has more tasks. Page <em>Implementing RecursiveTask for results-bearing tasks</em> estimates a midpoint split's tree as depth <code>d = ceil(log2(N / T))</code>, <code>2^d</code> leaves and <code>2^(d+1) - 1</code> tasks; that estimate is exact only when every halving is even.</p>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b3-7eb2a1ac.mp3">Write <code>SplitTree.shape(n, threshold, percent)</code>. It walks the split of the range <code>[0, n)</code> exactly as a task would and returns its <code>Shape(depth, leaves, tasks)</code>:</p>
-<ul class="items"><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b4.i1-f7d6ed15.mp3">a range of at most <code>threshold</code> elements is a <strong>leaf</strong>;</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b4.i2-93cbb214.mp3">a longer range <code>[start, end)</code> splits at <code>start + (end - start) * percent / 100</code>; if that is not past <code>start</code>, it splits at <code>start + 1</code>, so the recursion always makes progress;</li><li data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b4.i3-b026fc01.mp3"><code>depth</code> is the deepest leaf's level (the root is level 0), <code>leaves</code> counts leaves, <code>tasks</code> counts every range, leaves included.</li></ul>
-<div class="scroll"><table><thead><tr><th>n</th><th>threshold</th><th>percent</th><th>answer</th></tr></thead><tbody><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b5.r1-b2310588.mp3"><td>10000</td><td>1000</td><td>50</td><td><code>Shape[depth=4, leaves=16, tasks=31]</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b5.r2-69d47e49.mp3"><td>1000</td><td>1000</td><td>50</td><td><code>Shape[depth=0, leaves=1, tasks=1]</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b5.r3-525e1611.mp3"><td>1000</td><td>100</td><td>10</td><td><code>Shape[depth=23, leaves=24, tasks=47]</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b5.r4-1a8e3835.mp3"><td>20</td><td>1</td><td>10</td><td><code>Shape[depth=18, leaves=20, tasks=39]</code></td></tr><tr data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b5.r5-d27a9d05.mp3"><td>7</td><td>3</td><td>50</td><td><code>Shape[depth=2, leaves=3, tasks=5]</code></td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b7-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-4-b0">Problem statement</h2>
+<p>The page asks you to <strong>draw the recursion tree</strong> for an array size and a threshold, and contrasts a <strong>balanced</strong> (50/50) split with an <strong>unbalanced</strong> (10/90) one, whose tree is deeper and has more tasks. Page <em>Implementing RecursiveTask for results-bearing tasks</em> estimates a midpoint split's tree as depth <code>d = ceil(log2(N / T))</code>, <code>2^d</code> leaves and <code>2^(d+1) - 1</code> tasks; that estimate is exact only when every halving is even.</p>
+<p>Write <code>SplitTree.shape(n, threshold, percent)</code>. It walks the split of the range <code>[0, n)</code> exactly as a task would and returns its <code>Shape(depth, leaves, tasks)</code>:</p>
+<ul class="items"><li>a range of at most <code>threshold</code> elements is a <strong>leaf</strong>;</li><li>a longer range <code>[start, end)</code> splits at <code>start + (end - start) * percent / 100</code>; if that is not past <code>start</code>, it splits at <code>start + 1</code>, so the recursion always makes progress;</li><li><code>depth</code> is the deepest leaf's level (the root is level 0), <code>leaves</code> counts leaves, <code>tasks</code> counts every range, leaves included.</li></ul>
+<div class="scroll"><table><thead><tr><th>n</th><th>threshold</th><th>percent</th><th>answer</th></tr></thead><tbody><tr><td>10000</td><td>1000</td><td>50</td><td><code>Shape[depth=4, leaves=16, tasks=31]</code></td></tr><tr><td>1000</td><td>1000</td><td>50</td><td><code>Shape[depth=0, leaves=1, tasks=1]</code></td></tr><tr><td>1000</td><td>100</td><td>10</td><td><code>Shape[depth=23, leaves=24, tasks=47]</code></td></tr><tr><td>20</td><td>1</td><td>10</td><td><code>Shape[depth=18, leaves=20, tasks=39]</code></td></tr><tr><td>7</td><td>3</td><td>50</td><td><code>Shape[depth=2, leaves=3, tasks=5]</code></td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 public final class SplitTree {
 
@@ -745,8 +745,8 @@ public final class SplitTree {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-4-b7" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b8-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-4.b9-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-4-b7">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 public final class SplitTree {
 
@@ -790,8 +790,8 @@ public final class SplitTree {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-5" data-section="practice-prose-5" data-kind="practice" data-label="Stealing work and sizing the threshold">
-<h2 id="practice-prose-5-b0" data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-5.b1-9030f628.mp3">Check yourself</h2>
-<p data-audio="audio/06-multithreading-and-concurrency--25-fork-join--unit-05.practice-prose-5.b2-67ecede3.mp3">Questions on what this page has just taught. Choose one answer for each.</p>
+<h2 id="practice-prose-5-b0">Check yourself</h2>
+<p>Questions on what this page has just taught. Choose one answer for each.</p>
 </section>
 <section data-practice-quiz="06-multithreading-and-concurrency/25-fork-join/unit-05/practice-prose-5" data-corpus="claude-senior-java-engineer-interview-preparation" aria-label="Questions" tabindex="-1">
 <div data-practice-part="head"><h2>Answer these</h2></div>

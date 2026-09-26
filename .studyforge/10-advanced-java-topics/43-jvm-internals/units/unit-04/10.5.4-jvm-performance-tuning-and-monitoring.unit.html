@@ -43,29 +43,29 @@
 <h2 id="prose-b16" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b17-c1745c98.mp3">Relevant Java 21 Features</h2>
 <ul class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b18.i1-90a50a90.mp3"><strong>ZGC Generational mode</strong> (JEP 439): <code>-XX:+UseZGC -XX:+ZGenerational</code> adds generational collection to ZGC for better throughput alongside low latency. In Java 21 it is opt-in (plain <code>-XX:+UseZGC</code> is still non-generational); it became the default in JDK 23 (JEP 474).</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b18.i2-7630468a.mp3"><strong>JFR enhancements</strong>: Event types for virtual threads (<code>jdk.VirtualThreadStart</code>, <code>jdk.VirtualThreadEnd</code>, <code>jdk.VirtualThreadPinned</code>, <code>jdk.VirtualThreadSubmitFailed</code>) and, since JDK 20, native memory tracking events.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b18.i3-4887ebc8.mp3"><strong>Virtual thread monitoring</strong>: New diagnostic capabilities for virtual threads via <code>jcmd</code> and JFR.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b18.i4-cd41baac.mp3"><strong>Unified logging</strong>: <code>-Xlog</code> provides a single, consistent framework for all JVM logging including GC.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b18.i5-b6233395.mp3"><strong>Container awareness</strong>: JVM automatically detects container memory and CPU limits (Docker, Kubernetes).</li></ul>
 <h2 id="prose-b18" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b19-140f6f78.mp3">Common Pitfalls and How to Avoid Them</h2>
-<ol class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i1-bc26ff2e.mp3"><strong>Over-tuning GC parameters</strong>: Adding too many GC flags can prevent the JVM's adaptive sizing from working correctly.<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># BAD: Over-specified GC tuning
+<ol class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i1-823c87bb.mp3"><strong>Over-tuning GC parameters</strong>: Adding too many GC flags can prevent the JVM's adaptive sizing from working correctly.<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># BAD: Over-specified GC tuning
 java -XX:NewRatio=3 -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=15 \
      -XX:ParallelGCThreads=8 -XX:ConcGCThreads=4 ...
 
 # GOOD: Let the JVM adapt, set only what's needed
-java -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xmx4g MyApp</code></pre></figure><strong>Solution</strong>: Start with minimal tuning. Set the GC type, heap size, and pause time goal. Let the JVM adapt the rest.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i2-d514ff03.mp3"><strong>Ignoring GC logs in production</strong>:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># Always enable GC logging -- it has negligible overhead
-java -Xlog:gc*:file=gc.log:time,level,tags:filecount=5,filesize=100m MyApp</code></pre></figure><strong>Solution</strong>: Enable GC logging in all environments. It's the first place to look when performance degrades.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i3-9f67375d.mp3"><strong>Using jmap -histo in production with Full GC</strong>:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># BAD: Forces a Full GC in production
+java -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xmx4g MyApp</code></pre></figure><strong>Solution</strong>: Start with minimal tuning. Set the GC type, heap size, and pause time goal. Let the JVM adapt the rest.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i2-f66edc48.mp3"><strong>Ignoring GC logs in production</strong>:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># Always enable GC logging -- it has negligible overhead
+java -Xlog:gc*:file=gc.log:time,level,tags:filecount=5,filesize=100m MyApp</code></pre></figure><strong>Solution</strong>: Enable GC logging in all environments. It's the first place to look when performance degrades.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i3-bc42ba1b.mp3"><strong>Using jmap -histo in production with Full GC</strong>:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># BAD: Forces a Full GC in production
 jmap -histo:live &lt;pid&gt;
 
 # GOOD: Get histogram without GC (counts all objects, including unreachable ones)
 jmap -histo &lt;pid&gt;
 
 # BETTER: Use jcmd -- note that it inspects only live objects (full GC) unless you pass -all
-jcmd &lt;pid&gt; GC.class_histogram -all</code></pre></figure><strong>Solution</strong>: Use <code>jcmd</code> instead of <code>jmap</code> when possible. Be aware that <code>jmap -histo:live</code> and a plain <code>jcmd &lt;pid&gt; GC.class_histogram</code> both trigger a full GC.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i4-af309ad3.mp3"><strong>Setting heap too large</strong>: Larger heaps mean longer GC pauses (especially with G1 and Parallel GC).<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># 32GB heap with G1 can have multi-second pauses
+jcmd &lt;pid&gt; GC.class_histogram -all</code></pre></figure><strong>Solution</strong>: Use <code>jcmd</code> instead of <code>jmap</code> when possible. Be aware that <code>jmap -histo:live</code> and a plain <code>jcmd &lt;pid&gt; GC.class_histogram</code> both trigger a full GC.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b20.i4-2720158b.mp3"><strong>Setting heap too large</strong>: Larger heaps mean longer GC pauses (especially with G1 and Parallel GC).<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># 32GB heap with G1 can have multi-second pauses
 java -Xmx32g -XX:+UseG1GC MyApp
 
 # Consider ZGC for large heaps
 java -Xmx32g -XX:+UseZGC MyApp</code></pre></figure><strong>Solution</strong>: For heaps larger than 8GB, strongly consider ZGC or Shenandoah.</li></ol>
 <h2 id="prose-b20" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b21-26690257.mp3">Best Practices and Optimization Techniques</h2>
-<ol class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i1-f64c7e18.mp3"><strong>Start with defaults</strong>: Modern JVMs have excellent defaults. Only tune when measurements indicate a need.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i2-54b4c6b1.mp3"><strong>Enable monitoring from day one</strong>:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain">java -Xlog:gc*:file=gc.log:time,level,tags \
+<ol class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i1-f64c7e18.mp3"><strong>Start with defaults</strong>: Modern JVMs have excellent defaults. Only tune when measurements indicate a need.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i2-c1e03a57.mp3"><strong>Enable monitoring from day one</strong>:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain">java -Xlog:gc*:file=gc.log:time,level,tags \
      -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/to/dumps \
      -XX:StartFlightRecording=duration=0,maxsize=500m,dumponexit=true,filename=app.jfr \
-     MyApp</code></pre></figure></li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i3-b4dac57f.mp3"><strong>Use container-aware settings</strong> in Docker/Kubernetes:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># JVM automatically detects container limits since Java 10
+     MyApp</code></pre></figure></li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i3-bd8e99db.mp3"><strong>Use container-aware settings</strong> in Docker/Kubernetes:<figure class="code"><figcaption><span class="what">bash</span><span class="unhighlighted">plain text</span></figcaption><pre><code class="language-plain"># JVM automatically detects container limits since Java 10
 # Fine-tune with:
 java -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 MyApp</code></pre></figure></li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i4-dc68399e.mp3"><strong>Profile before tuning</strong>: Use JFR + JMC or async-profiler to find real bottlenecks.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i5-ddb534c2.mp3"><strong>GC pause time goals</strong>: Prefer <code>-XX:MaxGCPauseMillis=N</code> over manual generation sizing.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b22.i6-2e76a275.mp3"><strong>Monitor key metrics</strong>: GC pause time, GC frequency, heap usage after GC, allocation rate, thread count.</li></ol>
 <h2 id="prose-b22" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b23-807b7ebc.mp3">Edge Cases and Their Handling</h2>
@@ -77,7 +77,7 @@ java -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 MyApp</code></pre><
 <ul class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b29.i1-95ed8bf6.mp3">&quot;How would you diagnose a memory leak in a production Java application?&quot;</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b29.i2-5d7905e3.mp3">&quot;What GC would you choose for a high-frequency trading application? Why?&quot;</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b29.i3-f1b9e4f8.mp3">&quot;Your Java service in Kubernetes keeps getting OOMKilled. What would you investigate?&quot;</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b29.i4-181c2869.mp3">&quot;How do you find the cause of occasional latency spikes?&quot;</li></ul>
 <h2 id="prose-b29" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b30-3c3cabb5.mp3">Interview Q&amp;A Section</h2>
 <p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b31-9e406811.mp3"><strong>Q1: How would you diagnose a memory leak in a production Java application?</strong></p>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b32-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A1: Memory leak diagnosis follows a systematic approach:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A1: Memory leak diagnosis follows a systematic approach:
 
 Step 1: Detect the symptom
 - GC logs show increasing heap usage after Full GC over time
@@ -113,7 +113,7 @@ Step 5: Identify the root cause
 Step 6: Fix and verify
 - Fix the code to properly release references
 - Monitor with GC logs to confirm heap usage stabilizes</code></pre></figure>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b33-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Common memory leak patterns and fixes
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Common memory leak patterns and fixes
 import java.util.*;
 
 public class MemoryLeakPatterns {
@@ -165,7 +165,7 @@ public class MemoryLeakPatterns {
     }
 }</code></pre></figure>
 <p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b34-46c7aa4c.mp3"><strong>Q2: Compare G1 GC, ZGC, and Shenandoah. When would you choose each?</strong></p>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b35-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A2: Each garbage collector is designed for different workload characteristics:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A2: Each garbage collector is designed for different workload characteristics:
 
 G1 GC (Garbage-First):
 - Default since Java 9
@@ -201,7 +201,7 @@ Decision matrix:
 - Batch processing / data pipelines: Parallel GC or G1
 - Large heap (32GB+): ZGC
 - Containerized with limited CPU: G1 (lower CPU overhead)</code></pre></figure>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b36-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Demonstrating GC monitoring programmatically
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Demonstrating GC monitoring programmatically
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
@@ -230,7 +230,7 @@ public class GcMonitoringDemo {
     }
 }</code></pre></figure>
 <p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b37-fc112f03.mp3"><strong>Q3: Your Java service in Kubernetes keeps getting OOMKilled. What would you investigate?</strong></p>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b38-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A3: OOMKilled in Kubernetes means the container exceeded its memory limit. The JVM uses
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A3: OOMKilled in Kubernetes means the container exceeded its memory limit. The JVM uses
 more memory than just the heap, so -Xmx alone doesn't determine total memory usage.
 
 JVM Memory Components:
@@ -270,7 +270,7 @@ Fixes:
 - Limit Metaspace: -XX:MaxMetaspaceSize
 - Limit code cache: -XX:ReservedCodeCacheSize
 - Limit direct memory: -XX:MaxDirectMemorySize</code></pre></figure>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b39-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Native Memory Tracking demonstration
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Native Memory Tracking demonstration
 // Run with: java -XX:NativeMemoryTracking=summary NativeMemoryDemo
 // Then: jcmd &lt;pid&gt; VM.native_memory summary
 
@@ -306,7 +306,7 @@ public class NativeMemoryDemo {
     }
 }</code></pre></figure>
 <p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b40-360c545d.mp3"><strong>Q4: How do you use Java Flight Recorder (JFR) for performance analysis?</strong></p>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b41-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A4: Java Flight Recorder (JFR) is a profiling and diagnostics framework built into the
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A4: Java Flight Recorder (JFR) is a profiling and diagnostics framework built into the
 JVM since Java 11 (open-sourced). It has extremely low overhead (&lt;2%) and is safe for
 production use.
 
@@ -348,7 +348,7 @@ Best practices:
 - Use custom JFR events for application-specific metrics
 - Configure event thresholds to focus on significant events
 - Combine JFR with GC logs for comprehensive analysis</code></pre></figure>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b42-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Creating custom JFR events (Java 14+)
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Creating custom JFR events (Java 14+)
 import jdk.jfr.*;
 
 @Name(&quot;com.example.DatabaseQuery&quot;)
@@ -385,7 +385,7 @@ public class DatabaseQueryEvent extends jdk.jfr.Event {
 //     event.commit();
 // }</code></pre></figure>
 <p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b43-9968c433.mp3"><strong>Q5: What JVM flags should every production Java application have?</strong></p>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b44-be1b91e4.mp3"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A5: Here are the essential JVM flags for production applications:
+<figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">A5: Here are the essential JVM flags for production applications:
 
 Memory Configuration:
 - -Xmx&lt;size&gt;: Maximum heap size (or -XX:MaxRAMPercentage for containers)
@@ -422,7 +422,7 @@ java -Xmx4g -Xms4g \
      -XX:+ExitOnOutOfMemoryError \
      -XX:StartFlightRecording=maxsize=500m,dumponexit=true,filename=/var/log/app/app.jfr \
      -jar myapp.jar</code></pre></figure>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.prose.b45-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Programmatic JVM monitoring
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Programmatic JVM monitoring
 import java.lang.management.*;
 import java.util.List;
 
@@ -522,13 +522,13 @@ public class JvmMonitoring {
 </ol>
 </section>
 <section id="s-practice-prose" data-section="practice-prose" data-kind="practice" data-label="Work out the heap a java command line asks for">
-<h2 id="practice-prose-b0" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b2-8f72eff0.mp3"><code>-Xmx</code> and <code>-Xms</code> set the maximum and initial heap, and <code>-Xss</code> each thread's stack. In a container, <code>-XX:MaxRAMPercentage=75.0</code> sizes the heap as a share of the container's memory limit instead. Sizes take a suffix <code>k</code>, <code>m</code> or <code>g</code> (<strong>powers of 1024, upper or lower case</strong>); a bare number is bytes.</p>
-<p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b3-7b31c7f8.mp3">Write <code>HeapSizing.parse(args, containerLimitBytes)</code> that answers:</p>
-<ul class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b4.i1-a50c853d.mp3"><code>maxHeapBytes()</code>: <strong>`-Xmx` when given</strong>, otherwise <code>MaxRAMPercentage</code> (default <code>25.0</code>) percent of the container limit, rounded down.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b4.i2-1e052fd3.mp3"><code>threadStackBytes()</code>: <code>-Xss</code>, default 1 MiB.</li></ul>
-<p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b5-80b511f8.mp3">Other arguments are ignored, and when a flag appears twice <strong>the last one wins</strong>. An <code>-Xms</code> <strong>larger than `-Xmx`</strong> is refused with <code>IllegalArgumentException</code>, as the JVM refuses to start with that pair.</p>
-<div class="scroll"><table><thead><tr><th>args</th><th>container limit</th><th>max heap</th><th>stack</th></tr></thead><tbody><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b6.r1-80f07c2c.mp3"><td><code>-Xmx4g -Xss512k</code></td><td>8 GiB</td><td>4 GiB</td><td>512 KiB</td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b6.r2-65819e19.mp3"><td><code>-XX:MaxRAMPercentage=75.0</code></td><td>8 GiB</td><td>6 GiB</td><td>1 MiB</td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b6.r3-3b0c5966.mp3"><td>(none)</td><td>8 GiB</td><td>2 GiB</td><td>1 MiB</td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b6.r4-0942654f.mp3"><td><code>-Xmx2G -XX:MaxRAMPercentage=75.0</code></td><td>8 GiB</td><td>2 GiB</td><td>1 MiB</td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b6.r5-e969bb39.mp3"><td><code>-Xmx1g -Xmx3g</code></td><td>8 GiB</td><td>3 GiB</td><td>1 MiB</td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b6.r6-85998d92.mp3"><td><code>-Xms4g -Xmx2g</code></td><td>8 GiB</td><td><code>IllegalArgumentException</code></td><td></td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b8-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b0">Problem statement</h2>
+<p><code>-Xmx</code> and <code>-Xms</code> set the maximum and initial heap, and <code>-Xss</code> each thread's stack. In a container, <code>-XX:MaxRAMPercentage=75.0</code> sizes the heap as a share of the container's memory limit instead. Sizes take a suffix <code>k</code>, <code>m</code> or <code>g</code> (<strong>powers of 1024, upper or lower case</strong>); a bare number is bytes.</p>
+<p>Write <code>HeapSizing.parse(args, containerLimitBytes)</code> that answers:</p>
+<ul class="items"><li><code>maxHeapBytes()</code>: <strong>`-Xmx` when given</strong>, otherwise <code>MaxRAMPercentage</code> (default <code>25.0</code>) percent of the container limit, rounded down.</li><li><code>threadStackBytes()</code>: <code>-Xss</code>, default 1 MiB.</li></ul>
+<p>Other arguments are ignored, and when a flag appears twice <strong>the last one wins</strong>. An <code>-Xms</code> <strong>larger than `-Xmx`</strong> is refused with <code>IllegalArgumentException</code>, as the JVM refuses to start with that pair.</p>
+<div class="scroll"><table><thead><tr><th>args</th><th>container limit</th><th>max heap</th><th>stack</th></tr></thead><tbody><tr><td><code>-Xmx4g -Xss512k</code></td><td>8 GiB</td><td>4 GiB</td><td>512 KiB</td></tr><tr><td><code>-XX:MaxRAMPercentage=75.0</code></td><td>8 GiB</td><td>6 GiB</td><td>1 MiB</td></tr><tr><td>(none)</td><td>8 GiB</td><td>2 GiB</td><td>1 MiB</td></tr><tr><td><code>-Xmx2G -XX:MaxRAMPercentage=75.0</code></td><td>8 GiB</td><td>2 GiB</td><td>1 MiB</td></tr><tr><td><code>-Xmx1g -Xmx3g</code></td><td>8 GiB</td><td>3 GiB</td><td>1 MiB</td></tr><tr><td><code>-Xms4g -Xmx2g</code></td><td>8 GiB</td><td><code>IllegalArgumentException</code></td><td></td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.List;
 import java.util.Locale;
@@ -588,8 +588,8 @@ public final class HeapSizing {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-b8" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b9-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose.b10-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b8">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.List;
 
@@ -640,12 +640,12 @@ public final class HeapSizing {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-2" data-section="practice-prose-2" data-kind="practice" data-label="Report memory usage the way the monitoring code does">
-<h2 id="practice-prose-2-b0" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b1-ba35efbe.mp3">Problem statement</h2>
-<p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b2-fa88236e.mp3">The page's monitoring code reads each memory pool's <code>MemoryUsage</code> and prints it. A <code>MemoryUsage</code> has <code>init</code>, <code>used</code>, <code>committed</code> and <code>max</code>; <strong>`max` is -1 when the pool has no defined maximum</strong> (Metaspace, for one). <em>Committed</em> is what the JVM has reserved from the OS, <em>max</em> is the ceiling the pool may grow to.</p>
-<p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b3-6432a075.mp3">Write <code>MemoryReport</code> with:</p>
-<ul class="items"><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b4.i1-4e2d7feb.mp3"><code>line(name, usage)</code>: <code>Pool [&lt;name&gt;]: used=&lt;u&gt;MB, max=&lt;m&gt;MB</code>, where sizes are <strong>whole mebibytes</strong> (bytes / 1,048,576, rounded down) and an undefined maximum prints as <code>max=-1MB</code>.</li><li data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b4.i2-c1064fc1.mp3"><code>usedPercent(usage)</code>: <code>100 * used / max</code> as an <code>OptionalDouble</code>, measured <strong>against `max`</strong>, and empty when <code>max</code> is undefined.</li></ul>
-<div class="scroll"><table><thead><tr><th>used</th><th>committed</th><th>max</th><th><code>line(&quot;G1 Old Gen&quot;, u)</code></th><th><code>usedPercent(u)</code></th></tr></thead><tbody><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b5.r1-beb2e0de.mp3"><td>100 MiB</td><td>512 MiB</td><td>512 MiB</td><td><code>Pool [G1 Old Gen]: used=100MB, max=512MB</code></td><td><code>19.53125</code></td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b5.r2-6e121954.mp3"><td>1,572,863 B</td><td>2 MiB</td><td>4 MiB</td><td><code>...used=1MB, max=4MB</code></td><td><code>37.49997615814209</code></td></tr><tr data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b5.r3-385c5919.mp3"><td>30 MiB</td><td>32 MiB</td><td>-1</td><td><code>...used=30MB, max=-1MB</code></td><td>empty</td></tr></tbody></table></div>
-<details class="disclosure"><summary data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b7-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b0">Problem statement</h2>
+<p>The page's monitoring code reads each memory pool's <code>MemoryUsage</code> and prints it. A <code>MemoryUsage</code> has <code>init</code>, <code>used</code>, <code>committed</code> and <code>max</code>; <strong>`max` is -1 when the pool has no defined maximum</strong> (Metaspace, for one). <em>Committed</em> is what the JVM has reserved from the OS, <em>max</em> is the ceiling the pool may grow to.</p>
+<p>Write <code>MemoryReport</code> with:</p>
+<ul class="items"><li><code>line(name, usage)</code>: <code>Pool [&lt;name&gt;]: used=&lt;u&gt;MB, max=&lt;m&gt;MB</code>, where sizes are <strong>whole mebibytes</strong> (bytes / 1,048,576, rounded down) and an undefined maximum prints as <code>max=-1MB</code>.</li><li><code>usedPercent(usage)</code>: <code>100 * used / max</code> as an <code>OptionalDouble</code>, measured <strong>against `max`</strong>, and empty when <code>max</code> is undefined.</li></ul>
+<div class="scroll"><table><thead><tr><th>used</th><th>committed</th><th>max</th><th><code>line(&quot;G1 Old Gen&quot;, u)</code></th><th><code>usedPercent(u)</code></th></tr></thead><tbody><tr><td>100 MiB</td><td>512 MiB</td><td>512 MiB</td><td><code>Pool [G1 Old Gen]: used=100MB, max=512MB</code></td><td><code>19.53125</code></td></tr><tr><td>1,572,863 B</td><td>2 MiB</td><td>4 MiB</td><td><code>...used=1MB, max=4MB</code></td><td><code>37.49997615814209</code></td></tr><tr><td>30 MiB</td><td>32 MiB</td><td>-1</td><td><code>...used=30MB, max=-1MB</code></td><td>empty</td></tr></tbody></table></div>
+<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.lang.management.MemoryUsage;
 import java.util.OptionalDouble;
@@ -672,8 +672,8 @@ public final class MemoryReport {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-2-b7" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b8-efa73569.mp3">Starting code</h2>
-<figure class="code" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-2.b9-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b7">Starting code</h2>
+<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.lang.management.MemoryUsage;
 import java.util.OptionalDouble;
@@ -721,8 +721,8 @@ public final class MemoryReport {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-3" data-section="practice-prose-3" data-kind="practice" data-label="Container memory and heap histograms">
-<h2 id="practice-prose-3-b0" data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-3.b1-9030f628.mp3">Check yourself</h2>
-<p data-audio="audio/10-advanced-java-topics--43-jvm-internals--unit-04.practice-prose-3.b2-67ecede3.mp3">Questions on what this page has just taught. Choose one answer for each.</p>
+<h2 id="practice-prose-3-b0">Check yourself</h2>
+<p>Questions on what this page has just taught. Choose one answer for each.</p>
 </section>
 <section data-practice-quiz="10-advanced-java-topics/43-jvm-internals/unit-04/practice-prose-3" data-corpus="claude-senior-java-engineer-interview-preparation" aria-label="Questions" tabindex="-1">
 <div data-practice-part="head"><h2>Answer these</h2></div>
