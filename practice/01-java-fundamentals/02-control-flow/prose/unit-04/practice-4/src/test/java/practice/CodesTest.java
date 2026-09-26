@@ -24,4 +24,11 @@ class CodesTest {
     void nullIsMissing() {
         assertThat(Codes.name(null)).isEqualTo("missing");
     }
+
+    @Test
+    void aCodeBuiltAtRunTimeMatches() {
+        assertThat(Codes.name(new String("AP"))).isEqualTo("apple");
+        String code = new StringBuilder("C").append('H').toString();
+        assertThat(Codes.name(code)).isEqualTo("cherry");
+    }
 }

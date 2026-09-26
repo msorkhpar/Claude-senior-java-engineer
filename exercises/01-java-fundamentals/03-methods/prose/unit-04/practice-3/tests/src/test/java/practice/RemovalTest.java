@@ -38,4 +38,13 @@ class RemovalTest {
         Removal.removeValue(values, 5);
         assertThat(values).containsExactly(7, 5);
     }
+
+    @Test
+    void largeValuesAreComparedByValue() {
+        List<Integer> values = new ArrayList<>(List.of(1000, 2000, 1000));
+        assertThat(Removal.removeValue(values, 2000)).isTrue();
+        assertThat(values).containsExactly(1000, 1000);
+        assertThat(Removal.removeValue(values, 1000)).isTrue();
+        assertThat(values).containsExactly(1000);
+    }
 }

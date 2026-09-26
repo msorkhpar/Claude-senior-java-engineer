@@ -29,4 +29,10 @@ class KindsTest {
     void nullIsChecked() {
         assertThat(Kinds.kind(null)).isEqualTo("null");
     }
+
+    @Test
+    void anEmptyStringBuiltAtRunTimeIsEmpty() {
+        assertThat(Kinds.kind(new String(""))).isEqualTo("empty");
+        assertThat(Kinds.kind(new String(new char[0]))).isEqualTo("empty");
+    }
 }

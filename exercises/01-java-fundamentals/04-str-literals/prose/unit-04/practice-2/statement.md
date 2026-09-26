@@ -7,4 +7,4 @@ Write `sameText(String a, String b)` in `Same`:
 - `sameText("hello", "hello")` is `true`, and `sameText("hello", "world")` is `false`;
 - `sameText(null, null)` is `true`;
 - `sameText(null, "hello")` and `sameText("hello", null)` are `false`;
-- `sameText("", new String(""))` is `true`.
+- `sameText("hello", new String("hello"))` and `sameText("", new String(""))` are `true`.

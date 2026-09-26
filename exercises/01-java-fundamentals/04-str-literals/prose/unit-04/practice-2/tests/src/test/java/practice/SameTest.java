@@ -10,7 +10,7 @@ class SameTest {
     void comparesTexts() {
         assertThat(Same.sameText("hello", "hello")).isTrue();
         assertThat(Same.sameText("hello", "world")).isFalse();
-        assertThat(Same.sameText("", new String(""))).isTrue();
+        assertThat(Same.sameText("", "")).isTrue();
     }
 
     @Test
@@ -22,5 +22,11 @@ class SameTest {
     @Test
     void aNullSecondArgumentIsSafe() {
         assertThat(Same.sameText("hello", null)).isFalse();
+    }
+
+    @Test
+    void equalTextsBuiltAtRunTimeAreTheSame() {
+        assertThat(Same.sameText("hello", new String("hello"))).isTrue();
+        assertThat(Same.sameText(new String(""), "")).isTrue();
     }
 }

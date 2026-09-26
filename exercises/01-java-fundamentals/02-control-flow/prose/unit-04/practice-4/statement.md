@@ -13,4 +13,5 @@ A warehouse labels fruit with two-letter codes, in capitals. Write `name(String 
 | any other text | `"unknown"` |
 | `null` | `"missing"` |
 
-Codes are exact: `"ap"` is not a code, so `name("ap")` is `"unknown"`.
+Codes are exact: `"ap"` is not a code, so `name("ap")` is `"unknown"`. A code read or built
+at run time is a code too: `name(new String("AP"))` is `"apple"`.

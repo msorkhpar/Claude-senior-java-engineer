@@ -10,3 +10,5 @@ Write `kind(String s)` in `Kinds`. It returns:
 | `""` | `"empty"` |
 | `"   "`, `"\t\n"` | `"blank"` |
 | `"hi"`, `" hi "` | `"text"` |
+
+An empty String built at run time, such as `new String("")`, is `"empty"` too.
