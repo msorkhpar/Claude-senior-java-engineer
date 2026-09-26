@@ -14,9 +14,9 @@
   joins them, refuses them unless their files are exactly the clips named in
   clips.sha256 beside it, extracts those into a staging directory, checks each
   clip's digest, moves each into the directory this corpus's pages play it
-  from, deletes the downloaded
-  volumes, and last marks the clips present for the pages. Running it again
-  gives the same tree. A site built into another directory than this corpus's
+  from, and deletes the downloaded volumes. The pages ask their first clip
+  themselves, so nothing else is written. Running it again gives the same
+  tree. A site built into another directory than this corpus's
   root has its own copies: build it again after restoring.
 
   In a clone whose origin is the repository on GitHub this needs no argument:
@@ -269,15 +269,6 @@ if ((Test-Path -LiteralPath $Work) -and -not (Get-ChildItem -Force -LiteralPath 
     Write-Host "narration: volumes kept in $Work; remove it when you are done"
 }
 
-# LAST: tell the pages the clips are here. Written only once every clip is in
-# place, and whole, so an interrupted restore never says present.
-$signal = Join-Path $Root '.studyforge/assets/narration-clips.js'
-$signalDir = Split-Path -Parent $signal
-if (-not (Test-Path -LiteralPath $signalDir)) {
-    New-Item -ItemType Directory -Force -Path $signalDir | Out-Null
-}
-$line = 'window.studyforge = window.studyforge || {}; window.studyforge.clips = "present";' + "`n"
-[System.IO.File]::WriteAllBytes("$signal.writing", [System.Text.Encoding]::ASCII.GetBytes($line))
-Move-Item -Force -LiteralPath "$signal.writing" -Destination $signal
+# The pages ask their first clip themselves, so nothing else is written.
 Write-Host 'narration: the pages will play the clips from their next load'
 exit 0

@@ -13,9 +13,9 @@
 # joins them, refuses them unless their files are exactly the clips named in
 # clips.sha256 beside it, extracts those into a staging directory, checks each
 # clip's digest, moves each into the directory this corpus's pages play it
-# from, deletes the downloaded
-# volumes, and last marks the clips present for the pages. Running it again
-# gives the same tree. A site built into another directory than this corpus's
+# from, and deletes the downloaded volumes. The pages ask their first clip
+# themselves, so nothing else is written. Running it again gives the same
+# tree. A site built into another directory than this corpus's
 # root has its own copies: build it again after restoring.
 #
 # In a clone whose `origin` is the repository on GitHub this needs no setting:
@@ -252,11 +252,6 @@ if [ -d "$WORK" ] && ! rmdir "$WORK" 2>/dev/null; then
   say "narration: volumes kept in $WORK; remove it when you are done"
 fi
 
-# LAST: tell the pages the clips are here. Written only once every clip is in
-# place, and whole, so an interrupted restore never says present.
-signal="$ROOT/.studyforge/assets/narration-clips.js"
-mkdir -p "$(dirname "$signal")" || die "cannot write the clip signal"
-printf '%s\n' 'window.studyforge = window.studyforge || {}; window.studyforge.clips = "present";' > "$signal.writing" && mv -f "$signal.writing" "$signal" \
-  || die "cannot write the clip signal"
+# The pages ask their first clip themselves, so nothing else is written.
 say "narration: the pages will play the clips from their next load"
 exit 0
