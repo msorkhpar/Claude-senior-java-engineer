@@ -1,0 +1,47 @@
+package practice;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.TreeSet;
+import java.util.function.Predicate;
+
+public enum CollectionOp {
+    FILTER {
+        @Override
+        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {
+            return input.stream().filter(predicate).toList();
+        }
+    },
+    SORT {
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {
+            List<T> sorted = new ArrayList<>(input);
+            sorted.sort((a, b) -> ((Comparable<T>) a).compareTo(b));
+            return sorted;
+        }
+    },
+    DISTINCT {
+        @Override
+        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {
+            return new ArrayList<>(new TreeSet<>(input));
+        }
+    },
+    REVERSE {
+        @Override
+        public <T> List<T> execute(List<T> input, Predicate<T> predicate) {
+            List<T> reversed = new ArrayList<>(input);
+            Collections.reverse(reversed);
+            return reversed;
+        }
+    };
+
+    /** Applies this operation to {@code input}; the predicate is used by FILTER only. */
+    public abstract <T> List<T> execute(List<T> input, Predicate<T> predicate);
+
+    /** Applies this operation with a predicate that accepts everything. */
+    public <T> List<T> execute(List<T> input) {
+        return execute(input, t -> true);
+    }
+}
