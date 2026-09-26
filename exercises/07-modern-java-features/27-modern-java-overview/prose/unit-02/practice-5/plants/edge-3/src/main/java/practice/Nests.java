@@ -1,0 +1,17 @@
+package practice;
+
+public final class Nests {
+
+    private Nests() {
+    }
+
+    /** The top-level class whose nest {@code c} belongs to. */
+    public static Class<?> host(Class<?> c) {
+        return c.getNestHost();
+    }
+
+    /** Whether {@code a} and {@code b} belong to the same nest. */
+    public static boolean nestmates(Class<?> a, Class<?> b) {
+        return a != b && a.getNestHost() == b.getNestHost();
+    }
+}
