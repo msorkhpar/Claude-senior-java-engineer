@@ -1,0 +1,33 @@
+A method reference is shorthand for a lambda that does nothing but call one existing
+method. The page's table pairs each reference with its lambda:
+
+| method reference | equivalent lambda |
+|---|---|
+| `String::toUpperCase` | `s -> s.toUpperCase()` |
+| `Integer::parseInt` | `s -> Integer.parseInt(s)` |
+| `ArrayList::new` | `() -> new ArrayList<>()` |
+| `String::compareTo` | `(s1, s2) -> s1.compareTo(s2)` |
+| `StringBuilder::new` | `s -> new StringBuilder(s)` |
+
+Complete `RefTable` so that each factory method returns the function in its row.
+The tests check what each function does; writing each one as the reference in its
+row is the practice's aim:
+
+- `Function<String, String> upper()`
+- `Function<String, Integer> parse()`
+- `Supplier<ArrayList<String>> newList()`
+- `Comparator<String> compare()`
+- `Function<String, StringBuilder> builder()`
+
+| call | result |
+|---|---|
+| `upper().apply("hello")` | `"HELLO"` |
+| `parse().apply("42")` | `42` |
+| `parse().apply("010")` | `10` (decimal, as `parseInt` reads it) |
+| `newList().get()` | an empty `ArrayList` |
+| `compare().compare("a", "a")` | `0` |
+| `builder().apply("abc").toString()` | `"abc"` |
+| `builder().apply(null)` | throws `NullPointerException`, like `new StringBuilder(null)` |
+
+A reference must behave like its lambda on every call, not only the first, and a
+reference to an instance method has to decide which argument is the receiver.
