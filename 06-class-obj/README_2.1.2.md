@@ -146,9 +146,11 @@ public class Employee {
 Q7: What is the purpose of the `this()` call in a constructor?
 
 ```text
-The `this()` call in a constructor is used to invoke another constructor in the same class. It must be the first 
-statement in the constructor body. This technique is known as constructor chaining and is useful for reducing code
- duplication when you have multiple constructors with different parameter lists.
+The `this()` call in a constructor is used to invoke another constructor in the same class. Up to Java 24, and at this
+course's Java 21 level, it must be the first statement in the constructor body. Java 25 relaxes this with flexible
+constructor bodies (JEP 513): statements that do not use the object being built may come before it.
+This technique is known as constructor chaining and is useful for reducing code
+duplication when you have multiple constructors with different parameter lists.
 ```
 
 Q8: How would you implement a singleton pattern using a private constructor?

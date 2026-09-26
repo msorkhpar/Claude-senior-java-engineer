@@ -188,3 +188,8 @@ String result = switch (obj) {
 
 This feature combines the conciseness of switch expressions with the power of pattern matching, allowing for more
 expressive and type-safe code.
+
+## Code Examples
+
+- Test: [SwitchExpressionTest.java](src/test/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchExpressionTest.java)
+- Source: [SwitchExpression.java](src/main/java/com/github/msorkhpar/claudejavatutor/controlflow/SwitchExpression.java)

@@ -128,7 +128,7 @@ flatMap: [["a","b"], ["c"]] --flatMap--> ["a", "b", "c"]
 
 1. **`filter` on empty stream**: Returns empty stream; no exception.
 2. **`map` returning null**: Allowed, but downstream operations on null elements may throw `NullPointerException`. Use `filter(Objects::nonNull)` or handle nulls explicitly.
-3. **`flatMap` with a function returning null**: Throws `NullPointerException`. The function must return a non-null stream (use `Stream.empty()` for empty results).
+3. **`flatMap` with a function returning null**: No exception. A `null` result is treated as an empty stream, so that element contributes nothing. Returning `Stream.empty()` says so more clearly.
 4. **`distinct()` on empty stream**: Returns empty stream.
 5. **`sorted()` with `null` elements and natural ordering**: Throws `NullPointerException`. Sort with a null-safe comparator: `Comparator.nullsFirst(Comparator.naturalOrder())`.
 6. **`limit(0)` / `skip(MAX_VALUE)`**: Returns empty stream; works correctly.

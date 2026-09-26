@@ -64,7 +64,7 @@ Java 21 builds extensively on Java 15's foundations:
 
 3. **Pattern variable scope confusion**:
    ```java
-   // WRONG: pattern variable 's' is not in scope in the else branch
+   // With a negated test, 's' is not in scope in the if branch, only in the else branch
    if (!(obj instanceof String s)) {
        // s is NOT available here
        // System.out.println(s.length()); // Compile error

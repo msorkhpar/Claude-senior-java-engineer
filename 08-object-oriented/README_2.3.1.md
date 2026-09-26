@@ -313,7 +313,10 @@ The 'super' keyword in Java is used to refer to the superclass (parent class) of
 
 Key points:
 
-- 'super()' must be the first statement in a subclass constructor if used.
+- Up to Java 24, 'super()' must be the first statement in a subclass constructor if used. This course compiles at
+  Java 21, so the rule applies to its code. Java 25 relaxes it with flexible constructor bodies (JEP 513, a preview in
+  Java 22-24): statements such as argument checks may come before 'super(...)', as long as they do not use the object
+  being built, for example by reading its fields or calling its instance methods.
 - 'super' can't be used in a static context.
 - It's useful for maintaining the functionality of the superclass when overriding methods.
 
