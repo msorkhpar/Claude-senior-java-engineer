@@ -1,0 +1,53 @@
+package practice;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+class DedupeTest {
+
+    /** A fresh String object, never the interned literal. */
+    private static String word(String text) {
+        return new String(text.toCharArray());
+    }
+
+    @Test
+    void dropsRepeats() {
+        String c = word("c");
+        List<String> words = new ArrayList<>(List.of(word("a"), word("b"), c, c));
+        List<String> before = new ArrayList<>(words);
+        List<String> answer = Dedupe.distinct(words);
+        assertThat(answer).containsExactly("a", "b", "c");
+        assertThat(answer).isNotSameAs(words);
+        assertThat(words).as("the input is not changed").isEqualTo(before);
+    }
+
+    @Test
+    void keepsInsertionOrder() {
+        // single-letter strings hash to their char code, so a HashSet iterates them a, b, c, d
+        List<String> words = List.of(word("d"), word("c"), word("b"), word("a"));
+        assertThat(Dedupe.distinct(words)).containsExactly("d", "c", "b", "a");
+    }
+
+    @Test
+    void firstOccurrenceWins() {
+        String b = word("b");
+        List<String> words = List.of(b, word("a"), b);
+        assertThat(Dedupe.distinct(words)).containsExactly("b", "a");
+    }
+
+    @Test
+    void equalWordsAreOneWord() {
+        String first = word("a");
+        String second = word("a");
+        assertThat(first).isNotSameAs(second);
+        List<String> answer = Dedupe.distinct(List.of(first, word("b"), second));
+        assertThat(answer).containsExactly("a", "b");
+    }
+}
