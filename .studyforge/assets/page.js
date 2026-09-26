@@ -260,7 +260,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   /* ⭐ **A quiz passed, by its practice key** — the same machinery as the
      marks, over its own key. ⛔ A quiz is graded in its page and the server
-     records nothing about it (the user's ruling), so its pass is the reader's
+     records nothing about it (register ruling), so its pass is the reader's
      own record, kept where the read marks are; it is never a RUN's pass. */
   function passes() {
     var held = record(QUIZZES_KEY);
@@ -1750,7 +1750,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
      two frames.** The file a reader may type in and the file that judges it are
      two different acts of reading; a tab picks which one the frame shows.
 
-     ⛔ **One frame, because a page holds one editor at most** (the user's
+     ⛔ **One frame, because a page holds one editor at most** (register
      ruling): a second workbench is a second language server, so the Tests tab
      points the same frame at the other window's URL rather than building one.
 
@@ -1812,7 +1812,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
     show(part(panel, 'no-editor'), false);
   }
 
-  /* ⭐ **Nothing is asked until the reader opens this practice** (the user's
+  /* ⭐ **Nothing is asked until the reader opens this practice** (register
      ruling: no editor loads until a practice is opened), and the frame goes
      when it is closed or another is opened — so the page holds one at most.
      ⛔ Frames are added only for an editor that is already up over this
@@ -1871,7 +1871,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
 /* The quiz: what a reader chose, whether it was right, and why — graded in the page.
 
-   ⭐ **The user's ruling (2026-09-25): the quiz answers remain in the page, in a
+   ⭐ **The register ruling (2026-09-25): a quiz's answers live in the page, in a
    script local to that page, and nothing about a quiz is a server function.**
    This reverses the ruling that kept the key on the local study server. ⭐ So
    each quiz section carries its OWN key, as a JSON data block
@@ -2015,7 +2015,7 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
 /* A lesson's practices: the list of cards, and the one workspace a card opens in.
 
-   ⭐ **The user's ruling, whole.** A lesson's practices are one *Practice (n)*
+   ⭐ **The register ruling, whole.** A lesson's practices are one *Practice (n)*
    list of titled cards; opening a card gives a full-screen workspace — the
    problem statement on the left, always visible and scrollable, the editor, Run
    and Submit on the right, Previous and Next between the lesson's practices, and
@@ -2269,8 +2269,8 @@ Prism.languages.sql={comment:{pattern:/(^|[^\\])(?:\/\*[\s\S]*?\*\/|(?:--|\/\/|#
 
   /* --- the status: the reader's own record ------------------------------ */
   /* ⭐ A code practice's pass is the served origin's (a run established it);
-     a quiz's is the reader's browser store, where the quiz page kept it (the
-     user's ruling: nothing about a quiz is a server's). */
+     a quiz's is the reader's browser store, where the quiz page kept it (register
+     ruling: nothing about a quiz is a server's). */
   var run = window.studyforge && window.studyforge.run;
   var asks = run && run.available() && run.practices;
   var store = window.studyforge && window.studyforge.progress;
