@@ -853,6 +853,7 @@ public final class Account {
 <li data-practice-case="practice.AccountTest#depositsWithdrawsAndSnapshots" data-practice-case-kind="main"><span data-practice-part="verdict"></span>Deposits and withdrawals move the balance and each counts one transaction, and a snapshot reads both.</li>
 <li data-practice-case="practice.AccountTest#anOverdraftIsRefused" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>A withdrawal larger than the balance is refused and changes neither field.</li>
 <li data-practice-case="practice.AccountTest#updatesTakeTheAccountsLock" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>A deposit waits while another thread holds the account's lock, so both fields change in one step.</li>
+<li data-practice-case="practice.AccountTest#aWithdrawalTakesTheAccountsLock" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>withdraw() waits while another thread holds the account's own monitor, like every other update.</li>
 <li data-practice-case="practice.AccountTest#aSnapshotTakesTheAccountsLock" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>A snapshot waits for the lock too, so it never pairs a new balance with an old count.</li>
 </ul>
 </div>
@@ -958,7 +959,7 @@ public final class VersionedValue {
 <p>The page keeps a running maximum without locks with a <code>LongAccumulator</code> built from <code>Long::max</code> and the identity <code>Long.MIN_VALUE</code>, and counts under heavy contention with a <code>LongAdder</code>, which spreads contending threads over several cells.</p>
 <p>Write <code>LatencyStats</code>:</p>
 <ul class="items"><li><code>record(latency)</code> counts one value and folds it into the maximum;</li><li><code>count()</code> returns how many values were recorded;</li><li><code>max()</code> returns the largest value recorded, or <code>Long.MIN_VALUE</code> when none was;</li><li><code>reset()</code> starts over.</li></ul>
-<p>Many threads call <code>record</code> at once, so both statistics must be atomic.</p>
+<p>Many threads call <code>record</code> at once, so both statistics must be atomic. Use the page's tools, <strong>without a lock</strong>: the count is a <code>LongAdder</code> and the maximum a <code>LongAccumulator</code>, each in a <code>final</code> field.</p>
 <div class="scroll"><table><thead><tr><th>calls</th><th><code>count()</code></th><th><code>max()</code></th></tr></thead><tbody><tr><td>none</td><td><code>0</code></td><td><code>Long.MIN_VALUE</code></td></tr><tr><td><code>record(12)</code>, <code>record(40)</code>, <code>record(7)</code></td><td><code>3</code></td><td><code>40</code></td></tr><tr><td><code>record(-5)</code>, <code>record(-2)</code> on a fresh one</td><td><code>2</code></td><td><code>-2</code></td></tr><tr><td>4 threads × 1,000 <code>record</code>s of <code>0</code>…<code>999</code></td><td><code>4000</code></td><td><code>999</code></td></tr><tr><td><code>reset()</code></td><td><code>0</code></td><td><code>Long.MIN_VALUE</code></td></tr></tbody></table></div>
 <details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
@@ -1041,6 +1042,7 @@ public final class LatencyStats {
 <li data-practice-case="practice.LatencyStatsTest#allNegativeValuesKeepTheirMaximum" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>When every recorded value is negative, the maximum is the largest of them, not a made-up zero.</li>
 <li data-practice-case="practice.LatencyStatsTest#nothingRecordedHasNoMaximum" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>Before anything is recorded the count is 0 and the maximum is Long.MIN_VALUE.</li>
 <li data-practice-case="practice.LatencyStatsTest#resetStartsOver" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>reset clears both the count and the maximum.</li>
+<li data-practice-case="practice.LatencyStatsTest#theStatisticsLiveInTheAddersWithoutALock" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>The count is a final LongAdder and the maximum a final LongAccumulator, and no method takes a lock.</li>
 </ul>
 </div>
 <pre data-practice-part="output" tabindex="0" hidden></pre>
