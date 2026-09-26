@@ -1,0 +1,162 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "25-fork-join"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 4,
+  "ingested": "2026-09-24",
+  "title": "A failure that comes back through join",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's pitfall 2 and Q3 explain how a subtask's failure travels: `join()` and `invoke()` **rethrow the subtask's `RuntimeException` unwrapped**, the same type, not an `ExecutionException`. But when the subtask failed **in another thread**, the exception you catch may be a **copy** of that type whose `getCause()` is the original, so its own message may not be the original's. The page reads the original with `e.getCause() != null ? e.getCause() : e`. (In a pool with several workers a copy can itself be copied at a later join, so following `getCause()` for as long as it is still a `NumberFormatException` is the safe way to reach the original. The tests run `total` in a pool of one worker, called from the test's own thread.)"
+    },
+    {
+      "type": "para",
+      "text": "Write `ParseSum.total(pool, items, threshold)`: a `RecursiveTask<Long>` run in `pool` that parses every string of `items` with `Long.parseLong` and sums them, splitting at the midpoint while a range is longer than `threshold`. A leaf that meets an item that is not a number throws"
+    },
+    {
+      "type": "para",
+      "text": "new NumberFormatException(\"item \" + i + \" is not a number: \" + items[i])"
+    },
+    {
+      "type": "para",
+      "text": "Do not catch it inside the tasks. `total` catches the `NumberFormatException` that comes out of the pool and throws `IllegalArgumentException` with the **original** message."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "items",
+        "threshold",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`\"1\"`, `\"2\"`, ..., `\"10\"`",
+          "2",
+          "`55`"
+        ],
+        [
+          "`\"1\"`, `\"2\"`, `\"3\"`, `\"4\"`, `\"5\"`, `\"6\"`, `\"x\"`, `\"8\"`",
+          "2",
+          "`IllegalArgumentException(\"item 6 is not a number: x\")`"
+        ],
+        [
+          "no items",
+          "2",
+          "`0`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveTask;\n\npublic final class ParseSum {\n\n    private ParseSum() {\n    }\n\n    /** Parses and sums the items in the pool; a bad item becomes IllegalArgumentException with the leaf's message. */\n    public static long total(ForkJoinPool pool, String[] items, int threshold) {\n        try {\n            return pool.invoke(new Part(items, 0, items.length, threshold));\n        } catch (NumberFormatException e) {\n            Throwable original = e;\n            while (original.getCause() instanceof NumberFormatException cause) {\n                original = cause; // each join in another thread may have wrapped a copy around it\n            }\n            throw new IllegalArgumentException(original.getMessage(), original);\n        }\n    }\n\n    private static final class Part extends RecursiveTask<Long> {\n        private final String[] items;\n        private final int start;\n        private final int end;\n        private final int threshold;\n\n        Part(String[] items, int start, int end, int threshold) {\n            this.items = items;\n            this.start = start;\n            this.end = end;\n            this.threshold = threshold;\n        }\n\n        @Override\n        protected Long compute() {\n            int length = end - start;\n            if (length <= threshold) {\n                long sum = 0;\n                for (int i = start; i < end; i++) {\n                    try {\n                        sum += Long.parseLong(items[i]);\n                    } catch (NumberFormatException e) {\n                        throw new NumberFormatException(\"item \" + i + \" is not a number: \" + items[i]);\n                    }\n                }\n                return sum;\n            }\n            int mid = start + length / 2;\n            Part left = new Part(items, start, mid, threshold);\n            Part right = new Part(items, mid, end, threshold);\n            left.fork();\n            long rightSum = right.compute();\n            return left.join() + rightSum;\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class ParseSum {\n\n    private ParseSum() {\n    }\n\n    /** Parses and sums the items in the pool; a bad item becomes IllegalArgumentException with the leaf's message. */\n    public static long total(ForkJoinPool pool, String[] items, int threshold) {\n        throw new UnsupportedOperationException(\"write total\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 4,
+    "code": 1,
+    "tables": 1,
+    "lists": 0,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "dff3127ac1eff035b009fa332b1f54d22a895c208fbe1b7126597d38a5312100",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class ParseSum {\n\n    private ParseSum() {\n    }\n\n    /** Parses and sums the items in the pool; a bad item becomes IllegalArgumentException with the leaf's message. */\n    public static long total(ForkJoinPool pool, String[] items, int threshold) {\n        throw new UnsupportedOperationException(\"write total\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-4/src/main/java/practice/ParseSum.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-4/src/test/java/practice/ParseSumTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-4/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-4/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ParseSumTest#sumsTheNumbers",
+        "kind": "main",
+        "says": "Items that are all numbers are parsed and summed."
+      },
+      {
+        "id": "practice.ParseSumTest#aBadItemIsNotSwallowed",
+        "kind": "edge",
+        "says": "A bad item makes total fail instead of being counted as zero."
+      },
+      {
+        "id": "practice.ParseSumTest#aBadItemIsReportedWithTheOriginalMessage",
+        "kind": "edge",
+        "says": "The report carries the leaf's own message, read from the cause when join rethrew a copy made in another thread."
+      },
+      {
+        "id": "practice.ParseSumTest#numbersBeyondIntAreNumbers",
+        "kind": "edge",
+        "says": "\"3000000000\" is a number and sums as a long: items are read with Long.parseLong, not as ints."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-03/practice-4/target/surefire-reports"
+    },
+    "origin": {
+      "path": "25-fork-join/README_6.6.1.2.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "join() and invoke() rethrow a subtask's RuntimeException unwrapped, possibly as a copy made in another thread whose cause is the original."
+    ]
+  }
+}

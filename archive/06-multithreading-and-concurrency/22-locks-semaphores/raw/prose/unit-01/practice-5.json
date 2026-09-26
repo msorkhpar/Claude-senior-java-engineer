@@ -1,0 +1,183 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "22-locks-semaphores"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 5,
+  "ingested": "2026-09-24",
+  "title": "Many readers, one writer",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "When reads far outnumber writes, the page recommends a `ReentrantReadWriteLock`: any number of threads may hold its **read lock** together, while its **write lock** is exclusive and shuts readers out. The course's `ReadWriteLockUsage` adds a warning: a thread that holds the read lock can **not** upgrade to the write lock; asking for it while still reading waits for ever, since the writer waits for every reader to leave, itself included."
+    },
+    {
+      "type": "para",
+      "text": "Write `Catalog`, a `String` to `String` map guarded by one `ReentrantReadWriteLock`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`String lookup(String key, Runnable whileReading)` reads under the **read** lock, and calls `whileReading.run()` while holding it.",
+        "`void publish(String key, String value, Runnable whileWriting)` writes under the **write** lock, and calls `whileWriting.run()` while holding it (after storing the value).",
+        "`String lookupOrLoad(String key, Function<String, String> loader)` returns the stored value; on a miss it calls `loader` **while holding the write lock**, stores the result and returns it, so a later call finds the value without loading again. It must **not** ask for the write lock while it holds the read lock. (Once it has the write lock, look again before loading: another thread may have loaded the key in between.)"
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The two `Runnable`s let the tests see who holds what; pass them `() -> {}` in your own code."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "calls",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`publish(\"k\", \"v\", nop)`, `lookup(\"k\", nop)`, `lookup(\"gone\", nop)`",
+          "`\"v\"`, `null`"
+        ],
+        [
+          "two threads call `lookup` at the same time",
+          "both hold the read lock together"
+        ],
+        [
+          "another thread calls `lookup(\"k\", nop)` while `publish(\"k\", \"new\", hook)` is in its hook",
+          "that lookup waits, then returns `\"new\"`"
+        ],
+        [
+          "`lookupOrLoad(\"k\", String::toUpperCase)`, then `lookupOrLoad(\"k\", other)`",
+          "`\"K\"` both times; only the first loader ran"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Function;\n\n/** A read-mostly map: shared reads, exclusive writes. */\npublic final class Catalog {\n\n    private final Map<String, String> entries = new HashMap<>();\n    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();\n\n    /** Reads {@code key} under the read lock, calling {@code whileReading} while holding it. */\n    public String lookup(String key, Runnable whileReading) {\n        lock.readLock().lock();\n        try {\n            whileReading.run();\n            return entries.get(key);\n        } finally {\n            lock.readLock().unlock();\n        }\n    }\n\n    /** Stores {@code value} under the write lock, then calls {@code whileWriting} while still holding it. */\n    public void publish(String key, String value, Runnable whileWriting) {\n        lock.writeLock().lock();\n        try {\n            entries.put(key, value);\n            whileWriting.run();\n        } finally {\n            lock.writeLock().unlock();\n        }\n    }\n\n    /** Returns the stored value, or loads, stores and returns it on a miss. */\n    public String lookupOrLoad(String key, Function<String, String> loader) {\n        lock.readLock().lock();\n        try {\n            String found = entries.get(key);\n            if (found != null) {\n                return found;\n            }\n        } finally {\n            lock.readLock().unlock();\n        }\n        lock.writeLock().lock();\n        try {\n            String found = entries.get(key);\n            if (found == null) {\n                found = loader.apply(key);\n                entries.put(key, found);\n            }\n            return found;\n        } finally {\n            lock.writeLock().unlock();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Function;\n\n/** A read-mostly map: shared reads, exclusive writes. */\npublic final class Catalog {\n\n    private final Map<String, String> entries = new HashMap<>();\n    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();\n\n    /** Reads {@code key} under the read lock, calling {@code whileReading} while holding it. */\n    public String lookup(String key, Runnable whileReading) {\n        throw new UnsupportedOperationException(\"write lookup\");\n    }\n\n    /** Stores {@code value} under the write lock, then calls {@code whileWriting} while still holding it. */\n    public void publish(String key, String value, Runnable whileWriting) {\n        throw new UnsupportedOperationException(\"write publish\");\n    }\n\n    /** Returns the stored value, or loads, stores and returns it on a miss. */\n    public String lookupOrLoad(String key, Function<String, String> loader) {\n        throw new UnsupportedOperationException(\"write lookupOrLoad\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "db086f4f117449b4cd3d0a233b3eda524f06642d7496f9b16511623225facb52",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Function;\n\n/** A read-mostly map: shared reads, exclusive writes. */\npublic final class Catalog {\n\n    private final Map<String, String> entries = new HashMap<>();\n    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();\n\n    /** Reads {@code key} under the read lock, calling {@code whileReading} while holding it. */\n    public String lookup(String key, Runnable whileReading) {\n        throw new UnsupportedOperationException(\"write lookup\");\n    }\n\n    /** Stores {@code value} under the write lock, then calls {@code whileWriting} while still holding it. */\n    public void publish(String key, String value, Runnable whileWriting) {\n        throw new UnsupportedOperationException(\"write publish\");\n    }\n\n    /** Returns the stored value, or loads, stores and returns it on a miss. */\n    public String lookupOrLoad(String key, Function<String, String> loader) {\n        throw new UnsupportedOperationException(\"write lookupOrLoad\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-5/src/main/java/practice/Catalog.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-5/src/test/java/practice/CatalogTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-5/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-5/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.CatalogTest#publishThenLookup",
+        "kind": "main",
+        "says": "A published value is found by lookup, and a missing key gives null."
+      },
+      {
+        "id": "practice.CatalogTest#readersShareTheLock",
+        "kind": "edge",
+        "says": "Two lookups can hold the read lock at the same time."
+      },
+      {
+        "id": "practice.CatalogTest#writerExcludesReaders",
+        "kind": "edge",
+        "says": "A lookup that starts while a publish holds the write lock waits, and then sees the new value."
+      },
+      {
+        "id": "practice.CatalogTest#missLoadsWithoutUpgrading",
+        "kind": "edge",
+        "says": "A miss in lookupOrLoad loads the value once and stores it, without deadlocking on its own read lock."
+      },
+      {
+        "id": "practice.CatalogTest#theWriteHookRunsAfterStoring",
+        "kind": "edge",
+        "says": "whileWriting runs after the value is stored: a lookup made from the hook already sees it."
+      },
+      {
+        "id": "practice.CatalogTest#readersKeepWritersOut",
+        "kind": "edge",
+        "says": "While whileReading runs, a writer on another thread waits for the read lock to be released."
+      },
+      {
+        "id": "practice.CatalogTest#theLoaderRunsUnderTheWriteLock",
+        "kind": "edge",
+        "says": "lookupOrLoad calls the loader while it holds the write lock, so a reader on another thread waits until the value is stored."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-5/target/surefire-reports"
+    },
+    "origin": {
+      "path": "22-locks-semaphores/README_6.3.1.md",
+      "section": "Best Practices and Optimization Techniques"
+    },
+    "concepts": [
+      "A thread holding the read lock cannot upgrade to the write lock; it must release the read lock before asking for the write lock.",
+      "A ReentrantReadWriteLock lets many readers hold the read lock together while the write lock is exclusive of readers and writers."
+    ]
+  }
+}

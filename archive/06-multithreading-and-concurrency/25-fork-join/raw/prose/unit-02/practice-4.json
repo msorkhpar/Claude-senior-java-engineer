@@ -1,0 +1,150 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "25-fork-join"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 4,
+  "ingested": "2026-09-24",
+  "title": "Block without starving the pool",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page warns that `ForkJoinPool` is **not suitable for blocking** calls: a worker that blocks is a worker lost to the pool. Its answer is `ForkJoinPool.ManagedBlocker`: you wrap the blocking call in a blocker with `block()` and `isReleasable()`, and call `ForkJoinPool.managedBlock(blocker)`. The pool can then **compensate** by starting an extra thread while yours is blocked (so the pool can grow beyond its parallelism)."
+    },
+    {
+      "type": "para",
+      "text": "Write `LatchWaiter.await(latch)`: it returns once `latch` has counted down to zero, and does its waiting through `ForkJoinPool.managedBlock`. `isReleasable()` is true when the count is already `0`, and `block()` waits with `latch.await()`. An interrupt while waiting ends `await` with the `InterruptedException`. The tests see the waiting and the pool's compensation, not the blocker's own answers, so what `isReleasable()` returns is the page's advice rather than a graded step."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "situation",
+        "answer"
+      ],
+      "rows": [
+        [
+          "the latch is already at 0",
+          "returns at once"
+        ],
+        [
+          "a pool of parallelism **1**: task A calls `await` on a latch of count 1, then task B of the same pool counts it down",
+          "A returns: B got a thread although A was blocked"
+        ],
+        [
+          "a thread waits in `await` and is interrupted",
+          "`await` throws `InterruptedException`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "With a plain `latch.await()` in the second row, the pool's only worker would sit blocked in A, and B would never run."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class LatchWaiter {\n\n    private LatchWaiter() {\n    }\n\n    /** Waits, through ForkJoinPool.managedBlock, until the latch reaches zero. */\n    public static void await(CountDownLatch latch) throws InterruptedException {\n        ForkJoinPool.managedBlock(new Blocker(latch));\n    }\n\n    private static final class Blocker implements ForkJoinPool.ManagedBlocker {\n        private final CountDownLatch latch;\n\n        Blocker(CountDownLatch latch) {\n            this.latch = latch;\n        }\n\n        @Override\n        public boolean block() throws InterruptedException {\n            latch.await();\n            return true;\n        }\n\n        @Override\n        public boolean isReleasable() {\n            return latch.getCount() == 0;\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\n\npublic final class LatchWaiter {\n\n    private LatchWaiter() {\n    }\n\n    /** Waits, through ForkJoinPool.managedBlock, until the latch reaches zero. */\n    public static void await(CountDownLatch latch) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write await\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 0,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "73edd7747419f2d95b62b75c0a8cb84c1e726718a88f37784a13ac1de3c3a075",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\n\npublic final class LatchWaiter {\n\n    private LatchWaiter() {\n    }\n\n    /** Waits, through ForkJoinPool.managedBlock, until the latch reaches zero. */\n    public static void await(CountDownLatch latch) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write await\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-4/src/main/java/practice/LatchWaiter.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-4/src/test/java/practice/LatchWaiterTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-4/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-4/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.LatchWaiterTest#passesAnOpenLatch",
+        "kind": "main",
+        "says": "Waiting on a latch that is already open returns at once."
+      },
+      {
+        "id": "practice.LatchWaiterTest#anotherTaskOfAOneThreadPoolCanOpenTheLatch",
+        "kind": "edge",
+        "says": "While a task of a one-thread pool waits, the pool adds a thread, so another task of that pool can open the latch."
+      },
+      {
+        "id": "practice.LatchWaiterTest#aWaitCanBeInterrupted",
+        "kind": "edge",
+        "says": "A wait ends with InterruptedException when its thread is interrupted."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-4/target/surefire-reports"
+    },
+    "origin": {
+      "path": "25-fork-join/README_6.6.1.1.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "A blocking call inside a pool is wrapped in a ManagedBlocker and run through ForkJoinPool.managedBlock, so the pool can compensate with another thread.",
+      "The pool size can grow beyond the parallelism while ManagedBlocker compensates for a blocked worker."
+    ]
+  }
+}
