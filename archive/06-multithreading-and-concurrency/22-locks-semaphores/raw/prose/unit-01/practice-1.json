@@ -1,0 +1,206 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "22-locks-semaphores"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "A counter that will not wait forever",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's `TimedCounter` shows what `synchronized` cannot do: `tryLock()` gives up at once when the lock is taken, `tryLock(time, unit)` gives up after a timeout, and the diagnostics `hasQueuedThreads()` and `getQueueLength()` tell you whether anyone is waiting. The page's pitfall: `tryLock()` returns a `boolean`, and a caller that ignores it enters the critical section without the lock."
+    },
+    {
+      "type": "para",
+      "text": "Write `TimedCounter`, a counter guarded by the `ReentrantLock` it is given:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`boolean tryIncrement()` adds one only if it gets the lock **without waiting**; it returns whether it counted.",
+        "`boolean increment(long timeout, TimeUnit unit)` waits **at most** `timeout` (in the given `unit`) for the lock; it returns whether it counted. An interrupt while it waits ends it with `InterruptedException`.",
+        "`long count()` returns the count.",
+        "`boolean isContended()` is `true` when at least one thread is **waiting** for the lock (not merely when the lock is held)."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The lock is reentrant: a thread that already holds it gets it again at once. Every path that takes the lock should release it, and reading the count under the lock too keeps the read consistent with the writes."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "situation",
+        "call",
+        "answer"
+      ],
+      "rows": [
+        [
+          "lock free",
+          "`tryIncrement()`, `increment(1, SECONDS)`, `count()`",
+          "`true`, `true`, `2`"
+        ],
+        [
+          "another thread holds the lock",
+          "`tryIncrement()`",
+          "`false` at once; nothing counted"
+        ],
+        [
+          "another thread holds the lock",
+          "`increment(100_000, MICROSECONDS)`",
+          "`false` after about 100 ms"
+        ],
+        [
+          "another thread holds it, then releases it",
+          "`increment(5, SECONDS)`",
+          "`true`"
+        ],
+        [
+          "another thread holds it, nobody waits",
+          "`isContended()`",
+          "`false`"
+        ],
+        [
+          "another thread holds it, a third waits",
+          "`isContended()`",
+          "`true`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A counter guarded by the lock it is given. */\npublic final class TimedCounter {\n\n    private final ReentrantLock lock;\n    private long count;\n\n    public TimedCounter(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Adds one only if the lock is free right now; returns whether it counted. */\n    public boolean tryIncrement() {\n        if (!lock.tryLock()) {\n            return false;\n        }\n        try {\n            count++;\n            return true;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Waits at most {@code timeout} for the lock; returns whether it counted. */\n    public boolean increment(long timeout, TimeUnit unit) throws InterruptedException {\n        if (!lock.tryLock(timeout, unit)) {\n            return false;\n        }\n        try {\n            count++;\n            return true;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** The count, read under the lock. */\n    public long count() {\n        lock.lock();\n        try {\n            return count;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Whether at least one thread is waiting for the lock. */\n    public boolean isContended() {\n        return lock.hasQueuedThreads();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A counter guarded by the lock it is given. */\npublic final class TimedCounter {\n\n    private final ReentrantLock lock;\n    private long count;\n\n    public TimedCounter(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Adds one only if the lock is free right now; returns whether it counted. */\n    public boolean tryIncrement() {\n        throw new UnsupportedOperationException(\"write tryIncrement\");\n    }\n\n    /** Waits at most {@code timeout} for the lock; returns whether it counted. */\n    public boolean increment(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write increment\");\n    }\n\n    /** The count, read under the lock. */\n    public long count() {\n        throw new UnsupportedOperationException(\"write count\");\n    }\n\n    /** Whether at least one thread is waiting for the lock. */\n    public boolean isContended() {\n        throw new UnsupportedOperationException(\"write isContended\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "d9a656b3f6fb74be6ad7d7e9bf1657e424cf42723e83f6ee3d97823c9878bd48",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A counter guarded by the lock it is given. */\npublic final class TimedCounter {\n\n    private final ReentrantLock lock;\n    private long count;\n\n    public TimedCounter(ReentrantLock lock) {\n        this.lock = lock;\n    }\n\n    /** Adds one only if the lock is free right now; returns whether it counted. */\n    public boolean tryIncrement() {\n        throw new UnsupportedOperationException(\"write tryIncrement\");\n    }\n\n    /** Waits at most {@code timeout} for the lock; returns whether it counted. */\n    public boolean increment(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write increment\");\n    }\n\n    /** The count, read under the lock. */\n    public long count() {\n        throw new UnsupportedOperationException(\"write count\");\n    }\n\n    /** Whether at least one thread is waiting for the lock. */\n    public boolean isContended() {\n        throw new UnsupportedOperationException(\"write isContended\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/src/main/java/practice/TimedCounter.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/src/test/java/practice/TimedCounterTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.TimedCounterTest#incrementsWhenFree",
+        "kind": "main",
+        "says": "With the lock free, both increments succeed, the count is 2 and the lock is released again."
+      },
+      {
+        "id": "practice.TimedCounterTest#tryIncrementRefusesWhileHeld",
+        "kind": "edge",
+        "says": "While another thread holds the lock, tryIncrement returns false at once and does not count."
+      },
+      {
+        "id": "practice.TimedCounterTest#timedIncrementGivesUp",
+        "kind": "edge",
+        "says": "While another thread holds the lock, a timed increment gives up after its timeout and returns false."
+      },
+      {
+        "id": "practice.TimedCounterTest#timedIncrementWaitsForRelease",
+        "kind": "edge",
+        "says": "A timed increment waits for the lock and succeeds when the holder releases it within the timeout."
+      },
+      {
+        "id": "practice.TimedCounterTest#contendedMeansSomeoneWaits",
+        "kind": "edge",
+        "says": "A lock that is held with no thread waiting for it is not contended; it is once a thread waits."
+      },
+      {
+        "id": "practice.TimedCounterTest#theHolderCountsWithoutWaiting",
+        "kind": "edge",
+        "says": "A thread that already holds the reentrant lock gets it again at once, so its tryIncrement counts."
+      },
+      {
+        "id": "practice.TimedCounterTest#anInterruptedWaitThrows",
+        "kind": "edge",
+        "says": "A caller interrupted while waiting in increment gets InterruptedException, and nothing is counted."
+      },
+      {
+        "id": "practice.TimedCounterTest#theTimeoutIsKeptExactly",
+        "kind": "edge",
+        "says": "Timeouts of 250,000 microseconds and 1,600 ms are waited in full: the unit is honoured, nothing rounded to seconds."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "22-locks-semaphores/README_6.3.1.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "The boolean from tryLock() must be checked; entering the critical section without it runs unguarded and ends in IllegalMonitorStateException.",
+      "hasQueuedThreads() and getQueueLength() report threads waiting for the lock, which isLocked() does not.",
+      "tryLock(time, unit) waits at most the timeout, succeeds if the lock is released in time and gives up with false otherwise.",
+      "tryLock() takes the lock only if it is free right now and returns whether it did, never waiting."
+    ]
+  }
+}

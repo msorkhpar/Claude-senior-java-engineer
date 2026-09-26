@@ -1,0 +1,178 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "26-virtual-threads"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "A loading cache that parks, not pins",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "On Java 21 a virtual thread that blocks inside `synchronized` is **pinned**: its carrier thread stays blocked with it. The page's fix is to guard code that blocks while holding a lock with a `ReentrantLock` instead, unlocked in `finally`: a virtual thread waiting for a `ReentrantLock` parks and frees its carrier. (Pinning itself cannot be tested reliably; what the tests can see is the choice: a thread waiting for a `ReentrantLock` is `WAITING`, one waiting to enter `synchronized` is `BLOCKED`.)"
+    },
+    {
+      "type": "para",
+      "text": "Write `LoadingCache`. Its constructor takes a `Function<String, String> loader`, a slow, blocking call (think of a database query). `get(String key)`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "returns the cached value for `key`, or else calls `loader.apply(key)`, caches the value and returns it;",
+        "guards the whole check, load and store with **one `ReentrantLock`** of the cache, so the loader runs **once per key**, even when several threads ask at the same time;",
+        "when the loader throws, passes the exception on, caches nothing and still **releases the lock**."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "calls",
+        "loader calls",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`get(\"a\")`, then `get(\"a\")`",
+          "1",
+          "the loaded value, twice"
+        ],
+        [
+          "`get(\"a\")`, `get(\"b\")`",
+          "2",
+          "each key's own value"
+        ],
+        [
+          "two virtual threads `get(\"slow\")` at once",
+          "1",
+          "both get the same value; the second waits `WAITING` on the lock"
+        ],
+        [
+          "`get(\"x\")` while the loader throws, then `get(\"x\")` from another thread",
+          "2",
+          "the exception, then the value"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.locks.ReentrantLock;\nimport java.util.function.Function;\n\npublic final class LoadingCache {\n\n    private final Function<String, String> loader;\n    private final ReentrantLock lock = new ReentrantLock();\n    private final Map<String, String> values = new HashMap<>();\n\n    public LoadingCache(Function<String, String> loader) {\n        this.loader = loader;\n    }\n\n    /** The cached value for the key, loading it under the cache's ReentrantLock when missing. */\n    public String get(String key) {\n        lock.lock();\n        try {\n            String value = values.get(key);\n            if (value == null) {\n                value = loader.apply(key);\n                values.put(key, value);\n            }\n            return value;\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.function.Function;\n\npublic final class LoadingCache {\n\n    public LoadingCache(Function<String, String> loader) {\n    }\n\n    /** The cached value for the key, loading it under the cache's ReentrantLock when missing. */\n    public String get(String key) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "7c1cd6492787e1668b8ae4d1daa5cec8e112291b3ed9bc844d2e0c742e693fc9",
+  "starting_code": "package practice;\n\nimport java.util.function.Function;\n\npublic final class LoadingCache {\n\n    public LoadingCache(Function<String, String> loader) {\n    }\n\n    /** The cached value for the key, loading it under the cache's ReentrantLock when missing. */\n    public String get(String key) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/src/main/java/practice/LoadingCache.java",
+    "test_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/src/test/java/practice/LoadingCacheTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.LoadingCacheTest#loadsOnceAndThenAnswersFromTheCache",
+        "kind": "main",
+        "says": "The first get of a key loads it; later gets answer from the cache without loading again."
+      },
+      {
+        "id": "practice.LoadingCacheTest#differentKeysLoadSeparately",
+        "kind": "main",
+        "says": "Each key is loaded with its own value."
+      },
+      {
+        "id": "practice.LoadingCacheTest#aWaitingCallerParksOnTheLock",
+        "kind": "edge",
+        "says": "A second virtual thread that calls get while a load is running waits parked on a ReentrantLock (WAITING), not blocked on a monitor."
+      },
+      {
+        "id": "practice.LoadingCacheTest#theLoaderRunsOnceForTwoCallers",
+        "kind": "edge",
+        "says": "Two callers that ask for the same key while it is loading cause a single load, and both get its value."
+      },
+      {
+        "id": "practice.LoadingCacheTest#aFailedLoadLeavesTheCacheUsable",
+        "kind": "edge",
+        "says": "A load that throws passes the exception on, caches nothing, and leaves the lock free for the next caller on another thread."
+      },
+      {
+        "id": "practice.LoadingCacheTest#oneLockForTheWholeCache",
+        "kind": "edge",
+        "says": "The cache has one lock for every key: while a slow load of a runs, a caller asking for b waits on that lock."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "26-virtual-threads/README_6.7.2.md",
+      "section": "6.7.2.2. Blocking and Synchronization Behavior"
+    },
+    "concepts": [
+      "Code that blocks while holding a lock uses a ReentrantLock unlocked in finally rather than synchronized, so a waiting virtual thread parks instead of pinning."
+    ]
+  }
+}

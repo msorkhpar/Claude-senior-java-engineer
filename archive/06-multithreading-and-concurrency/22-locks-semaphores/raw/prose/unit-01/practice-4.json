@@ -1,0 +1,209 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "22-locks-semaphores"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 4,
+  "ingested": "2026-09-24",
+  "title": "Two conditions on one lock",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "One `ReentrantLock` can hand out **several** `Condition` objects, each with its own waiting threads: the page's `BoundedQueue` has `notFull` for putters and `notEmpty` for takers. `await()` releases the lock while it waits; `awaitNanos(n)` waits at most `n` nanoseconds and returns how many are left (zero or less once the time is up). The page's pitfall: signalling the wrong condition wakes nobody who can go on."
+    },
+    {
+      "type": "para",
+      "text": "Write `BoundedQueue<T>`, a first-in, first-out queue of at most `capacity` items, with one `ReentrantLock` and two conditions:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`void put(T item)` waits while the queue is full.",
+        "`T take()` waits while the queue is empty.",
+        "`T poll(long timeout, TimeUnit unit)` waits **at most** `timeout` for an item and returns `null` if none came.",
+        "`int size()`."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Wait in a `while` loop that checks the state again after every wake-up, and in `poll` wait only for the time that is left: a wake-up does not promise that the item is still there. The tests cannot force such a wake-up, so they grade the answers, the wake-ups below and the two conditions, not the loop itself."
+    },
+    {
+      "type": "para",
+      "text": "After a change, wake the side that can now go on: a put wakes a waiting taker, and every removal, by `take` **or** `poll`, wakes a waiting putter."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "capacity",
+        "calls",
+        "answer"
+      ],
+      "rows": [
+        [
+          "2",
+          "`put(\"a\")`, `put(\"b\")`, `size()`, `take()`, `take()`",
+          "`2`, `\"a\"`, `\"b\"`"
+        ],
+        [
+          "2",
+          "another thread waits in `take()`; `put(\"x\")`",
+          "that `take()` returns `\"x\"`"
+        ],
+        [
+          "1",
+          "`put(\"a\")`; another thread waits in `put(\"b\")`; `take()`",
+          "`\"a\"`, and that `put` finishes"
+        ],
+        [
+          "2",
+          "`poll(100_000, MICROSECONDS)` on an empty queue",
+          "`null` after about 100 ms"
+        ],
+        [
+          "2",
+          "another thread waits in `poll(8, SECONDS)`; `put(\"z\")`",
+          "that `poll` returns `\"z\"`"
+        ],
+        [
+          "1",
+          "`put(\"a\")`; another thread waits in `put(\"b\")`; `poll(1, SECONDS)`",
+          "`\"a\"`, and that `put` finishes"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.Condition;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A bounded first-in, first-out queue on one lock with two conditions. */\npublic final class BoundedQueue<T> {\n\n    private final int capacity;\n    private final Deque<T> items = new ArrayDeque<>();\n    private final ReentrantLock lock = new ReentrantLock();\n    private final Condition notFull = lock.newCondition();\n    private final Condition notEmpty = lock.newCondition();\n\n    public BoundedQueue(int capacity) {\n        this.capacity = capacity;\n    }\n\n    /** Adds an item, waiting while the queue is full. */\n    public void put(T item) throws InterruptedException {\n        lock.lock();\n        try {\n            while (items.size() == capacity) {\n                notFull.await();\n            }\n            items.addLast(item);\n            notEmpty.signal();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Removes the oldest item, waiting while the queue is empty. */\n    public T take() throws InterruptedException {\n        lock.lock();\n        try {\n            while (items.isEmpty()) {\n                notEmpty.await();\n            }\n            T item = items.removeFirst();\n            notFull.signal();\n            return item;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Removes the oldest item, waiting at most {@code timeout}; null if none came. */\n    public T poll(long timeout, TimeUnit unit) throws InterruptedException {\n        long nanos = unit.toNanos(timeout);\n        lock.lock();\n        try {\n            while (items.isEmpty()) {\n                if (nanos <= 0) {\n                    return null;\n                }\n                nanos = notEmpty.awaitNanos(nanos);\n            }\n            T item = items.removeFirst();\n            notFull.signal();\n            return item;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** The number of items held. */\n    public int size() {\n        lock.lock();\n        try {\n            return items.size();\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A bounded first-in, first-out queue on one lock with two conditions. */\npublic final class BoundedQueue<T> {\n\n    private final int capacity;\n    private final Deque<T> items = new ArrayDeque<>();\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public BoundedQueue(int capacity) {\n        this.capacity = capacity;\n    }\n\n    /** Adds an item, waiting while the queue is full. */\n    public void put(T item) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write put\");\n    }\n\n    /** Removes the oldest item, waiting while the queue is empty. */\n    public T take() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write take\");\n    }\n\n    /** Removes the oldest item, waiting at most {@code timeout}; null if none came. */\n    public T poll(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write poll\");\n    }\n\n    /** The number of items held. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 4,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "97f1415fa08d84181c52781cfa1f22eee6fd8843f62e2913cc0803a6d783d445",
+  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** A bounded first-in, first-out queue on one lock with two conditions. */\npublic final class BoundedQueue<T> {\n\n    private final int capacity;\n    private final Deque<T> items = new ArrayDeque<>();\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public BoundedQueue(int capacity) {\n        this.capacity = capacity;\n    }\n\n    /** Adds an item, waiting while the queue is full. */\n    public void put(T item) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write put\");\n    }\n\n    /** Removes the oldest item, waiting while the queue is empty. */\n    public T take() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write take\");\n    }\n\n    /** Removes the oldest item, waiting at most {@code timeout}; null if none came. */\n    public T poll(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write poll\");\n    }\n\n    /** The number of items held. */\n    public int size() {\n        throw new UnsupportedOperationException(\"write size\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/src/main/java/practice/BoundedQueue.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/src/test/java/practice/BoundedQueueTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.BoundedQueueTest#putThenTakeInOrder",
+        "kind": "main",
+        "says": "Items come out in the order they went in, and size follows."
+      },
+      {
+        "id": "practice.BoundedQueueTest#putWakesAWaitingTaker",
+        "kind": "edge",
+        "says": "A put wakes a taker that waits on an empty queue."
+      },
+      {
+        "id": "practice.BoundedQueueTest#takeWakesAWaitingPutter",
+        "kind": "edge",
+        "says": "A take wakes a putter that waits on a full queue."
+      },
+      {
+        "id": "practice.BoundedQueueTest#pollGivesUpWhenEmpty",
+        "kind": "edge",
+        "says": "A timed poll on an empty queue gives up after its timeout and returns null."
+      },
+      {
+        "id": "practice.BoundedQueueTest#pollWaitsForALatePut",
+        "kind": "edge",
+        "says": "A timed poll on an empty queue waits, and returns an item put before its timeout."
+      },
+      {
+        "id": "practice.BoundedQueueTest#pollWakesAWaitingPutter",
+        "kind": "edge",
+        "says": "A successful poll, like a take, wakes a putter that waits on a full queue."
+      },
+      {
+        "id": "practice.BoundedQueueTest#twoSeparateConditions",
+        "kind": "edge",
+        "says": "The queue keeps two separate Condition objects, one for putters and one for takers, not one shared by both."
+      },
+      {
+        "id": "practice.BoundedQueueTest#thePollTimeoutIsKeptExactly",
+        "kind": "edge",
+        "says": "poll's timeouts of 250,000 microseconds and 1,600 ms are waited in full: the unit is honoured, nothing rounded to seconds."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-4/target/surefire-reports"
+    },
+    "origin": {
+      "path": "22-locks-semaphores/README_6.3.1.md",
+      "section": "Condition Objects"
+    },
+    "concepts": [
+      "One lock can create several Conditions, so producers and consumers wait in separate sets and each change wakes the side that can proceed.",
+      "Signalling the wrong Condition wakes nobody who can proceed, leaving the right waiter parked.",
+      "awaitNanos returns the time left, so a timed wait loops until its state holds or the time is used up and then reports failure."
+    ]
+  }
+}

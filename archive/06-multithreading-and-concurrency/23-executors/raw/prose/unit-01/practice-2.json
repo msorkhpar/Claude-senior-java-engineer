@@ -1,0 +1,173 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "23-executors"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "A pool that reports its failed tasks",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's pitfall: an exception thrown by a task run with `execute()` never reaches the caller, and one thrown by a task run with `submit()` is kept inside the returned `Future`, so if nobody calls `get()` it is lost. The page also says `ThreadPoolExecutor` exposes hooks, `beforeExecute()`, `afterExecute()` and `terminated()`, for monitoring."
+    },
+    {
+      "type": "para",
+      "text": "Write `MonitoredPool`, a `ThreadPoolExecutor` of `threads` threads and an unbounded queue, that uses those hooks to keep a record:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`List<String> failures()` holds the message of every task that failed, whether it was run with `execute()` or `submit()`. For a submitted task, report the exception the task threw, not the `ExecutionException` around it.",
+        "`int successes()` counts the tasks that ended without an exception.",
+        "`boolean finished()` is `true` once the pool has terminated, and `false` before."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The record is written from the pool's worker threads, so keep it thread-safe; the tests run one worker at a time, so they check the record's contents, not its thread safety."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "tasks on `new MonitoredPool(1)`, then `shutdown()` and wait",
+        "`failures()`",
+        "`successes()`"
+      ],
+      "rows": [
+        [
+          "`execute` one that returns, `execute` one that throws `new IllegalStateException(\"boom\")`",
+          "`[\"boom\"]`",
+          "`1`"
+        ],
+        [
+          "`submit` one that throws `new IllegalStateException(\"bad\")`, `submit` one that returns",
+          "`[\"bad\"]`",
+          "`1`"
+        ],
+        [
+          "`submit` a `Callable` that throws `new IOException(\"disk\")`",
+          "`[\"disk\"]`",
+          "`0`"
+        ],
+        [
+          "a task still running after `shutdown()`",
+          "`finished()` is `false` until it ends",
+          ""
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CancellationException;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic class MonitoredPool extends ThreadPoolExecutor {\n\n    private final List<String> failures = new CopyOnWriteArrayList<>();\n    private final AtomicInteger successes = new AtomicInteger();\n    private volatile boolean finished;\n\n    public MonitoredPool(int threads) {\n        super(threads, threads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());\n    }\n\n    @Override\n    protected void afterExecute(Runnable task, Throwable thrown) {\n        super.afterExecute(task, thrown);\n        if (thrown == null && task instanceof Future<?> future && future.isDone()) {\n            try {\n                future.get();\n            } catch (ExecutionException e) {\n                thrown = e.getCause();\n            } catch (CancellationException e) {\n                thrown = e;\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        }\n        if (thrown == null) {\n            successes.incrementAndGet();\n        } else {\n            failures.add(thrown.getMessage());\n        }\n    }\n\n    @Override\n    protected void terminated() {\n        super.terminated();\n        finished = true;\n    }\n\n    /** The message of every task that failed, from execute() or submit(). */\n    public List<String> failures() {\n        return List.copyOf(failures);\n    }\n\n    /** How many tasks ended without an exception. */\n    public int successes() {\n        return successes.get();\n    }\n\n    /** Whether the pool has terminated. */\n    public boolean finished() {\n        return finished;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\npublic class MonitoredPool extends ThreadPoolExecutor {\n\n    public MonitoredPool(int threads) {\n        super(threads, threads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());\n    }\n\n    /** The message of every task that failed, from execute() or submit(). */\n    public List<String> failures() {\n        throw new UnsupportedOperationException(\"write failures\");\n    }\n\n    /** How many tasks ended without an exception. */\n    public int successes() {\n        throw new UnsupportedOperationException(\"write successes\");\n    }\n\n    /** Whether the pool has terminated. */\n    public boolean finished() {\n        throw new UnsupportedOperationException(\"write finished\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "97e1dc26957e4503f79b8ed39ffe01edaf97e3ef1efe0599c95b3c9bec0a5aac",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\npublic class MonitoredPool extends ThreadPoolExecutor {\n\n    public MonitoredPool(int threads) {\n        super(threads, threads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());\n    }\n\n    /** The message of every task that failed, from execute() or submit(). */\n    public List<String> failures() {\n        throw new UnsupportedOperationException(\"write failures\");\n    }\n\n    /** How many tasks ended without an exception. */\n    public int successes() {\n        throw new UnsupportedOperationException(\"write successes\");\n    }\n\n    /** Whether the pool has terminated. */\n    public boolean finished() {\n        throw new UnsupportedOperationException(\"write finished\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/main/java/practice/MonitoredPool.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/test/java/practice/MonitoredPoolTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.MonitoredPoolTest#reportsAFailureFromExecute",
+        "kind": "main",
+        "says": "A task run with execute() that throws is reported as a failure, and a task that returns is counted as a success."
+      },
+      {
+        "id": "practice.MonitoredPoolTest#reportsAFailureFromSubmit",
+        "kind": "edge",
+        "says": "A task run with submit() that throws is reported too, although its exception stays inside its Future."
+      },
+      {
+        "id": "practice.MonitoredPoolTest#reportsTheCauseNotTheWrapper",
+        "kind": "edge",
+        "says": "A submitted Callable's checked exception is reported by its own message, not by the ExecutionException that wraps it."
+      },
+      {
+        "id": "practice.MonitoredPoolTest#finishedOnlyAfterTermination",
+        "kind": "edge",
+        "says": "The pool says it has finished only once shutdown has let every task end."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "23-executors/README_6.4.1.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "An exception from a task run with execute() goes to the thread's uncaught-exception handler, while one from submit() is kept in the Future.",
+      "ThreadPoolExecutor's afterExecute() and terminated() hooks let a subclass monitor every task and the pool's end."
+    ]
+  }
+}

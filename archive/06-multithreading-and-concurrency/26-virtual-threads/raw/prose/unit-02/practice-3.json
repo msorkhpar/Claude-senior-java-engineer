@@ -1,0 +1,190 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "26-virtual-threads"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "A producer-consumer pipeline on virtual threads",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's point about compatibility: `java.util.concurrent` works unchanged on virtual threads. A `BlockingQueue` producer-consumer pipeline is written exactly as before; a virtual thread waiting in `take()` just unmounts instead of holding an OS thread."
+    },
+    {
+      "type": "para",
+      "text": "Write `Pipeline.run(List<String> items, Function<String, String> stage, int workers)`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "One **producer** virtual thread puts every item on a `BlockingQueue`.",
+        "`workers` **worker** virtual threads, running at the same time, take items from the queue and pass each through `stage`.",
+        "When the items run out, **every** worker stops (a common way: the producer puts one \"poison pill\" per worker after the items; compare it by identity).",
+        "Workers add their results from several threads, so collect them thread-safely (the tests cannot force two adds to collide, so that part is not graded).",
+        "`run` returns all the stage results (in any order) only once the producer and all workers have finished, however long a stage call takes."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "items",
+        "stage",
+        "workers",
+        "answer (any order)"
+      ],
+      "rows": [
+        [
+          "`[\"a\", \"b\", \"c\", \"d\"]`",
+          "`String::toUpperCase`",
+          "1",
+          "`[\"A\", \"B\", \"C\", \"D\"]`"
+        ],
+        [
+          "`[\"x\", \"y\", \"z\"]`",
+          "each call waits until 3 calls are in progress",
+          "3",
+          "`[\"x\", \"y\", \"z\"]`"
+        ],
+        [
+          "`[\"a\"]`",
+          "`s -> s`",
+          "3",
+          "`[\"a\"]`, and `run` returns"
+        ],
+        [
+          "`[\"slow\"]`",
+          "`s -> s + \"!\"`, blocked for a while",
+          "2",
+          "`[\"slow!\"]`, only after the call ends"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.function.Function;\n\npublic final class Pipeline {\n\n    /** The end-of-work marker; compared by identity, so no real item can be mistaken for it. */\n    private static final String POISON = new String(\"no more items\");\n\n    private Pipeline() {\n    }\n\n    /** One producer and {@code workers} workers, all virtual threads; returns every stage result. */\n    public static List<String> run(List<String> items, Function<String, String> stage, int workers) {\n        BlockingQueue<String> queue = new LinkedBlockingQueue<>();\n        List<String> results = Collections.synchronizedList(new ArrayList<>());\n        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {\n            executor.submit(() -> {\n                for (String item : items) {\n                    queue.put(item);\n                }\n                for (int i = 0; i < workers; i++) {\n                    queue.put(POISON);\n                }\n                return null;\n            });\n            for (int i = 0; i < workers; i++) {\n                executor.submit(() -> {\n                    while (true) {\n                        String item = queue.take();\n                        if (item == POISON) {\n                            return null;\n                        }\n                        results.add(stage.apply(item));\n                    }\n                });\n            }\n        }\n        return new ArrayList<>(results);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\n\npublic final class Pipeline {\n\n    private Pipeline() {\n    }\n\n    /** One producer and {@code workers} workers, all virtual threads; returns every stage result. */\n    public static List<String> run(List<String> items, Function<String, String> stage, int workers) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "322816d806767b2093de490111899cdc86185e890bc49f604dfacd949e69ff51",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Function;\n\npublic final class Pipeline {\n\n    private Pipeline() {\n    }\n\n    /** One producer and {@code workers} workers, all virtual threads; returns every stage result. */\n    public static List<String> run(List<String> items, Function<String, String> stage, int workers) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-3/src/main/java/practice/Pipeline.java",
+    "test_path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-3/src/test/java/practice/PipelineTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.PipelineTest#transformsEveryItem",
+        "kind": "main",
+        "says": "run passes every item through the stage exactly once and returns all the results."
+      },
+      {
+        "id": "practice.PipelineTest#workersRunAtTheSameTime",
+        "kind": "edge",
+        "says": "With 3 workers, three stage calls that each wait for the other two all finish: the workers really run at once."
+      },
+      {
+        "id": "practice.PipelineTest#everyWorkerStops",
+        "kind": "edge",
+        "says": "run returns once the items are done: every worker is told to stop, not just one."
+      },
+      {
+        "id": "practice.PipelineTest#returnsOnlyWhenTheWorkIsDone",
+        "kind": "edge",
+        "says": "run does not return while a stage call is still in progress, however long it takes."
+      },
+      {
+        "id": "practice.PipelineTest#anEmptyItemIsNotThePill",
+        "kind": "edge",
+        "says": "An item equal to \"\" is processed like any other: the end marker is recognised by identity, not by equals."
+      },
+      {
+        "id": "practice.PipelineTest#noWorkerIsLeftWaiting",
+        "kind": "edge",
+        "says": "Once run returns, every worker thread has ended: none is left blocked on the queue."
+      },
+      {
+        "id": "practice.PipelineTest#workersAreVirtualThreads",
+        "kind": "edge",
+        "says": "Every stage call runs on a virtual thread."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/26-virtual-threads/prose/unit-02/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "26-virtual-threads/README_6.7.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "java.util.concurrent tools such as BlockingQueue, CountDownLatch and ExecutorService work unchanged on virtual threads, and a virtual thread waiting in take() unmounts."
+    ]
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "25-fork-join"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "A result, then a change in place",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's Q3 gives the rule for choosing between the two task types: if you need the computation's result, use `RecursiveTask<V>`; if you are performing an in-place transformation, use `RecursiveAction`. Rescaling an array needs both: first a result (the largest value), then an in-place change."
+    },
+    {
+      "type": "para",
+      "text": "Write `Percent.ofMax(pool, values, threshold)`. It runs two fork/join computations in `pool`, each splitting at the midpoint while a range is longer than `threshold`:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "a `RecursiveTask<Integer>` that finds the **largest** value (the page's pairing: a task for the result, an action for the change);",
+        "a `RecursiveAction` that replaces every `values[i]` with `values[i] * 100 / max` (integer division), **in place**."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Values are never negative. If the largest value is `0`, leave the array alone. Both computations run in `pool`, not the common pool. The tests see the results and the pool's workers, not which kind of task found the maximum, so the task/action pairing is the page's lesson rather than a graded step."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "values",
+        "threshold",
+        "values afterwards"
+      ],
+      "rows": [
+        [
+          "`5, 10, 20, 15, 0, 2`",
+          "2",
+          "`25, 50, 100, 75, 0, 10`"
+        ],
+        [
+          "`0, 0, 0, 0`",
+          "2",
+          "`0, 0, 0, 0`"
+        ],
+        [
+          "`50000000, 100000000, 25000000`",
+          "1",
+          "`50, 100, 25`"
+        ],
+        [
+          "`2, 3`",
+          "1",
+          "`66, 100`"
+        ],
+        [
+          "`[]`",
+          "2",
+          "`[]`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.RecursiveAction;\nimport java.util.concurrent.RecursiveTask;\n\npublic final class Percent {\n\n    private Percent() {\n    }\n\n    /** Replaces every value with its percentage of the largest value, using a RecursiveTask and a RecursiveAction. */\n    public static void ofMax(ForkJoinPool pool, int[] values, int threshold) {\n        if (values.length == 0) {\n            return;\n        }\n        int max = pool.invoke(new Max(values, 0, values.length, threshold));\n        if (max == 0) {\n            return;\n        }\n        pool.invoke(new Scale(values, 0, values.length, threshold, max));\n    }\n\n    private static final class Max extends RecursiveTask<Integer> {\n        private final int[] values;\n        private final int start;\n        private final int end;\n        private final int threshold;\n\n        Max(int[] values, int start, int end, int threshold) {\n            this.values = values;\n            this.start = start;\n            this.end = end;\n            this.threshold = threshold;\n        }\n\n        @Override\n        protected Integer compute() {\n            int length = end - start;\n            if (length <= threshold) {\n                int max = Integer.MIN_VALUE;\n                for (int i = start; i < end; i++) {\n                    max = Math.max(max, values[i]);\n                }\n                return max;\n            }\n            int mid = start + length / 2;\n            Max left = new Max(values, start, mid, threshold);\n            Max right = new Max(values, mid, end, threshold);\n            left.fork();\n            int rightMax = right.compute();\n            return Math.max(left.join(), rightMax);\n        }\n    }\n\n    private static final class Scale extends RecursiveAction {\n        private final int[] values;\n        private final int start;\n        private final int end;\n        private final int threshold;\n        private final int max;\n\n        Scale(int[] values, int start, int end, int threshold, int max) {\n            this.values = values;\n            this.start = start;\n            this.end = end;\n            this.threshold = threshold;\n            this.max = max;\n        }\n\n        @Override\n        protected void compute() {\n            int length = end - start;\n            if (length <= threshold) {\n                for (int i = start; i < end; i++) {\n                    values[i] = (int) (values[i] * 100L / max);\n                }\n                return;\n            }\n            int mid = start + length / 2;\n            invokeAll(new Scale(values, start, mid, threshold, max), new Scale(values, mid, end, threshold, max));\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class Percent {\n\n    private Percent() {\n    }\n\n    /** Replaces every value with its percentage of the largest value, using a RecursiveTask and a RecursiveAction. */\n    public static void ofMax(ForkJoinPool pool, int[] values, int threshold) {\n        throw new UnsupportedOperationException(\"write ofMax\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "58ea57f670297175863a8a5ce97f33ee25220ff4cb5aeb9568594262f68c4f45",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ForkJoinPool;\n\npublic final class Percent {\n\n    private Percent() {\n    }\n\n    /** Replaces every value with its percentage of the largest value, using a RecursiveTask and a RecursiveAction. */\n    public static void ofMax(ForkJoinPool pool, int[] values, int threshold) {\n        throw new UnsupportedOperationException(\"write ofMax\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/src/main/java/practice/Percent.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/src/test/java/practice/PercentTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.PercentTest#scalesToPercentOfTheMax",
+        "kind": "main",
+        "says": "Every value is replaced by its percentage of the largest value."
+      },
+      {
+        "id": "practice.PercentTest#allZerosStayZero",
+        "kind": "edge",
+        "says": "When the largest value is 0 the values are left as they are instead of dividing by zero."
+      },
+      {
+        "id": "practice.PercentTest#largeValuesDoNotOverflow",
+        "kind": "edge",
+        "says": "value * 100 is computed in long, so large values do not overflow an int."
+      },
+      {
+        "id": "practice.PercentTest#percentagesRoundDown",
+        "kind": "edge",
+        "says": "Percentages use integer division, so a fraction is dropped rather than rounded up."
+      },
+      {
+        "id": "practice.PercentTest#theGivenPoolDoesTheWork",
+        "kind": "edge",
+        "says": "Both computations run in the pool passed in: its own workers start, rather than the common pool's."
+      },
+      {
+        "id": "practice.PercentTest#aSingleValueIsItsOwnMax",
+        "kind": "edge",
+        "says": "A one-element array is rescaled too: [7] becomes [100], and [0] stays [0]."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-01/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "25-fork-join/README_6.6.1.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "A fork/join computation can first produce a result, such as the largest value, and then change the array in place using it."
+    ]
+  }
+}

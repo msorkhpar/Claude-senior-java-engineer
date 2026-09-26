@@ -1,0 +1,200 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "22-locks-semaphores"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "A connection pool on a counting semaphore",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's `ConnectionPool` guards N connections with a `Semaphore(N)`: `acquire()` takes a permit (waiting while there are none) and then a connection; `release` puts the connection back and returns the permit. The page also warns about **permit inflation**: a semaphore enforces no upper bound, so one release too many silently lets one more thread in. Guard against it in your own code."
+    },
+    {
+      "type": "para",
+      "text": "Write `Pool<R>`, built from a list of resources:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`R acquire()` waits until a resource is free and returns it.",
+        "`R tryAcquire(long timeout, TimeUnit unit)` waits **at most** `timeout`; `null` if nothing came free.",
+        "`void release(R resource)` returns a leased resource. A resource that is not **currently leased** (released twice, or never handed out by this pool) is refused with `IllegalArgumentException` and changes nothing. Leases are tracked by **object identity**: a different object that merely `equals` a leased one was not leased.",
+        "`int available()` is the number of free resources."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The tests cannot make a woken `acquire()` run between two steps of `release`, or make two threads release the same resource at the same instant, so those orderings are not graded. Get them right anyway: put the resource back before returning the permit, and check and remove a lease in one step."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "pool",
+        "calls",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`[db-1, db-2]`",
+          "`acquire()`, `acquire()`, `available()`; release both; `available()`",
+          "`0`, then `2`"
+        ],
+        [
+          "`[db-1]`, leased",
+          "another thread's `acquire()`, then `release(db-1)`",
+          "that `acquire()` waits, then returns that same `db-1` object"
+        ],
+        [
+          "`[db-1]`, leased",
+          "`tryAcquire(100_000, MICROSECONDS)`",
+          "`null` after about 100 ms"
+        ],
+        [
+          "`[db-1]`, leased",
+          "another thread's `tryAcquire(8, SECONDS)`, then `release(db-1)`",
+          "that call waits, then returns `db-1`"
+        ],
+        [
+          "`[db-1]`",
+          "`acquire()`, `release(r)`, `release(r)`",
+          "second `release`: `IllegalArgumentException`; `available()` is `1`"
+        ],
+        [
+          "`[db-1]`, leased",
+          "`release(new String(\"db-1\"))`",
+          "`IllegalArgumentException`; `available()` is `0`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.IdentityHashMap;\nimport java.util.List;\nimport java.util.Queue;\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.Semaphore;\nimport java.util.concurrent.TimeUnit;\n\n/** A fixed pool of resources whose free count is a semaphore's permits. */\npublic final class Pool<R> {\n\n    private final Semaphore permits;\n    private final Queue<R> free;\n    private final Set<R> leased = Collections.newSetFromMap(new IdentityHashMap<>());\n\n    public Pool(List<R> resources) {\n        this.free = new ConcurrentLinkedQueue<>(resources);\n        this.permits = new Semaphore(resources.size(), true);\n    }\n\n    /** Waits until a resource is free and returns it. */\n    public R acquire() throws InterruptedException {\n        permits.acquire();\n        return lease();\n    }\n\n    /** Waits at most {@code timeout} for a free resource; null if none came free. */\n    public R tryAcquire(long timeout, TimeUnit unit) throws InterruptedException {\n        if (!permits.tryAcquire(timeout, unit)) {\n            return null;\n        }\n        return lease();\n    }\n\n    private R lease() {\n        R resource = free.poll();\n        synchronized (leased) {\n            leased.add(resource);\n        }\n        return resource;\n    }\n\n    /** Returns a currently leased resource; anything else is refused with IllegalArgumentException. */\n    public void release(R resource) {\n        synchronized (leased) {\n            if (!leased.remove(resource)) {\n                throw new IllegalArgumentException(\"not leased from this pool: \" + resource);\n            }\n        }\n        free.offer(resource);\n        permits.release();\n    }\n\n    /** The number of free resources. */\n    public int available() {\n        return permits.availablePermits();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.TimeUnit;\n\n/** A fixed pool of resources whose free count is a semaphore's permits. */\npublic final class Pool<R> {\n\n    public Pool(List<R> resources) {\n    }\n\n    /** Waits until a resource is free and returns it. */\n    public R acquire() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write acquire\");\n    }\n\n    /** Waits at most {@code timeout} for a free resource; null if none came free. */\n    public R tryAcquire(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write tryAcquire\");\n    }\n\n    /** Returns a currently leased resource; anything else is refused with IllegalArgumentException. */\n    public void release(R resource) {\n        throw new UnsupportedOperationException(\"write release\");\n    }\n\n    /** The number of free resources. */\n    public int available() {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "bfb775daf18c0fbe6a39c7e010e3edfeaab767fd951ab2636f39013d18bc3800",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.TimeUnit;\n\n/** A fixed pool of resources whose free count is a semaphore's permits. */\npublic final class Pool<R> {\n\n    public Pool(List<R> resources) {\n    }\n\n    /** Waits until a resource is free and returns it. */\n    public R acquire() throws InterruptedException {\n        throw new UnsupportedOperationException(\"write acquire\");\n    }\n\n    /** Waits at most {@code timeout} for a free resource; null if none came free. */\n    public R tryAcquire(long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write tryAcquire\");\n    }\n\n    /** Returns a currently leased resource; anything else is refused with IllegalArgumentException. */\n    public void release(R resource) {\n        throw new UnsupportedOperationException(\"write release\");\n    }\n\n    /** The number of free resources. */\n    public int available() {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-1/src/main/java/practice/Pool.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-1/src/test/java/practice/PoolTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.PoolTest#leasesAndReturns",
+        "kind": "main",
+        "says": "Resources are leased and returned, and available() counts the free ones."
+      },
+      {
+        "id": "practice.PoolTest#acquireWaitsWhenExhausted",
+        "kind": "edge",
+        "says": "acquire() on an empty pool waits, and gets the very resource that is released."
+      },
+      {
+        "id": "practice.PoolTest#timedAcquireGivesUp",
+        "kind": "edge",
+        "says": "A timed acquire on an empty pool gives up after its timeout and returns null."
+      },
+      {
+        "id": "practice.PoolTest#timedAcquireWaitsForRelease",
+        "kind": "edge",
+        "says": "A timed acquire on an empty pool waits, and gets a resource released before its timeout."
+      },
+      {
+        "id": "practice.PoolTest#doubleReleaseIsRefused",
+        "kind": "edge",
+        "says": "Releasing the same resource twice is refused and does not inflate the permit count."
+      },
+      {
+        "id": "practice.PoolTest#equalStrangerIsRefused",
+        "kind": "edge",
+        "says": "A resource that is equal to a leased one but is not that object is refused."
+      },
+      {
+        "id": "practice.PoolTest#theTimeoutIsKeptExactly",
+        "kind": "edge",
+        "says": "A timeout of 250,000 microseconds or 1,600 ms waits that long in full: the unit is honoured and nothing is rounded to whole seconds."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "22-locks-semaphores/README_6.3.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "A Semaphore(N) lets at most N holders at once: acquire() takes a permit and waits while none is free, release() returns one.",
+      "A semaphore enforces no upper bound, so releasing more than was acquired inflates the count; application code must guard it.",
+      "tryAcquire(timeout, unit) waits at most the timeout for a permit and returns false when none came."
+    ]
+  }
+}
