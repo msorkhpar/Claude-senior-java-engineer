@@ -23,19 +23,23 @@
     },
     {
       "type": "para",
-      "text": "Write `ThreadSafeCounter`:"
+      "text": "`count++` is three steps, not one: read the count, add one, write it back. To make that visible, `ThreadSafeCounter` is given a `step` (a `Runnable`) in its constructor. The no-argument constructor gives a step that does nothing."
+    },
+    {
+      "type": "para",
+      "text": "Write:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`void incrementCount()` adds one;",
-        "`int getCount()` returns the current count."
+        "`void incrementCount()`: read the count, run `step.run()` exactly once, then write back the count read plus one;",
+        "`int getCount()`: the current count."
       ]
     },
     {
       "type": "para",
-      "text": "Many threads may call `incrementCount()` at the same time, and **no increment may be lost**. Keep in mind that `count++` is a read, an add and a write: three steps, not one."
+      "text": "Many threads may call `incrementCount()` at the same time, and **no increment may be lost**, even when the step pauses one thread between its read and its write."
     },
     {
       "type": "para",
@@ -44,7 +48,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "ThreadSafeCounter c = new ThreadSafeCounter();\nc.getCount()                                      -> 0\nc.incrementCount(); c.incrementCount(); c.incrementCount();\nc.getCount()                                      -> 3\n8 threads x 100000 incrementCount(), then getCount()  -> 800000"
+      "text": "ThreadSafeCounter c = new ThreadSafeCounter();\nc.getCount()                                         -> 0\nc.incrementCount(); c.incrementCount(); c.incrementCount();\nc.getCount()                                         -> 3\ntwo threads, one incrementCount() each, both pausing in step  -> getCount() is 2"
     },
     {
       "type": "heading",
@@ -59,7 +63,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class ThreadSafeCounter {\n\n    private volatile int count = 0;\n\n    public synchronized void incrementCount() {\n        count++;\n    }\n\n    public int getCount() {\n        return count;\n    }\n}\n"
+          "text": "package practice;\n\npublic class ThreadSafeCounter {\n\n    private final Runnable step;\n    private int count;\n\n    public ThreadSafeCounter() {\n        this(() -> { });\n    }\n\n    /** {@code step} runs inside every increment, between reading the count and writing it back. */\n    public ThreadSafeCounter(Runnable step) {\n        this.step = step;\n    }\n\n    public synchronized void incrementCount() {\n        int read = count;\n        step.run();\n        count = read + 1;\n    }\n\n    public synchronized int getCount() {\n        return count;\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +75,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class ThreadSafeCounter {\n\n    public void incrementCount() {\n        throw new UnsupportedOperationException(\"write incrementCount\");\n    }\n\n    public int getCount() {\n        throw new UnsupportedOperationException(\"write getCount\");\n    }\n}\n"
+      "text": "package practice;\n\npublic class ThreadSafeCounter {\n\n    private final Runnable step;\n    private int count;\n\n    public ThreadSafeCounter() {\n        this(() -> { });\n    }\n\n    /** {@code step} runs inside every increment, between reading the count and writing it back. */\n    public ThreadSafeCounter(Runnable step) {\n        this.step = step;\n    }\n\n    public void incrementCount() {\n        throw new UnsupportedOperationException(\"write incrementCount\");\n    }\n\n    public int getCount() {\n        throw new UnsupportedOperationException(\"write getCount\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,7 +83,7 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 5,
     "code": 2,
     "tables": 0,
     "lists": 1,
@@ -90,8 +94,8 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b82b967d8908f7f4f07fd5abaac36dcd57197518473469f187ddf6957569f3df",
-  "starting_code": "package practice;\n\npublic class ThreadSafeCounter {\n\n    public void incrementCount() {\n        throw new UnsupportedOperationException(\"write incrementCount\");\n    }\n\n    public int getCount() {\n        throw new UnsupportedOperationException(\"write getCount\");\n    }\n}\n",
+  "content_sha256": "6b524e34781d37f3de99624e44d0a07536732cf8a7618cca7ed542a41022a193",
+  "starting_code": "package practice;\n\npublic class ThreadSafeCounter {\n\n    private final Runnable step;\n    private int count;\n\n    public ThreadSafeCounter() {\n        this(() -> { });\n    }\n\n    /** {@code step} runs inside every increment, between reading the count and writing it back. */\n    public ThreadSafeCounter(Runnable step) {\n        this.step = step;\n    }\n\n    public void incrementCount() {\n        throw new UnsupportedOperationException(\"write incrementCount\");\n    }\n\n    public int getCount() {\n        throw new UnsupportedOperationException(\"write getCount\");\n    }\n}\n",
   "exercise": {
     "main_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-02/practice-5/src/main/java/practice/ThreadSafeCounter.java",
     "test_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-02/practice-5/src/test/java/practice/ThreadSafeCounterTest.java",
@@ -117,12 +121,12 @@
       {
         "id": "practice.ThreadSafeCounterTest#countsIncrements",
         "kind": "main",
-        "says": "A new counter reads 0, and three increments read 3."
+        "says": "A new counter reads 0, and three increments read 3, running the given step once each."
       },
       {
         "id": "practice.ThreadSafeCounterTest#noIncrementIsLostAcrossThreads",
         "kind": "edge",
-        "says": "Eight threads each incrementing 100000 times leave the counter at exactly 800000."
+        "says": "Two threads that increment at the same moment, each pausing between its read and its write, still leave the counter at 2."
       }
     ],
     "report": {

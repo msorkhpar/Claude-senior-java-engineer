@@ -181,7 +181,7 @@ This creates a constant that belongs to the class (static) and cannot be changed
 <h2 id="practice-prose-b0">Problem statement</h2>
 <p>A <strong>static</strong> field belongs to the class: there is one copy, shared by every object. An <strong>instance</strong> field belongs to one object: every object has its own. The page's <code>InstanceCounter</code> uses a static field to count the objects created.</p>
 <p>Write <code>Ticket</code>:</p>
-<ul class="items"><li><code>static int issued()</code> returns how many tickets have been created so far. It is called on the class, with no ticket needed.</li><li>Every new <code>Ticket</code> raises that count by one and takes the count's new value as <strong>its own</strong> number, returned by <code>number()</code>: the first ticket is 1, the next 2, and so on.</li><li>A ticket's number never changes afterwards.</li><li>The page warns that static mutable fields are shared by every thread: tickets created by many threads at the same moment must all be counted, and no two tickets may get the same number.</li></ul>
+<ul class="items"><li><code>static int issued()</code> returns how many tickets have been created so far. It is called on the class, with no ticket needed.</li><li>Every new <code>Ticket</code> raises that count by one and takes the count's new value as <strong>its own</strong> number, returned by <code>number()</code>: the first ticket is 1, the next 2, and so on.</li><li>A ticket's number never changes afterwards.</li><li>The page warns that static mutable fields are shared by every thread: tickets created by many threads at the same moment must all be counted, and no two tickets may get the same number. Guard the shared count with <strong>the class's own lock</strong>: a <code>static synchronized</code> method, or a <code>synchronized (Ticket.class)</code> block. While another thread holds that lock, creating a ticket waits.</li></ul>
 <p><strong>Examples</strong></p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">Ticket.issued()   -&gt; 0
 a = new Ticket()  -&gt; a.number() == 1
@@ -189,19 +189,22 @@ b = new Ticket()  -&gt; b.number() == 2, a.number() == 1
 Ticket.issued()   -&gt; 2</code></pre></figure>
 <details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 public class Ticket {
-    private static final AtomicInteger ISSUED = new AtomicInteger();
+    private static int issued;
 
     private final int number;
 
     public Ticket() {
-        this.number = ISSUED.incrementAndGet();
+        this.number = nextNumber();
     }
 
-    public static int issued() {
-        return ISSUED.get();
+    private static synchronized int nextNumber() {
+        issued++;
+        return issued;
+    }
+
+    public static synchronized int issued() {
+        return issued;
     }
 
     public int number() {
@@ -247,7 +250,7 @@ public class Ticket {
 <ul data-practice-part="cases">
 <li data-practice-case="practice.TicketTest#countsEveryTicketAndNumbersThemInOrder" data-practice-case-kind="main"><span data-practice-part="verdict"></span>Each new ticket raises the shared count by one and gets the next number.</li>
 <li data-practice-case="practice.TicketTest#eachTicketKeepsItsOwnNumber" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>A ticket's number does not change when later tickets are issued.</li>
-<li data-practice-case="practice.TicketTest#ticketsIssuedAtOnceAreAllCounted" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>Tickets created by many threads at the same time are all counted, and no two share a number.</li>
+<li data-practice-case="practice.TicketTest#ticketsIssuedAtOnceAreAllCounted" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>Issuing a ticket takes the class's own lock, so creation waits while another thread holds it, and tickets created by several threads are all counted with distinct numbers.</li>
 </ul>
 </div>
 <pre data-practice-part="output" tabindex="0" hidden></pre>

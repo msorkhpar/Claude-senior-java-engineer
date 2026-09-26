@@ -556,34 +556,59 @@ public class Rectangle {
 <section id="s-practice-prose-5" data-section="practice-prose-5" data-kind="practice" data-label="A counter that is safe to share between threads">
 <h2 id="practice-prose-5-b0">Problem statement</h2>
 <p>The page's interview question: <em>how would you implement a thread-safe getter and setter for a counter?</em> A getter and a mutator are also where you decide how the field is shared between threads.</p>
-<p>Write <code>ThreadSafeCounter</code>:</p>
-<ul class="items"><li><code>void incrementCount()</code> adds one;</li><li><code>int getCount()</code> returns the current count.</li></ul>
-<p>Many threads may call <code>incrementCount()</code> at the same time, and <strong>no increment may be lost</strong>. Keep in mind that <code>count++</code> is a read, an add and a write: three steps, not one.</p>
+<p><code>count++</code> is three steps, not one: read the count, add one, write it back. To make that visible, <code>ThreadSafeCounter</code> is given a <code>step</code> (a <code>Runnable</code>) in its constructor. The no-argument constructor gives a step that does nothing.</p>
+<p>Write:</p>
+<ul class="items"><li><code>void incrementCount()</code>: read the count, run <code>step.run()</code> exactly once, then write back the count read plus one;</li><li><code>int getCount()</code>: the current count.</li></ul>
+<p>Many threads may call <code>incrementCount()</code> at the same time, and <strong>no increment may be lost</strong>, even when the step pauses one thread between its read and its write.</p>
 <p>Examples:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">ThreadSafeCounter c = new ThreadSafeCounter();
-c.getCount()                                      -&gt; 0
+c.getCount()                                         -&gt; 0
 c.incrementCount(); c.incrementCount(); c.incrementCount();
-c.getCount()                                      -&gt; 3
-8 threads x 100000 incrementCount(), then getCount()  -&gt; 800000</code></pre></figure>
+c.getCount()                                         -&gt; 3
+two threads, one incrementCount() each, both pausing in step  -&gt; getCount() is 2</code></pre></figure>
 <details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 public class ThreadSafeCounter {
 
-    private volatile int count = 0;
+    private final Runnable step;
+    private int count;
 
-    public synchronized void incrementCount() {
-        count++;
+    public ThreadSafeCounter() {
+        this(() -&gt; { });
     }
 
-    public int getCount() {
+    /** {@code step} runs inside every increment, between reading the count and writing it back. */
+    public ThreadSafeCounter(Runnable step) {
+        this.step = step;
+    }
+
+    public synchronized void incrementCount() {
+        int read = count;
+        step.run();
+        count = read + 1;
+    }
+
+    public synchronized int getCount() {
         return count;
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-5-b9">Starting code</h2>
+<h2 id="practice-prose-5-b10">Starting code</h2>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 public class ThreadSafeCounter {
+
+    private final Runnable step;
+    private int count;
+
+    public ThreadSafeCounter() {
+        this(() -&gt; { });
+    }
+
+    /** {@code step} runs inside every increment, between reading the count and writing it back. */
+    public ThreadSafeCounter(Runnable step) {
+        this.step = step;
+    }
 
     public void incrementCount() {
         throw new UnsupportedOperationException(&quot;write incrementCount&quot;);
@@ -612,8 +637,8 @@ public class ThreadSafeCounter {
 <div data-practice-part="breakdown" role="status" aria-live="polite" data-practice-ask-done="Main ask: done." data-practice-ask-missed="Main ask: not yet." data-practice-edges="Edge cases {passed} of {total}." data-practice-passed="Done" data-practice-failed="Not yet" hidden>
 <p data-practice-part="summary"></p>
 <ul data-practice-part="cases">
-<li data-practice-case="practice.ThreadSafeCounterTest#countsIncrements" data-practice-case-kind="main"><span data-practice-part="verdict"></span>A new counter reads 0, and three increments read 3.</li>
-<li data-practice-case="practice.ThreadSafeCounterTest#noIncrementIsLostAcrossThreads" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>Eight threads each incrementing 100000 times leave the counter at exactly 800000.</li>
+<li data-practice-case="practice.ThreadSafeCounterTest#countsIncrements" data-practice-case-kind="main"><span data-practice-part="verdict"></span>A new counter reads 0, and three increments read 3, running the given step once each.</li>
+<li data-practice-case="practice.ThreadSafeCounterTest#noIncrementIsLostAcrossThreads" data-practice-case-kind="edge"><span data-practice-part="verdict"></span>Two threads that increment at the same moment, each pausing between its read and its write, still leave the counter at 2.</li>
 </ul>
 </div>
 <pre data-practice-part="output" tabindex="0" hidden></pre>
