@@ -1,0 +1,214 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "17-java-memory-model"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Does one action happen-before another?",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page says the Java Memory Model reasons about **actions** and a **happens-before** order over them: if action X happens-before action Y, X's writes are visible to Y. Its Q2 answer lists the edges:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "**Program order**: in one thread, an earlier action happens-before a later one.",
+        "**Monitor lock**: an unlock of a monitor happens-before every *later* lock of that *same* monitor.",
+        "**Volatile**: a write to a volatile field happens-before every *later* read of that field.",
+        "**Thread start**: `t.start()` happens-before every action of thread `t`.",
+        "**Thread join**: every action of thread `t` happens-before `t.join()` returning."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Happens-before is **transitive**."
+    },
+    {
+      "type": "para",
+      "text": "Write `HappensBefore.happensBefore(List<Action> trace, int x, int y)`. The `trace` is one execution: every action of every thread, in the order they happened. Each `Action` names its thread, its `Kind` and its target: a variable for reads and writes, a monitor for `LOCK`/`UNLOCK`, and a thread name for `START`/`JOIN`. Return whether action `trace.get(x)` happens-before action `trace.get(y)`. An action does not happen-before itself."
+    },
+    {
+      "type": "para",
+      "text": "The page's `HappensBeforeDemo`, as a trace:"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "#",
+        "thread",
+        "action"
+      ],
+      "rows": [
+        [
+          "0",
+          "A",
+          "`WRITE value`"
+        ],
+        [
+          "1",
+          "A",
+          "`VOLATILE_WRITE ready`"
+        ],
+        [
+          "2",
+          "B",
+          "`VOLATILE_READ ready`"
+        ],
+        [
+          "3",
+          "B",
+          "`READ value`"
+        ]
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "x, y",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`0, 3`",
+          "`true` (program order, the volatile edge, program order)"
+        ],
+        [
+          "`3, 0`",
+          "`false`"
+        ],
+        [
+          "`0, 1`",
+          "`true`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "With `ready` a plain field (`WRITE ready` and `READ ready`), `0, 3` is `false`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Deque;\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { WRITE, READ, VOLATILE_WRITE, VOLATILE_READ, LOCK, UNLOCK, START, JOIN }\n\n    /** One action: the thread that performs it, what it does, and what it does it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Whether {@code trace.get(x)} happens-before {@code trace.get(y)} in this execution. */\n    public static boolean happensBefore(List<Action> trace, int x, int y) {\n        int n = trace.size();\n        List<List<Integer>> next = new ArrayList<>();\n        for (int i = 0; i < n; i++) {\n            next.add(new ArrayList<>());\n        }\n        for (int i = 0; i < n; i++) {\n            Action a = trace.get(i);\n            for (int j = 0; j < n; j++) {\n                if (i == j) {\n                    continue;\n                }\n                Action b = trace.get(j);\n                boolean later = j > i;\n                boolean edge = (a.thread().equals(b.thread()) && j > i)\n                        || (a.kind() == Kind.UNLOCK && b.kind() == Kind.LOCK && j > i && a.target().equals(b.target()))\n                        || (a.kind() == Kind.VOLATILE_WRITE && b.kind() == Kind.VOLATILE_READ && later\n                                && a.target().equals(b.target()))\n                        || (a.kind() == Kind.START && b.thread().equals(a.target()))\n                        || (b.kind() == Kind.JOIN && a.thread().equals(b.target()));\n                if (edge) {\n                    next.get(i).add(j);\n                }\n            }\n        }\n        boolean[] seen = new boolean[n];\n        Deque<Integer> todo = new ArrayDeque<>(next.get(x));\n        while (!todo.isEmpty()) {\n            int i = todo.pop();\n            if (i == y) {\n                return true;\n            }\n            if (!seen[i]) {\n                seen[i] = true;\n                todo.addAll(next.get(i));\n            }\n        }\n        return false;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { WRITE, READ, VOLATILE_WRITE, VOLATILE_READ, LOCK, UNLOCK, START, JOIN }\n\n    /** One action: the thread that performs it, what it does, and what it does it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Whether {@code trace.get(x)} happens-before {@code trace.get(y)} in this execution. */\n    public static boolean happensBefore(List<Action> trace, int x, int y) {\n        throw new UnsupportedOperationException(\"write happensBefore\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 5,
+    "code": 1,
+    "tables": 2,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "34cbadbd73c0a7b4a079e073709fd76f353bd3439e8a516f7c272ec79f969feb",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class HappensBefore {\n\n    private HappensBefore() {\n    }\n\n    public enum Kind { WRITE, READ, VOLATILE_WRITE, VOLATILE_READ, LOCK, UNLOCK, START, JOIN }\n\n    /** One action: the thread that performs it, what it does, and what it does it to. */\n    public record Action(String thread, Kind kind, String target) {\n    }\n\n    /** Whether {@code trace.get(x)} happens-before {@code trace.get(y)} in this execution. */\n    public static boolean happensBefore(List<Action> trace, int x, int y) {\n        throw new UnsupportedOperationException(\"write happensBefore\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/src/main/java/practice/HappensBefore.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/src/test/java/practice/HappensBeforeTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.HappensBeforeTest#followsProgramOrderAndAVolatileHandOff",
+        "kind": "main",
+        "says": "Program order and a volatile write read later make the writer's plain write happen-before the reader's plain read, and unsynchronized threads get no edge."
+      },
+      {
+        "id": "practice.HappensBeforeTest#onlyTheSameMonitorConnects",
+        "kind": "edge",
+        "says": "An unlock connects only to later locks of the same monitor."
+      },
+      {
+        "id": "practice.HappensBeforeTest#aLockBeforeTheUnlockGetsNoEdge",
+        "kind": "edge",
+        "says": "An unlock connects only to locks that come after it, never to an earlier lock of the same monitor."
+      },
+      {
+        "id": "practice.HappensBeforeTest#aReadBeforeTheWriteGetsNoEdge",
+        "kind": "edge",
+        "says": "A volatile read that comes before the volatile write in the execution gets no edge from it."
+      },
+      {
+        "id": "practice.HappensBeforeTest#startAndJoinConnectThreads",
+        "kind": "edge",
+        "says": "start() happens-before the started thread's actions, and those happen-before join() returning."
+      },
+      {
+        "id": "practice.HappensBeforeTest#edgesChainAcrossThreeThreads",
+        "kind": "edge",
+        "says": "Happens-before is transitive, so edges chain through a third thread."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-01/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "17-java-memory-model/README_5.1.1.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Program order, a volatile write read later, thread start and thread join create happens-before edges, and the order is transitive.",
+      "An unlock gives an edge only to later locks of the same monitor; different monitors give no visibility."
+    ]
+  }
+}

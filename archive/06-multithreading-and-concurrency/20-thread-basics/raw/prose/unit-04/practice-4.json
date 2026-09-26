@@ -1,0 +1,173 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "06-multithreading-and-concurrency",
+    "20-thread-basics"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 4,
+  "ingested": "2026-09-24",
+  "title": "Read a thread dump",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page reads a thread dump by its states: **many threads `BLOCKED` on one monitor** means lock contention, and threads `BLOCKED` in a **circular chain**, each waiting for a lock the next one holds, means a deadlock. A thread parked on a `ReentrantLock` shows as `WAITING`, not `BLOCKED`."
+    },
+    {
+      "type": "para",
+      "text": "`Snapshot(String name, Thread.State state, String lock, String lockOwner)` is one thread of a dump: `lock` is the lock it waits for and `lockOwner` the thread holding it, both `null` when it waits for none. Write, in `DumpReader`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`Map<Thread.State, Integer> countByState(List<Snapshot> dump)`: how many threads are in each state, with **all six** states as keys.",
+        "`Optional<String> hottestMonitor(List<Snapshot> dump)`: the lock that the most **`BLOCKED`** threads wait for; on a tie, the alphabetically first. Empty when no thread is `BLOCKED`.",
+        "`List<String> deadlocked(List<Snapshot> dump)`: the names, sorted, of the threads on a cycle of `BLOCKED` threads, each waiting for a lock held by the next."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "dump",
+        "`hottestMonitor`",
+        "`deadlocked`"
+      ],
+      "rows": [
+        [
+          "A `BLOCKED` on L1 held by B; B `BLOCKED` on L2 held by A; C `RUNNABLE`",
+          "`L1`",
+          "`[A, B]`"
+        ],
+        [
+          "A, B `BLOCKED` on L1 held by C; D, E, F `WAITING` on L2 held by C",
+          "`L1`",
+          "`[]`"
+        ],
+        [
+          "A on L1 held by B, B on L2 held by C, C on L3 held by A, all `BLOCKED`",
+          "`L1`",
+          "`[A, B, C]`"
+        ],
+        [
+          "the first dump plus D `BLOCKED` on L2 held by A",
+          "`L2`",
+          "`[A, B]`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.EnumMap;\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.Set;\nimport java.util.TreeMap;\n\npublic final class DumpReader {\n\n    private DumpReader() {\n    }\n\n    /** One thread of a dump: the lock it waits for and who holds it, both null when it waits for none. */\n    public record Snapshot(String name, Thread.State state, String lock, String lockOwner) {\n    }\n\n    /** How many threads are in each of the six states. */\n    public static Map<Thread.State, Integer> countByState(List<Snapshot> dump) {\n        Map<Thread.State, Integer> counts = new EnumMap<>(Thread.State.class);\n        for (Thread.State state : Thread.State.values()) {\n            counts.put(state, 0);\n        }\n        for (Snapshot s : dump) {\n            counts.merge(s.state(), 1, Integer::sum);\n        }\n        return counts;\n    }\n\n    /** The lock the most BLOCKED threads wait for, alphabetically first on a tie. */\n    public static Optional<String> hottestMonitor(List<Snapshot> dump) {\n        Map<String, Integer> waiters = new TreeMap<>();\n        for (Snapshot s : dump) {\n            if (s.state() == Thread.State.BLOCKED && s.lock() != null) {\n                waiters.merge(s.lock(), 1, Integer::sum);\n            }\n        }\n        String best = null;\n        for (Map.Entry<String, Integer> e : waiters.entrySet()) {\n            if (best == null || e.getValue() > waiters.get(best)) {\n                best = e.getKey();\n            }\n        }\n        return Optional.ofNullable(best);\n    }\n\n    /** The sorted names of the threads on a cycle of BLOCKED threads, each waiting for a lock the next holds. */\n    public static List<String> deadlocked(List<Snapshot> dump) {\n        Map<String, String> waitsFor = new HashMap<>();\n        for (Snapshot s : dump) {\n            if (s.state() == Thread.State.BLOCKED && s.lockOwner() != null) {\n                waitsFor.put(s.name(), s.lockOwner());\n            }\n        }\n        Set<String> onCycle = new HashSet<>();\n        for (String start : waitsFor.keySet()) {\n            String at = waitsFor.get(start);\n            for (int steps = 0; at != null && steps < waitsFor.size(); steps++) {\n                if (at.equals(start)) {\n                    onCycle.add(start);\n                    break;\n                }\n                at = waitsFor.get(at);\n            }\n        }\n        List<String> names = new ArrayList<>(onCycle);\n        names.sort(null);\n        return names;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Optional;\n\npublic final class DumpReader {\n\n    private DumpReader() {\n    }\n\n    /** One thread of a dump: the lock it waits for and who holds it, both null when it waits for none. */\n    public record Snapshot(String name, Thread.State state, String lock, String lockOwner) {\n    }\n\n    /** How many threads are in each of the six states. */\n    public static Map<Thread.State, Integer> countByState(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write countByState\");\n    }\n\n    /** The lock the most BLOCKED threads wait for, alphabetically first on a tie. */\n    public static Optional<String> hottestMonitor(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write hottestMonitor\");\n    }\n\n    /** The sorted names of the threads on a cycle of BLOCKED threads, each waiting for a lock the next holds. */\n    public static List<String> deadlocked(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write deadlocked\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "d7f48164eb35d1426132d88a1d77fad021a79d527242f1e5e0286e76f8ce0704",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Optional;\n\npublic final class DumpReader {\n\n    private DumpReader() {\n    }\n\n    /** One thread of a dump: the lock it waits for and who holds it, both null when it waits for none. */\n    public record Snapshot(String name, Thread.State state, String lock, String lockOwner) {\n    }\n\n    /** How many threads are in each of the six states. */\n    public static Map<Thread.State, Integer> countByState(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write countByState\");\n    }\n\n    /** The lock the most BLOCKED threads wait for, alphabetically first on a tie. */\n    public static Optional<String> hottestMonitor(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write hottestMonitor\");\n    }\n\n    /** The sorted names of the threads on a cycle of BLOCKED threads, each waiting for a lock the next holds. */\n    public static List<String> deadlocked(List<Snapshot> dump) {\n        throw new UnsupportedOperationException(\"write deadlocked\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/src/main/java/practice/DumpReader.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/src/test/java/practice/DumpReaderTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.DumpReaderTest#readsASmallDump",
+        "kind": "main",
+        "says": "It counts threads by state, names the monitor most BLOCKED threads wait for, and finds two threads blocked on each other's locks."
+      },
+      {
+        "id": "practice.DumpReaderTest#everyStateIsCounted",
+        "kind": "edge",
+        "says": "The counts name all six states, with 0 for a state no thread is in."
+      },
+      {
+        "id": "practice.DumpReaderTest#onlyBlockedThreadsMakeAMonitorHot",
+        "kind": "edge",
+        "says": "Threads WAITING on a lock do not count toward lock contention; only BLOCKED threads do."
+      },
+      {
+        "id": "practice.DumpReaderTest#aCycleOfThreeIsADeadlock",
+        "kind": "edge",
+        "says": "Three threads each blocked on a lock the next one holds are deadlocked."
+      },
+      {
+        "id": "practice.DumpReaderTest#aThreadBehindADeadlockIsNotInIt",
+        "kind": "edge",
+        "says": "A thread blocked on a deadlocked thread's lock, but not on the cycle, is not reported as deadlocked."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-4/target/surefire-reports"
+    },
+    "origin": {
+      "path": "20-thread-basics/README_6.1.4.md",
+      "section": "Best Practices and Optimization Techniques"
+    },
+    "concepts": [
+      "In a thread dump, many BLOCKED threads on one monitor mean contention, and a cycle of BLOCKED threads means deadlock."
+    ]
+  }
+}

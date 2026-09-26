@@ -1,0 +1,181 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "05-java-memory-model",
+    "17-java-memory-model"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Which reorderings may happen?",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page says the compiler, the JIT and the CPU may reorder a thread's operations, as long as the reordering does not change what the thread itself observes and does not break a happens-before edge. It spells out what that means:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Within-thread semantics**: two accesses to the same variable, where at least one writes it, keep their order. Accesses to different variables, or two reads, may swap.",
+        "**A volatile write**: no read or write that comes *before* it may move *after* it. A plain access after it may move before it.",
+        "**A volatile read**: no read or write that comes *after* it may move *before* it. A plain access before it may move after it.",
+        "**Two volatile accesses** never swap.",
+        "**synchronized**: operations inside the block cannot move out of it, but operations outside may move in (\"roach motel\" ordering). A plain access right after `LOCK` is inside; one right before `LOCK` is outside, and so on for `UNLOCK`."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Write `Reordering.canSwap(Op first, Op second)`. `first` and `second` are adjacent operations of one thread, in program order. Return whether they may be executed as `second` then `first`. An `Op` is a `Kind` and a target: a variable for reads and writes (plain or volatile), a monitor for `LOCK` and `UNLOCK`. Two monitor operations never swap, and a volatile access never swaps with a monitor operation."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "first, second",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`WRITE a`, `WRITE b`",
+          "`true` (the page's `ReorderingDemo`)"
+        ],
+        [
+          "`WRITE result`, `VOLATILE_WRITE ready`",
+          "`false`"
+        ],
+        [
+          "`VOLATILE_READ ready`, `READ result`",
+          "`false`"
+        ],
+        [
+          "`WRITE x`, `LOCK m`",
+          "`true`"
+        ],
+        [
+          "`LOCK m`, `WRITE x`",
+          "`false`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\npublic final class Reordering {\n\n    private Reordering() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK }\n\n    /** One operation of a thread: a read or write of a variable, or a lock or unlock of a monitor. */\n    public record Op(Kind kind, String target) {\n    }\n\n    /** Whether {@code first; second}, adjacent in program order, may run as {@code second; first}. */\n    public static boolean canSwap(Op first, Op second) {\n        if (isMonitor(first) && isMonitor(second)) {\n            return false;\n        }\n        if (first.kind() == Kind.LOCK || second.kind() == Kind.UNLOCK) {\n            return false; // it would move an operation out of the block\n        }\n        if (first.kind() == Kind.UNLOCK || second.kind() == Kind.LOCK) {\n            Op other = isMonitor(first) ? second : first;\n            return !isVolatile(other); // a plain operation may move into the block\n        }\n        Kind a = first.kind();\n        Kind b = second.kind();\n        if (isVolatile(a) && isVolatile(b)) {\n            return false;\n        }\n        if (b == Kind.VOLATILE_WRITE) {\n            return false; // nothing before a volatile write moves after it\n        }\n        if (a == Kind.VOLATILE_READ) {\n            return false; // nothing after a volatile read moves before it\n        }\n        if (isVolatile(a) || isVolatile(b)) {\n            return true;\n        }\n        boolean oneVariable = first.target().equals(second.target());\n        boolean aWrite = a == Kind.WRITE || b == Kind.WRITE;\n        return !(oneVariable && aWrite);\n    }\n\n    private static boolean isVolatile(Kind kind) {\n        return kind == Kind.VOLATILE_READ || kind == Kind.VOLATILE_WRITE;\n    }\n\n    private static boolean isVolatile(Op op) {\n        return isVolatile(op.kind());\n    }\n\n    private static boolean isMonitor(Op op) {\n        return op.kind() == Kind.LOCK || op.kind() == Kind.UNLOCK;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\npublic final class Reordering {\n\n    private Reordering() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK }\n\n    /** One operation of a thread: a read or write of a variable, or a lock or unlock of a monitor. */\n    public record Op(Kind kind, String target) {\n    }\n\n    /** Whether {@code first; second}, adjacent in program order, may run as {@code second; first}. */\n    public static boolean canSwap(Op first, Op second) {\n        throw new UnsupportedOperationException(\"write canSwap\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "c2f9df63fd651911524f3c9aa6c749d66fdce613a98be90d9ea564258b6ce65c",
+  "starting_code": "package practice;\n\npublic final class Reordering {\n\n    private Reordering() {\n    }\n\n    public enum Kind { READ, WRITE, VOLATILE_READ, VOLATILE_WRITE, LOCK, UNLOCK }\n\n    /** One operation of a thread: a read or write of a variable, or a lock or unlock of a monitor. */\n    public record Op(Kind kind, String target) {\n    }\n\n    /** Whether {@code first; second}, adjacent in program order, may run as {@code second; first}. */\n    public static boolean canSwap(Op first, Op second) {\n        throw new UnsupportedOperationException(\"write canSwap\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-04/practice-1/src/main/java/practice/Reordering.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-04/practice-1/src/test/java/practice/ReorderingTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-04/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-04/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ReorderingTest#swapsIndependentPlainAccesses",
+        "kind": "main",
+        "says": "Two plain accesses to different variables, or two reads of one variable, may be swapped."
+      },
+      {
+        "id": "practice.ReorderingTest#keepsAccessesToOneVariableInOrder",
+        "kind": "edge",
+        "says": "Two accesses to one variable where either writes it stay in order, as within-thread semantics demand."
+      },
+      {
+        "id": "practice.ReorderingTest#aVolatileWriteKeepsEarlierAccessesBeforeIt",
+        "kind": "edge",
+        "says": "Nothing before a volatile write moves after it, while a later plain access may move before it."
+      },
+      {
+        "id": "practice.ReorderingTest#aVolatileReadKeepsLaterAccessesAfterIt",
+        "kind": "edge",
+        "says": "Nothing after a volatile read moves before it, while an earlier plain access may move after it."
+      },
+      {
+        "id": "practice.ReorderingTest#synchronizedIsARoachMotel",
+        "kind": "edge",
+        "says": "Accesses inside a synchronized block never move out of it, but accesses outside may move in."
+      },
+      {
+        "id": "practice.ReorderingTest#aVolatileAccessNeverSwapsWithAMonitorOperation",
+        "kind": "edge",
+        "says": "A volatile access never swaps with a lock or an unlock, even where a plain access could move into the block."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-04/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "17-java-memory-model/README_5.1.4.md",
+      "section": "What the JMM Allows and Forbids"
+    },
+    "concepts": [
+      "The compiler, the JIT and the CPU may reorder a thread's operations as long as the thread's own view and every happens-before edge are kept.",
+      "synchronized keeps the operations inside its block, but lets operations outside move in.",
+      "A volatile write keeps earlier accesses before it, and a volatile read keeps later accesses after it."
+    ]
+  }
+}
