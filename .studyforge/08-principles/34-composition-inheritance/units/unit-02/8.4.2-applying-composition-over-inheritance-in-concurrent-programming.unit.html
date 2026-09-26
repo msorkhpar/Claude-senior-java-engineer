@@ -425,16 +425,16 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 </ol>
 </section>
 <section id="s-practice-prose" data-section="practice-prose" data-kind="practice" data-label="Compose a retry policy into an executor">
-<h2 id="practice-prose-b0">Problem statement</h2>
-<p>Instead of a hierarchy of executor subclasses, one for each retry policy, the page composes a <strong>strategy</strong>: the executor holds a <code>RetryStrategy</code> and asks it, after each failed attempt, whether to try again and how long to wait.</p>
-<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">interface RetryStrategy {
+<h2 id="practice-prose-b0" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b1-ba35efbe.mp3">Problem statement</h2>
+<p data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b2-49c8345c.mp3">Instead of a hierarchy of executor subclasses, one for each retry policy, the page composes a <strong>strategy</strong>: the executor holds a <code>RetryStrategy</code> and asks it, after each failed attempt, whether to try again and how long to wait.</p>
+<figure class="code" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b3-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">interface RetryStrategy {
     boolean shouldRetry(int attempt, Exception lastException);
     long delayMillis(int attempt);
 }</code></pre></figure>
-<p>The waiting is composed too: the executor is given a <code>LongConsumer sleeper</code> and calls it with each delay, so a test can record the waits instead of sleeping (production code passes a sleeper that calls <code>Thread.sleep</code>).</p>
-<p>Write <code>ResilientExecutor</code> and <code>ExponentialBackoff</code>:</p>
-<ul class="items"><li><code>new ResilientExecutor(strategy, sleeper)</code>, then <code>execute(task)</code> calls <code>task.get()</code>. If it throws, the executor asks <code>strategy.shouldRetry(attempt, e)</code>, where <code>attempt</code> is the attempt that just failed (counting from 1) and <code>e</code> is the exception it threw; on yes it passes <code>strategy.delayMillis(attempt)</code> for that same attempt to the sleeper (only when it is above 0; a delay of 0 is not slept) and tries again. A task that fails twice under a strategy allowing 3 retries with a 7 ms delay returns its result after 3 attempts and 2 sleeps of 7;</li><li>the executor uses <strong>the injected strategy</strong> and nothing else to decide: a strategy that never retries stops after 1 attempt, one that allows 5 retries survives 5 failures;</li><li>when the strategy says stop, <code>execute</code> rethrows <strong>the last exception</strong> the task threw, itself, not a wrapper;</li><li><code>attempts()</code> counts every call to a task this executor made, added up over all its <code>execute</code> calls;</li><li><code>ExponentialBackoff(maxRetries, initialDelayMs, maxDelayMs)</code> retries while <code>attempt &lt;= maxRetries</code> and waits <code>initialDelayMs * 2^(attempt - 1)</code>, capped at <code>maxDelayMs</code>: with <code>(5, 100, 1000)</code> the delays are 100, 200, 400, 800, and 1000 for every attempt after that;</li><li>the page's warning: compute the doubling as a shift that is <strong>checked first</strong>, or a large attempt overflows. <code>delayMillis(64)</code> and <code>delayMillis(Integer.MAX_VALUE)</code> are still 1000.</li></ul>
-<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<p data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b4-83a94e07.mp3">The waiting is composed too: the executor is given a <code>LongConsumer sleeper</code> and calls it with each delay, so a test can record the waits instead of sleeping (production code passes a sleeper that calls <code>Thread.sleep</code>).</p>
+<p data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b5-b9c4fbe6.mp3">Write <code>ResilientExecutor</code> and <code>ExponentialBackoff</code>:</p>
+<ul class="items"><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b6.i1-01a9d1b9.mp3"><code>new ResilientExecutor(strategy, sleeper)</code>, then <code>execute(task)</code> calls <code>task.get()</code>. If it throws, the executor asks <code>strategy.shouldRetry(attempt, e)</code>, where <code>attempt</code> is the attempt that just failed (counting from 1) and <code>e</code> is the exception it threw; on yes it passes <code>strategy.delayMillis(attempt)</code> for that same attempt to the sleeper (only when it is above 0; a delay of 0 is not slept) and tries again. A task that fails twice under a strategy allowing 3 retries with a 7 ms delay returns its result after 3 attempts and 2 sleeps of 7;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b6.i2-4481f7c7.mp3">the executor uses <strong>the injected strategy</strong> and nothing else to decide: a strategy that never retries stops after 1 attempt, one that allows 5 retries survives 5 failures;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b6.i3-be1a9a71.mp3">when the strategy says stop, <code>execute</code> rethrows <strong>the last exception</strong> the task threw, itself, not a wrapper;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b6.i4-c1b1c32c.mp3"><code>attempts()</code> counts every call to a task this executor made, added up over all its <code>execute</code> calls;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b6.i5-5ee93001.mp3"><code>ExponentialBackoff(maxRetries, initialDelayMs, maxDelayMs)</code> retries while <code>attempt &lt;= maxRetries</code> and waits <code>initialDelayMs * 2^(attempt - 1)</code>, capped at <code>maxDelayMs</code>: with <code>(5, 100, 1000)</code> the delays are 100, 200, 400, 800, and 1000 for every attempt after that;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b6.i6-49751e95.mp3">the page's warning: compute the doubling as a shift that is <strong>checked first</strong>, or a large attempt overflows. <code>delayMillis(64)</code> and <code>delayMillis(Integer.MAX_VALUE)</code> are still 1000.</li></ul>
+<details class="disclosure"><summary data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b8-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.Objects;
 import java.util.function.LongConsumer;
@@ -513,8 +513,8 @@ public class ResilientExecutor {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-b8">Starting code</h2>
-<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-b8" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b9-efa73569.mp3">Starting code</h2>
+<figure class="code" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose.b10-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.Objects;
 import java.util.function.LongConsumer;
@@ -595,16 +595,16 @@ public class ResilientExecutor {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-2" data-section="practice-prose-2" data-kind="practice" data-label="Decorate a runner with logging and a lock">
-<h2 id="practice-prose-2-b0">Problem statement</h2>
-<p>A hierarchy such as <code>BaseTask -&gt; LoggingTask -&gt; SynchronizedLoggingTask</code> needs a new class for every combination, and each level may add its own synchronization. The page's alternative is <strong>decorators</strong>: every concern implements the same <code>TaskRunner</code> interface, holds the runner it wraps, and adds one thing.</p>
-<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">TaskRunner runner = new SynchronizedTaskRunner(
+<h2 id="practice-prose-2-b0" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b1-ba35efbe.mp3">Problem statement</h2>
+<p data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b2-6868b087.mp3">A hierarchy such as <code>BaseTask -&gt; LoggingTask -&gt; SynchronizedLoggingTask</code> needs a new class for every combination, and each level may add its own synchronization. The page's alternative is <strong>decorators</strong>: every concern implements the same <code>TaskRunner</code> interface, holds the runner it wraps, and adds one thing.</p>
+<figure class="code" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b3-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">TaskRunner runner = new SynchronizedTaskRunner(
     new LoggingTaskRunner(
         new UpperCaseRunner()
     )
 );</code></pre></figure>
-<p><code>UpperCaseRunner</code> is given. Write the two decorators and the factory in <code>TaskRunners</code>:</p>
-<ul class="items"><li><code>LoggingTaskRunner(delegate, log)</code> adds <code>&quot;START: &quot; + input</code> to <code>log</code>, runs the delegate, then adds <code>&quot;SUCCESS: &quot; + result</code> and returns the result. If the delegate throws, it adds <code>&quot;ERROR: &quot; + message</code> and <strong>rethrows that same exception</strong>: logging must not swallow a failure;</li><li><code>SynchronizedTaskRunner(delegate)</code> holds a lock around the delegate call, so <strong>one call at a time</strong> runs inside the runner it wraps; a second caller waits until the first returns;</li><li><code>compose(base, log, logging, threadSafe)</code> applies exactly the decorators asked for: a <code>LoggingTaskRunner</code> alone, a <code>SynchronizedTaskRunner</code> alone (which writes nothing to <code>log</code>), both, or <code>base</code> itself when neither is asked for. The page warns that <strong>decorator order matters</strong>: <code>compose</code> puts the lock outermost, so logging happens inside the lock and the log lists each call's lines in the order the calls ran. <code>compose(new UpperCaseRunner(), log, true, true)</code> turns <code>&quot;hello&quot;</code> into <code>&quot;HELLO&quot;</code> and logs <code>START: hello</code>, <code>SUCCESS: HELLO</code>.</li></ul>
-<details class="disclosure"><summary>Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<p data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b4-4448f519.mp3"><code>UpperCaseRunner</code> is given. Write the two decorators and the factory in <code>TaskRunners</code>:</p>
+<ul class="items"><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b5.i1-7b684c0a.mp3"><code>LoggingTaskRunner(delegate, log)</code> adds <code>&quot;START: &quot; + input</code> to <code>log</code>, runs the delegate, then adds <code>&quot;SUCCESS: &quot; + result</code> and returns the result. If the delegate throws, it adds <code>&quot;ERROR: &quot; + message</code> and <strong>rethrows that same exception</strong>: logging must not swallow a failure;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b5.i2-d9d4b7d2.mp3"><code>SynchronizedTaskRunner(delegate)</code> holds a lock around the delegate call, so <strong>one call at a time</strong> runs inside the runner it wraps; a second caller waits until the first returns;</li><li data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b5.i3-9e6eb3d4.mp3"><code>compose(base, log, logging, threadSafe)</code> applies exactly the decorators asked for: a <code>LoggingTaskRunner</code> alone, a <code>SynchronizedTaskRunner</code> alone (which writes nothing to <code>log</code>), both, or <code>base</code> itself when neither is asked for. The page warns that <strong>decorator order matters</strong>: <code>compose</code> puts the lock outermost, so logging happens inside the lock and the log lists each call's lines in the order the calls ran. <code>compose(new UpperCaseRunner(), log, true, true)</code> turns <code>&quot;hello&quot;</code> into <code>&quot;HELLO&quot;</code> and logs <code>START: hello</code>, <code>SUCCESS: HELLO</code>.</li></ul>
+<details class="disclosure"><summary data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b7-cb27c664.mp3">Show a worked solution</summary><figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.List;
 import java.util.Objects;
@@ -685,8 +685,8 @@ public final class TaskRunners {
     }
 }
 </code></pre></figure></details>
-<h2 id="practice-prose-2-b7">Starting code</h2>
-<figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
+<h2 id="practice-prose-2-b7" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b8-efa73569.mp3">Starting code</h2>
+<figure class="code" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-2.b9-0f15b70c.mp3"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">package practice;
 
 import java.util.List;
 import java.util.Objects;
@@ -775,8 +775,8 @@ public final class TaskRunners {
 <pre data-practice-part="output" tabindex="0" hidden></pre>
 </section>
 <section id="s-practice-prose-3" data-section="practice-prose-3" data-kind="practice" data-label="Inheritance and threads">
-<h2 id="practice-prose-3-b0">Check yourself</h2>
-<p>Questions on what this page has just taught. Choose one answer for each.</p>
+<h2 id="practice-prose-3-b0" data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-3.b1-9030f628.mp3">Check yourself</h2>
+<p data-audio="audio/08-principles--34-composition-inheritance--unit-02.practice-prose-3.b2-67ecede3.mp3">Questions on what this page has just taught. Choose one answer for each.</p>
 </section>
 <section data-practice-quiz="08-principles/34-composition-inheritance/unit-02/practice-prose-3" data-corpus="claude-senior-java-engineer-interview-preparation" aria-label="Questions" tabindex="-1">
 <div data-practice-part="head"><h2>Answer these</h2></div>
