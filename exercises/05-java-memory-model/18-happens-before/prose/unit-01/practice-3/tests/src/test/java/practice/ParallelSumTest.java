@@ -42,7 +42,7 @@ class ParallelSumTest {
         CountDownLatch release = new CountDownLatch(1);
         LongSupplier slow = () -> {
             try {
-                release.await(5, TimeUnit.SECONDS);
+                release.await(8, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }

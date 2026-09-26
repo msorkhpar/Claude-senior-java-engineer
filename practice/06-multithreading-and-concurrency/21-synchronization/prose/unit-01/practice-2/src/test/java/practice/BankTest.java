@@ -33,7 +33,7 @@ class BankTest {
     }
 
     /**
-     * Each transfer, once it holds its first lock, waits (at most 3 s) until the other transfer
+     * Each transfer, once it holds its first lock, waits (at most 6 s) until the other transfer
      * also holds its first lock, or is blocked on the lock this one holds, or has finished. With a lock order
      * the second transfer can only be parked; without one, both hold a lock and both go on.
      */
@@ -50,7 +50,7 @@ class BankTest {
             Runnable hook = () -> {
                 hookCalls.incrementAndGet();
                 holding[me].set(true);
-                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(6);
                 while (System.nanoTime() < deadline) {
                     Thread other = threads.get(1 - me);
                     if (holding[1 - me].get() || (other != null

@@ -34,6 +34,14 @@ class JobsTest {
             Future<Integer> future = executor.submit(Jobs.countingTask(Integer.MAX_VALUE, pauseMillis, i -> {
                 worker.set(Thread.currentThread());
                 firstStep.countDown();
+                if (i > 1) {
+                    // Each later step takes 10 microseconds, so a task that ignores the interrupt
+                    // cannot count to the limit and free the executor, however fast the machine.
+                    long until = System.nanoTime() + 10_000;
+                    while (System.nanoTime() < until) {
+                        Thread.onSpinWait();
+                    }
+                }
             }));
             assertThat(firstStep.await(5, TimeUnit.SECONDS)).as("the task began").isTrue();
             if (pauseMillis > 0) {

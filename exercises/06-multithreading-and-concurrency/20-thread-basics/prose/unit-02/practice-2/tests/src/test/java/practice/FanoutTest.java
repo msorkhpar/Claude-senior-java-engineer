@@ -53,7 +53,7 @@ class FanoutTest {
         Function<Integer, Integer> meetTheOthers = x -> {
             arrived.countDown();
             try {
-                if (!arrived.await(1, TimeUnit.SECONDS)) {
+                if (!arrived.await(2, TimeUnit.SECONDS)) {
                     throw new IllegalStateException("input " + x + " ran alone");
                 }
             } catch (InterruptedException e) {

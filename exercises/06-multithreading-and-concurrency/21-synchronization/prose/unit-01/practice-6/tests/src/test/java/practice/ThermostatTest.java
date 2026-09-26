@@ -32,6 +32,7 @@ class ThermostatTest {
     void listenersRunWithoutTheLock() {
         Thermostat thermostat = new Thermostat();
         AtomicBoolean answered = new AtomicBoolean();
+        AtomicBoolean answeredWhileListening = new AtomicBoolean();
         AtomicInteger seen = new AtomicInteger();
         thermostat.addListener(t -> {
             Thread reader = new Thread(() -> {
@@ -45,9 +46,11 @@ class ThermostatTest {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+            // the verdict is taken here, while the listener is still running
+            answeredWhileListening.set(answered.get());
         });
         thermostat.set(21);
-        assertThat(answered.get()).as("another thread could read while the listener ran").isTrue();
+        assertThat(answeredWhileListening.get()).as("another thread could read while the listener ran").isTrue();
         assertThat(seen.get()).isEqualTo(21);
     }
 

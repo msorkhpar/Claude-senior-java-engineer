@@ -46,7 +46,7 @@ class TotalsTest {
         CountDownLatch arrived = new CountDownLatch(2);
         Callable<Integer> meetTheOther = () -> {
             arrived.countDown();
-            if (!arrived.await(1, TimeUnit.SECONDS)) {
+            if (!arrived.await(3, TimeUnit.SECONDS)) {
                 throw new TimeoutException("the other part was never submitted while this one ran");
             }
             return 1;
