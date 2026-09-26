@@ -1,0 +1,26 @@
+package practice;
+
+import java.util.List;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
+
+public final class LongWords {
+
+    private LongWords() {
+    }
+
+    /** How many words are longer than the minimum, and which. */
+    public record Report(long count, List<String> words) {
+    }
+
+    /** Returns a supplier whose every get() streams the words longer than {@code min}. */
+    public static Supplier<Stream<String>> longerThan(List<String> words, int min) {
+        return () -> words.stream().filter(word -> word.length() >= min);
+    }
+
+    /** Returns the count and the list of the words longer than {@code min}. */
+    public static Report report(List<String> words, int min) {
+        Supplier<Stream<String>> longWords = longerThan(words, min);
+        return new Report(longWords.get().count(), longWords.get().toList());
+    }
+}
