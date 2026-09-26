@@ -1,0 +1,181 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "07-modern-java-features",
+    "28-enhanced-enums"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Typed settings as a sealed interface of records",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "`enum Setting<T>` does not compile, so an enum cannot say that `MAX_RETRIES` holds an `Integer` while `APP_NAME` holds a `String`. The page's preferred workaround is a sealed generic interface whose permitted records play the constants: `MaxRetries implements AppSetting<Integer>`, `AppName implements AppSetting<String>`, and so on. Each \"constant\" then carries its own type argument, and a switch over the sealed interface is exhaustive."
+    },
+    {
+      "type": "para",
+      "text": "The starter declares `AppSetting<T>` (with `key()`, `defaultValue()` and `valueType()`) and its four records. Write:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`static List<AppSetting<?>> values()`: one instance of each record, in the order `MaxRetries`, `AppName`, `DebugMode`, `TimeoutMs` (the sealed interface's stand-in for `Enum.values()`).",
+        "`static Optional<AppSetting<?>> byKey(String key)`: the setting whose `key()` equals `key`, or empty.",
+        "`static <T> T parse(AppSetting<T> setting, String raw)`: the setting's value read from `raw` (surrounding spaces ignored), in the setting's own type, so `Integer retries = parse(new MaxRetries(), \"5\")` needs no cast. A `null` `raw` gives the setting's `defaultValue()`. `DebugMode` accepts exactly `true` or `false`; any other text throws `IllegalArgumentException`."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "call",
+        "answer"
+      ],
+      "rows": [
+        [
+          "`parse(new MaxRetries(), \"5\")`",
+          "`5` (an `Integer`)"
+        ],
+        [
+          "`parse(new AppName(), \" Shop \")`",
+          "`\"Shop\"`"
+        ],
+        [
+          "`parse(new TimeoutMs(), \"10000000000\")`",
+          "`10000000000L`"
+        ],
+        [
+          "`parse(new DebugMode(), \"yes\")`",
+          "throws `IllegalArgumentException`"
+        ],
+        [
+          "`parse(new AppName(), null)`",
+          "`\"DefaultApp\"`"
+        ],
+        [
+          "`byKey(\"timeout.ms\")`",
+          "`Optional[TimeoutMs[]]`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Keys arrive from configuration files, so the key passed to `byKey` is not the same `String` object as the one a record returns."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Settings {\n\n    private Settings() {\n    }\n\n    /** A setting whose value has the type T. */\n    public sealed interface AppSetting<T> permits MaxRetries, AppName, DebugMode, TimeoutMs {\n        String key();\n\n        T defaultValue();\n\n        Class<T> valueType();\n    }\n\n    public record MaxRetries() implements AppSetting<Integer> {\n        public String key() {\n            return \"max.retries\";\n        }\n\n        public Integer defaultValue() {\n            return 3;\n        }\n\n        public Class<Integer> valueType() {\n            return Integer.class;\n        }\n    }\n\n    public record AppName() implements AppSetting<String> {\n        public String key() {\n            return \"app.name\";\n        }\n\n        public String defaultValue() {\n            return \"DefaultApp\";\n        }\n\n        public Class<String> valueType() {\n            return String.class;\n        }\n    }\n\n    public record DebugMode() implements AppSetting<Boolean> {\n        public String key() {\n            return \"debug.mode\";\n        }\n\n        public Boolean defaultValue() {\n            return false;\n        }\n\n        public Class<Boolean> valueType() {\n            return Boolean.class;\n        }\n    }\n\n    public record TimeoutMs() implements AppSetting<Long> {\n        public String key() {\n            return \"timeout.ms\";\n        }\n\n        public Long defaultValue() {\n            return 5000L;\n        }\n\n        public Class<Long> valueType() {\n            return Long.class;\n        }\n    }\n\n    /** One instance of each setting, in declaration order. */\n    public static List<AppSetting<?>> values() {\n        return List.of(new MaxRetries(), new AppName(), new DebugMode(), new TimeoutMs());\n    }\n\n    /** The setting whose key equals {@code key}, or empty. */\n    public static Optional<AppSetting<?>> byKey(String key) {\n        return values().stream().filter(s -> s.key().equals(key)).findFirst();\n    }\n\n    /** The value of {@code setting} read from {@code raw}; null gives the default. */\n    public static <T> T parse(AppSetting<T> setting, String raw) {\n        if (raw == null) {\n            return setting.defaultValue();\n        }\n        String text = raw.strip();\n        AppSetting<?> any = setting;\n        Object value = switch (any) {\n            case MaxRetries m -> Integer.valueOf(text);\n            case AppName n -> text;\n            case DebugMode d -> switch (text) {\n                case \"true\" -> Boolean.TRUE;\n                case \"false\" -> Boolean.FALSE;\n                default -> throw new IllegalArgumentException(\"Not a boolean: \" + text);\n            };\n            case TimeoutMs t -> Long.valueOf(text);\n        };\n        return setting.valueType().cast(value);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Settings {\n\n    private Settings() {\n    }\n\n    /** A setting whose value has the type T. */\n    public sealed interface AppSetting<T> permits MaxRetries, AppName, DebugMode, TimeoutMs {\n        String key();\n\n        T defaultValue();\n\n        Class<T> valueType();\n    }\n\n    public record MaxRetries() implements AppSetting<Integer> {\n        public String key() {\n            return \"max.retries\";\n        }\n\n        public Integer defaultValue() {\n            return 3;\n        }\n\n        public Class<Integer> valueType() {\n            return Integer.class;\n        }\n    }\n\n    public record AppName() implements AppSetting<String> {\n        public String key() {\n            return \"app.name\";\n        }\n\n        public String defaultValue() {\n            return \"DefaultApp\";\n        }\n\n        public Class<String> valueType() {\n            return String.class;\n        }\n    }\n\n    public record DebugMode() implements AppSetting<Boolean> {\n        public String key() {\n            return \"debug.mode\";\n        }\n\n        public Boolean defaultValue() {\n            return false;\n        }\n\n        public Class<Boolean> valueType() {\n            return Boolean.class;\n        }\n    }\n\n    public record TimeoutMs() implements AppSetting<Long> {\n        public String key() {\n            return \"timeout.ms\";\n        }\n\n        public Long defaultValue() {\n            return 5000L;\n        }\n\n        public Class<Long> valueType() {\n            return Long.class;\n        }\n    }\n\n    /** One instance of each setting, in declaration order. */\n    public static List<AppSetting<?>> values() {\n        throw new UnsupportedOperationException(\"write values\");\n    }\n\n    /** The setting whose key equals {@code key}, or empty. */\n    public static Optional<AppSetting<?>> byKey(String key) {\n        throw new UnsupportedOperationException(\"write byKey\");\n    }\n\n    /** The value of {@code setting} read from {@code raw}; null gives the default. */\n    public static <T> T parse(AppSetting<T> setting, String raw) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "c269ef6151558d6e7aa1d47f962f87dd008c8511ccd0133a02995e02ef42fa04",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Settings {\n\n    private Settings() {\n    }\n\n    /** A setting whose value has the type T. */\n    public sealed interface AppSetting<T> permits MaxRetries, AppName, DebugMode, TimeoutMs {\n        String key();\n\n        T defaultValue();\n\n        Class<T> valueType();\n    }\n\n    public record MaxRetries() implements AppSetting<Integer> {\n        public String key() {\n            return \"max.retries\";\n        }\n\n        public Integer defaultValue() {\n            return 3;\n        }\n\n        public Class<Integer> valueType() {\n            return Integer.class;\n        }\n    }\n\n    public record AppName() implements AppSetting<String> {\n        public String key() {\n            return \"app.name\";\n        }\n\n        public String defaultValue() {\n            return \"DefaultApp\";\n        }\n\n        public Class<String> valueType() {\n            return String.class;\n        }\n    }\n\n    public record DebugMode() implements AppSetting<Boolean> {\n        public String key() {\n            return \"debug.mode\";\n        }\n\n        public Boolean defaultValue() {\n            return false;\n        }\n\n        public Class<Boolean> valueType() {\n            return Boolean.class;\n        }\n    }\n\n    public record TimeoutMs() implements AppSetting<Long> {\n        public String key() {\n            return \"timeout.ms\";\n        }\n\n        public Long defaultValue() {\n            return 5000L;\n        }\n\n        public Class<Long> valueType() {\n            return Long.class;\n        }\n    }\n\n    /** One instance of each setting, in declaration order. */\n    public static List<AppSetting<?>> values() {\n        throw new UnsupportedOperationException(\"write values\");\n    }\n\n    /** The setting whose key equals {@code key}, or empty. */\n    public static Optional<AppSetting<?>> byKey(String key) {\n        throw new UnsupportedOperationException(\"write byKey\");\n    }\n\n    /** The value of {@code setting} read from {@code raw}; null gives the default. */\n    public static <T> T parse(AppSetting<T> setting, String raw) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/src/main/java/practice/Settings.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/src/test/java/practice/SettingsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.SettingsTest#parsesEachSettingToItsOwnType",
+        "kind": "main",
+        "says": "parse() turns text into each setting's own type, and byKey() finds a setting by its key."
+      },
+      {
+        "id": "practice.SettingsTest#timeoutTakesALong",
+        "kind": "edge",
+        "says": "A timeout above the int range parses, because TimeoutMs is a Long setting."
+      },
+      {
+        "id": "practice.SettingsTest#debugAcceptsOnlyTrueOrFalse",
+        "kind": "edge",
+        "says": "DebugMode refuses any text other than exactly true or false (other case, empty, blank) with IllegalArgumentException, instead of reading it as false or as the default."
+      },
+      {
+        "id": "practice.SettingsTest#missingTextGivesTheDefault",
+        "kind": "edge",
+        "says": "A null text gives the setting's default value."
+      },
+      {
+        "id": "practice.SettingsTest#findsAKeyBuiltAtRuntime",
+        "kind": "edge",
+        "says": "byKey() finds a setting by a key built at run time, not written as the same literal."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "28-enhanced-enums/README_7.2.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "A sealed generic interface whose permitted records play the constants gives each constant its own type argument, so values come back typed without casts.",
+      "A static values() method on the sealed interface stands in for Enum.values()."
+    ]
+  }
+}
