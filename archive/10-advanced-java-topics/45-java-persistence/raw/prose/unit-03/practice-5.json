@@ -1,0 +1,176 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 5,
+  "ingested": "2026-09-24",
+  "title": "Optimistic locking with a version column",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Optimistic locking takes no lock when reading. Each row carries a version; the write checks it and bumps it in the same statement:"
+    },
+    {
+      "type": "code",
+      "lang": "sql",
+      "text": "UPDATE accounts SET balance = ?, version = version + 1 WHERE id = ? AND version = ?"
+    },
+    {
+      "type": "para",
+      "text": "If someone else wrote the row since you read it, the version no longer matches, the UPDATE changes 0 rows, and you report a conflict."
+    },
+    {
+      "type": "para",
+      "text": "Write `Accounts.update(connection, seen, newBalance)` over `accounts(id INT PRIMARY KEY, owner VARCHAR, balance DECIMAL(15,2), version INT)`, where `seen` is the `Account(id, owner, balance, version)` the caller read."
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**The UPDATE matches only the exact version the caller saw and increments it**, so a second writer holding the old version matches no row.",
+        "**An update of 0 rows is an `Accounts.OptimisticLockException`**, whatever the reason: a newer version or a row someone deleted (the page's edge case 6).",
+        "**`update()` returns the account with the new balance and version + 1**, so it can be passed to `update()` again."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "row before (balance, version)",
+        "call",
+        "result",
+        "row after"
+      ],
+      "rows": [
+        [
+          "100.00, 0",
+          "`update(seen v0, 150.00)`",
+          "`Account[1, Ada, 150.00, 1]`",
+          "150.00, 1"
+        ],
+        [
+          "150.00, 1 (another writer won)",
+          "`update(seen v0, 90.00)`",
+          "`OptimisticLockException`",
+          "150.00, 1"
+        ],
+        [
+          "deleted",
+          "`update(seen v0, 90.00)`",
+          "`OptimisticLockException`",
+          "-"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\n\npublic final class Accounts {\n\n    private Accounts() {\n    }\n\n    public record Account(int id, String owner, BigDecimal balance, int version) {\n    }\n\n    /** Thrown when the row changed (or vanished) since the caller read it. */\n    public static final class OptimisticLockException extends Exception {\n        public OptimisticLockException(String message) {\n            super(message);\n        }\n    }\n\n    /** Writes the new balance if the row still has the version the caller saw. */\n    public static Account update(Connection connection, Account seen, BigDecimal newBalance)\n            throws SQLException, OptimisticLockException {\n        try (PreparedStatement statement = connection.prepareStatement(\n                \"UPDATE accounts SET balance = ?, version = version + 1 WHERE id = ? AND version = ?\")) {\n            statement.setBigDecimal(1, newBalance);\n            statement.setInt(2, seen.id());\n            statement.setInt(3, seen.version());\n            if (statement.executeUpdate() == 0) {\n                throw new OptimisticLockException(\"account \" + seen.id() + \" changed since version \" + seen.version());\n            }\n        }\n        return new Account(seen.id(), seen.owner(), newBalance, seen.version() + 1);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Accounts {\n\n    private Accounts() {\n    }\n\n    public record Account(int id, String owner, BigDecimal balance, int version) {\n    }\n\n    /** Thrown when the row changed (or vanished) since the caller read it. */\n    public static final class OptimisticLockException extends Exception {\n        public OptimisticLockException(String message) {\n            super(message);\n        }\n    }\n\n    /** Writes the new balance if the row still has the version the caller saw. */\n    public static Account update(Connection connection, Account seen, BigDecimal newBalance)\n            throws SQLException, OptimisticLockException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "05e1d4c7d50e5ea0c7431586c2d649beb069aeaede008ee9dc49557dc8cedfa9",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class Accounts {\n\n    private Accounts() {\n    }\n\n    public record Account(int id, String owner, BigDecimal balance, int version) {\n    }\n\n    /** Thrown when the row changed (or vanished) since the caller read it. */\n    public static final class OptimisticLockException extends Exception {\n        public OptimisticLockException(String message) {\n            super(message);\n        }\n    }\n\n    /** Writes the new balance if the row still has the version the caller saw. */\n    public static Account update(Connection connection, Account seen, BigDecimal newBalance)\n            throws SQLException, OptimisticLockException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-5/src/main/java/practice/Accounts.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-5/src/test/java/practice/AccountsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-5/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-5/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.AccountsTest#updatesTheBalanceAndTheVersion",
+        "kind": "main",
+        "says": "update(account seen at version 0, 150.00) stores balance 150.00 and version 1."
+      },
+      {
+        "id": "practice.AccountsTest#aStaleSnapshotIsRefused",
+        "kind": "edge",
+        "says": "Two readers see version 0; the first update wins, the second throws OptimisticLockException and the first one's balance stays."
+      },
+      {
+        "id": "practice.AccountsTest#theReturnedSnapshotCanUpdateAgain",
+        "kind": "edge",
+        "says": "The Account update() returns carries the new version, so it can be passed to update() again."
+      },
+      {
+        "id": "practice.AccountsTest#aDeletedRowIsAConflictToo",
+        "kind": "edge",
+        "says": "If another transaction deleted the row, update() throws OptimisticLockException as for a version conflict."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-03/practice-5/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.3.md",
+      "section": "Optimistic vs. Pessimistic Locking"
+    },
+    "concepts": [
+      "Optimistic locking checks and increments a version in the UPDATE, and an update of zero rows is a conflict, including a deleted row."
+    ]
+  }
+}

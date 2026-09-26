@@ -1,0 +1,176 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "09-design-patterns",
+    "37-structural-patterns"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "Encryption and compression layers whose order decides what is stored",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's Q5 stacks an encryption layer and a compression layer on one data source. Each layer changes the data on `write` and undoes the change on `read`, and the outermost layer is applied first on the way in, so **the order of the layers decides what is stored**."
+    },
+    {
+      "type": "para",
+      "text": "Given: `DataSource` (`read()`, `write(data)`) and `InMemoryDataSource`. Write two decorators:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`EncryptionDecorator(wrappee, shift)`: writes each character shifted up by `shift`, and shifts back down on read.",
+        "`CompressionDecorator(wrappee)`: run-length encoding. A run of `n > 1` equal characters is written as the character followed by `n` in decimal, and **a run of one is written without a count**. On read, **a run length of several digits is read whole** (`a12` is twelve a's). Because counts are digits, **data containing digits is refused** with `IllegalArgumentException` and nothing is written."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Both layers keep no copy of the data: **`read` asks the wrapped source every time**."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "stack (shift 3)",
+        "`write(\"aaabbcc\")` stores",
+        "`read()`"
+      ],
+      "rows": [
+        [
+          "`Compression(Encryption(store))`",
+          "`d6e5f5`",
+          "`aaabbcc`"
+        ],
+        [
+          "`Encryption(Compression(store))`",
+          "`d3e2f2`",
+          "`aaabbcc`"
+        ],
+        [
+          "`Compression(store)`, `write(\"abc\")`",
+          "`abc`",
+          "`abc`"
+        ],
+        [
+          "`Compression(store)`, `write(\"a2\")`",
+          "nothing, `IllegalArgumentException`",
+          "-"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class DataSources {\n\n    private DataSources() {\n    }\n\n    public interface DataSource {\n        String read();\n\n        void write(String data);\n    }\n\n    /** The concrete component: keeps the last text written. */\n    public static final class InMemoryDataSource implements DataSource {\n        private String data = \"\";\n\n        @Override\n        public String read() {\n            return data;\n        }\n\n        @Override\n        public void write(String data) {\n            this.data = Objects.requireNonNull(data, \"data must not be null\");\n        }\n    }\n\n    public static final class EncryptionDecorator implements DataSource {\n\n        private final DataSource wrappee;\n        private final int shift;\n\n        public EncryptionDecorator(DataSource wrappee, int shift) {\n            this.wrappee = Objects.requireNonNull(wrappee, \"data source must not be null\");\n            this.shift = shift;\n        }\n\n        @Override\n        public String read() {\n            return shifted(wrappee.read(), -shift);\n        }\n\n        @Override\n        public void write(String data) {\n            Objects.requireNonNull(data, \"data must not be null\");\n            wrappee.write(shifted(data, shift));\n        }\n\n        private static String shifted(String text, int by) {\n            StringBuilder sb = new StringBuilder(text.length());\n            for (int i = 0; i < text.length(); i++) {\n                sb.append((char) (text.charAt(i) + by));\n            }\n            return sb.toString();\n        }\n    }\n\n    public static final class CompressionDecorator implements DataSource {\n\n        private final DataSource wrappee;\n\n        public CompressionDecorator(DataSource wrappee) {\n            this.wrappee = Objects.requireNonNull(wrappee, \"data source must not be null\");\n        }\n\n        @Override\n        public String read() {\n            return decompress(wrappee.read());\n        }\n\n        @Override\n        public void write(String data) {\n            Objects.requireNonNull(data, \"data must not be null\");\n            wrappee.write(compress(data));\n        }\n\n        private static String compress(String data) {\n            if (data.chars().anyMatch(Character::isDigit)) {\n                throw new IllegalArgumentException(\"run-length encoding cannot store digits\");\n            }\n            StringBuilder sb = new StringBuilder();\n            int i = 0;\n            while (i < data.length()) {\n                char c = data.charAt(i);\n                int run = 1;\n                while (i + run < data.length() && data.charAt(i + run) == c) {\n                    run++;\n                }\n                sb.append(c);\n                if (run > 1) {\n                    sb.append(run);\n                }\n                i += run;\n            }\n            return sb.toString();\n        }\n\n        private static String decompress(String data) {\n            StringBuilder sb = new StringBuilder();\n            int i = 0;\n            while (i < data.length()) {\n                char c = data.charAt(i++);\n                int start = i;\n                while (i < data.length() && Character.isDigit(data.charAt(i))) {\n                    i++;\n                }\n                int run = start == i ? 1 : Integer.parseInt(data.substring(start, i));\n                sb.append(String.valueOf(c).repeat(run));\n            }\n            return sb.toString();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class DataSources {\n\n    private DataSources() {\n    }\n\n    public interface DataSource {\n        String read();\n\n        void write(String data);\n    }\n\n    /** The concrete component: keeps the last text written. */\n    public static final class InMemoryDataSource implements DataSource {\n        private String data = \"\";\n\n        @Override\n        public String read() {\n            return data;\n        }\n\n        @Override\n        public void write(String data) {\n            this.data = Objects.requireNonNull(data, \"data must not be null\");\n        }\n    }\n\n    public static final class EncryptionDecorator implements DataSource {\n\n        public EncryptionDecorator(DataSource wrappee, int shift) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n\n    public static final class CompressionDecorator implements DataSource {\n\n        public CompressionDecorator(DataSource wrappee) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "99d96c648d96bafe699b3c673c4f7d03d730ab6adfc3b37a2af665b03d4405ca",
+  "starting_code": "package practice;\n\nimport java.util.Objects;\n\npublic final class DataSources {\n\n    private DataSources() {\n    }\n\n    public interface DataSource {\n        String read();\n\n        void write(String data);\n    }\n\n    /** The concrete component: keeps the last text written. */\n    public static final class InMemoryDataSource implements DataSource {\n        private String data = \"\";\n\n        @Override\n        public String read() {\n            return data;\n        }\n\n        @Override\n        public void write(String data) {\n            this.data = Objects.requireNonNull(data, \"data must not be null\");\n        }\n    }\n\n    public static final class EncryptionDecorator implements DataSource {\n\n        public EncryptionDecorator(DataSource wrappee, int shift) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n\n    public static final class CompressionDecorator implements DataSource {\n\n        public CompressionDecorator(DataSource wrappee) {\n        }\n\n        @Override\n        public String read() {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        @Override\n        public void write(String data) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/src/main/java/practice/DataSources.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/src/test/java/practice/DataSourcesTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.DataSourcesTest#layersRoundTripAndOrderDecidesTheStoredForm",
+        "kind": "main",
+        "says": "Both stackings read back what was written, and the stored text is encrypt(compress(x)) for Compression(Encryption(store)) and compress(encrypt(x)) for Encryption(Compression(store))."
+      },
+      {
+        "id": "practice.DataSourcesTest#aRunOfOneHasNoCount",
+        "kind": "edge",
+        "says": "A character that is not repeated is stored alone: \"abc\" is stored as \"abc\"."
+      },
+      {
+        "id": "practice.DataSourcesTest#aLongRunKeepsAllItsDigits",
+        "kind": "edge",
+        "says": "Twelve a's are stored as \"a12\" and read back as twelve a's."
+      },
+      {
+        "id": "practice.DataSourcesTest#dataWithDigitsIsRefused",
+        "kind": "edge",
+        "says": "Writing \"a2\" or \"7\" through the compression layer throws IllegalArgumentException and stores nothing."
+      },
+      {
+        "id": "practice.DataSourcesTest#readsGoThroughTheWrappedSource",
+        "kind": "edge",
+        "says": "After the wrapped store is written directly with \"y3\", reading through the compression layer gives \"yyy\", not the last text written through it."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "37-structural-patterns/README_9.2.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "The order of decorators changes the result: the outermost runs first on the way in, so compress-then-encrypt stores different data from encrypt-then-compress."
+    ]
+  }
+}

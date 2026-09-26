@@ -1,0 +1,158 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "42-annotations"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 4,
+  "ingested": "2026-09-24",
+  "title": "Check @OnStart methods when the class is read",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's best practice: **validate annotations early**, at startup, not while requests are being served, and give **meaningful error messages**. A framework that finds a broken `@OnStart` method only when the first bean is started fails in production; one that checks when it reads the class fails at boot, with every problem listed."
+    },
+    {
+      "type": "para",
+      "text": "`CallbackPlan.OnStart` (given) has `int order() default 0`. Write `CallbackPlan`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`CallbackPlan.of(Class<?> type)` reads the `@OnStart` methods that `type` declares (any access level). An `@OnStart` method must take no parameters; if any takes some, `of` throws `IllegalArgumentException` **at once, before any bean exists**, and its message names **every** such method.",
+        "`names()` returns the callbacks' names in run order: lowest `order` first.",
+        "`run(Object bean)` calls the callbacks on `bean` in that order."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "class",
+        "`of(...)`",
+        "`names()`"
+      ],
+      "rows": [
+        [
+          "`@OnStart(order = 2) warmUp()`, `@OnStart(order = 1) open()`",
+          "a plan",
+          "`[open, warmUp]`"
+        ],
+        [
+          "seven callbacks with orders 0 to 6, declared in another order",
+          "a plan",
+          "lowest `order` first"
+        ],
+        [
+          "`@OnStart open(String url)`, `@OnStart load(int n)`, `@OnStart ready()`",
+          "`IllegalArgumentException` naming `open` and `load`",
+          ""
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\n\npublic final class CallbackPlan {\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface OnStart {\n        int order() default 0;\n    }\n\n    private final List<Method> callbacks;\n\n    private CallbackPlan(List<Method> callbacks) {\n        this.callbacks = callbacks;\n    }\n\n    /** Reads and checks type's @OnStart methods. */\n    public static CallbackPlan of(Class<?> type) {\n        List<Method> found = new ArrayList<>();\n        List<String> bad = new ArrayList<>();\n        for (Method m : type.getDeclaredMethods()) {\n            if (!m.isAnnotationPresent(OnStart.class)) {\n                continue;\n            }\n            if (m.getParameterCount() != 0) {\n                bad.add(m.getName());\n            }\n            found.add(m);\n        }\n        if (!bad.isEmpty()) {\n            throw new IllegalArgumentException(\n                    type.getSimpleName() + \": @OnStart methods must take no parameters: \" + String.join(\", \", bad));\n        }\n        found.sort(Comparator.comparingInt(m -> m.getAnnotation(OnStart.class).order()));\n        for (Method m : found) {\n            m.setAccessible(true);\n        }\n        return new CallbackPlan(List.copyOf(found));\n    }\n\n    /** The callbacks' names in run order. */\n    public List<String> names() {\n        return callbacks.stream().map(Method::getName).toList();\n    }\n\n    /** Calls the callbacks on bean in run order. */\n    public void run(Object bean) throws IllegalAccessException, InvocationTargetException {\n        for (Method m : callbacks) {\n            m.invoke(bean);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.util.List;\n\npublic final class CallbackPlan {\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface OnStart {\n        int order() default 0;\n    }\n\n    private CallbackPlan() {\n    }\n\n    /** Reads and checks type's @OnStart methods. */\n    public static CallbackPlan of(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The callbacks' names in run order. */\n    public List<String> names() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Calls the callbacks on bean in run order. */\n    public void run(Object bean) throws IllegalAccessException, InvocationTargetException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "e618f66fd1c0fc1700eced5e26ce24f8cca4ee72ba7f6cb296a1135f6e8a472d",
+  "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.util.List;\n\npublic final class CallbackPlan {\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface OnStart {\n        int order() default 0;\n    }\n\n    private CallbackPlan() {\n    }\n\n    /** Reads and checks type's @OnStart methods. */\n    public static CallbackPlan of(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The callbacks' names in run order. */\n    public List<String> names() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Calls the callbacks on bean in run order. */\n    public void run(Object bean) throws IllegalAccessException, InvocationTargetException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-4/src/main/java/practice/CallbackPlan.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-4/src/test/java/practice/CallbackPlanTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-4/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-4/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.CallbackPlanTest#plansAndRunsTheCallbacksInOrder",
+        "kind": "main",
+        "says": "A plan for Cache names its seven callbacks lowest order first (allocate, open, warmUp, announce, load, index, report; any access level) and runs them in that order on each bean."
+      },
+      {
+        "id": "practice.CallbackPlanTest#aBrokenCallbackFailsWhenThePlanIsBuilt",
+        "kind": "edge",
+        "says": "CallbackPlan.of(Broken.class) itself throws IllegalArgumentException, before any bean is run."
+      },
+      {
+        "id": "practice.CallbackPlanTest#theMessageNamesEveryBrokenCallback",
+        "kind": "edge",
+        "says": "The message names both open(String) and load(int), and not the valid ready()."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-4/target/surefire-reports"
+    },
+    "origin": {
+      "path": "42-annotations/README_10.4.4.md",
+      "section": "Best Practices and Optimization Techniques"
+    },
+    "concepts": [
+      "Annotations are validated at startup, not during request processing, with error messages that say what is wrong."
+    ]
+  }
+}

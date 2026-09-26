@@ -1,0 +1,166 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 6,
+  "ingested": "2026-09-24",
+  "title": "Map a class hierarchy to a single table",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's Q4 maps `Vehicle`, `Car` and `Truck` with `SINGLE_TABLE`: one table for the whole hierarchy, a discriminator column naming each row's class, and the subclass columns NULL on the other type's rows. Write that mapping by hand, with a sealed interface and records."
+    },
+    {
+      "type": "para",
+      "text": "The table is `vehicles(id BIGINT PRIMARY KEY, vehicle_type VARCHAR, manufacturer VARCHAR, doors INT, payload DECIMAL(10,2))`. In `Vehicles`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`save(connection, vehicle)` inserts a `Car` with `vehicle_type` `CAR` or a `Truck` with `TRUCK`. **A column of the other type is written as NULL, not 0.**",
+        "`findAll(connection)` returns every vehicle in id order. **The `vehicle_type` column, not which columns are NULL, decides the class**; a NULL doors gives `null`. **An unknown `vehicle_type` is refused** with `IllegalStateException`."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "row (id, vehicle_type, manufacturer, doors, payload)",
+        "loaded as"
+      ],
+      "rows": [
+        [
+          "1, CAR, Volvo, 4, NULL",
+          "`Car[id=1, manufacturer=Volvo, doors=4]`"
+        ],
+        [
+          "2, TRUCK, Scania, NULL, 12000.50",
+          "`Truck[id=2, manufacturer=Scania, payload=12000.50]`"
+        ],
+        [
+          "3, TRUCK, MAN, NULL, NULL",
+          "`Truck[id=3, manufacturer=MAN, payload=null]`"
+        ],
+        [
+          "5, CAR, Fiat, NULL, NULL",
+          "`Car[id=5, manufacturer=Fiat, doors=null]`"
+        ],
+        [
+          "4, BUS, Setra, NULL, NULL",
+          "`IllegalStateException`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.sql.Types;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Vehicles {\n\n    private Vehicles() {\n    }\n\n    public sealed interface Vehicle permits Car, Truck {\n        long id();\n\n        String manufacturer();\n    }\n\n    public record Car(long id, String manufacturer, Integer doors) implements Vehicle {\n    }\n\n    public record Truck(long id, String manufacturer, BigDecimal payload) implements Vehicle {\n    }\n\n    /** Inserts the vehicle into the single vehicles table. */\n    public static void save(Connection connection, Vehicle vehicle) throws SQLException {\n        try (PreparedStatement statement = connection.prepareStatement(\n                \"INSERT INTO vehicles (id, vehicle_type, manufacturer, doors, payload) VALUES (?, ?, ?, ?, ?)\")) {\n            statement.setLong(1, vehicle.id());\n            statement.setString(3, vehicle.manufacturer());\n            switch (vehicle) {\n                case Car car -> {\n                    statement.setString(2, \"CAR\");\n                    statement.setObject(4, car.doors(), Types.INTEGER);\n                    statement.setNull(5, Types.DECIMAL);\n                }\n                case Truck truck -> {\n                    statement.setString(2, \"TRUCK\");\n                    statement.setNull(4, Types.INTEGER);\n                    statement.setBigDecimal(5, truck.payload());\n                }\n            }\n            statement.executeUpdate();\n        }\n    }\n\n    /** Every vehicle, in id order, as the class its vehicle_type names. */\n    public static List<Vehicle> findAll(Connection connection) throws SQLException {\n        List<Vehicle> vehicles = new ArrayList<>();\n        try (Statement statement = connection.createStatement();\n             ResultSet rows = statement.executeQuery(\n                     \"SELECT id, vehicle_type, manufacturer, doors, payload FROM vehicles ORDER BY id\")) {\n            while (rows.next()) {\n                long id = rows.getLong(\"id\");\n                String manufacturer = rows.getString(\"manufacturer\");\n                String type = rows.getString(\"vehicle_type\");\n                vehicles.add(switch (type) {\n                    case \"CAR\" -> new Car(id, manufacturer, rows.getObject(\"doors\", Integer.class));\n                    case \"TRUCK\" -> new Truck(id, manufacturer, rows.getBigDecimal(\"payload\"));\n                    default -> throw new IllegalStateException(\"unknown vehicle_type \" + type + \" in row \" + id);\n                });\n            }\n        }\n        return vehicles;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\n\npublic final class Vehicles {\n\n    private Vehicles() {\n    }\n\n    public sealed interface Vehicle permits Car, Truck {\n        long id();\n\n        String manufacturer();\n    }\n\n    public record Car(long id, String manufacturer, Integer doors) implements Vehicle {\n    }\n\n    public record Truck(long id, String manufacturer, BigDecimal payload) implements Vehicle {\n    }\n\n    /** Inserts the vehicle into the single vehicles table. */\n    public static void save(Connection connection, Vehicle vehicle) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Every vehicle, in id order, as the class its vehicle_type names. */\n    public static List<Vehicle> findAll(Connection connection) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "a7290cd60970927adca56f77bf1dd940f2684693a8044df24d0144b91c679f86",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\n\npublic final class Vehicles {\n\n    private Vehicles() {\n    }\n\n    public sealed interface Vehicle permits Car, Truck {\n        long id();\n\n        String manufacturer();\n    }\n\n    public record Car(long id, String manufacturer, Integer doors) implements Vehicle {\n    }\n\n    public record Truck(long id, String manufacturer, BigDecimal payload) implements Vehicle {\n    }\n\n    /** Inserts the vehicle into the single vehicles table. */\n    public static void save(Connection connection, Vehicle vehicle) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Every vehicle, in id order, as the class its vehicle_type names. */\n    public static List<Vehicle> findAll(Connection connection) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-6/src/main/java/practice/Vehicles.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-6/src/test/java/practice/VehiclesTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-6/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-6/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.VehiclesTest#savesAndLoadsCarsAndTrucks",
+        "kind": "main",
+        "says": "A Car and a Truck saved with save() come back from findAll() as equal records, in id order."
+      },
+      {
+        "id": "practice.VehiclesTest#theOtherTypesColumnIsNull",
+        "kind": "edge",
+        "says": "A saved Car has payload NULL and a saved Truck has doors NULL: a column that is not the row's type holds NULL, never 0."
+      },
+      {
+        "id": "practice.VehiclesTest#theDiscriminatorDecidesTheType",
+        "kind": "edge",
+        "says": "A TRUCK row whose payload is NULL still loads as a Truck with a null payload, and a CAR row whose doors is NULL loads as a Car with null doors."
+      },
+      {
+        "id": "practice.VehiclesTest#anUnknownDiscriminatorIsRefused",
+        "kind": "edge",
+        "says": "A row whose vehicle_type is BUS makes findAll() throw IllegalStateException."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-6/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "SINGLE_TABLE maps a hierarchy to one table with a discriminator column and NULL subclass columns; JOINED and TABLE_PER_CLASS trade joins or unions for normalisation."
+    ]
+  }
+}

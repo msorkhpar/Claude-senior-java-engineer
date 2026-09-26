@@ -1,0 +1,172 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "42-annotations"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "Run @PostConstruct and @PreDestroy callbacks in order",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Spring's step 6 (Q1) calls `@PostConstruct` methods after creating a bean and `@PreDestroy` methods before discarding it. The page's version reads both annotations through reflection and runs the methods sorted by their `order()`."
+    },
+    {
+      "type": "para",
+      "text": "`@PostConstruct(order)` and `@PreDestroy(order)` are given. Write:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`initialize(Object target)`: call every no-argument method `target`'s class declares with `@PostConstruct`, lowest `order` first.",
+        "`destroy(Object target)`: the same for `@PreDestroy`."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Callbacks may be `private`, and **private callbacks run too**. When a callback throws, `Method.invoke` wraps the exception in `InvocationTargetException`; **rethrow the callback's own exception** instead."
+    },
+    {
+      "type": "table",
+      "headers": [
+        "class",
+        "call",
+        "log"
+      ],
+      "rows": [
+        [
+          "`@PostConstruct(order = 2) authenticate()`, `@PostConstruct(order = 3) bindPorts()`, `@PostConstruct(order = 1) connect()`",
+          "`initialize`",
+          "`[connect, authenticate, bindPorts]`"
+        ],
+        [
+          "seven callbacks with orders 0 to 6, declared in another order",
+          "`initialize`",
+          "lowest `order` first"
+        ],
+        [
+          "`@PreDestroy(order = 2) closeConnections()`, `@PreDestroy(order = 1) flushBuffers()`",
+          "`destroy`",
+          "`[flushBuffers, closeConnections]`"
+        ],
+        [
+          "`@PostConstruct private void prepare()`",
+          "`initialize`",
+          "`[prepare]`"
+        ],
+        [
+          "`@PostConstruct void load()` throws `IllegalStateException(\"no config\")`",
+          "`initialize`",
+          "`IllegalStateException: no config`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.function.ToIntFunction;\n\npublic final class Lifecycle {\n\n    private Lifecycle() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface PostConstruct {\n        int order() default 0;\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface PreDestroy {\n        int order() default 0;\n    }\n\n    /** Calls target's @PostConstruct methods, lowest order first. */\n    public static void initialize(Object target) throws Exception {\n        run(target, PostConstruct.class, PostConstruct::order);\n    }\n\n    /** Calls target's @PreDestroy methods, lowest order first. */\n    public static void destroy(Object target) throws Exception {\n        run(target, PreDestroy.class, PreDestroy::order);\n    }\n\n    private static <A extends Annotation> void run(Object target, Class<A> type, ToIntFunction<A> order)\n            throws Exception {\n        List<Method> methods = new ArrayList<>();\n        for (Method m : target.getClass().getDeclaredMethods()) {\n            if (m.isAnnotationPresent(type)) {\n                methods.add(m);\n            }\n        }\n        methods.sort(Comparator.comparingInt(m -> order.applyAsInt(m.getAnnotation(type))));\n        for (Method m : methods) {\n            m.setAccessible(true);\n            try {\n                m.invoke(target);\n            } catch (InvocationTargetException e) {\n                if (e.getCause() instanceof Exception cause) {\n                    throw cause;\n                }\n                throw (Error) e.getCause();\n            }\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.function.ToIntFunction;\n\npublic final class Lifecycle {\n\n    private Lifecycle() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface PostConstruct {\n        int order() default 0;\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface PreDestroy {\n        int order() default 0;\n    }\n\n    /** Calls target's @PostConstruct methods, lowest order first. */\n    public static void initialize(Object target) throws Exception {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Calls target's @PreDestroy methods, lowest order first. */\n    public static void destroy(Object target) throws Exception {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "17a2aa13634ba16901b65264e15befc537026d3d3dcab7bb797d7882b0948748",
+  "starting_code": "package practice;\n\nimport java.lang.annotation.Annotation;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Method;\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.function.ToIntFunction;\n\npublic final class Lifecycle {\n\n    private Lifecycle() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface PostConstruct {\n        int order() default 0;\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface PreDestroy {\n        int order() default 0;\n    }\n\n    /** Calls target's @PostConstruct methods, lowest order first. */\n    public static void initialize(Object target) throws Exception {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Calls target's @PreDestroy methods, lowest order first. */\n    public static void destroy(Object target) throws Exception {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-2/src/main/java/practice/Lifecycle.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-2/src/test/java/practice/LifecycleTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.LifecycleTest#runsTheCallbacksByTheirOrder",
+        "kind": "main",
+        "says": "initialize() runs seven @PostConstruct methods lowest order first, and the same seven names with reversed orders run in reverse, whatever order reflection lists them in; destroy() runs flushBuffers (1) then closeConnections (2)."
+      },
+      {
+        "id": "practice.LifecycleTest#privateCallbacksRunToo",
+        "kind": "edge",
+        "says": "A private @PostConstruct method is run as well."
+      },
+      {
+        "id": "practice.LifecycleTest#aCallbackFailureArrivesUnwrapped",
+        "kind": "edge",
+        "says": "A @PostConstruct method that throws IllegalStateException(\"no config\") makes initialize() throw that same exception, not a wrapper."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "42-annotations/README_10.4.4.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "A container calls @PostConstruct methods after creating a bean and @PreDestroy methods before discarding it.",
+      "Method.invoke wraps the target's exception in InvocationTargetException; the handler rethrows its cause, or a proxy's caller gets UndeclaredThrowableException."
+    ]
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "09-design-patterns",
+    "37-structural-patterns"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 5,
+  "ingested": "2026-09-24",
+  "title": "A @Transactional proxy in the style of Spring",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's Q4 shows what Spring's `@Transactional` does: it wraps the bean in a proxy that begins a transaction before the method, commits after it, and rolls back on an exception. Build that proxy with `java.lang.reflect.Proxy`."
+    },
+    {
+      "type": "para",
+      "text": "Given: the annotation `@Transactional` (kept at run time, placed on interface methods) and `TxManager` (`begin()`, `commit()`, `rollback()`). Write `Transactions.wrap(target, type, tx)`, returning a proxy of `type`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "a method marked `@Transactional`: `tx.begin()`, then the call on `target`, then `tx.commit()`; its result is returned;",
+        "**a failure rolls back and is never committed**: if the method throws, `tx.rollback()` runs and the caller gets the method's own exception;",
+        "**only methods marked `@Transactional` get a transaction**; the others are delegated as they are."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "call (on an `OrderService` proxy)",
+        "events",
+        "result"
+      ],
+      "rows": [
+        [
+          "`placeOrder(\"A-1\")` (marked)",
+          "`begin`, `place A-1`, `commit`",
+          "`\"placed A-1\"`"
+        ],
+        [
+          "`placeOrder(\"BAD\")` (marked, throws)",
+          "`begin`, `rollback`",
+          "`IllegalStateException(\"card declined\")`"
+        ],
+        [
+          "`describe(\"A-1\")` (not marked)",
+          "`describe A-1`",
+          "`\"order A-1\"`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.InvocationTargetException;\nimport java.lang.reflect.Proxy;\nimport java.util.Objects;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    /** Marks an interface method that must run inside a transaction. */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface Transactional {\n    }\n\n    public interface TxManager {\n        void begin();\n\n        void commit();\n\n        void rollback();\n    }\n\n    /** Returns a proxy of {@code type} that runs {@code @Transactional} methods of {@code target} in a transaction. */\n    public static <T> T wrap(T target, Class<T> type, TxManager tx) {\n        Objects.requireNonNull(target, \"target must not be null\");\n        Objects.requireNonNull(tx, \"transaction manager must not be null\");\n        InvocationHandler handler = (proxy, method, args) -> {\n            if (!method.isAnnotationPresent(Transactional.class)) {\n                return call(method, target, args);\n            }\n            tx.begin();\n            Object result;\n            try {\n                result = call(method, target, args);\n            } catch (Throwable failure) {\n                tx.rollback();\n                throw failure;\n            }\n            tx.commit();\n            return result;\n        };\n        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler));\n    }\n\n    private static Object call(java.lang.reflect.Method method, Object target, Object[] args) throws Throwable {\n        try {\n            return method.invoke(target, args);\n        } catch (InvocationTargetException e) {\n            throw e.getCause();\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    /** Marks an interface method that must run inside a transaction. */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface Transactional {\n    }\n\n    public interface TxManager {\n        void begin();\n\n        void commit();\n\n        void rollback();\n    }\n\n    /** Returns a proxy of {@code type} that runs {@code @Transactional} methods of {@code target} in a transaction. */\n    public static <T> T wrap(T target, Class<T> type, TxManager tx) {\n        throw new UnsupportedOperationException(\"write wrap\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "5c4f3dce2525d29e1693c87cca5cde344f546734af3d92b461c42a20e13a8e6b",
+  "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\n\npublic final class Transactions {\n\n    private Transactions() {\n    }\n\n    /** Marks an interface method that must run inside a transaction. */\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.METHOD)\n    public @interface Transactional {\n    }\n\n    public interface TxManager {\n        void begin();\n\n        void commit();\n\n        void rollback();\n    }\n\n    /** Returns a proxy of {@code type} that runs {@code @Transactional} methods of {@code target} in a transaction. */\n    public static <T> T wrap(T target, Class<T> type, TxManager tx) {\n        throw new UnsupportedOperationException(\"write wrap\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-5/src/main/java/practice/Transactions.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-5/src/test/java/practice/TransactionsTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-5/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-5/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.TransactionsTest#aMarkedMethodRunsInATransaction",
+        "kind": "main",
+        "says": "Calling a @Transactional method through the proxy gives begin, the method's work, then commit, and returns the method's result."
+      },
+      {
+        "id": "practice.TransactionsTest#aFailureRollsBackAndIsNotCommitted",
+        "kind": "edge",
+        "says": "When the method throws, an unchecked IllegalStateException or a checked IOException, the proxy rolls back, never commits, and the caller gets the method's own exception."
+      },
+      {
+        "id": "practice.TransactionsTest#anUnmarkedMethodRunsWithoutATransaction",
+        "kind": "edge",
+        "says": "A method without @Transactional is delegated with no begin, commit or rollback."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/09-design-patterns/37-structural-patterns/prose/unit-03/practice-5/target/surefire-reports"
+    },
+    "origin": {
+      "path": "37-structural-patterns/README_9.2.3.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Spring's @Transactional wraps a bean in a proxy that begins a transaction, commits after the method, and rolls back on an exception."
+    ]
+  }
+}

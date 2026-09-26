@@ -1,0 +1,178 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "Dirty checking: write only what changed",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page asks \"How does dirty checking work in Hibernate?\" and answers: snapshot comparison at flush time. When an entity is loaded, the session keeps a copy of its state; `flush()` compares each managed entity with its snapshot and writes an UPDATE only for those that changed. Nobody calls `update()`."
+    },
+    {
+      "type": "para",
+      "text": "`UnitOfWork` is given an open `Connection` to `products(id INT PRIMARY KEY, name VARCHAR, price DECIMAL(10,2))`."
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`load(id)` reads the row, returns a mutable `Product` and keeps a snapshot of its name and price. An unknown id throws `IllegalArgumentException`. (Each test loads an id at most once.)",
+        "`flush()` runs `UPDATE products SET name = ?, price = ? WHERE id = ?` **only for products whose state differs from the snapshot**, and returns how many it wrote. **Names are compared with `equals()`** and **prices with `compareTo()`**, so `1.5` equals `1.50`.",
+        "**`flush()` refreshes the snapshot**, so a second flush with no new change writes nothing."
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "loaded",
+        "change",
+        "`flush()`"
+      ],
+      "rows": [
+        [
+          "1 (Pen, 1.50)",
+          "`setPrice(2.25)`",
+          "`1`"
+        ],
+        [
+          "1 (Pen, 1.50), 2 (Ink, 4.00)",
+          "product 1 only: `setPrice(2.25)`",
+          "`1`"
+        ],
+        [
+          "1 (Pen, 1.50)",
+          "`setName(new String(\"Pen\"))`",
+          "`0`"
+        ],
+        [
+          "1 (Pen, 1.50)",
+          "`setPrice(1.5)`",
+          "`0`"
+        ],
+        [
+          "1 (Pen, 1.50)",
+          "`setPrice(2.25)`, `flush()`, then `flush()` again",
+          "`1`, then `0`"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\npublic final class UnitOfWork {\n\n    /** A managed entity: mutable, tracked by the unit of work that loaded it. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    private record Snapshot(String name, BigDecimal price) {\n        static Snapshot of(Product product) {\n            return new Snapshot(product.name(), product.price());\n        }\n\n        boolean matches(Product product) {\n            return Objects.equals(name, product.name()) && samePrice(price, product.price());\n        }\n\n        private static boolean samePrice(BigDecimal a, BigDecimal b) {\n            return a == null ? b == null : b != null && a.compareTo(b) == 0;\n        }\n    }\n\n    private final Connection connection;\n    private final Map<Product, Snapshot> snapshots = new LinkedHashMap<>();\n\n    public UnitOfWork(Connection connection) {\n        this.connection = Objects.requireNonNull(connection, \"connection\");\n    }\n\n    /** Loads the product and remembers a snapshot of its state. */\n    public Product load(int id) throws SQLException {\n        try (PreparedStatement statement = connection.prepareStatement(\n                \"SELECT id, name, price FROM products WHERE id = ?\")) {\n            statement.setInt(1, id);\n            try (ResultSet rows = statement.executeQuery()) {\n                if (!rows.next()) {\n                    throw new IllegalArgumentException(\"no product \" + id);\n                }\n                Product product = new Product(rows.getInt(\"id\"), rows.getString(\"name\"), rows.getBigDecimal(\"price\"));\n                snapshots.put(product, Snapshot.of(product));\n                return product;\n            }\n        }\n    }\n\n    /** Writes every product that changed since its snapshot; returns how many were written. */\n    public int flush() throws SQLException {\n        int written = 0;\n        try (PreparedStatement update = connection.prepareStatement(\n                \"UPDATE products SET name = ?, price = ? WHERE id = ?\")) {\n            for (Map.Entry<Product, Snapshot> entry : snapshots.entrySet()) {\n                Product product = entry.getKey();\n                if (entry.getValue().matches(product)) {\n                    continue;\n                }\n                update.setString(1, product.name());\n                update.setBigDecimal(2, product.price());\n                update.setInt(3, product.id());\n                update.executeUpdate();\n                entry.setValue(Snapshot.of(product));\n                written++;\n            }\n        }\n        return written;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class UnitOfWork {\n\n    /** A managed entity: mutable, tracked by the unit of work that loaded it. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    public UnitOfWork(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Loads the product and remembers a snapshot of its state. */\n    public Product load(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Writes every product that changed since its snapshot; returns how many were written. */\n    public int flush() throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
+    "tables": 1,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "df97a1cc246477ecc6f5dab41f82f3027a3218218e17baea927b7505b9108463",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\n\npublic final class UnitOfWork {\n\n    /** A managed entity: mutable, tracked by the unit of work that loaded it. */\n    public static final class Product {\n        private final int id;\n        private String name;\n        private BigDecimal price;\n\n        public Product(int id, String name, BigDecimal price) {\n            this.id = id;\n            this.name = name;\n            this.price = price;\n        }\n\n        public int id() { return id; }\n        public String name() { return name; }\n        public BigDecimal price() { return price; }\n        public void setName(String name) { this.name = name; }\n        public void setPrice(BigDecimal price) { this.price = price; }\n    }\n\n    public UnitOfWork(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Loads the product and remembers a snapshot of its state. */\n    public Product load(int id) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Writes every product that changed since its snapshot; returns how many were written. */\n    public int flush() throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-2/src/main/java/practice/UnitOfWork.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-2/src/test/java/practice/UnitOfWorkTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.UnitOfWorkTest#flushWritesAChangedProduct",
+        "kind": "main",
+        "says": "After load(1) and setPrice(2.25), flush() runs one UPDATE, returns 1 and the row holds the new price."
+      },
+      {
+        "id": "practice.UnitOfWorkTest#anUntouchedProductIsNotWritten",
+        "kind": "edge",
+        "says": "With products 1 and 2 loaded and only product 1 changed, flush() returns 1 and product 2 gets no UPDATE: a price another statement wrote to row 2 meanwhile stays."
+      },
+      {
+        "id": "practice.UnitOfWorkTest#anEqualNameIsNoChange",
+        "kind": "edge",
+        "says": "Setting the name to a new String equal to the loaded one is not a change: flush() returns 0."
+      },
+      {
+        "id": "practice.UnitOfWorkTest#anEqualPriceWithAnotherScaleIsNoChange",
+        "kind": "edge",
+        "says": "Setting the price 1.50 to 1.5 is not a change: prices compare by value, so flush() returns 0."
+      },
+      {
+        "id": "practice.UnitOfWorkTest#aSecondFlushWritesNothing",
+        "kind": "edge",
+        "says": "A second flush() with no new change returns 0, because the first flush refreshed the snapshot."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-02/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "45-java-persistence/README_10.7.2.md",
+      "section": "Interview-specific Insights"
+    },
+    "concepts": [
+      "Dirty checking compares each managed entity with a snapshot at flush time and writes an UPDATE only for the changed ones, without an explicit update call."
+    ]
+  }
+}
