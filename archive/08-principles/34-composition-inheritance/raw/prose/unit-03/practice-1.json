@@ -1,0 +1,152 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Layer eviction and a lock around a plain cache",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page builds a cache from layers, each knowing one thing:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Cache<String, Integer> safeBounded = new ThreadSafeCache<>(\n    new BoundedCache<>(new SimpleCache<>(), 100)\n);\n// Thread safety is clear: ThreadSafeCache provides it, others don't."
+    },
+    {
+      "type": "para",
+      "text": "`SimpleCache` stores and is **not** thread-safe; composing it with more parts does not change that. `Cache` and `SimpleCache` are given. Write the other two layers in `Caches`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`BoundedCache(delegate, maxSize)` adds least-recently-used eviction over any cache. It does not need to be thread-safe on its own: `ThreadSafeCache` provides that when it wraps it. With `maxSize` 2, putting `a`, `b`, `c` evicts `a`;",
+        "reading a key with `get` makes it the most recently used: put `a`, `b`, read `a`, put `c`, and `b` is evicted. Reading a key that is not there changes nothing;",
+        "a removed key is gone from the eviction order too: put `a`, `b`, remove `a`, then put `c`, `d`, `e`, and the cache holds exactly `d` and `e`;",
+        "writing a key that is already there evicts nothing and also makes it the most recently used: put `a`, `b`, put `a` again, put `c`, and `b` is evicted;",
+        "`ThreadSafeCache(delegate)` is **the one synchronizing layer**: every call it forwards holds one lock, so while one call is inside the wrapped cache, any other call (`get`, `put`, `remove`, `size` or `containsKey`) waits."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\n/** A cache built by composition: storage, eviction and thread safety are separate layers. */\npublic final class Caches {\n\n    private Caches() {\n    }\n\n    public interface Cache<K, V> {\n        V get(K key);\n\n        void put(K key, V value);\n\n        V remove(K key);\n\n        int size();\n\n        boolean containsKey(K key);\n    }\n\n    /** Storage only: no synchronization, no eviction. */\n    public static final class SimpleCache<K, V> implements Cache<K, V> {\n        private final Map<K, V> store = new HashMap<>();\n\n        @Override public V get(K key) { return store.get(key); }\n        @Override public void put(K key, V value) { store.put(key, value); }\n        @Override public V remove(K key) { return store.remove(key); }\n        @Override public int size() { return store.size(); }\n        @Override public boolean containsKey(K key) { return store.containsKey(key); }\n    }\n\n    /** The one synchronizing layer: every call on the delegate holds one lock. */\n    public static final class ThreadSafeCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final Object lock = new Object();\n\n        public ThreadSafeCache(Cache<K, V> delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override public V get(K key) { synchronized (lock) { return delegate.get(key); } }\n        @Override public void put(K key, V value) { synchronized (lock) { delegate.put(key, value); } }\n        @Override public V remove(K key) { synchronized (lock) { return delegate.remove(key); } }\n        @Override public int size() { synchronized (lock) { return delegate.size(); } }\n        @Override public boolean containsKey(K key) { synchronized (lock) { return delegate.containsKey(key); } }\n    }\n\n    /** Least-recently-used eviction over any cache; no synchronization of its own. */\n    public static final class BoundedCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final int maxSize;\n        private final Deque<K> accessOrder = new ArrayDeque<>();\n\n        public BoundedCache(Cache<K, V> delegate, int maxSize) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.maxSize = maxSize;\n        }\n\n        @Override\n        public V get(K key) {\n            V value = delegate.get(key);\n            if (value != null) {\n                accessOrder.remove(key);\n                accessOrder.addLast(key);\n            }\n            return value;\n        }\n\n        @Override\n        public void put(K key, V value) {\n            if (delegate.containsKey(key)) {\n                accessOrder.remove(key);\n            } else if (delegate.size() >= maxSize) {\n                K oldest = accessOrder.pollFirst();\n                if (oldest != null) {\n                    delegate.remove(oldest);\n                }\n            }\n            delegate.put(key, value);\n            accessOrder.addLast(key);\n        }\n\n        @Override\n        public V remove(K key) {\n            accessOrder.remove(key);\n            return delegate.remove(key);\n        }\n\n        @Override public int size() { return delegate.size(); }\n        @Override public boolean containsKey(K key) { return delegate.containsKey(key); }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\n/** A cache built by composition: storage, eviction and thread safety are separate layers. */\npublic final class Caches {\n\n    private Caches() {\n    }\n\n    public interface Cache<K, V> {\n        V get(K key);\n\n        void put(K key, V value);\n\n        V remove(K key);\n\n        int size();\n\n        boolean containsKey(K key);\n    }\n\n    /** Storage only: no synchronization, no eviction. */\n    public static final class SimpleCache<K, V> implements Cache<K, V> {\n        private final Map<K, V> store = new HashMap<>();\n\n        @Override public V get(K key) { return store.get(key); }\n        @Override public void put(K key, V value) { store.put(key, value); }\n        @Override public V remove(K key) { return store.remove(key); }\n        @Override public int size() { return store.size(); }\n        @Override public boolean containsKey(K key) { return store.containsKey(key); }\n    }\n\n    /** The one synchronizing layer: every call on the delegate holds one lock. */\n    public static final class ThreadSafeCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final Object lock = new Object();\n\n        public ThreadSafeCache(Cache<K, V> delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n\n    /** Least-recently-used eviction over any cache; no synchronization of its own. */\n    public static final class BoundedCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final int maxSize;\n        private final Deque<K> accessOrder = new ArrayDeque<>();\n\n        public BoundedCache(Cache<K, V> delegate, int maxSize) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.maxSize = maxSize;\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 2,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "0b9de64dd9e7e4c711120d894d40d9f16935253344d61f6e666cdb39557a7128",
+  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\n/** A cache built by composition: storage, eviction and thread safety are separate layers. */\npublic final class Caches {\n\n    private Caches() {\n    }\n\n    public interface Cache<K, V> {\n        V get(K key);\n\n        void put(K key, V value);\n\n        V remove(K key);\n\n        int size();\n\n        boolean containsKey(K key);\n    }\n\n    /** Storage only: no synchronization, no eviction. */\n    public static final class SimpleCache<K, V> implements Cache<K, V> {\n        private final Map<K, V> store = new HashMap<>();\n\n        @Override public V get(K key) { return store.get(key); }\n        @Override public void put(K key, V value) { store.put(key, value); }\n        @Override public V remove(K key) { return store.remove(key); }\n        @Override public int size() { return store.size(); }\n        @Override public boolean containsKey(K key) { return store.containsKey(key); }\n    }\n\n    /** The one synchronizing layer: every call on the delegate holds one lock. */\n    public static final class ThreadSafeCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final Object lock = new Object();\n\n        public ThreadSafeCache(Cache<K, V> delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n\n    /** Least-recently-used eviction over any cache; no synchronization of its own. */\n    public static final class BoundedCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final int maxSize;\n        private final Deque<K> accessOrder = new ArrayDeque<>();\n\n        public BoundedCache(Cache<K, V> delegate, int maxSize) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.maxSize = maxSize;\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/src/main/java/practice/Caches.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/src/test/java/practice/CachesTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.CachesTest#aBoundedCacheEvictsTheOldestKey",
+        "kind": "main",
+        "says": "A bounded cache of 2 evicts a when c is added, and the thread-safe wrapper forwards every call."
+      },
+      {
+        "id": "practice.CachesTest#readingAKeyKeepsItFresh",
+        "kind": "edge",
+        "says": "After get(a), adding c to the full cache evicts b, not a."
+      },
+      {
+        "id": "practice.CachesTest#writingAKeyAgainKeepsItFresh",
+        "kind": "edge",
+        "says": "Writing a again evicts nothing, and then adding c evicts b, not a."
+      },
+      {
+        "id": "practice.CachesTest#aRemovedKeyLeavesTheEvictionOrder",
+        "kind": "edge",
+        "says": "With room for 2: put a and b, remove a, put c, d and e, and the cache holds exactly d and e."
+      },
+      {
+        "id": "practice.CachesTest#theThreadSafeWrapperLetsOneCallInAtATime",
+        "kind": "edge",
+        "says": "While a put is inside the wrapped cache, a get, remove, size or containsKey through ThreadSafeCache waits and never runs alongside it."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "34-composition-inheritance/README_8.4.3.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Eviction is another decorator, BoundedCache, layered over any cache without synchronization of its own.",
+      "Composing parts that are not thread-safe does not make the whole thread-safe; an explicit synchronizing wrapper does.",
+      "Synchronization lives in one wrapper, ThreadSafeCache, around a cache that has none, so where the lock is can be read off one class."
+    ]
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "32-kiss-principle"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 3,
+  "ingested": "2026-09-24",
+  "title": "Refactor an over-engineered retry into one loop",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's fourth interview question refactors this toward KISS:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "// Before: Over-engineered retry logic\ninterface RetryStrategy { int getMaxAttempts(); long getDelay(); }\nclass ExponentialBackoff implements RetryStrategy { ... }\nclass LinearBackoff implements RetryStrategy { ... }\nclass RetryExecutor<T> {\n    private final RetryStrategy strategy;\n    private final List<RetryListener> listeners;\n    // ... 100+ lines of code\n}"
+    },
+    {
+      "type": "para",
+      "text": "Keep only the essential behaviour. Write `executeWithRetry(Supplier<T> action, int maxAttempts)` in `Retry`, as one loop:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "it calls `action.get()` and returns the first result that does not throw, even when that result is `null`;",
+        "an attempt that throws a `RuntimeException` is retried, **up to `maxAttempts` attempts in all**: with `maxAttempts` 3, an action that fails twice and then succeeds returns its result after exactly 3 calls;",
+        "when every attempt fails, it throws **the last attempt's** exception: that very exception object, not a new one wrapping it;",
+        "only `RuntimeException`s are retried. **An `Error`, such as an `AssertionError`, is not retried**: it propagates from the first attempt that throws it;",
+        "a `maxAttempts` of 0 or less throws `IllegalArgumentException` without calling the action."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "No backoff, no listeners: add them when a real requirement asks for them."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.function.Supplier;\n\npublic final class Retry {\n\n    private Retry() {\n    }\n\n    /** Calls the action until it succeeds, at most maxAttempts times. */\n    public static <T> T executeWithRetry(Supplier<T> action, int maxAttempts) {\n        if (maxAttempts <= 0) {\n            throw new IllegalArgumentException(\"maxAttempts must be positive\");\n        }\n        RuntimeException lastException = null;\n        for (int attempt = 1; attempt <= maxAttempts; attempt++) {\n            try {\n                return action.get();\n            } catch (RuntimeException e) {\n                lastException = e;\n            }\n        }\n        throw lastException;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.function.Supplier;\n\npublic final class Retry {\n\n    private Retry() {\n    }\n\n    /** Calls the action until it succeeds, at most maxAttempts times. */\n    public static <T> T executeWithRetry(Supplier<T> action, int maxAttempts) {\n        throw new UnsupportedOperationException(\"write executeWithRetry\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "9fa852e60b6be56decded6f29c5e75d0ea8282c547335578bc1945a6eead147f",
+  "starting_code": "package practice;\n\nimport java.util.function.Supplier;\n\npublic final class Retry {\n\n    private Retry() {\n    }\n\n    /** Calls the action until it succeeds, at most maxAttempts times. */\n    public static <T> T executeWithRetry(Supplier<T> action, int maxAttempts) {\n        throw new UnsupportedOperationException(\"write executeWithRetry\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-3/src/main/java/practice/Retry.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-3/src/test/java/practice/RetryTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/32-kiss-principle/prose/unit-01/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/32-kiss-principle/prose/unit-01/practice-3/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.RetryTest#returnsTheFirstSuccess",
+        "kind": "main",
+        "says": "An action that succeeds on its first or second call returns that result, even null."
+      },
+      {
+        "id": "practice.RetryTest#succeedsOnTheLastAllowedAttempt",
+        "kind": "edge",
+        "says": "With maxAttempts 3, an action that succeeds on call 3 still returns its result."
+      },
+      {
+        "id": "practice.RetryTest#rethrowsTheLastFailure",
+        "kind": "edge",
+        "says": "When all 3 attempts fail, the exception thrown is the third one's, \"fail 3\"."
+      },
+      {
+        "id": "practice.RetryTest#anErrorIsNotRetried",
+        "kind": "edge",
+        "says": "An AssertionError from the first call propagates at once; the action is not called again."
+      },
+      {
+        "id": "practice.RetryTest#aNonPositiveLimitIsRefused",
+        "kind": "edge",
+        "says": "maxAttempts 0 or -1 throws IllegalArgumentException and never calls the action."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/32-kiss-principle/prose/unit-01/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "32-kiss-principle/README_8.2.1.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Over-engineered code is refactored by keeping only its essential behaviour, such as a retry loop in place of strategy and listener classes."
+    ]
+  }
+}

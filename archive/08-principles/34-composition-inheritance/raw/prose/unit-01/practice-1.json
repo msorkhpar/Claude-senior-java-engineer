@@ -1,0 +1,157 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Count adds with a forwarding wrapper, not a subclass",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "The page's classic bug: a subclass of `HashSet` counts the elements added to it, and gets the count wrong."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class InstrumentedHashSet<E> extends HashSet<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // BUG: HashSet.addAll calls add() internally!\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`HashSet.addAll` calls `add` for each element, so every element is counted twice. That is the **fragile base class problem**: the subclass depends on how its superclass is implemented, not only on its contract."
+    },
+    {
+      "type": "para",
+      "text": "The fix is **composition**: a `ForwardingSet` holds any `Set` and forwards each call to it, and `InstrumentedSet` extends the forwarding class, not `HashSet`. The starter gives you `ForwardingSet` with the `Set` methods already forwarded. Finish it:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`InstrumentedSet.add` and `addAll` count every element offered (duplicates included), and `getAddCount()` returns the count. `add(\"a\")`, `add(\"b\")`, `add(\"a\")` gives a count of 3 and a set of 2, and `addAll` of three elements adds exactly 3. A duplicate offered to `addAll` counts too: `add(\"a\")` then `addAll(List.of(\"a\", \"b\"))` gives a count of 3;",
+        "the wrapper is a **view** of the set it wraps: what is added through it lands in that set, and what is added to that set is seen through it;",
+        "`ForwardingSet` also forwards `equals`, `hashCode` and `toString`, so the wrapper equals any set with the same elements, and such a set equals the wrapper;",
+        "the constructor refuses a `null` set with a `NullPointerException` (`Objects.requireNonNull`)."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.Iterator;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Forwards every Set method to the set it wraps. */\nclass ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    ForwardingSet(Set<E> delegate) {\n        this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n    }\n\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean isEmpty() { return delegate.isEmpty(); }\n    @Override public boolean contains(Object o) { return delegate.contains(o); }\n    @Override public Iterator<E> iterator() { return delegate.iterator(); }\n    @Override public Object[] toArray() { return delegate.toArray(); }\n    @Override public <T> T[] toArray(T[] a) { return delegate.toArray(a); }\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean remove(Object o) { return delegate.remove(o); }\n    @Override public boolean containsAll(Collection<?> c) { return delegate.containsAll(c); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }\n    @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }\n    @Override public void clear() { delegate.clear(); }\n\n    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }\n    @Override public int hashCode() { return delegate.hashCode(); }\n    @Override public String toString() { return delegate.toString(); }\n}\n\n/** A set that counts every element anyone tried to add, by wrapping another set. */\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) {\n        super(delegate);\n    }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c);\n    }\n\n    /** How many elements were offered through add and addAll, duplicates included. */\n    public int getAddCount() {\n        return addCount;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.Iterator;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Forwards every Set method to the set it wraps. */\nclass ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    ForwardingSet(Set<E> delegate) {\n        this.delegate = delegate; // TODO: refuse a null set\n    }\n\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean isEmpty() { return delegate.isEmpty(); }\n    @Override public boolean contains(Object o) { return delegate.contains(o); }\n    @Override public Iterator<E> iterator() { return delegate.iterator(); }\n    @Override public Object[] toArray() { return delegate.toArray(); }\n    @Override public <T> T[] toArray(T[] a) { return delegate.toArray(a); }\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean remove(Object o) { return delegate.remove(o); }\n    @Override public boolean containsAll(Collection<?> c) { return delegate.containsAll(c); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }\n    @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }\n    @Override public void clear() { delegate.clear(); }\n\n    // TODO: equals, hashCode and toString\n}\n\n/** A set that counts every element anyone tried to add, by wrapping another set. */\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n\n    public InstrumentedSet(Set<E> delegate) {\n        super(delegate);\n    }\n\n    @Override\n    public boolean add(E e) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        throw new UnsupportedOperationException(\"write addAll\");\n    }\n\n    /** How many elements were offered through add and addAll, duplicates included. */\n    public int getAddCount() {\n        throw new UnsupportedOperationException(\"write getAddCount\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "d26453dd4649820cfc11ceec9325a8e19d7dc2f849c0e7b21850e6fb92fc1df8",
+  "starting_code": "package practice;\n\nimport java.util.Collection;\nimport java.util.Iterator;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Forwards every Set method to the set it wraps. */\nclass ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    ForwardingSet(Set<E> delegate) {\n        this.delegate = delegate; // TODO: refuse a null set\n    }\n\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean isEmpty() { return delegate.isEmpty(); }\n    @Override public boolean contains(Object o) { return delegate.contains(o); }\n    @Override public Iterator<E> iterator() { return delegate.iterator(); }\n    @Override public Object[] toArray() { return delegate.toArray(); }\n    @Override public <T> T[] toArray(T[] a) { return delegate.toArray(a); }\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean remove(Object o) { return delegate.remove(o); }\n    @Override public boolean containsAll(Collection<?> c) { return delegate.containsAll(c); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }\n    @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }\n    @Override public void clear() { delegate.clear(); }\n\n    // TODO: equals, hashCode and toString\n}\n\n/** A set that counts every element anyone tried to add, by wrapping another set. */\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n\n    public InstrumentedSet(Set<E> delegate) {\n        super(delegate);\n    }\n\n    @Override\n    public boolean add(E e) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        throw new UnsupportedOperationException(\"write addAll\");\n    }\n\n    /** How many elements were offered through add and addAll, duplicates included. */\n    public int getAddCount() {\n        throw new UnsupportedOperationException(\"write getAddCount\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/src/main/java/practice/InstrumentedSet.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/src/test/java/practice/InstrumentedSetTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.InstrumentedSetTest#countsEveryAttemptedAdd",
+        "kind": "main",
+        "says": "add(\"a\"), add(\"b\"), add(\"a\") counts 3 and leaves a set of 2."
+      },
+      {
+        "id": "practice.InstrumentedSetTest#addAllCountsEachElementOnce",
+        "kind": "edge",
+        "says": "addAll of three elements counts 3, not 6: the page's InstrumentedHashSet, which extends HashSet, counts 6."
+      },
+      {
+        "id": "practice.InstrumentedSetTest#theWrapperIsAViewOfTheSetItWraps",
+        "kind": "edge",
+        "says": "Adds through the wrapper reach the wrapped set, and adds to that set show through the wrapper."
+      },
+      {
+        "id": "practice.InstrumentedSetTest#equalsHashCodeAndToStringFollowTheWrappedSet",
+        "kind": "edge",
+        "says": "The wrapper equals a separate set with the same elements, both ways, with the same hash code and text."
+      },
+      {
+        "id": "practice.InstrumentedSetTest#aNullSetIsRefusedAtOnce",
+        "kind": "edge",
+        "says": "new InstrumentedSet<>(null) throws NullPointerException at once."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "34-composition-inheritance/README_8.4.1.md",
+      "section": "Common Pitfalls and How to Avoid Them"
+    },
+    "concepts": [
+      "The forwarding wrapper pattern wraps any implementation of an interface and adds behaviour by delegating to it, so the wrapped object's internals cannot double-count.",
+      "A subclass that overrides methods its superclass calls internally depends on the superclass's implementation, so an InstrumentedHashSet's addAll counts every element twice.",
+      "Composition gives a class a has-a relationship: it holds another object in a field and delegates work to it, where inheritance gives an is-a relationship.",
+      "A composed object is checked with Objects.requireNonNull in the constructor, so a null delegate is refused at once.",
+      "A forwarding class must also delegate equals, hashCode and toString, or it keeps Object's identity-based versions and breaks the Set contract."
+    ]
+  }
+}

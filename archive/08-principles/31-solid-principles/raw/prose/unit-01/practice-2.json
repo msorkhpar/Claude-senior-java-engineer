@@ -1,0 +1,152 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "31-solid-principles"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "kind": "practice",
+  "ordinal": 2,
+  "ingested": "2026-09-24",
+  "title": "Produce, execute and aggregate in three classes",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "When one class produces tasks, runs them **and** aggregates their results, each concern's synchronization is mixed with the others. The page's pitfall is a class that owns its own thread pool next to its business logic:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "class DataProcessor {\n    private final ExecutorService pool = Executors.newFixedThreadPool(4);\n    double computeAverage(List<Integer> data) { /* ... */ }\n    void shutdown() { pool.shutdown(); }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Its fix is to **inject the `ExecutorService`**. Write the three classes nested in `Squares`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`TaskProducer.createTasks(count)` returns `count` tasks; task `i` (from 0) computes `i * i` as a `long`. A count of 0 gives an empty list; a negative count throws `IllegalArgumentException`.",
+        "`TaskExecutor(ExecutorService)` runs tasks on the executor it is given, never on one of its own. `submitAll(tasks)` submits every task and returns their futures in order, and `shutdown()` shuts that executor down in the orderly way, letting tasks already submitted finish. However many tasks there are, every one goes to that executor.",
+        "`ResultAggregator.sumResults(futures)` adds up the results."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "For example, the 5 tasks `0, 1, 4, 9, 16` sum to `30`, and 100 000 tasks sum to `333328333350000`, which needs a `long`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\npublic final class Squares {\n\n    private Squares() {\n    }\n\n    /** Single responsibility: producing tasks. Stateless, so thread-safe by default. */\n    public static final class TaskProducer {\n        public List<Callable<Long>> createTasks(int count) {\n            if (count < 0) {\n                throw new IllegalArgumentException(\"Count must be non-negative\");\n            }\n            List<Callable<Long>> tasks = new ArrayList<>();\n            for (int i = 0; i < count; i++) {\n                final long taskId = i;\n                tasks.add(() -> taskId * taskId);\n            }\n            return tasks;\n        }\n    }\n\n    /** Single responsibility: running tasks on the pool it is given. */\n    public static final class TaskExecutor {\n        private final ExecutorService executorService;\n\n        public TaskExecutor(ExecutorService executorService) {\n            this.executorService = Objects.requireNonNull(executorService);\n        }\n\n        public List<Future<Long>> submitAll(List<Callable<Long>> tasks) {\n            List<Future<Long>> futures = new ArrayList<>();\n            for (Callable<Long> task : tasks) {\n                futures.add(executorService.submit(task));\n            }\n            return futures;\n        }\n\n        public void shutdown() {\n            executorService.shutdown();\n        }\n    }\n\n    /** Single responsibility: aggregating results. */\n    public static final class ResultAggregator {\n        public long sumResults(List<Future<Long>> futures) throws ExecutionException, InterruptedException {\n            long sum = 0;\n            for (Future<Long> future : futures) {\n                sum += future.get();\n            }\n            return sum;\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\npublic final class Squares {\n\n    private Squares() {\n    }\n\n    /** Single responsibility: producing tasks. */\n    public static final class TaskProducer {\n        public List<Callable<Long>> createTasks(int count) {\n            throw new UnsupportedOperationException(\"write createTasks\");\n        }\n    }\n\n    /** Single responsibility: running tasks on the pool it is given. */\n    public static final class TaskExecutor {\n\n        public TaskExecutor(ExecutorService executorService) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public List<Future<Long>> submitAll(List<Callable<Long>> tasks) {\n            throw new UnsupportedOperationException(\"write submitAll\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n\n    /** Single responsibility: aggregating results. */\n    public static final class ResultAggregator {\n        public long sumResults(List<Future<Long>> futures) throws ExecutionException, InterruptedException {\n            throw new UnsupportedOperationException(\"write sumResults\");\n        }\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "e8bcd935c5f59e6349482bb8ebb5b44445f272dedcbdedc876c98d0340f8382b",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\npublic final class Squares {\n\n    private Squares() {\n    }\n\n    /** Single responsibility: producing tasks. */\n    public static final class TaskProducer {\n        public List<Callable<Long>> createTasks(int count) {\n            throw new UnsupportedOperationException(\"write createTasks\");\n        }\n    }\n\n    /** Single responsibility: running tasks on the pool it is given. */\n    public static final class TaskExecutor {\n\n        public TaskExecutor(ExecutorService executorService) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public List<Future<Long>> submitAll(List<Callable<Long>> tasks) {\n            throw new UnsupportedOperationException(\"write submitAll\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n\n    /** Single responsibility: aggregating results. */\n    public static final class ResultAggregator {\n        public long sumResults(List<Future<Long>> futures) throws ExecutionException, InterruptedException {\n            throw new UnsupportedOperationException(\"write sumResults\");\n        }\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/src/main/java/practice/Squares.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/src/test/java/practice/SquaresTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.SquaresTest#sumsTheSquaresOnAThreadPool",
+        "kind": "main",
+        "says": "5 tasks sum to 30 and 100 000 tasks to 333328333350000, run on a two-thread pool."
+      },
+      {
+        "id": "practice.SquaresTest#tasksRunOnTheInjectedExecutor",
+        "kind": "edge",
+        "says": "Every task is submitted to the executor passed to the constructor."
+      },
+      {
+        "id": "practice.SquaresTest#shutdownStopsTheInjectedExecutor",
+        "kind": "edge",
+        "says": "shutdown() shuts down the executor passed to the constructor."
+      },
+      {
+        "id": "practice.SquaresTest#aNegativeCountIsRejectedAndZeroIsEmpty",
+        "kind": "edge",
+        "says": "createTasks(0) is empty and createTasks(-1) throws IllegalArgumentException."
+      },
+      {
+        "id": "practice.SquaresTest#shutdownLetsQueuedTasksFinish",
+        "kind": "edge",
+        "says": "shutdown() is an orderly shutdown: a task already queued behind a running one still runs."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/target/surefire-reports"
+    },
+    "origin": {
+      "path": "31-solid-principles/README_8.1.1.md",
+      "section": "8.1.1.2. Applying SRP in Concurrent Programming"
+    },
+    "concepts": [
+      "In concurrent code, producing tasks, executing them on an injected thread pool and aggregating their results are three separate classes."
+    ]
+  }
+}

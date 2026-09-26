@@ -1,0 +1,157 @@
+{
+  "raw_api": 1,
+  "source": "claude-senior-java-engineer-interview-preparation",
+  "address": [
+    "08-principles",
+    "34-composition-inheritance"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "kind": "practice",
+  "ordinal": 1,
+  "ingested": "2026-09-24",
+  "title": "Compose a retry policy into an executor",
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Problem statement"
+    },
+    {
+      "type": "para",
+      "text": "Instead of a hierarchy of executor subclasses, one for each retry policy, the page composes a **strategy**: the executor holds a `RetryStrategy` and asks it, after each failed attempt, whether to try again and how long to wait."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n    long delayMillis(int attempt);\n}"
+    },
+    {
+      "type": "para",
+      "text": "The waiting is composed too: the executor is given a `LongConsumer sleeper` and calls it with each delay, so a test can record the waits instead of sleeping (production code passes a sleeper that calls `Thread.sleep`)."
+    },
+    {
+      "type": "para",
+      "text": "Write `ResilientExecutor` and `ExponentialBackoff`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`new ResilientExecutor(strategy, sleeper)`, then `execute(task)` calls `task.get()`. If it throws, the executor asks `strategy.shouldRetry(attempt, e)`, where `attempt` is the attempt that just failed (counting from 1) and `e` is the exception it threw; on yes it passes `strategy.delayMillis(attempt)` for that same attempt to the sleeper (only when it is above 0; a delay of 0 is not slept) and tries again. A task that fails twice under a strategy allowing 3 retries with a 7 ms delay returns its result after 3 attempts and 2 sleeps of 7;",
+        "the executor uses **the injected strategy** and nothing else to decide: a strategy that never retries stops after 1 attempt, one that allows 5 retries survives 5 failures;",
+        "when the strategy says stop, `execute` rethrows **the last exception** the task threw, itself, not a wrapper;",
+        "`attempts()` counts every call to a task this executor made, added up over all its `execute` calls;",
+        "`ExponentialBackoff(maxRetries, initialDelayMs, maxDelayMs)` retries while `attempt <= maxRetries` and waits `initialDelayMs * 2^(attempt - 1)`, capped at `maxDelayMs`: with `(5, 100, 1000)` the delays are 100, 200, 400, 800, and 1000 for every attempt after that;",
+        "the page's warning: compute the doubling as a shift that is **checked first**, or a large attempt overflows. `delayMillis(64)` and `delayMillis(Integer.MAX_VALUE)` are still 1000."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.LongConsumer;\nimport java.util.function.Supplier;\n\n/** A retry policy: whether to try again after a failed attempt, and how long to wait first. */\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n\n    long delayMillis(int attempt);\n}\n\n/** Retries up to maxRetries times, waiting initialDelayMs * 2^(attempt - 1), capped at maxDelayMs. */\nclass ExponentialBackoff implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n\n    ExponentialBackoff(int maxRetries, long initialDelayMs, long maxDelayMs) {\n        this.maxRetries = maxRetries;\n        this.initialDelayMs = initialDelayMs;\n        this.maxDelayMs = maxDelayMs;\n    }\n\n    @Override\n    public boolean shouldRetry(int attempt, Exception lastException) {\n        return attempt <= maxRetries;\n    }\n\n    @Override\n    public long delayMillis(int attempt) {\n        if (attempt <= 1 || initialDelayMs == 0) {\n            return Math.min(initialDelayMs, maxDelayMs);\n        }\n        int shift = attempt - 1;\n        if (shift >= Long.SIZE - 1 || initialDelayMs > (maxDelayMs >> shift)) {\n            return maxDelayMs;\n        }\n        return Math.min(initialDelayMs << shift, maxDelayMs);\n    }\n}\n\n/** Runs a task, retrying it as the composed strategy decides. */\npublic class ResilientExecutor {\n    private final RetryStrategy strategy;\n    private final LongConsumer sleeper;\n    private int attempts;\n\n    public ResilientExecutor(RetryStrategy strategy, LongConsumer sleeper) {\n        this.strategy = Objects.requireNonNull(strategy, \"strategy\");\n        this.sleeper = Objects.requireNonNull(sleeper, \"sleeper\");\n    }\n\n    public <T> T execute(Supplier<T> task) throws Exception {\n        int attempt = 0;\n        while (true) {\n            attempt++;\n            attempts++;\n            try {\n                return task.get();\n            } catch (Exception e) {\n                if (!strategy.shouldRetry(attempt, e)) {\n                    throw e;\n                }\n                long delay = strategy.delayMillis(attempt);\n                if (delay > 0) {\n                    sleeper.accept(delay);\n                }\n            }\n        }\n    }\n\n    /** How many times this executor has called a task, over every execute call. */\n    public int attempts() {\n        return attempts;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.LongConsumer;\nimport java.util.function.Supplier;\n\n/** A retry policy: whether to try again after a failed attempt, and how long to wait first. */\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n\n    long delayMillis(int attempt);\n}\n\n/** Retries up to maxRetries times, waiting initialDelayMs * 2^(attempt - 1), capped at maxDelayMs. */\nclass ExponentialBackoff implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n\n    ExponentialBackoff(int maxRetries, long initialDelayMs, long maxDelayMs) {\n        this.maxRetries = maxRetries;\n        this.initialDelayMs = initialDelayMs;\n        this.maxDelayMs = maxDelayMs;\n    }\n\n    @Override\n    public boolean shouldRetry(int attempt, Exception lastException) {\n        throw new UnsupportedOperationException(\"write shouldRetry\");\n    }\n\n    @Override\n    public long delayMillis(int attempt) {\n        throw new UnsupportedOperationException(\"write delayMillis\");\n    }\n}\n\n/** Runs a task, retrying it as the composed strategy decides. */\npublic class ResilientExecutor {\n\n    public ResilientExecutor(RetryStrategy strategy, LongConsumer sleeper) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public <T> T execute(Supplier<T> task) throws Exception {\n        throw new UnsupportedOperationException(\"write execute\");\n    }\n\n    /** How many times this executor has called a task, over every execute call. */\n    public int attempts() {\n        throw new UnsupportedOperationException(\"write attempts\");\n    }\n}\n"
+    }
+  ],
+  "video": null,
+  "assets": [],
+  "attachments": [],
+  "counts": {
+    "headings": 3,
+    "paras": 3,
+    "code": 2,
+    "tables": 0,
+    "lists": 1,
+    "images": 0,
+    "videos": 0,
+    "rules": 0,
+    "quotes": 0,
+    "html": 0,
+    "disclosures": 1
+  },
+  "content_sha256": "61a540b75946eacdb61651091ea35ee2ecd9cf0c5f81ea836dabccd44fb9aac0",
+  "starting_code": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.LongConsumer;\nimport java.util.function.Supplier;\n\n/** A retry policy: whether to try again after a failed attempt, and how long to wait first. */\ninterface RetryStrategy {\n    boolean shouldRetry(int attempt, Exception lastException);\n\n    long delayMillis(int attempt);\n}\n\n/** Retries up to maxRetries times, waiting initialDelayMs * 2^(attempt - 1), capped at maxDelayMs. */\nclass ExponentialBackoff implements RetryStrategy {\n    private final int maxRetries;\n    private final long initialDelayMs;\n    private final long maxDelayMs;\n\n    ExponentialBackoff(int maxRetries, long initialDelayMs, long maxDelayMs) {\n        this.maxRetries = maxRetries;\n        this.initialDelayMs = initialDelayMs;\n        this.maxDelayMs = maxDelayMs;\n    }\n\n    @Override\n    public boolean shouldRetry(int attempt, Exception lastException) {\n        throw new UnsupportedOperationException(\"write shouldRetry\");\n    }\n\n    @Override\n    public long delayMillis(int attempt) {\n        throw new UnsupportedOperationException(\"write delayMillis\");\n    }\n}\n\n/** Runs a task, retrying it as the composed strategy decides. */\npublic class ResilientExecutor {\n\n    public ResilientExecutor(RetryStrategy strategy, LongConsumer sleeper) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public <T> T execute(Supplier<T> task) throws Exception {\n        throw new UnsupportedOperationException(\"write execute\");\n    }\n\n    /** How many times this executor has called a task, over every execute call. */\n    public int attempts() {\n        throw new UnsupportedOperationException(\"write attempts\");\n    }\n}\n",
+  "exercise": {
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/src/main/java/practice/ResilientExecutor.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/src/test/java/practice/ResilientExecutorTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/pom.xml",
+      "test"
+    ],
+    "provenance": "generated",
+    "trust": "advisory",
+    "cases": [
+      {
+        "id": "practice.ResilientExecutorTest#retriesUntilTheTaskSucceeds",
+        "kind": "main",
+        "says": "A task failing twice under 3 allowed retries returns \"ok\" after 3 attempts and two 7 ms sleeps."
+      },
+      {
+        "id": "practice.ResilientExecutorTest#givesUpWithTheLastException",
+        "kind": "edge",
+        "says": "When the strategy says stop, the exception thrown is the task's last exception itself."
+      },
+      {
+        "id": "practice.ResilientExecutorTest#theInjectedStrategyDecidesHowOftenToRetry",
+        "kind": "edge",
+        "says": "A never-retry strategy stops after 1 attempt, and a 5-retry strategy survives 5 failures."
+      },
+      {
+        "id": "practice.ResilientExecutorTest#backoffDoublesAndIsCapped",
+        "kind": "edge",
+        "says": "ExponentialBackoff(5, 100, 1000) waits 100, 200, 400, 800, 1000, 1000 and retries through attempt 5."
+      },
+      {
+        "id": "practice.ResilientExecutorTest#aHugeAttemptStillWaitsTheCap",
+        "kind": "edge",
+        "says": "delayMillis(64) and delayMillis(Integer.MAX_VALUE) return the 1000 ms cap, not an overflowed delay."
+      }
+    ],
+    "report": {
+      "format": "junit",
+      "path": "practice/08-principles/34-composition-inheritance/prose/unit-02/practice-1/target/surefire-reports"
+    },
+    "origin": {
+      "path": "34-composition-inheritance/README_8.4.2.md",
+      "section": "Interview Q&A Section"
+    },
+    "concepts": [
+      "Exponential backoff doubles the delay each attempt and caps it, computing the doubling so a large attempt cannot overflow to a zero or negative delay.",
+      "When the strategy says stop, the executor rethrows the last exception the task threw.",
+      "Retry behaviour is a strategy object injected into the executor, so a policy is swapped without subclassing the executor."
+    ]
+  }
+}
