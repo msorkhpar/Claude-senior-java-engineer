@@ -35,11 +35,12 @@ component's pin, the prime or the host's architecture moves.
 ## Stage the study server's image
 
 ⭐ The skill's site step (`siteimage.stage_site`) checks the installed library is
-the one this corpus pinned, stages it with its build file, writes `.studyforge/execution/site.env`
-and hands back the one build to run, from this corpus's root:
+the one this corpus pinned, stages it with its build file and writes `.studyforge/execution/site.env`,
+which names the image. The compose file builds it: the command under "Bring
+it up" builds it the first time, and this builds it alone, from this corpus's root:
 
 ```
-docker build --file .studyforge/execution/site/site.containerfile --tag "$(sed -n 's/^STUDYFORGE_SITE_IMAGE=//p' .studyforge/execution/site.env)" .studyforge/execution/site
+docker compose --env-file .studyforge/execution/runner.env --env-file .studyforge/execution/editor.env --env-file .studyforge/execution/instance.env --env-file .studyforge/execution/site.env -f .studyforge/execution/compose.yaml build site
 ```
 
 ## Bring it up
@@ -47,6 +48,11 @@ docker build --file .studyforge/execution/site/site.containerfile --tag "$(sed -
 ```
 docker compose --env-file .studyforge/execution/runner.env --env-file .studyforge/execution/editor.env --env-file .studyforge/execution/instance.env --env-file .studyforge/execution/site.env -f .studyforge/execution/compose.yaml up -d --wait
 ```
+
+⭐ Each command above is one line with no shell syntax in it: no substitution, no
+variable and no line continuation, so it runs as printed in PowerShell on Windows
+and in any POSIX shell. Every value it needs is in the env files it names. Where
+`python3` is not on a Windows `PATH`, `py -3` runs the same build line.
 
 ⛔ That one command starts the study server, the editor AND the runner, each
 from the tag the corpus recorded; before the site's image is staged it starts
@@ -65,6 +71,11 @@ built file. A second checkout on one host sets its own, and runs beside this one
 ⛔ Every port is published on 127.0.0.1 alone. The editor has no password
 because loopback is its whole access control: widening either bind means
 restoring the editor's authentication first.
+
+⭐ It runs on any engine, Docker Desktop and Windows included: every bind is
+this corpus's own directory, relative to the compose file, every other store
+is a named volume, and nothing is mounted from a temporary directory. `docker`
+uses the engine `DOCKER_CONTEXT` (or the current context) names.
 
 ⭐ Serving on the host instead (`studyforge serve <root>`) stays the
 development path: it finds the editor and the runner by the same file.
