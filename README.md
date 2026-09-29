@@ -148,6 +148,15 @@ docker compose -f compose.pull.yaml down
 
 (`docker compose down` stops a course started with the build file.)
 
+## The online preview
+
+The read-only preview is built automatically from `main` on every push, so it is
+never out of date, and no other branch holds it. To switch it on for your copy of
+this repository, open Settings, then Pages, and choose
+"GitHub Actions" as the source. The next push to `main` publishes it, and the
+Actions tab can run it by hand. The website link at the top of this repository
+opens it. The workflow is [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+
 ## Licence
 
 The course's licence is in [`LICENSE`](LICENSE).
