@@ -11,20 +11,39 @@ plugin on Linux. Nothing else: no Java, no Python, no other download.
 
 ## Start it
 
-From this directory, either pull the published images:
+1. Install Docker, and start it.
+2. Clone this repository and open a terminal in its directory.
+3. Copy `course.env` to `.env`, and set `STUDYFORGE_NAMESPACE` in it to the Docker Hub
+   account you were given: the images are published under that account.
 
-```
-docker compose -f compose.pull.yaml up -d
-```
+   ```
+   cp course.env .env
+   ```
 
-or build every image from this checkout (the first build takes a while, and
-downloads only pinned base images and the course's pinned dependencies):
+   On Windows, use `copy course.env .env`.
+4. Start the course from the published images:
+
+   ```
+   docker compose -f compose.pull.yaml up -d
+   ```
+
+   The first start downloads the images, which takes a while.
+   Until `STUDYFORGE_NAMESPACE` is set, compose stops and says so.
+5. Open http://127.0.0.1:8772/ in your browser.
+
+The images are built for amd64 (Intel and AMD). On an Apple Silicon Mac they run
+under emulation, which is slower.
+
+To build every image from this checkout instead, which needs no account (the
+first build takes a while, and downloads only pinned base images and the
+course's pinned dependencies):
 
 ```
 docker compose up -d --build
 ```
 
-Then open http://127.0.0.1:8772/ in your browser.
+To see what is running: `docker compose -f compose.pull.yaml ps`. Use the same
+`-f compose.pull.yaml` with every compose command for the pulled course.
 
 ## The ports
 
@@ -44,8 +63,8 @@ task. **Run** runs your code; **Submit** runs the practice's tests in the
 runner, which has no network, and marks the practice passed when they pass.
 
 Your answers, your progress and the editor's settings live in Docker volumes,
-so they survive a restart. `docker compose down` stops the course and keeps
-them; `docker compose down -v` deletes them too.
+so they survive a restart. `down` stops the course and keeps them; `down -v`
+deletes them too.
 
 ## Narration (optional)
 
@@ -53,7 +72,7 @@ The site is complete without narration: a lesson with no recording shows no
 player. To hear the lessons read aloud, set
 `COURSE_NARRATION=with-narration` in `.env` (copy it from `course.env`), then:
 
-- **Pulled images**: `docker compose -f compose.pull.yaml up -d` pulls the voiced site.
+- **Pulled images**: `docker compose -f compose.pull.yaml up -d` pulls the voiced site. Leave the setting as it is for the site without narration.
 - **Building it yourself**: download the recordings from the course's release
   first, then build:
 
@@ -77,8 +96,10 @@ each: the files you edit and submit live there, and `exercises/` is only read.
 ## Stop it
 
 ```
-docker compose down
+docker compose -f compose.pull.yaml down
 ```
+
+(`docker compose down` stops a course started with the build file.)
 
 ## Licence
 

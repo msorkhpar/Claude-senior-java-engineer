@@ -5,5 +5,5 @@ FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae
 COPY library/ /opt/studyforge/library/
 ENV PYTHONPATH=/opt/studyforge/library PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 LABEL org.studyforge.serve.version="0.1.0" \
-      org.studyforge.serve.commit="4730e827a3ad398a36bb5707edb979803e9e721d"
+      org.studyforge.serve.commit="77f0df5638ae0a4d6eb5b3a9a129bb6dd0eca310"
 ENTRYPOINT ["python3", "-m", "studyforge.cli"]
