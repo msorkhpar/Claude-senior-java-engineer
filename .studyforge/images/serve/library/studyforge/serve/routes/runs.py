@@ -52,7 +52,8 @@ it lets a page frame ANY local service, on any port, forever. ⭐ This record na
 ports an editor for THIS source root was discovered on, and a widening is argued rather
 than defaulted into.
 
-⚠️ **Forgetting is not offered**: a cold instance frames nothing until the index fills it.
+⚠️ **Forgetting is not offered.** ⭐ A published instance does not wait for discovery: its
+configured origin seeds the record, so a learner's first page load frames the editor.
 
 ## ⛔ Output is filtered, then gated on the wire
 
@@ -67,7 +68,7 @@ from __future__ import annotations
 
 import shlex
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -135,8 +136,9 @@ class Runs:
         runner: RunnerFor = runner_for,
         clock: Callable[[], str] | None = None,
         editor: EditorFor = editor_for,
+        declared: Iterable[str] = (),
     ) -> None:
-        """Hold the corpora, their content, how a runner and a probe are made, and the clock."""
+        """Hold the corpora, their content, the runner and probe makers, the clock, `declared`."""
         self.discovered = discovered
         self.sources = dict(sources)
         self.runner = runner
@@ -150,7 +152,7 @@ class Runs:
         #: frame policy composes from and which never expires (the module
         #: docstring carries the ground). Emptied only by the process ending.
         self._origins_lock = threading.Lock()
-        self._discovered: set[str] = set()
+        self._discovered: set[str] = set(declared)
         self._live: Live | None = None
 
     def editors(self) -> dict[str, dict[str, str]]:
@@ -170,18 +172,15 @@ class Runs:
         """Return each origin a served page may frame: every one EVER discovered.
 
         ⛔ **This asks nothing, and that is a rule rather than an optimisation**
-        (spec §8.3): `serve.app` composes `frame-src` from it on EVERY
-        response, so a version that asked would fork `docker` to render a static
-        page — the widest possible reading of *"only asks"*, and a subprocess on
-        the critical path of every request.
-        ⛔ **And it does not EXPIRE**. Reading the probe's cache alone
-        made the policy name the editor for `EDITOR_TTL` seconds after anything
-        asked and `'none'` from then on, which a reader is essentially never
-        inside; the record this reads instead is kept for the life of the
-        process, and the module docstring carries the whole ground.
-        ⚠️ **A cold instance still frames nothing** — nothing has been
-        discovered — and the index or the practice-editor route, each of which a
-        reader's own client asks for, is what fills the record.
+        (spec §8.3): `serve.app` composes `frame-src` from it on EVERY response, so
+        a version that asked would fork `docker` to render a static page.
+        ⛔ **And it does not EXPIRE**: reading the probe's cache alone named the
+        editor for `EDITOR_TTL` seconds after anything asked and `'none'` after;
+        the module docstring carries the whole ground.
+        ⭐ **A published instance's configured origin is in the record from the
+        start** (`declared`): never a wildcard, never a request's value.
+        ⚠️ **A cold development instance frames nothing** until the index or the
+        practice-editor route, which a reader's own client asks for, fills the record.
         """
         self.found(ask=False)
         with self._origins_lock:

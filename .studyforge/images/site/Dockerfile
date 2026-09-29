@@ -9,7 +9,7 @@ FROM ${SERVE_BASE} AS without-narration
 USER root
 RUN --mount=type=bind,source=.,target=/context \
     set -eu; mkdir -p /corpus; \
-    tar -C /context --exclude=./.git --exclude='./.studyforge/*/audio' -cf - . \
+    tar -C /context --exclude=./.git --exclude='./.studyforge/*/audio' --exclude='*/study/audio' -cf - . \
       | tar -C /corpus -xf -; \
     mkdir -p /corpus/.studyforge/progress; \
     find /corpus -type f -name '*.html' -exec sed -i -E 's/ data-audio="[^"]*"//g' {} +; \
@@ -22,11 +22,11 @@ FROM ${SERVE_BASE} AS with-narration
 USER root
 RUN --mount=type=bind,source=.,target=/context \
     set -eu; mkdir -p /corpus; \
-    tar -C /context --exclude=./.git --exclude='./.studyforge/*/audio' -cf - . \
+    tar -C /context --exclude=./.git --exclude='./.studyforge/*/audio' --exclude='*/study/audio' -cf - . \
       | tar -C /corpus -xf -; \
     mkdir -p /corpus/.studyforge/progress; \
     cd /context; \
-    find .studyforge -type d -name audio -prune | while IFS= read -r dir; do \
+    find . \( -path './.studyforge/*' -o -path '*/study/*' \) -type d -name audio -prune | while IFS= read -r dir; do \
       mkdir -p "/corpus/$dir"; cp -R "$dir/." "/corpus/$dir/"; \
     done; \
     chown -R 1000:1000 /corpus; \

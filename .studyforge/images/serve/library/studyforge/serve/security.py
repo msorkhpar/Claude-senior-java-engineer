@@ -62,7 +62,7 @@ property is not a negative.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from urllib.parse import urlsplit
 
 #: The only address this server binds. ⛔ Never `0.0.0.0`: the process reads the
@@ -164,59 +164,35 @@ def security_headers(frames: Collection[str] = ()) -> tuple[tuple[str, str], ...
 #: Sent on every response an instance with no editor writes.
 SECURITY_HEADERS = security_headers()
 
-#: ⛔ Said ONCE per host an editor is withheld from. Without it the symptom is a
-#: login form inside the panel that loops forever with the right password and
-#: NOTHING in the browser to say why.
-WITHHELD = (
-    "editor {origin} withheld from a page reached as '{host}': a session cookie is "
-    "same-site by HOST and a port is not part of a site, so open the site at '{editor}'"
-)
 
+def framable(frames: Collection[str], host: str | None = None) -> list[str]:
+    """Return the origins a page reached at `host` may frame: every loopback one, or none.
 
-def framable(frames: Collection[str], host: str | None = None) -> tuple[list[str], list[str]]:
-    """Split these origins into what a page reached at `host` may frame, and what is withheld.
-
-    ⛔ **The HOST must match, not merely the machine**. An editor
-    authenticates with a `SameSite=Lax` session cookie; a PORT is not part of a
-    site but a HOSTNAME is, so a page at `localhost` framing an editor at
-    `127.0.0.1` is CROSS-site, the cookie is withheld, and the frame shows a
-    login form that never succeeds. ⭐ Admitting it would be the silent failure;
-    withholding it and SAYING so is why this returns both lists.
-    ⚠️ `host is None` is a hand-rolled client rather than a browser — no cookie,
-    no frame, nothing to protect — so nothing is withheld from one.
+    ⭐ **Any accepted loopback name frames the editor** (`127.0.0.1`, `localhost`,
+    `[::1]`), because the editor has no session cookie for the frame to be
+    cross-site about (register ruling: the editor carries no password, and its
+    loopback bind is its whole access control). ⛔ **What is admitted is never
+    composed from the request**: the origins are the operator's or the instance's
+    own, each still a loopback `http`/`https` origin (`frame_origin`), and a `host`
+    that is not a loopback name (which the gate has already refused) is given none.
+    ⚠️ Widening the editor's bind must restore its authentication first, and that
+    is the compose file's and the documents' to say.
     """
+    if host is not None and not host_allowed(host):
+        return []
     admitted: list[str] = []
-    withheld: list[str] = []
-    reader = host_name(host).lower() if host is not None else None
     for origin in frames:
         named = frame_origin(origin)
-        if named is None:
-            continue
-        same = reader is None or host_name(urlsplit(named).netloc).lower() == reader
-        where = admitted if same else withheld
-        if named not in where:
-            where.append(named)
-    return admitted, withheld
+        if named is not None and named not in admitted:
+            admitted.append(named)
+    return admitted
 
 
 def response_headers(
-    frames: Collection[str],
-    host: str | None = None,
-    log: Callable[[str], None] | None = None,
-    said: set[tuple[str, str]] | None = None,
+    frames: Collection[str], host: str | None = None
 ) -> tuple[tuple[str, str], ...]:
-    """Return the headers for a page reached at `host`, saying once what was withheld from it."""
-    admitted, withheld = framable(frames, host)
-    reader = host_name(host).lower()
-    for origin in withheld:
-        seen = (reader, origin)
-        if log is None or (said is not None and seen in said):
-            continue
-        if said is not None:
-            said.add(seen)
-        editor = host_name(urlsplit(origin).netloc)
-        log(WITHHELD.format(origin=origin, host=reader, editor=editor))
-    return security_headers(admitted)
+    """Return the headers for a page reached at `host`, its frame policy composed for it."""
+    return security_headers(framable(frames, host))
 
 
 REFUSED_PEER = "this server answers loopback clients only"

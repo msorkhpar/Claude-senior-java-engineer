@@ -34,7 +34,7 @@ and the Docker socket is never reachable from here (spec §8.3).
   and imports nothing from `routes.run` to learn one: `serve.instance` registers
   the namespace and passes the path, and importing the run route here would put
   `execute` — and a process library — into every import of `serve.app`.
-- **`frames=`** — what this instance may EMBED, asked per response and per `Host`,
+- **`frames=`** — what this instance may EMBED, asked per response,
   because the editor's origin is a per-project host port. ⛔ Never widens
   `frame-ancestors`.
 - `GET` and `HEAD` are answered everywhere; `POST` only under a writer; every other
@@ -136,7 +136,6 @@ class ServingServer(ThreadingHTTPServer):
             raise ValueError(f"only a registered namespace may answer POST: {', '.join(stray)}")
         self.site_root = root
         self.frames = frames
-        self._withheld: set[tuple[str, str]] = set()
         self.allowed_hosts = ALLOWED_HOSTS
         withheld = refused_by(source)
         self.static = partial(assets.serve, root, private=private, client=client, withheld=withheld)
@@ -152,13 +151,13 @@ class ServingServer(ThreadingHTTPServer):
     def headers(self, host: str | None = None) -> tuple[tuple[str, str], ...]:
         """Return this response's security headers, the frame policy composed for `host`.
 
-        ⛔ **Per response AND per host**: an editor comes and goes while
-        this process serves, and a page reached as `localhost` may not frame one
-        at `127.0.0.1` — same machine, different site. What is withheld is said.
+        ⛔ **Per response**: an editor comes and goes while this process serves.
+        ⭐ A page reached at any accepted loopback name frames the editor, and a
+        host outside them is given none.
         """
         if self.frames is None:
             return SECURITY_HEADERS
-        return response_headers(self.frames(), host, self.log, self._withheld)
+        return response_headers(self.frames(), host)
 
     def gate(self, peer: str, headers: Mapping[str, str]) -> str | None:
         """Return `security.refusal`'s answer for one request to this server."""

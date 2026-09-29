@@ -190,6 +190,19 @@ class Profile:
         """
         raise NotImplementedError
 
+    def media_ignore_files(self, audio_directories) -> tuple[IgnoreFile, ...]:
+        """Return the ignore files a profile with NO single home writes: none, by default.
+
+        ⭐ A profile whose media sits under one generated directory answers with
+        `ignore_file` and needs nothing here. ⛔ A profile whose media is enclosed
+        by one generated directory per source directory (`sibling`) answers
+        with one file inside each, from the audio directories a corpus holds
+        (a unit's `audio`, or where a narration record put a clip). Never the
+        repository's root ignore file (R3).
+        """
+        del audio_directories
+        return ()
+
     def ignore_lines(self, *, media: bool) -> tuple[str, ...]:
         """Return the ignore lines a build under this profile requires.
 

@@ -123,7 +123,7 @@ def plan_for(root: Path | str, *, bytes_per_unit: int | None = None) -> Plan:
     media = MediaProjection(manifest.media, units, bytes_per_unit, measured, unmeasured)
     refusals += [Refusal(MANIFEST_FILENAME, said) for said in media.crossed()]
     named = {creation.path for creation in creations}
-    ignore = _ignore_file(profile, media, refusals)
+    ignore, homed = _ignore_file(profile, media, refusals, placed)
     return Plan(
         source=manifest.source,
         title=manifest.title,
@@ -136,6 +136,7 @@ def plan_for(root: Path | str, *, bytes_per_unit: int | None = None) -> Plan:
         media=media,
         refusals=tuple(refusals),
         ignore_home=None if ignore is None else ignore.home.as_posix(),
+        ignore_files=tuple((one.home.as_posix(), one.lines) for one in homed),
         superseded=tuple(clip for clip in record.superseded if clip.path not in named),
     )
 
@@ -173,19 +174,26 @@ def _claimed_twice(
 
 
 def _ignore_file(
-    profile: Profile, media: MediaProjection, refusals: list[Refusal]
-) -> IgnoreFile | None:
-    """Return the ignore file the media policy requires, or record why none may hold it.
+    profile: Profile,
+    media: MediaProjection,
+    refusals: list[Refusal],
+    placed: list[UnitLocations],
+) -> tuple[IgnoreFile | None, tuple[IgnoreFile, ...]]:
+    """Return the ignore file(s) the media policy requires, or record why none may hold it.
 
     ⛔ **Asked of the profile, and its home is printed with every line**:
     a rule with no named file is a rule somebody pastes into the
-    root ignore file, which R3 forbids however declared.
+    root ignore file, which R3 forbids however declared. ⭐ A profile with no
+    single home may still name one file per directory that holds its clips
+    (`media_ignore_files`); only when it names none is the policy refused.
     """
     try:
-        return profile.ignore_file(media=media.ignored)
+        return profile.ignore_file(media=media.ignored), ()
     except PlacementError as error:
-        refusals.append(Refusal(MANIFEST_FILENAME, str(error)))
-        return None
+        homed = profile.media_ignore_files([unit.audio for unit in placed])
+        if not homed:
+            refusals.append(Refusal(MANIFEST_FILENAME, str(error)))
+        return None, homed
 
 
 def _unplannable(refusals: list[Refusal]) -> Plan:

@@ -66,10 +66,12 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
-from studyforge.corpus.placement.locations import ContainerLocations, UnitLocations
+from studyforge.corpus.placement.errors import PlacementError
+from studyforge.corpus.placement.locations import ContainerLocations, IgnoreFile, UnitLocations
 from studyforge.corpus.placement.names import (
     ATTACHMENTS_DIRNAME,
     AUDIO_DIRNAME,
+    IGNORE_FILENAME,
     IMAGES_DIRNAME,
     PRACTICE_DIRNAME,
     STUDY_DIRNAME,
@@ -139,19 +141,52 @@ class SiblingProfile(Profile):
         segment in front of it and matches only inside a directory this
         framework writes.
 
-        ⛔ **These lines have no home** (`ignore_home`), so they are only ever
-        refused by `ignore_file`, never written.
+        ⛔ **These lines have no single home** (`ignore_home`), so `ignore_file`
+        refuses them; `media_ignore_files` is how they are written, one file in
+        each `study/` directory that holds clips.
         """
         return tuple(f"{STUDY_DIRNAME}/{kind}/" for kind in UNCOMMITTED_DIRNAMES)
+
+    def media_ignore_files(self, audio_directories) -> tuple[IgnoreFile, ...]:
+        """One ignore file in each `study/` directory that holds clips: `audio/`.
+
+        ⭐ **The home a single-file answer lacks.** A `study/` directory is
+        generated, so a file inside it is this framework's to write, and git
+        reads its rules relative to it: `audio/` there covers exactly
+        `study/audio/<stem>/`, and nothing of the corpus's own. ⛔ The
+        directories are asked of the caller, who holds them (a plan from its
+        placed units, a pack from its narration record): this profile composes
+        no path of its own. ⛔ A directory that is not `<source>/study/audio/…`
+        is refused rather than guessed at.
+        """
+        homes: dict[PurePosixPath, None] = {}
+        for directory in audio_directories:
+            homes.setdefault(self._study_of(PurePosixPath(directory)), None)
+        rules = tuple(f"{kind}/" for kind in UNCOMMITTED_DIRNAMES)
+        return tuple(
+            IgnoreFile(home=study / IGNORE_FILENAME, lines=rules) for study in sorted(homes)
+        )
+
+    @staticmethod
+    def _study_of(directory: PurePosixPath) -> PurePosixPath:
+        """Return the `study/` directory an audio directory lies in, or refuse the directory."""
+        parts = directory.parts
+        for at in range(1, len(parts)):
+            if parts[at] == AUDIO_DIRNAME and parts[at - 1] == STUDY_DIRNAME:
+                return PurePosixPath(*parts[:at])
+        raise PlacementError(
+            f"an audio directory of placement 'sibling' lies in "
+            f"<source directory>/{STUDY_DIRNAME}/{AUDIO_DIRNAME}/, and this one does not"
+        )
 
     def ignore_home(self) -> None:
         """None: this profile's media is enclosed by many generated directories, not one.
 
         ⚠️ A `study/` directory *is* generated and *does* enclose the media
         beneath it. ⛔ But there is one such directory **per source
-        directory**, an `IgnoreFile`
-        has one home, and a build that wrote an ignore file into each of them
-        is a write this profile cannot make. The root ignore file
+        directory**, and an `IgnoreFile` has one home. ⭐ The answer for a
+        policy that keeps clips out of git is `media_ignore_files`, one file in
+        each `study/` directory that holds them. The root ignore file
         stays the one thing never edited (R3).
         """
         return None

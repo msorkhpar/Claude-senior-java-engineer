@@ -168,9 +168,9 @@ CONTENT_TYPES = {
 }
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
-#: ⭐ **A source file: the code a lesson links to, served VERBATIM** (plain-text suffixes only; `.js`
-#: stays a script). ⛔ Never refused for a sample address or token, or its size; a home path or
-#: hostname still is, and `withheld` is still asked.
+#: ⭐ **A source file: the code a lesson links to, served VERBATIM** (plain-text suffixes only;
+#: `.js` stays a script). ⛔ Never refused for a sample address or token, or its size; a home path
+#: or hostname still is, and `withheld` is still asked.
 SOURCE_SUFFIXES_SERVED = frozenset(
     one for kind in SOURCE_SUFFIXES.values() for one in kind if CONTENT_TYPES[one] == TEXT_TYPE
 )

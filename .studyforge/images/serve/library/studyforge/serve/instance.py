@@ -46,6 +46,11 @@ into the site or the corpus root.
 
 ## ⭐ The frame policy is wired here too
 
+⭐ **A published site frames its configured editor from the FIRST response**: the
+compose's `STUDYFORGE_EDITOR_ORIGIN` seeds the record `Runs.origins` reads, with no
+probe on the request path. The development form keeps discovery (nothing configures
+its editor; asking would fork `docker` per request, spec §8.3).
+
 ⛔ **A page may embed only the editors THIS instance discovered**, and `frame-src`
 is therefore composed at serve time rather than built into a page (R8). The
 origins come off the run namespace's own `Runs` — `frames_for(namespaces)`, beside
@@ -180,9 +185,10 @@ def namespaces_of(
             "editor": serve_published.editor_for(published),
         }
     )
+    declared = () if published is None or published.origin is None else (published.origin,)
     return {
         state.NAMESPACE: partial(state.route, discovered),
-        run.NAMESPACE: RunNamespace(runs.Runs(discovered, sources, **seams)),
+        run.NAMESPACE: RunNamespace(runs.Runs(discovered, sources, declared=declared, **seams)),
     }
 
 

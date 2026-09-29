@@ -164,6 +164,10 @@ class Plan:
     ignore_home: str | None = None
     #: ⛔ Clips the record names as superseded. Never in `paths`.
     superseded: tuple[SupersededClip, ...] = ()
+    #: `(file, lines)` for a profile whose media has no single home: one ignore
+    #: file inside each generated directory that holds clips, relative to the
+    #: corpus root. ⛔ Never the root ignore file (R3); empty otherwise.
+    ignore_files: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -195,10 +199,15 @@ class Plan:
         for edit in self.edits:
             out += edit_lines(edit)
         out += [f"ignore {line}  in {self.ignore_home}" for line in self.ignore]
+        out += [f"ignore {line}  in {home}" for home, lines in self.ignore_files for line in lines]
         out += self.media.lines() if self.media is not None else []
         out += [refusal.line() for refusal in self.refusals]
         out.append(self.summary())
         return out
+
+    def _ignore_lines(self) -> int:
+        """How many ignore lines the plan prints, in the one file or in each directory's."""
+        return len(self.ignore) + sum(len(lines) for _, lines in self.ignore_files)
 
     def _maps(self) -> int:
         """How many container maps were read."""
@@ -222,7 +231,7 @@ class Plan:
             f"plan: {said[CREATE]} path(s) to create, {said[REPLACE]} to replace, "
             f"{said[KEEP]} to keep, {said[CLAIM]} claimed, {said[EXPECT]} expected from "
             f"another command, {len(self.superseded)} superseded clip(s) no build copies, "
-            f"{len(self.edits)} file(s) to edit, {len(self.ignore)} ignore line(s), "
+            f"{len(self.edits)} file(s) to edit, {self._ignore_lines()} ignore line(s), "
             f"{len(self.refusals)} refusal(s)"
         )
 
