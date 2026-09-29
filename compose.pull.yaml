@@ -1,0 +1,107 @@
+name: "${COURSE_PROJECT:-claude-senior-java-engineer-interview-preparation}"
+services:
+  site:
+    image: "${STUDYFORGE_NAMESPACE:-studyforge-local}/claude-senior-java-engineer-interview-preparation-site:502ddf424dd5-${COURSE_NARRATION:-without-narration}"
+    user: "1000:1000"
+    command:
+      - serve
+      - /corpus
+      - --published
+      - --port
+      - "${COURSE_SITE_PORT:-8772}"
+    ports:
+      - "127.0.0.1:${COURSE_SITE_PORT:-8772}:${COURSE_SITE_PORT:-8772}"
+    environment:
+      STUDYFORGE_EDITOR_ORIGIN: "http://127.0.0.1:${COURSE_EDITOR_PORT:-8444}"
+      STUDYFORGE_EDITOR_BINDS: .studyforge/execution/code=/home/coder/repo/sources;practice=/home/coder/repo/practice
+      STUDYFORGE_EDITOR_HEALTH: "http://editor:8080/healthz"
+      STUDYFORGE_RUN_SERVICE: runner
+      PYTHONDONTWRITEBYTECODE: 1
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${COURSE_SITE_PORT:-8772}/', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 1s
+    volumes:
+      - "code:/corpus/.studyforge/execution/code"
+      - "practice:/corpus/practice"
+      - "allowed:/corpus/.studyforge/execution/allowed"
+      - "progress:/corpus/.studyforge/progress"
+    networks:
+      - default
+      - runs
+    restart: "no"
+  runner:
+    image: "${STUDYFORGE_NAMESPACE:-studyforge-local}/claude-senior-java-engineer-interview-preparation-runner:502ddf424dd5"
+    user: "1000:1000"
+    init: true
+    volumes:
+      - "code:/work/.studyforge/execution/code"
+      - "practice:/work/practice"
+      - "allowed:/work/.studyforge/execution/allowed:ro"
+    labels:
+      org.studyforge.binds: =/work
+    networks:
+      - runs
+    depends_on:
+      site:
+        condition: service_healthy
+    restart: "no"
+  editor:
+    image: "${STUDYFORGE_NAMESPACE:-studyforge-local}/claude-senior-java-engineer-interview-preparation-editor:502ddf424dd5"
+    labels:
+      org.studyforge.binds: .studyforge/execution/code=/home/coder/repo/sources;practice=/home/coder/repo/practice
+    user: "1000:1000"
+    read_only: false
+    ports:
+      - "127.0.0.1:${COURSE_EDITOR_PORT:-8444}:8080"
+    environment:
+      GRADLE_USER_HOME: /home/coder/.gradle
+    command:
+      - --auth=none
+      - "--bind-addr=0.0.0.0:8080"
+      - --extensions-dir=/opt/code-server/extensions
+      - --disable-workspace-trust
+      - --disable-telemetry
+      - --disable-update-check
+      - /home/coder/repo
+    tmpfs:
+      - /home/coder/repo
+    volumes:
+      - "code:/home/coder/repo/sources"
+      - "editor-config:/home/coder/.config"
+      - "editor-data:/home/coder/.local"
+      - "maven-repo:/home/coder/.m2"
+      - "practice:/home/coder/repo/practice"
+    healthcheck:
+      test:
+        - CMD
+        - /usr/lib/code-server/lib/node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r => process.exit(r.status === 200 ? 0 : 1), () => process.exit(1))"
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 1s
+      retries: 3
+    restart: "no"
+    depends_on:
+      site:
+        condition: service_healthy
+networks:
+  runs:
+    internal: true
+volumes:
+  allowed: {}
+  code: {}
+  editor-config: {}
+  editor-data: {}
+  maven-repo: {}
+  practice: {}
+  progress: {}
