@@ -63,7 +63,7 @@ A current browser. Your machine needs room for the images, which download once.
 1. Install Docker, and start it.
 2. Clone this repository and open a terminal in its directory.
 3. Copy `course.env` to `.env`, and set `STUDYFORGE_NAMESPACE` in it to the Docker Hub
-   account you were given: the images are published under that account.
+   account `sorkhpar`: the images are published under that account.
 
    ```
    cp course.env .env
