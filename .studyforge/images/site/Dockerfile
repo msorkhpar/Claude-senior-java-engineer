@@ -3,9 +3,9 @@
 # Two targets: without-narration, whose pages name no clip, and with-narration,
 # which adds every clip and refuses to build unless each matches the checksum
 # the course committed.
-ARG SERVE_BASE
+ARG STUDYFORGE_NAMESPACE
 
-FROM ${SERVE_BASE} AS without-narration
+FROM ${STUDYFORGE_NAMESPACE:?STUDYFORGE_NAMESPACE-is-not-set}/studyforge-serve:0.1.0-76df622858caaebd20691d2d40b5289f9bb1bda6beb90407279509c96c3ec19c@sha256:d7998f7902c5643c12fc0c6663567716965598a6b431fbe0170ec9c9ae7d1dcf AS without-narration
 USER root
 RUN --mount=type=bind,source=.,target=/context \
     set -eu; mkdir -p /corpus; \
@@ -18,7 +18,7 @@ USER 1000:1000
 WORKDIR /corpus
 LABEL org.studyforge.course="claude-senior-java-engineer-interview-preparation" org.studyforge.narration="without"
 
-FROM ${SERVE_BASE} AS with-narration
+FROM ${STUDYFORGE_NAMESPACE:?STUDYFORGE_NAMESPACE-is-not-set}/studyforge-serve:0.1.0-76df622858caaebd20691d2d40b5289f9bb1bda6beb90407279509c96c3ec19c@sha256:d7998f7902c5643c12fc0c6663567716965598a6b431fbe0170ec9c9ae7d1dcf AS with-narration
 USER root
 RUN --mount=type=bind,source=.,target=/context \
     set -eu; mkdir -p /corpus; \

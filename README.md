@@ -83,9 +83,10 @@ A current browser. Your machine needs room for the images, which download once.
 The images are built for amd64 (Intel and AMD). On an Apple Silicon Mac they run
 under emulation, which is slower.
 
-To build every image from this checkout instead, which needs no account (the
-first build takes a while, and downloads only pinned base images and the
-course's pinned dependencies):
+To build the course's own images from this checkout instead, set
+`STUDYFORGE_NAMESPACE` first: the shared base images are pulled from that
+account. The first build takes a while, and downloads only those bases and
+the course's pinned dependencies:
 
 ```
 docker compose up -d --build
