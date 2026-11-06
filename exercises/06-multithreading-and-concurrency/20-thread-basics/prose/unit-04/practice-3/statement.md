@@ -1,19 +1,17 @@
-A thread in `Object.wait()` is `WAITING`: it has released the monitor and
-waits for a signal. But it "can wake up spuriously without being notified",
-which is why the page says `wait()` belongs **in a loop that re-checks the
-condition**. The same loop makes a signal that came before the wait harmless.
+The search service starts an `IndexWorker` at boot and sends it the first search terms as soon
+as `start()` returns. The worker can't index anything before it has loaded its synonym table.
+Usually that takes a few milliseconds, but when the configuration is being reloaded at the same
+moment, the loader has to wait for the configuration's lock, and on a cold cache it computes for
+seconds. On those boots the first terms meet a worker with no table.
 
-Write `Gate`, which uses **the `Gate` object itself** as its monitor:
+`IndexWorker` already starts its thread, loads the table on it and indexes what it is sent.
+Finish the two `TODO`s in `src/main/java/practice/IndexWorker.java`:
 
-- `void pass()` returns at once if the gate is open. While it is closed, the
-  thread waits on the gate's monitor, and it returns only once the gate is
-  open. It declares `throws InterruptedException`.
-- `void open()` opens the gate for good and wakes every waiting thread.
+- `signalReady()`: called on the worker's thread once its table is loaded;
+- `awaitReady()`: called by `start()`, returns once the worker is ready to index.
 
-| situation | result |
-|---|---|
-| `pass()` while the gate is closed | the thread is `WAITING` |
-| another thread calls `open()` | the waiting thread returns from `pass()` |
-| two threads wait, then `open()` | both return from `pass()` |
-| a thread is woken while the gate is still closed | it waits again |
-| `open()`, then `pass()` | `pass()` returns at once |
+When you're done, `start()` returns once the table is loaded, however long the loader takes and
+whatever it waits for. About four lines in total, a field included.
+
+The tests hold the loader back, once behind a lock and once in a long computation, and check
+whether the table was loaded at the moment `start()` returned.

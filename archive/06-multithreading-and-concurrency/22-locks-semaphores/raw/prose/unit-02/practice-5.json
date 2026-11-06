@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 5,
   "ingested": "2026-09-24",
-  "title": "Who may release, and checking before acquiring",
+  "title": "Check yourself: semaphores",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-ownership",
-        "stem": "Per this page, thread A calls `acquire()` on a `new Semaphore(1)`, and then thread B, which never acquired it, calls `release()`. What happens?",
+        "id": "q-permits-per-second",
+        "stem": "A geocoding vendor's contract allows 50 requests per second. The client puts each call behind a `new Semaphore(50)`, with acquire() before the call and release() in a finally after it. Calls take about 20 ms, and 200 request threads are busy geocoding. Roughly what does the vendor receive?",
         "options": [
           {
             "id": "a",
-            "text": "B's call throws IllegalMonitorStateException, since only A holds the permit",
-            "correct": false,
-            "says": "The page gives this exception to ReentrantLock, whose unlock is tied to the owning thread; a semaphore tracks no owner."
+            "text": "About 2,500 requests a second, since each permit is taken again as soon as its call ends",
+            "correct": true,
+            "says": "permits bound how many calls run at once; a 20 ms call frees its permit 50 times a second, so 50 permits carry about 2,500 calls"
           },
           {
             "id": "b",
-            "text": "B's call blocks until A gives the permit back, since only one may exist",
+            "text": "About 50 requests a second, since each permit is taken again only once a second has passed",
             "correct": false,
-            "says": "The page says release() never waits and a semaphore enforces no upper bound on its count."
+            "says": "a permit comes back when release() is called, at the end of the call; a semaphore has no clock"
           },
           {
             "id": "c",
-            "text": "B's call succeeds and adds a permit, since the count has no owner",
-            "correct": true,
-            "says": "The page says any thread can release a permit; this is what makes semaphores useful for signalling between threads."
+            "text": "About 200 requests a second, since each busy thread holds one permit in turn",
+            "correct": false,
+            "says": "only 50 threads hold permits at a time, and each one finishes 50 calls a second"
+          },
+          {
+            "id": "d",
+            "text": "About 200 requests a second, since each waiting thread is let in once per release cycle",
+            "correct": false,
+            "says": "there is no release cycle; every release lets one waiter in at once, so the rate follows the call time"
           }
         ],
         "origin": {
           "path": "22-locks-semaphores/README_6.3.2.md",
-          "section": "Key Difference: Semaphore vs. Lock"
+          "section": "A Semaphore Counts Permits: It Limits How Many Threads Are Inside, Not Which Ones"
         }
       },
       {
-        "id": "q-check-then-act",
-        "stem": "Per this page, what is wrong with `if (sem.availablePermits() > 0) { sem.acquire(); }`, and what should be written instead?",
+        "id": "q-mutex-calls-itself",
+        "stem": "A settings store guards its state with `Semaphore mutex = new Semaphore(1)`. save() calls mutex.acquire(), writes the settings, and then calls audit(), which also calls mutex.acquire() before appending to the audit log; each method releases in its own finally. One thread calls save(), with no other thread using the store. What happens?",
         "options": [
           {
             "id": "a",
-            "text": "The count can change between the two calls; call tryAcquire() instead",
+            "text": "save() never returns, since audit() waits for a permit that only its own thread holds",
             "correct": true,
-            "says": "The page calls this a check-then-act race: another thread may take the permit after the check, while tryAcquire() checks and takes in one atomic step."
+            "says": "a semaphore is not reentrant: the second acquire needs a second permit, and the only one is held by the same thread, which is now waiting"
           },
           {
             "id": "b",
-            "text": "The count read takes a permit of its own; call release() after it",
+            "text": "save() never returns, since audit() waits for a permit that only another thread may release",
             "correct": false,
-            "says": "The page describes availablePermits() as a plain read of the current count; it takes nothing, so a release would inflate the count."
+            "says": "any thread may release a permit, the holder included; the holder can't because it is the thread that waits"
           },
           {
             "id": "c",
-            "text": "The count read is only a hint; call acquire() again in a loop",
+            "text": "save() returns normally, since the thread holding the permit may take it again",
             "correct": false,
-            "says": "The page's fix is a single atomic tryAcquire(); repeating acquire() would take several permits, since a semaphore is not reentrant."
+            "says": "that is the hold count of a ReentrantLock; a semaphore keeps only a count and does not know who took the permit"
+          },
+          {
+            "id": "d",
+            "text": "save() returns normally, since audit() is handed the permit save() still holds",
+            "correct": false,
+            "says": "a permit is not handed between methods; audit()'s acquire() needs a free permit and there is none"
           }
         ],
         "origin": {
           "path": "22-locks-semaphores/README_6.3.2.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "A Semaphore Has No Owner and Trusts Every Release: Release Exactly What You Acquired"
+        }
+      },
+      {
+        "id": "q-refusals-in-finally",
+        "stem": "An API gateway forwards requests to a backend that accepts 20 at once: `try { if (!slots.tryAcquire(100, MILLISECONDS)) return busy(); return forward(request); } finally { slots.release(); }`, with `slots = new Semaphore(20)`. During a spike, 300 requests get busy(). Once the spike is over, how many requests can the gateway forward at the same time?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Up to 320, since every busy() return still ran the finally and added a permit",
+            "correct": true,
+            "says": "release() checks nothing; every refused request added a permit it never took, so the count grew by 300"
+          },
+          {
+            "id": "b",
+            "text": "Up to 20, since the finally added a permit only on the returns that had taken one",
+            "correct": false,
+            "says": "the finally runs on every path out of the try, the return of busy() included, and release() adds a permit each time"
+          },
+          {
+            "id": "c",
+            "text": "Up to 20, since release() refused the permits from threads that had taken none",
+            "correct": false,
+            "says": "a semaphore has no owner; release() adds a permit whoever calls it"
+          },
+          {
+            "id": "d",
+            "text": "Up to 320 for the next 300 calls, since each extra permit is dropped once it is used",
+            "correct": false,
+            "says": "a permit is not marked extra; once added it stays in the count for good, and every call returns it"
+          }
+        ],
+        "origin": {
+          "path": "22-locks-semaphores/README_6.3.2.md",
+          "section": "A Semaphore Has No Owner and Trusts Every Release: Release Exactly What You Acquired"
+        }
+      },
+      {
+        "id": "q-probe-on-fair-semaphore",
+        "stem": "A print service shares two printers through `new Semaphore(2, true)`. Print jobs call acquire(). A health probe calls tryAcquire() every second and, when it gets a permit, releases it at once. Both printers are busy and three jobs are queued when one printer finishes, just as the probe runs. Who can get that printer?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The probe can get it ahead of the first queued job, since tryAcquire() takes a permit that is free at that moment",
+            "correct": true,
+            "says": "the untimed tryAcquire() barges even on a fair semaphore; tryAcquire(0, SECONDS) would respect the queue"
+          },
+          {
+            "id": "b",
+            "text": "The probe can get it ahead of the first queued job, since a fair semaphore orders only acquire() calls made after it was created",
+            "correct": false,
+            "says": "the order covers every queued acquire; the probe gets ahead because tryAcquire() ignores the queue"
+          },
+          {
+            "id": "c",
+            "text": "Only the first queued job can get it, since tryAcquire() on a fair semaphore refuses while threads are queued",
+            "correct": false,
+            "says": "that is what tryAcquire(0, SECONDS) does; the untimed tryAcquire() takes a free permit regardless"
+          },
+          {
+            "id": "d",
+            "text": "Only the first queued job can get it, since release() hands the permit straight to the head of the queue",
+            "correct": false,
+            "says": "release() adds a permit and wakes a waiter; a tryAcquire() made before the waiter runs can take it"
+          }
+        ],
+        "origin": {
+          "path": "22-locks-semaphores/README_6.3.2.md",
+          "section": "When the Permits Run Out, Choose: Wait, Wait a Bounded Time, or Refuse"
         }
       }
     ],
     "concepts": [
-      "Checking availablePermits() and then calling acquire() is a race; tryAcquire() checks and takes in one atomic step.",
-      "Unlike a ReentrantLock, a semaphore tracks no owner: a binary semaphore can be released by a thread that never acquired it."
+      "Permits bound how many calls run at once, not how many start per second; a permit is reused as soon as it is released.",
+      "A semaphore tracks no owner: any thread may release, and a thread that asks for a permit it already holds waits for itself.",
+      "A pool that trusts every release hands one resource to two callers after a double give-back."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A batch that re-enters its own lock",
+  "title": "Let trucks and the night close wait at the loading dock",
   "blocks": [
     {
       "type": "heading",
@@ -19,41 +19,28 @@
     },
     {
       "type": "para",
-      "text": "A `ReentrantLock` is **reentrant**: the thread that holds it can call `lock()` again without blocking, and the lock keeps a **hold count**. Each `lock()` adds one, each `unlock()` takes one away, and the lock is free only when the count is back to zero, so the owner must unlock exactly as many times as it locked. The page's `ReentrantExample` has `outer()` call `inner()`, both locking the same lock."
+      "text": "A warehouse has a loading dock with a few bays. Trucks that arrive when every bay is taken wait for one to free up, and at night the yard manager's app waits for the dock to empty before it locks the gate. The dock's software has had three bad weeks: once the yard counted four trucks in three bays, a driver sat in front of a free bay for an hour, and the gate was locked with a truck still inside."
     },
     {
       "type": "para",
-      "text": "Write `AuditLog`, guarded by the one **fair** `ReentrantLock` the starter gives you (keep it fair: a thread already waiting for it goes before one that asks later):"
+      "text": "`LoadingDock` already keeps the count of occupied bays under its lock and has two conditions, `bayFree` and `dockEmpty`. Write its three small helpers in `src/main/java/practice/LoadingDock.java`; each is called with the lock held:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`void record(String entry)` appends one entry under the lock.",
-        "`void recordAll(List<String> entries, Runnable afterEach)` holds the lock for the **whole batch**, from before the first entry until after the last, so no other thread's entry lands in the middle of it. Locking around each entry separately is not enough: a waiting thread gets in between two entries. It records each entry by calling `record(entry)` (which takes the same lock again) and then calls `afterEach.run()`, still holding the lock. If `afterEach` throws, `recordAll` passes that exception on, and the lock is released all the same.",
-        "`String entries()` is every entry so far, joined by `\",\"` (`\"\"` when empty)."
+        "`waitForBay()`: returns once the arriving truck can take a bay;",
+        "`announceLeave()`: runs after a truck has left;",
+        "`waitForEmpty()`: returns once no truck is at the dock."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "`entries()`"
-      ],
-      "rows": [
-        [
-          "`recordAll([\"a\", \"b\"], hook)`, then `record(\"c\")`",
-          "`\"a,b,c\"`"
-        ],
-        [
-          "`recordAll([\"a1\", \"a2\"], hook)` while another thread calls `record(\"x\")` after `\"a1\"`",
-          "`\"a1,a2,x\"`"
-        ],
-        [
-          "`recordAll([\"a\", \"b\"], hook)`, then another thread's `record(\"c\")`",
-          "`\"a,b,c\"`, and that `record` does not wait"
-        ]
-      ]
+      "type": "para",
+      "text": "A truck never takes a bay that isn't free, a waiting truck gets in as soon as a bay frees, and the night close goes ahead only once the dock is empty, and then without delay. About four lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run waiting trucks and the night close on threads of their own. To check that your waits hold up, they also take the dock's lock themselves: once to let a newcomer drive into a bay right after it was freed, and once to wake the night close while a truck is still in."
     },
     {
       "type": "heading",
@@ -68,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** An append-only log whose batches are never interleaved with other entries. */\npublic final class AuditLog {\n\n    /** Fair: a thread that waits for the lock gets it before a thread that asks later. */\n    private final ReentrantLock lock = new ReentrantLock(true);\n    private final List<String> entries = new ArrayList<>();\n\n    /** Appends one entry under the lock. */\n    public void record(String entry) {\n        lock.lock();\n        try {\n            entries.add(entry);\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Records every entry through {@link #record}, holding the lock for the whole batch. */\n    public void recordAll(List<String> batch, Runnable afterEach) {\n        lock.lock();\n        try {\n            for (String entry : batch) {\n                record(entry);\n                afterEach.run();\n            }\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Every entry so far, joined by \",\". */\n    public String entries() {\n        lock.lock();\n        try {\n            return String.join(\",\", entries);\n        } finally {\n            lock.unlock();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.locks.Condition;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The loading dock of a warehouse. Trucks wait for a free bay; at night the yard manager closes\n * the gate once the last truck has left.\n */\npublic class LoadingDock {\n\n    final ReentrantLock lock = new ReentrantLock();\n    final Condition bayFree = lock.newCondition();\n    final Condition dockEmpty = lock.newCondition();\n    private final int bays;\n    private int occupied;\n\n    public LoadingDock(int bays) {\n        this.bays = bays;\n    }\n\n    /** A truck takes a bay, waiting until one is free. */\n    public void arrive() throws InterruptedException {\n        lock.lock();\n        try {\n            waitForBay();\n            occupied++;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** A truck gives its bay back. */\n    public void leave() {\n        lock.lock();\n        try {\n            occupied--;\n            announceLeave();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Returns once no truck is at the dock; the night close calls it before locking the gate. */\n    public void awaitEmpty() throws InterruptedException {\n        lock.lock();\n        try {\n            waitForEmpty();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public int occupied() {\n        lock.lock();\n        try {\n            return occupied;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Called with the lock held: returns once this truck can take a bay. */\n    void waitForBay() throws InterruptedException {\n        while (occupied == bays) bayFree.await();\n    }\n\n    /** Called with the lock held, after a truck has left. */\n    void announceLeave() {\n        bayFree.signal();\n        if (occupied == 0) dockEmpty.signalAll();\n    }\n\n    /** Called with the lock held: returns once the dock is empty. */\n    void waitForEmpty() throws InterruptedException {\n        while (occupied > 0) dockEmpty.await();\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** An append-only log whose batches are never interleaved with other entries. */\npublic final class AuditLog {\n\n    /** Fair: a thread that waits for the lock gets it before a thread that asks later. */\n    private final ReentrantLock lock = new ReentrantLock(true);\n    private final List<String> entries = new ArrayList<>();\n\n    /** Appends one entry under the lock. */\n    public void record(String entry) {\n        throw new UnsupportedOperationException(\"write record\");\n    }\n\n    /** Records every entry through {@link #record}, holding the lock for the whole batch. */\n    public void recordAll(List<String> batch, Runnable afterEach) {\n        throw new UnsupportedOperationException(\"write recordAll\");\n    }\n\n    /** Every entry so far, joined by \",\". */\n    public String entries() {\n        throw new UnsupportedOperationException(\"write entries\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.locks.Condition;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The loading dock of a warehouse. Trucks wait for a free bay; at night the yard manager closes\n * the gate once the last truck has left.\n */\npublic class LoadingDock {\n\n    final ReentrantLock lock = new ReentrantLock();\n    final Condition bayFree = lock.newCondition();\n    final Condition dockEmpty = lock.newCondition();\n    private final int bays;\n    private int occupied;\n\n    public LoadingDock(int bays) {\n        this.bays = bays;\n    }\n\n    /** A truck takes a bay, waiting until one is free. */\n    public void arrive() throws InterruptedException {\n        lock.lock();\n        try {\n            waitForBay();\n            occupied++;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** A truck gives its bay back. */\n    public void leave() {\n        lock.lock();\n        try {\n            occupied--;\n            announceLeave();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Returns once no truck is at the dock; the night close calls it before locking the gate. */\n    public void awaitEmpty() throws InterruptedException {\n        lock.lock();\n        try {\n            waitForEmpty();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public int occupied() {\n        lock.lock();\n        try {\n            return occupied;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Called with the lock held: returns once this truck can take a bay. */\n    void waitForBay() throws InterruptedException {\n        // TODO: Return once this truck can take a bay; until then, wait without holding the dock.\n        throw new IllegalStateException(\"TODO: waitForBay\");\n    }\n\n    /** Called with the lock held, after a truck has left. */\n    void announceLeave() {\n        // TODO: Let whoever is waiting for what this departure changed know about it.\n        throw new IllegalStateException(\"TODO: announceLeave\");\n    }\n\n    /** Called with the lock held: returns once the dock is empty. */\n    void waitForEmpty() throws InterruptedException {\n        // TODO: Return once no truck is at the dock; until then, wait without holding the dock.\n        throw new IllegalStateException(\"TODO: waitForEmpty\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,9 +75,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -99,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b0df4b3666362d2f637c27c0d0350abd36088dabc40eb832e26d0e0d2ae5a69a",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/** An append-only log whose batches are never interleaved with other entries. */\npublic final class AuditLog {\n\n    /** Fair: a thread that waits for the lock gets it before a thread that asks later. */\n    private final ReentrantLock lock = new ReentrantLock(true);\n    private final List<String> entries = new ArrayList<>();\n\n    /** Appends one entry under the lock. */\n    public void record(String entry) {\n        throw new UnsupportedOperationException(\"write record\");\n    }\n\n    /** Records every entry through {@link #record}, holding the lock for the whole batch. */\n    public void recordAll(List<String> batch, Runnable afterEach) {\n        throw new UnsupportedOperationException(\"write recordAll\");\n    }\n\n    /** Every entry so far, joined by \",\". */\n    public String entries() {\n        throw new UnsupportedOperationException(\"write entries\");\n    }\n}\n",
+  "content_sha256": "991835d8b962ee1ff8847440210dda21cf2c5f4d799b0ced4149d2fa3e0a1fee",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.locks.Condition;\nimport java.util.concurrent.locks.ReentrantLock;\n\n/**\n * The loading dock of a warehouse. Trucks wait for a free bay; at night the yard manager closes\n * the gate once the last truck has left.\n */\npublic class LoadingDock {\n\n    final ReentrantLock lock = new ReentrantLock();\n    final Condition bayFree = lock.newCondition();\n    final Condition dockEmpty = lock.newCondition();\n    private final int bays;\n    private int occupied;\n\n    public LoadingDock(int bays) {\n        this.bays = bays;\n    }\n\n    /** A truck takes a bay, waiting until one is free. */\n    public void arrive() throws InterruptedException {\n        lock.lock();\n        try {\n            waitForBay();\n            occupied++;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** A truck gives its bay back. */\n    public void leave() {\n        lock.lock();\n        try {\n            occupied--;\n            announceLeave();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Returns once no truck is at the dock; the night close calls it before locking the gate. */\n    public void awaitEmpty() throws InterruptedException {\n        lock.lock();\n        try {\n            waitForEmpty();\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    public int occupied() {\n        lock.lock();\n        try {\n            return occupied;\n        } finally {\n            lock.unlock();\n        }\n    }\n\n    /** Called with the lock held: returns once this truck can take a bay. */\n    void waitForBay() throws InterruptedException {\n        // TODO: Return once this truck can take a bay; until then, wait without holding the dock.\n        throw new IllegalStateException(\"TODO: waitForBay\");\n    }\n\n    /** Called with the lock held, after a truck has left. */\n    void announceLeave() {\n        // TODO: Let whoever is waiting for what this departure changed know about it.\n        throw new IllegalStateException(\"TODO: announceLeave\");\n    }\n\n    /** Called with the lock held: returns once the dock is empty. */\n    void waitForEmpty() throws InterruptedException {\n        // TODO: Return once no truck is at the dock; until then, wait without holding the dock.\n        throw new IllegalStateException(\"TODO: waitForEmpty\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-3/src/main/java/practice/AuditLog.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-3/src/test/java/practice/AuditLogTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-3/src/main/java/practice/LoadingDock.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-01/practice-3/src/test/java/practice/LoadingDockTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,34 +111,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AuditLogTest#recordsABatchInOrder",
+        "id": "practice.LoadingDockTest#trucksTakeFreeBaysAndTheEmptyDockClosesAtOnce",
         "kind": "main",
-        "says": "A batch and a later single entry are all recorded, in order."
+        "says": "trucks take free bays without waiting, and the night close of an empty dock returns at once"
       },
       {
-        "id": "practice.AuditLogTest#batchIsNotInterleaved",
+        "id": "practice.LoadingDockTest#aTruckThatLosesTheBayToANewcomerWaitsForTheNextOne",
         "kind": "edge",
-        "says": "An entry another thread records while a batch runs waits, and lands after the whole batch."
+        "says": "a waiting truck that is woken but finds the bay taken by a newcomer goes on waiting, so the dock never holds more trucks than bays"
       },
       {
-        "id": "practice.AuditLogTest#lockIsFreeAfterBatch",
+        "id": "practice.LoadingDockTest#aTruckWaitingForABayGetsInWhenATruckLeaves",
         "kind": "edge",
-        "says": "After a batch the lock is fully released, so another thread can record at once."
+        "says": "a truck waiting for a bay gets in when another truck leaves"
       },
       {
-        "id": "practice.AuditLogTest#eachHookRunsAfterItsEntry",
+        "id": "practice.LoadingDockTest#theNightCloseGoesAheadWhenTheLastTruckLeaves",
         "kind": "edge",
-        "says": "afterEach runs after its entry is recorded: hooks reading the log see \"a\", then \"a,b\"."
+        "says": "the night close, waiting for the dock to empty, goes ahead when the last truck leaves"
       },
       {
-        "id": "practice.AuditLogTest#aFailingHookStillReleasesTheLock",
+        "id": "practice.LoadingDockTest#theNightCloseWokenWhileATruckIsStillInKeepsWaiting",
         "kind": "edge",
-        "says": "When afterEach throws, recordAll passes that exception on and the lock is fully released."
-      },
-      {
-        "id": "practice.AuditLogTest#theLockStaysFair",
-        "kind": "edge",
-        "says": "The lock is the fair ReentrantLock the starter gives, kept fair."
+        "says": "the night close, woken while a truck is still at the dock, goes on waiting"
       }
     ],
     "report": {
@@ -160,10 +142,11 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.1.md",
-      "section": "Key Points to Remember"
+      "section": "A Condition Gives Up the Lock While It Waits, So Check Again After await()"
     },
     "concepts": [
-      "A thread that holds a ReentrantLock can lock it again; the hold count must return to zero, one unlock per lock, before another thread can take it."
+      "A woken thread can find the state changed by another thread, or wake spuriously, so await() is called in a while loop over its condition.",
+      "Each change signals the condition the side that can now proceed waits on; signalling the wrong one leaves the waiter parked, and one shared condition needs signalAll()."
     ]
   }
 }

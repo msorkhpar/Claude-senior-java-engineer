@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 5,
   "ingested": "2026-09-24",
-  "title": "What start(), join() and sleep() guarantee",
+  "title": "Check yourself: starting and joining threads",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-join-visibility",
-        "stem": "Per this page, once `t.join()` has returned, which of thread `t`'s plain (non-volatile) writes is the joining thread sure to see?",
+        "id": "q-discount-next-line",
+        "stem": "A checkout handler starts a thread that computes the customer's discount into a field, and on the next line reads that field to build the response. In every test run so far the response included the discount. What can production responses look like?",
         "options": [
           {
             "id": "a",
-            "text": "Only its volatile writes, since plain ones may stay in a CPU cache",
+            "text": "No response will lack the discount, since run() has already begun by the time start() returns",
             "correct": false,
-            "says": "The page says all actions of the joined thread are visible after join() returns, with no volatile needed."
+            "says": "start() makes the thread runnable and returns; it doesn't wait for run() to begin"
           },
           {
             "id": "b",
-            "text": "All of its writes, since the JMM orders them before that return",
+            "text": "Some responses may lack the discount, since start() returns without waiting for run() to do anything",
             "correct": true,
-            "says": "The page says join() establishes happens-before: all actions in thread B are visible to A after A.join(B) returns."
+            "says": "nothing orders the new thread against the caller's next line, so the field may still be unset"
           },
           {
             "id": "c",
-            "text": "None of its writes, since only a shared lock orders two threads",
+            "text": "No response will lack the discount, since the test runs show the new thread winning that race in this code",
             "correct": false,
-            "says": "The page says start() and join() transfer data safely between threads without additional synchronization."
+            "says": "the order seen on one machine is a property of that machine; pinned to one core the other order came up in about one run in seven"
+          },
+          {
+            "id": "d",
+            "text": "Some responses may lack the discount, since start() runs the new thread only after the caller's method returns",
+            "correct": false,
+            "says": "start() makes the thread runnable at once; the scheduler may run it before, during or after the caller's next line"
           }
         ],
         "origin": {
           "path": "20-thread-basics/README_6.1.2.md",
-          "section": "Interview Q&A Section"
+          "section": "start() Doesn't Wait for the New Thread to Do Anything"
         }
       },
       {
-        "id": "q-sleep",
-        "stem": "Per this page, what does a thread give up while it is inside `Thread.sleep(millis)`?",
+        "id": "q-cli-virtual-upload",
+        "stem": "A command-line tool's main() parses its arguments, calls Thread.ofVirtual().start(() -> upload(file)) and returns. The upload takes about three seconds. What happens?",
         "options": [
           {
             "id": "a",
-            "text": "The CPU it was running on, and every monitor it holds",
+            "text": "The JVM can exit before the upload is done, since returning from main cancels the threads main started",
             "correct": false,
-            "says": "The page says sleep releases the CPU but not any held monitors."
+            "says": "returning from main cancels nothing; the JVM exiting is what ends the upload"
           },
           {
             "id": "b",
-            "text": "Every monitor it holds, but not the CPU it was running on",
+            "text": "The upload completes and then the JVM exits, since the JVM waits for the threads main started",
             "correct": false,
-            "says": "The page says sleep releases the CPU, and keeps the monitors."
+            "says": "the JVM waits only for non-daemon threads, and a virtual thread is a daemon thread"
           },
           {
             "id": "c",
-            "text": "The CPU it was running on, but none of the monitors it holds",
+            "text": "The upload completes and then the JVM exits, since a running virtual thread keeps the JVM alive",
+            "correct": false,
+            "says": "virtual threads are daemon threads, so they don't keep the JVM alive"
+          },
+          {
+            "id": "d",
+            "text": "The JVM can exit before the upload is done, since virtual threads are daemon threads",
             "correct": true,
-            "says": "The page says Thread.sleep pauses the current thread, releasing the CPU but not any held monitors."
+            "says": "a virtual thread is a daemon thread; once main returns and no non-daemon thread is left, the JVM exits"
           }
         ],
         "origin": {
           "path": "20-thread-basics/README_6.1.2.md",
-          "section": "Key Points to Remember"
+          "section": "start() Doesn't Wait for the New Thread to Do Anything"
+        }
+      },
+      {
+        "id": "q-loaded-flag",
+        "stem": "A loader thread fills a cache map and then sets a plain, non-volatile boolean loaded = true. A request thread waits with while (!loaded) { } and then reads the map. Nobody joins the loader, which finishes after 400 ms. What can happen to the request thread?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It may stay in the loop after the loader has finished, since nothing orders the loader's write before the request thread's reads",
+            "correct": true,
+            "says": "with no happens-before edge the JIT may read the field once and spin on that value forever"
+          },
+          {
+            "id": "b",
+            "text": "It may stay in the loop after the loader has finished, since its own loop keeps the loader from writing to the field it reads",
+            "correct": false,
+            "says": "reading a plain field blocks nobody; the loader's write happens, and what is missing is any rule that the reader will see it"
+          },
+          {
+            "id": "c",
+            "text": "It leaves the loop soon after the loader has finished, since a write to a boolean field is atomic",
+            "correct": false,
+            "says": "an atomic write is not a visible one; only a hand-over such as join(), isAlive() returning false, a volatile field or a latch makes it visible"
+          },
+          {
+            "id": "d",
+            "text": "It leaves the loop soon after the loader has finished, since a thread's writes are published to other threads when it terminates",
+            "correct": false,
+            "says": "termination makes the writes visible only to a thread that joins it or sees isAlive() return false"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.2.md",
+          "section": "Spot the Problem: A Done Flag Instead of join()"
+        }
+      },
+      {
+        "id": "q-shutdown-remaining-ms",
+        "stem": "A shutdown hook computes a deadline 5 seconds ahead, runs some cleanup, then calls exporter.join(TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())). The cleanup took 4,999.7 ms, and the exporter thread is stuck writing to a network share that is down. What does the hook do at the join?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It returns at once, since a timeout below one millisecond means no wait at all",
+            "correct": false,
+            "says": "the remaining 0.3 ms rounds down to join(0), and join(0) waits forever, by the javadoc"
+          },
+          {
+            "id": "b",
+            "text": "It waits for as long as the exporter runs, since the timeout it passes means no limit at all",
+            "correct": true,
+            "says": "0.3 ms rounds down to 0 ms, and a timeout of 0 means to wait forever"
+          },
+          {
+            "id": "c",
+            "text": "It returns at once, since a join whose timeout has run out throws and the hook moves on",
+            "correct": false,
+            "says": "join(millis) returns nothing and throws nothing when its time runs out; only a negative timeout throws"
+          },
+          {
+            "id": "d",
+            "text": "It waits for as long as the exporter runs, since a timed join returns early only when the joined thread is interrupted",
+            "correct": false,
+            "says": "a timed join returns when its time is up whether or not the thread is interrupted; the problem here is the timeout of 0"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.2.md",
+          "section": "join(millis) Returns Without Saying Why, So Ask isAlive()"
         }
       }
     ],
     "concepts": [
-      "Thread.sleep() pauses the current thread and gives up the CPU but keeps every monitor it holds.",
-      "join() makes every write of the joined thread visible to the joiner, as start() does for the parent's earlier writes, with no volatile or locks."
+      "start() and join() (or isAlive() returning false) are where a thread's data is handed over; a plain field polled while the thread runs carries no guarantee and its reader may spin forever.",
+      "start() returns before the new thread has run anything, so nothing the thread computes can be read on the caller's next line, and no order between the two threads holds after start().",
+      "A virtual thread is a daemon thread, so the JVM can exit before its work is done once main returns."
     ]
   }
 }

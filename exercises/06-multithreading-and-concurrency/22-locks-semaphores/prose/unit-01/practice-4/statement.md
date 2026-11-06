@@ -1,31 +1,12 @@
-One `ReentrantLock` can hand out **several** `Condition` objects, each with its
-own waiting threads: the page's `BoundedQueue` has `notFull` for putters and
-`notEmpty` for takers. `await()` releases the lock while it waits;
-`awaitNanos(n)` waits at most `n` nanoseconds and returns how many are left
-(zero or less once the time is up). The page's pitfall: signalling the wrong
-condition wakes nobody who can go on.
+The shop's checkout asks for a shipping rate on every basket, hundreds of times a second, and the
+rates change a few times a day. `RateCache` keeps them in memory behind a
+`ReentrantReadWriteLock`. The tariff job's `replace` is already written. What's missing is the
+read: answer from the cache, and on a zone that isn't cached yet, ask the slow rates service once,
+keep the answer and return it.
 
-Write `BoundedQueue<T>`, a first-in, first-out queue of at most `capacity`
-items, with one `ReentrantLock` and two conditions:
+Write `rateFor` in `src/main/java/practice/RateCache.java`. Checkouts must be able to read rates
+side by side without waiting for each other, and a miss must load the rate without stopping the
+cache. About twelve lines.
 
-- `void put(T item)` waits while the queue is full.
-- `T take()` waits while the queue is empty.
-- `T poll(long timeout, TimeUnit unit)` waits **at most** `timeout` for an
-  item and returns `null` if none came.
-- `int size()`.
-
-Wait in a `while` loop that checks the state again after every wake-up, and in `poll` wait only for the
-time that is left: a wake-up does not promise that the item is still there. The tests cannot force such a
-wake-up, so they grade the answers, the wake-ups below and the two conditions, not the loop itself.
-
-After a change, wake the side that can now go on: a put wakes a waiting taker,
-and every removal, by `take` **or** `poll`, wakes a waiting putter.
-
-| capacity | calls | answer |
-|---|---|---|
-| 2 | `put("a")`, `put("b")`, `size()`, `take()`, `take()` | `2`, `"a"`, `"b"` |
-| 2 | another thread waits in `take()`; `put("x")` | that `take()` returns `"x"` |
-| 1 | `put("a")`; another thread waits in `put("b")`; `take()` | `"a"`, and that `put` finishes |
-| 2 | `poll(100_000, MICROSECONDS)` on an empty queue | `null` after about 100 ms |
-| 2 | another thread waits in `poll(8, SECONDS)`; `put("z")` | that `poll` returns `"z"` |
-| 1 | `put("a")`; another thread waits in `put("b")`; `poll(1, SECONDS)` | `"a"`, and that `put` finishes |
+The tests make each call from a thread of their own, and hold the read lock themselves to stand in
+for a checkout that is in the middle of a read.

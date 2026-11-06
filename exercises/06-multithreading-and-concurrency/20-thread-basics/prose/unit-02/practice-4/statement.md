@@ -1,16 +1,12 @@
-An exception thrown out of a thread's `run()` ends **that** thread. It never
-reaches the thread that called `start()`: it goes to the thread's
-`UncaughtExceptionHandler`, and with none set it is only printed to `System.err`,
-"silently lost" from the application's point of view. The page's advice is to
-always set a handler.
+Each of the billing service's queues has one consumer, kept running by a `Supervisor` that a
+scheduler calls every five seconds. A consumer can die on a message it can't handle, and the
+supervisor is there to bring it back. Two incidents in one week: after the first refund in an
+unsupported currency, the refunds queue stopped for good and the scheduler logged an exception
+from `check()` every five seconds. And on a quiet Sunday the invoices queue had nine consumers,
+each taking messages from the same queue.
 
-Write `Crash.runAndReport(String name, Runnable task)`. Run `task` on a new thread
-named `name`, wait for that thread to finish, and return what it threw as
-`"<thread name>: <message>"`, or `null` if it finished normally. Anything the task
-throws counts, `Error`s included.
+Finish `check()` in `src/main/java/practice/Supervisor.java`. `newWorker()` builds a thread for the
+consumer with the right name.
 
-| task | result |
-|---|---|
-| `() -> { throw new RuntimeException("disk full"); }`, name `importer` | `"importer: disk full"` |
-| `() -> { }`, name `quiet` | `null` |
-| `() -> { throw new AssertionError("invariant broken"); }`, name `checker` | `"checker: invariant broken"` |
+When you're done, the first check starts the consumer, a consumer that died is working again
+after the next check, and a queue never has more than one consumer. About four lines.

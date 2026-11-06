@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Put a thread into each of the six states",
+  "title": "Tell stuck requests from idle workers in a thread snapshot",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,26 @@
     },
     {
       "type": "para",
-      "text": "The page lists exactly six `Thread.State` values and what triggers each: `start()` makes a `NEW` thread `RUNNABLE`; trying to enter a `synchronized` block that another thread holds makes it `BLOCKED`; waiting with no timeout (`wait()`, `join()`, `park()`) makes it `WAITING`, and waiting with one (`sleep(ms)`, `wait(ms)`, `await(time, unit)`) makes it `TIMED_WAITING`; when `run()` ends it is `TERMINATED`. And a thread waiting for a `ReentrantLock` is `WAITING`, not `BLOCKED`, because the lock parks it."
+      "text": "The payments service has an admin page that sorts the JVM's threads into three groups: **active**, **idle**, and **stuck behind another thread**. During the last incident it showed 0 stuck, while every payment request was waiting for one thread to finish, and on-call restarted the service without looking further. On a quiet night, it must not call the idle mailer workers stuck either."
     },
     {
       "type": "para",
-      "text": "Write `States.enter(Thread.State state, Object monitor, ReentrantLock lock, CountDownLatch done)`. It returns a daemon thread that is in `state` (or soon gets there) and stays in it until the test lets it go:"
+      "text": "The page reads a snapshot from `ThreadMXBean.getThreadInfo(...)`, and `ThreadTriage` already counts and groups the threads. Finish the `TODO` in `src/main/java/practice/ThreadTriage.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "`state`",
-        "the thread you return"
-      ],
-      "rows": [
-        [
-          "`NEW`",
-          "is not started"
-        ],
-        [
-          "`RUNNABLE`",
-          "is started and keeps working until `done` reaches zero"
-        ],
-        [
-          "`BLOCKED`",
-          "is started and tries to enter `synchronized (monitor)`; the test holds `monitor`"
-        ],
-        [
-          "`WAITING`",
-          "is started and tries to take `lock`; the test holds `lock`"
-        ],
-        [
-          "`TIMED_WAITING`",
-          "is started and waits on `done` for at most one minute"
-        ],
-        [
-          "`TERMINATED`",
-          "has been started and has finished before `enter` returns"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`classify(ThreadInfo thread)`: which of the three activities this thread is in."
       ]
     },
     {
       "type": "para",
-      "text": "The test counts `done` down and releases `monitor` and `lock` when it has seen the state; each started thread must then finish."
+      "text": "A thread is stuck behind another when it can't go on until another thread lets go of something it holds; `stuckBehind` then reports it under that thread's name. About three lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests start real threads, put each one somewhere (computing, in a lock, in a queue, in a sleep) and hand your method the snapshot `ThreadMXBean` takes of them."
     },
     {
       "type": "heading",
@@ -75,7 +53,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.locks.ReentrantLock;\n\npublic final class States {\n\n    private States() {\n    }\n\n    /** Returns a daemon thread that is in {@code state}, or soon will be, until the test lets it go. */\n    public static Thread enter(Thread.State state, Object monitor, ReentrantLock lock, CountDownLatch done)\n            throws InterruptedException {\n        Runnable body = switch (state) {\n            case NEW, TERMINATED -> () -> { };\n            case RUNNABLE -> () -> {\n                while (done.getCount() > 0) {\n                    Thread.onSpinWait();\n                }\n            };\n            case BLOCKED -> () -> {\n                synchronized (monitor) {\n                    done.countDown();\n                }\n            };\n            case WAITING -> () -> {\n                lock.lock();\n                lock.unlock();\n            };\n            case TIMED_WAITING -> () -> {\n                try {\n                    done.await(1, TimeUnit.MINUTES);\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            };\n        };\n        Thread thread = new Thread(body);\n        thread.setDaemon(true);\n        if (state != Thread.State.NEW) {\n            thread.start();\n        }\n        if (state == Thread.State.TERMINATED) {\n            thread.join();\n        }\n        return thread;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.management.ThreadInfo;\nimport java.util.EnumMap;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Sorts the threads of a snapshot for the service's admin page, so that on-call can tell at a\n * glance whether requests are stuck behind another thread or simply have nothing to do.\n */\npublic class ThreadTriage {\n\n    public enum Activity {\n        /** Doing something of its own: computing, or inside a call such as a socket read. */\n        ACTIVE,\n        /** Waiting for work or for time to pass, with no other thread in its way. */\n        IDLE,\n        /** Can't go on until another thread lets go of something it holds. */\n        STUCK_BEHIND_ANOTHER\n    }\n\n    /** How many threads of the snapshot are in each activity; every activity is a key. */\n    public static Map<Activity, Integer> summary(ThreadInfo[] snapshot) {\n        Map<Activity, Integer> counts = new EnumMap<>(Activity.class);\n        for (Activity activity : Activity.values()) counts.put(activity, 0);\n        for (ThreadInfo thread : snapshot) counts.merge(classify(thread), 1, Integer::sum);\n        return counts;\n    }\n\n    /** For each thread that others are stuck behind, how many are stuck behind it, by thread name. */\n    public static Map<String, Integer> stuckBehind(ThreadInfo[] snapshot) {\n        Map<String, Integer> behind = new TreeMap<>();\n        for (ThreadInfo thread : snapshot) {\n            if (classify(thread) == Activity.STUCK_BEHIND_ANOTHER) {\n                behind.merge(thread.getLockOwnerName(), 1, Integer::sum);\n            }\n        }\n        return behind;\n    }\n\n    /** The activity of one thread of a snapshot taken with ThreadMXBean. */\n    static Activity classify(ThreadInfo thread) {\n        if (thread.getLockOwnerId() != -1) return Activity.STUCK_BEHIND_ANOTHER;\n        return thread.getThreadState() == Thread.State.RUNNABLE ? Activity.ACTIVE : Activity.IDLE;\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +65,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.locks.ReentrantLock;\n\npublic final class States {\n\n    private States() {\n    }\n\n    /** Returns a daemon thread that is in {@code state}, or soon will be, until the test lets it go. */\n    public static Thread enter(Thread.State state, Object monitor, ReentrantLock lock, CountDownLatch done)\n            throws InterruptedException {\n        throw new UnsupportedOperationException(\"write enter\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.management.ThreadInfo;\nimport java.util.EnumMap;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Sorts the threads of a snapshot for the service's admin page, so that on-call can tell at a\n * glance whether requests are stuck behind another thread or simply have nothing to do.\n */\npublic class ThreadTriage {\n\n    public enum Activity {\n        /** Doing something of its own: computing, or inside a call such as a socket read. */\n        ACTIVE,\n        /** Waiting for work or for time to pass, with no other thread in its way. */\n        IDLE,\n        /** Can't go on until another thread lets go of something it holds. */\n        STUCK_BEHIND_ANOTHER\n    }\n\n    /** How many threads of the snapshot are in each activity; every activity is a key. */\n    public static Map<Activity, Integer> summary(ThreadInfo[] snapshot) {\n        Map<Activity, Integer> counts = new EnumMap<>(Activity.class);\n        for (Activity activity : Activity.values()) counts.put(activity, 0);\n        for (ThreadInfo thread : snapshot) counts.merge(classify(thread), 1, Integer::sum);\n        return counts;\n    }\n\n    /** For each thread that others are stuck behind, how many are stuck behind it, by thread name. */\n    public static Map<String, Integer> stuckBehind(ThreadInfo[] snapshot) {\n        Map<String, Integer> behind = new TreeMap<>();\n        for (ThreadInfo thread : snapshot) {\n            if (classify(thread) == Activity.STUCK_BEHIND_ANOTHER) {\n                behind.merge(thread.getLockOwnerName(), 1, Integer::sum);\n            }\n        }\n        return behind;\n    }\n\n    /** The activity of one thread of a snapshot taken with ThreadMXBean. */\n    static Activity classify(ThreadInfo thread) {\n        // TODO: Decide which of the three activities this thread is in. The last incident's\n        //       summary said \"nobody is stuck\" while 191 requests were stuck behind one thread,\n        //       and the next summary must not make the same mistake, nor call idle workers stuck.\n        throw new IllegalStateException(\"TODO: classify\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +73,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +84,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2499c57181b3f502371bf279dae05ef140fc329c609ee679dba3401fca87165a",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.locks.ReentrantLock;\n\npublic final class States {\n\n    private States() {\n    }\n\n    /** Returns a daemon thread that is in {@code state}, or soon will be, until the test lets it go. */\n    public static Thread enter(Thread.State state, Object monitor, ReentrantLock lock, CountDownLatch done)\n            throws InterruptedException {\n        throw new UnsupportedOperationException(\"write enter\");\n    }\n}\n",
+  "content_sha256": "19858c45321b372924a0817c8151dce8ae6d8ce4950b95920340c75279a56708",
+  "starting_code": "package practice;\n\nimport java.lang.management.ThreadInfo;\nimport java.util.EnumMap;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Sorts the threads of a snapshot for the service's admin page, so that on-call can tell at a\n * glance whether requests are stuck behind another thread or simply have nothing to do.\n */\npublic class ThreadTriage {\n\n    public enum Activity {\n        /** Doing something of its own: computing, or inside a call such as a socket read. */\n        ACTIVE,\n        /** Waiting for work or for time to pass, with no other thread in its way. */\n        IDLE,\n        /** Can't go on until another thread lets go of something it holds. */\n        STUCK_BEHIND_ANOTHER\n    }\n\n    /** How many threads of the snapshot are in each activity; every activity is a key. */\n    public static Map<Activity, Integer> summary(ThreadInfo[] snapshot) {\n        Map<Activity, Integer> counts = new EnumMap<>(Activity.class);\n        for (Activity activity : Activity.values()) counts.put(activity, 0);\n        for (ThreadInfo thread : snapshot) counts.merge(classify(thread), 1, Integer::sum);\n        return counts;\n    }\n\n    /** For each thread that others are stuck behind, how many are stuck behind it, by thread name. */\n    public static Map<String, Integer> stuckBehind(ThreadInfo[] snapshot) {\n        Map<String, Integer> behind = new TreeMap<>();\n        for (ThreadInfo thread : snapshot) {\n            if (classify(thread) == Activity.STUCK_BEHIND_ANOTHER) {\n                behind.merge(thread.getLockOwnerName(), 1, Integer::sum);\n            }\n        }\n        return behind;\n    }\n\n    /** The activity of one thread of a snapshot taken with ThreadMXBean. */\n    static Activity classify(ThreadInfo thread) {\n        // TODO: Decide which of the three activities this thread is in. The last incident's\n        //       summary said \"nobody is stuck\" while 191 requests were stuck behind one thread,\n        //       and the next summary must not make the same mistake, nor call idle workers stuck.\n        throw new IllegalStateException(\"TODO: classify\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-1/src/main/java/practice/States.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-1/src/test/java/practice/StatesTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-1/src/main/java/practice/ThreadTriage.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-1/src/test/java/practice/ThreadTriageTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +109,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.StatesTest#newRunnableAndTerminated",
+        "id": "practice.ThreadTriageTest#sortsAPileUpOnASynchronizedLedgerAndTheThreadsAroundIt",
         "kind": "main",
-        "says": "The thread is NEW before start(), RUNNABLE while it works, and TERMINATED once run() has ended."
+        "says": "threads queued to enter a synchronized block are stuck behind the thread inside it, which is active, and a sleeping thread is idle"
       },
       {
-        "id": "practice.StatesTest#blockedMeansWaitingForAMonitor",
+        "id": "practice.ThreadTriageTest#requestsWaitingForAnExplicitLockAreStuckBehindItsHolder",
         "kind": "edge",
-        "says": "A thread trying to enter a synchronized block whose monitor another thread holds is BLOCKED."
+        "says": "threads waiting for a ReentrantLock are stuck behind the thread that holds it"
       },
       {
-        "id": "practice.StatesTest#waitingForAReentrantLockIsWaiting",
+        "id": "practice.ThreadTriageTest#workersWaitingForJobsAreIdle",
         "kind": "edge",
-        "says": "A thread waiting to acquire a ReentrantLock that another thread holds is WAITING, not BLOCKED."
+        "says": "workers waiting in a queue or on a latch are idle, not stuck"
       },
       {
-        "id": "practice.StatesTest#aWaitWithATimeoutIsTimedWaiting",
+        "id": "practice.ThreadTriageTest#aRequestThatWillGiveUpAfterATimeoutIsStuckUntilThen",
         "kind": "edge",
-        "says": "A thread in a wait that has a timeout is TIMED_WAITING, not WAITING."
+        "says": "a thread waiting for a lock with a timeout is stuck behind the holder while it waits"
       }
     ],
     "report": {
@@ -157,12 +135,12 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.4.md",
-      "section": "What Triggers Each State Transition"
+      "section": "BLOCKED Means Waiting for a synchronized Monitor; a Thread Waiting for a ReentrantLock Is WAITING"
     },
     "concepts": [
-      "BLOCKED is only for waiting on a synchronized monitor; a thread waiting for a ReentrantLock is parked and shows WAITING.",
-      "A thread is in exactly one of six Thread.State values, each entered by a named trigger.",
-      "WAITING and TIMED_WAITING differ only in whether the wait has a timeout."
+      "BLOCKED means waiting to enter or re-enter a synchronized monitor; a thread waiting for a ReentrantLock, a semaphore, a latch or a queue is parked and shows WAITING or TIMED_WAITING.",
+      "Whether a waiting thread is stuck behind another is told by what it waits for and who holds it, not by its state: an idle worker in take() and a request parked on a held ReentrantLock are both WAITING.",
+      "WAITING and TIMED_WAITING differ only in whether the wait has a timeout; neither says whether the thread is in another thread's way or holds a lock."
     ]
   }
 }

@@ -1,17 +1,13 @@
-`start()` is legal only on a thread in the `NEW` state. A thread that is running,
-or has already finished (`TERMINATED`), throws `IllegalThreadStateException` when
-started again: a `Thread` object is one execution, a one-way trip from `NEW` to
-`TERMINATED`. The page's fix is a **new** `Thread` instance.
+The price-comparison page asks three to five parts suppliers for a quote and shows them side by
+side. Each supplier's API takes between half a second and two seconds to answer. Two complaints
+came in: the page takes as long as all the suppliers added together, and now and then it shows a
+supplier with no price at all, although the supplier's logs show it answered.
 
-Write `Keeper.ensureStarted(Thread thread, Runnable job)`. `thread` was created for
-`job`. Return the thread that is running, or has just been started to run, the job:
+Finish `askAll(...)` in `src/main/java/practice/QuoteRound.java`. `askerFor(...)` already builds
+the thread that asks one supplier and records its price.
 
-- `thread` never started: start it and return it;
-- `thread` still running: return it unchanged, and start nothing;
-- `thread` finished: start a **new** thread with the same name for `job`, and return that.
+When you're done, a round takes about as long as its slowest supplier, and the page never renders
+before every price is recorded. About six lines.
 
-| `thread` | result |
-|---|---|
-| `new Thread(job, "report-1")`, never started | the same thread, now started |
-| running | the same thread; nothing new runs |
-| finished | a different, started thread named like the old one |
+The tests use suppliers that answer on cue, so they can hold one back and check what `askAll`
+does in the meantime.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Take several permits or none",
+  "title": "Share the GPU's encoder sessions between 1080p and 4K jobs",
   "blocks": [
     {
       "type": "heading",
@@ -19,55 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`acquire(n)` is not `n` calls to `acquire()`. The page: it waits until all `n` permits are free **at the same moment** and takes them together, so a waiting thread never sits on a partial set that another thread needs; and it is either fully acquired or not at all, even when interrupted. `tryAcquire(n)` is the same without waiting. The page's `MultiPermitExample` shows the risky one-at-a-time version."
+      "text": "The transcoding service shares one GPU between jobs. The GPU runs five hardware encoder sessions at once: a 1080p job needs one, and a 4K job needs four. Three problems are in the backlog. On the night two 4K jobs arrived together, both stalled until someone restarted the service. The \"try now, else requeue\" path sometimes leaves the GPU with fewer free sessions than its gauge should show. And on busy days a 4K job can sit for an hour while 1080p jobs that arrived after it keep getting sessions."
     },
     {
       "type": "para",
-      "text": "Write `Leases`, which hands out I/O buffers from a fixed stock, backed by a `Semaphore`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`void lease(int n)` waits until `n` buffers are free and takes them all at once. A caller interrupted while it waits leaves with `InterruptedException` and holds nothing.",
-        "`boolean tryLease(int n)` takes `n` buffers only if all `n` are free right now, and otherwise takes **none** and returns `false`.",
-        "`void giveBack(int n)` returns `n` buffers.",
-        "`int available()` is the number of free buffers."
-      ]
+      "text": "Finish the three `TODO`s in `src/main/java/practice/EncoderSessions.java`: `newSessions(...)`, `reserve(...)` and `tryReserve(...)`. When you're done, a job gets all the sessions it asked for or none of them, whether it waits, is refused, or is cancelled while waiting; and a waiting 4K job is not passed by 1080p jobs that arrive after it. About three lines in total."
     },
     {
       "type": "para",
-      "text": "The tests never race two callers against each other inside `tryLease`, so a check followed by a separate take, or taking permits one by one and handing them back on failure, gives the same answers here. Both are the page's pitfalls under contention; the single `tryAcquire(n)` is the answer it teaches."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "stock",
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "4",
-          "`lease(3)`, `available()`, `giveBack(3)`, `tryLease(2)`, `available()`",
-          "`1`, `true`, `2`"
-        ],
-        [
-          "4",
-          "`lease(2)`; another thread's `lease(3)` waits; `available()`",
-          "`2` (the waiter holds none)"
-        ],
-        [
-          "4",
-          "`lease(2)`, `tryLease(3)`, `available()`",
-          "`false`, `2`"
-        ],
-        [
-          "4",
-          "`lease(2)`; another thread waits in `lease(3)` and is interrupted",
-          "it throws `InterruptedException`; `available()` is `2`"
-        ]
-      ]
+      "text": "The tests run jobs on real threads and cancel them through their `Future`, which interrupts them."
     },
     {
       "type": "heading",
@@ -82,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/** A fixed stock of buffers, leased several at a time. */\npublic final class Leases {\n\n    private final Semaphore buffers;\n\n    public Leases(int buffers) {\n        this.buffers = new Semaphore(buffers);\n    }\n\n    /** Waits until {@code n} buffers are free, then takes them all at once. */\n    public void lease(int n) throws InterruptedException {\n        buffers.acquire(n);\n    }\n\n    /** Takes {@code n} buffers only if all are free now; otherwise takes none. */\n    public boolean tryLease(int n) {\n        return buffers.tryAcquire(n);\n    }\n\n    /** Returns {@code n} buffers. */\n    public void giveBack(int n) {\n        buffers.release(n);\n    }\n\n    /** The number of free buffers. */\n    public int available() {\n        return buffers.availablePermits();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/**\n * Hands out the GPU's hardware encoder sessions to transcoding jobs. The GPU runs a fixed number\n * of sessions at once; a 1080p job uses one, a 4K job several.\n */\npublic class EncoderSessions {\n\n    private final Semaphore sessions;\n\n    public EncoderSessions(int sessions) {\n        this.sessions = newSessions(sessions);\n    }\n\n    /** Creates the semaphore whose permits are the GPU's sessions. */\n    Semaphore newSessions(int count) {\n        return new Semaphore(count, true);\n    }\n\n    /** Waits until {@code n} sessions are free, and takes them for one job. */\n    public void reserve(int n) throws InterruptedException {\n        sessions.acquire(n);\n    }\n\n    /** Takes {@code n} sessions if the job can have them right now; false otherwise. */\n    public boolean tryReserve(int n) {\n        return sessions.tryAcquire(n);\n    }\n\n    /** Returns the {@code n} sessions a finished job reserved. */\n    public void giveBack(int n) {\n        sessions.release(n);\n    }\n\n    /** Sessions free right now, for the transcoder's gauge. */\n    public int free() {\n        return sessions.availablePermits();\n    }\n\n    /** Jobs waiting for sessions right now, for the transcoder's gauge. */\n    int waitingJobs() {\n        return sessions.getQueueLength();\n    }\n}\n"
         }
       ]
     },
@@ -94,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\n/** A fixed stock of buffers, leased several at a time. */\npublic final class Leases {\n\n    public Leases(int buffers) {\n    }\n\n    /** Waits until {@code n} buffers are free, then takes them all at once. */\n    public void lease(int n) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write lease\");\n    }\n\n    /** Takes {@code n} buffers only if all are free now; otherwise takes none. */\n    public boolean tryLease(int n) {\n        throw new UnsupportedOperationException(\"write tryLease\");\n    }\n\n    /** Returns {@code n} buffers. */\n    public void giveBack(int n) {\n        throw new UnsupportedOperationException(\"write giveBack\");\n    }\n\n    /** The number of free buffers. */\n    public int available() {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/**\n * Hands out the GPU's hardware encoder sessions to transcoding jobs. The GPU runs a fixed number\n * of sessions at once; a 1080p job uses one, a 4K job several.\n */\npublic class EncoderSessions {\n\n    private final Semaphore sessions;\n\n    public EncoderSessions(int sessions) {\n        this.sessions = newSessions(sessions);\n    }\n\n    /** Creates the semaphore whose permits are the GPU's sessions. */\n    Semaphore newSessions(int count) {\n        // TODO: Jobs of different sizes share these sessions, and a 4K job that is waiting must\n        //       not be passed over again and again by 1080p jobs that arrive after it.\n        throw new IllegalStateException(\"TODO: newSessions\");\n    }\n\n    /** Waits until {@code n} sessions are free, and takes them for one job. */\n    public void reserve(int n) throws InterruptedException {\n        // TODO: Return once the job has its n sessions. While it waits, it must not keep sessions\n        //       other jobs could use, and a job cancelled while waiting leaves at once, holding none.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n\n    /** Takes {@code n} sessions if the job can have them right now; false otherwise. */\n    public boolean tryReserve(int n) {\n        // TODO: The job either gets all n sessions now, or none of them.\n        throw new IllegalStateException(\"TODO: tryReserve\");\n    }\n\n    /** Returns the {@code n} sessions a finished job reserved. */\n    public void giveBack(int n) {\n        sessions.release(n);\n    }\n\n    /** Sessions free right now, for the transcoder's gauge. */\n    public int free() {\n        return sessions.availablePermits();\n    }\n\n    /** Jobs waiting for sessions right now, for the transcoder's gauge. */\n    int waitingJobs() {\n        return sessions.getQueueLength();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -104,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -113,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "acc00ba1cf67671c69e111a91b146cf2de1855b4d2e0ee2cda033dbfb3d8289e",
-  "starting_code": "package practice;\n\n/** A fixed stock of buffers, leased several at a time. */\npublic final class Leases {\n\n    public Leases(int buffers) {\n    }\n\n    /** Waits until {@code n} buffers are free, then takes them all at once. */\n    public void lease(int n) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write lease\");\n    }\n\n    /** Takes {@code n} buffers only if all are free now; otherwise takes none. */\n    public boolean tryLease(int n) {\n        throw new UnsupportedOperationException(\"write tryLease\");\n    }\n\n    /** Returns {@code n} buffers. */\n    public void giveBack(int n) {\n        throw new UnsupportedOperationException(\"write giveBack\");\n    }\n\n    /** The number of free buffers. */\n    public int available() {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n}\n",
+  "content_sha256": "ea700b78d4eee8b1e3116800dc9cb99559d20fde82c073b4e3741024be1080f8",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.Semaphore;\n\n/**\n * Hands out the GPU's hardware encoder sessions to transcoding jobs. The GPU runs a fixed number\n * of sessions at once; a 1080p job uses one, a 4K job several.\n */\npublic class EncoderSessions {\n\n    private final Semaphore sessions;\n\n    public EncoderSessions(int sessions) {\n        this.sessions = newSessions(sessions);\n    }\n\n    /** Creates the semaphore whose permits are the GPU's sessions. */\n    Semaphore newSessions(int count) {\n        // TODO: Jobs of different sizes share these sessions, and a 4K job that is waiting must\n        //       not be passed over again and again by 1080p jobs that arrive after it.\n        throw new IllegalStateException(\"TODO: newSessions\");\n    }\n\n    /** Waits until {@code n} sessions are free, and takes them for one job. */\n    public void reserve(int n) throws InterruptedException {\n        // TODO: Return once the job has its n sessions. While it waits, it must not keep sessions\n        //       other jobs could use, and a job cancelled while waiting leaves at once, holding none.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n\n    /** Takes {@code n} sessions if the job can have them right now; false otherwise. */\n    public boolean tryReserve(int n) {\n        // TODO: The job either gets all n sessions now, or none of them.\n        throw new IllegalStateException(\"TODO: tryReserve\");\n    }\n\n    /** Returns the {@code n} sessions a finished job reserved. */\n    public void giveBack(int n) {\n        sessions.release(n);\n    }\n\n    /** Sessions free right now, for the transcoder's gauge. */\n    public int free() {\n        return sessions.availablePermits();\n    }\n\n    /** Jobs waiting for sessions right now, for the transcoder's gauge. */\n    int waitingJobs() {\n        return sessions.getQueueLength();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/main/java/practice/Leases.java",
-    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/test/java/practice/LeasesTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/main/java/practice/EncoderSessions.java",
+    "test_path": "practice/06-multithreading-and-concurrency/22-locks-semaphores/prose/unit-02/practice-3/src/test/java/practice/EncoderSessionsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -138,24 +98,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LeasesTest#leaseAndGiveBack",
+        "id": "practice.EncoderSessionsTest#jobsReserveAndGiveBackSessions",
         "kind": "main",
-        "says": "Leasing and giving back several buffers moves the free count down and up by that many."
+        "says": "a job that can have its sessions now gets them, and sessions given back can be reserved again"
       },
       {
-        "id": "practice.LeasesTest#waitingLeaseHoldsNothing",
-        "kind": "edge",
-        "says": "A lease that waits for more buffers than are free holds none of them while it waits."
+        "id": "practice.EncoderSessionsTest#aJobWaitsUntilItsSessionsAreFree",
+        "kind": "main",
+        "says": "a job that needs more sessions than are free waits, and gets them once enough are given back"
       },
       {
-        "id": "practice.LeasesTest#failedTryLeaseTakesNothing",
+        "id": "practice.EncoderSessionsTest#aWaitingJobKeepsNoSessionsOthersCouldUse",
         "kind": "edge",
-        "says": "A tryLease that cannot get every buffer it asked for takes none and returns false."
+        "says": "a job waiting for several sessions holds none of them while it waits"
       },
       {
-        "id": "practice.LeasesTest#interruptedLeaseThrows",
+        "id": "practice.EncoderSessionsTest#aRefusedJobTakesNoSessions",
         "kind": "edge",
-        "says": "A lease interrupted while it waits leaves with InterruptedException and takes nothing."
+        "says": "a job that cannot have all its sessions now is refused and takes none of them"
+      },
+      {
+        "id": "practice.EncoderSessionsTest#aJobCancelledWhileWaitingLeavesAtOnceHoldingNothing",
+        "kind": "edge",
+        "says": "a job cancelled while it waits for sessions stops waiting at once and holds none"
+      },
+      {
+        "id": "practice.EncoderSessionsTest#laterSmallJobsDoNotPassAWaitingLargeOne",
+        "kind": "edge",
+        "says": "a 1-session job that arrives while a larger job waits does not take a session ahead of it"
       }
     ],
     "report": {
@@ -164,11 +134,11 @@
     },
     "origin": {
       "path": "22-locks-semaphores/README_6.3.2.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "acquire(n) Takes All n Permits at Once or None"
     },
     "concepts": [
-      "acquire(n) and tryAcquire(n) take all n permits together or none, so a waiter never holds a partial set that others need.",
-      "An InterruptedException from acquire is passed on or the interrupt flag restored, never swallowed, and the interrupted acquire holds nothing."
+      "acquire(n) and tryAcquire(n) take all n permits together or none, including when interrupted, so a waiting job never holds part of what another needs.",
+      "On a non-fair semaphore a waiting acquire(n) can be overtaken by smaller requests; a fair one queues them behind it."
     ]
   }
 }

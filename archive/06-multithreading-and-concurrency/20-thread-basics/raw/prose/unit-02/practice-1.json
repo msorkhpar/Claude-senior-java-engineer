@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Keep a job running without starting a thread twice",
+  "title": "Ask every supplier at once, and wait for every price",
   "blocks": [
     {
       "type": "heading",
@@ -19,41 +19,19 @@
     },
     {
       "type": "para",
-      "text": "`start()` is legal only on a thread in the `NEW` state. A thread that is running, or has already finished (`TERMINATED`), throws `IllegalThreadStateException` when started again: a `Thread` object is one execution, a one-way trip from `NEW` to `TERMINATED`. The page's fix is a **new** `Thread` instance."
+      "text": "The price-comparison page asks three to five parts suppliers for a quote and shows them side by side. Each supplier's API takes between half a second and two seconds to answer. Two complaints came in: the page takes as long as all the suppliers added together, and now and then it shows a supplier with no price at all, although the supplier's logs show it answered."
     },
     {
       "type": "para",
-      "text": "Write `Keeper.ensureStarted(Thread thread, Runnable job)`. `thread` was created for `job`. Return the thread that is running, or has just been started to run, the job:"
+      "text": "Finish `askAll(...)` in `src/main/java/practice/QuoteRound.java`. `askerFor(...)` already builds the thread that asks one supplier and records its price."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`thread` never started: start it and return it;",
-        "`thread` still running: return it unchanged, and start nothing;",
-        "`thread` finished: start a **new** thread with the same name for `job`, and return that."
-      ]
+      "type": "para",
+      "text": "When you're done, a round takes about as long as its slowest supplier, and the page never renders before every price is recorded. About six lines."
     },
     {
-      "type": "table",
-      "headers": [
-        "`thread`",
-        "result"
-      ],
-      "rows": [
-        [
-          "`new Thread(job, \"report-1\")`, never started",
-          "the same thread, now started"
-        ],
-        [
-          "running",
-          "the same thread; nothing new runs"
-        ],
-        [
-          "finished",
-          "a different, started thread named like the old one"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests use suppliers that answer on cue, so they can hold one back and check what `askAll` does in the meantime."
     },
     {
       "type": "heading",
@@ -68,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Keeper {\n\n    private Keeper() {\n    }\n\n    /** Returns the thread running {@code job}: starts {@code thread} if it is new, replaces it if it has finished. */\n    public static Thread ensureStarted(Thread thread, Runnable job) {\n        switch (thread.getState()) {\n            case NEW -> {\n                thread.start();\n                return thread;\n            }\n            case TERMINATED -> {\n                Thread replacement = new Thread(job, thread.getName());\n                replacement.start();\n                return replacement;\n            }\n            default -> {\n                return thread;\n            }\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Asks suppliers for a price, each on its own thread, for the price-comparison page. The page\n * renders the quotes as soon as askAll returns.\n */\npublic class QuoteRound {\n\n    /** Asks one supplier for a price; blocks for as long as the supplier takes to answer. */\n    public interface PriceDesk {\n        int quote(String supplier);\n    }\n\n    /** Receives each supplier's price. Called on the thread that asked that supplier. */\n    public interface Quotes {\n        void record(String supplier, int cents);\n    }\n\n    private final PriceDesk desk;\n\n    public QuoteRound(PriceDesk desk) {\n        this.desk = desk;\n    }\n\n    /** Asks every supplier and returns once every supplier's price has been recorded. */\n    public void askAll(List<String> suppliers, Quotes quotes) throws InterruptedException {\n        List<Thread> askers = new ArrayList<>();\n        for (String supplier : suppliers) {\n            Thread asker = askerFor(supplier, quotes);\n            asker.start();\n            askers.add(asker);\n        }\n        for (Thread asker : askers) {\n            asker.join();\n        }\n    }\n\n    /** A thread, not started yet, that asks one supplier and records its price. */\n    Thread askerFor(String supplier, Quotes quotes) {\n        return new Thread(() -> quotes.record(supplier, desk.quote(supplier)), \"quote-\" + supplier);\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Keeper {\n\n    private Keeper() {\n    }\n\n    /** Returns the thread running {@code job}: starts {@code thread} if it is new, replaces it if it has finished. */\n    public static Thread ensureStarted(Thread thread, Runnable job) {\n        throw new UnsupportedOperationException(\"write ensureStarted\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Asks suppliers for a price, each on its own thread, for the price-comparison page. The page\n * renders the quotes as soon as askAll returns.\n */\npublic class QuoteRound {\n\n    /** Asks one supplier for a price; blocks for as long as the supplier takes to answer. */\n    public interface PriceDesk {\n        int quote(String supplier);\n    }\n\n    /** Receives each supplier's price. Called on the thread that asked that supplier. */\n    public interface Quotes {\n        void record(String supplier, int cents);\n    }\n\n    private final PriceDesk desk;\n\n    public QuoteRound(PriceDesk desk) {\n        this.desk = desk;\n    }\n\n    /** Asks every supplier and returns once every supplier's price has been recorded. */\n    public void askAll(List<String> suppliers, Quotes quotes) throws InterruptedException {\n        // TODO: Ask each supplier on its own thread (askerFor builds that thread). The page should\n        //       take about as long as the slowest supplier, not the sum of them all, and when this\n        //       method returns, every supplier's price must already be in quotes.\n        throw new IllegalStateException(\"TODO: askAll\");\n    }\n\n    /** A thread, not started yet, that asks one supplier and records its price. */\n    Thread askerFor(String supplier, Quotes quotes) {\n        return new Thread(() -> quotes.record(supplier, desk.quote(supplier)), \"quote-\" + supplier);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -99,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d33968e784e031440ca2f8bae7c178712cd7ef7a75c041230c0c23291ea72bd1",
-  "starting_code": "package practice;\n\npublic final class Keeper {\n\n    private Keeper() {\n    }\n\n    /** Returns the thread running {@code job}: starts {@code thread} if it is new, replaces it if it has finished. */\n    public static Thread ensureStarted(Thread thread, Runnable job) {\n        throw new UnsupportedOperationException(\"write ensureStarted\");\n    }\n}\n",
+  "content_sha256": "c6514ccdb3c6ceaa6e13f6baebc52fce4c502bb2b6f6dc478669138ee29d54e5",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Asks suppliers for a price, each on its own thread, for the price-comparison page. The page\n * renders the quotes as soon as askAll returns.\n */\npublic class QuoteRound {\n\n    /** Asks one supplier for a price; blocks for as long as the supplier takes to answer. */\n    public interface PriceDesk {\n        int quote(String supplier);\n    }\n\n    /** Receives each supplier's price. Called on the thread that asked that supplier. */\n    public interface Quotes {\n        void record(String supplier, int cents);\n    }\n\n    private final PriceDesk desk;\n\n    public QuoteRound(PriceDesk desk) {\n        this.desk = desk;\n    }\n\n    /** Asks every supplier and returns once every supplier's price has been recorded. */\n    public void askAll(List<String> suppliers, Quotes quotes) throws InterruptedException {\n        // TODO: Ask each supplier on its own thread (askerFor builds that thread). The page should\n        //       take about as long as the slowest supplier, not the sum of them all, and when this\n        //       method returns, every supplier's price must already be in quotes.\n        throw new IllegalStateException(\"TODO: askAll\");\n    }\n\n    /** A thread, not started yet, that asks one supplier and records its price. */\n    Thread askerFor(String supplier, Quotes quotes) {\n        return new Thread(() -> quotes.record(supplier, desk.quote(supplier)), \"quote-\" + supplier);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-1/src/main/java/practice/Keeper.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-1/src/test/java/practice/KeeperTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-1/src/main/java/practice/QuoteRound.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-02/practice-1/src/test/java/practice/QuoteRoundTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,24 +102,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.KeeperTest#startsAThreadThatWasNeverStarted",
+        "id": "practice.QuoteRoundTest#recordsEverySuppliersPrice",
         "kind": "main",
-        "says": "A thread still in NEW is started and returned, and the job runs once."
+        "says": "every supplier is asked and its price is recorded under its name"
       },
       {
-        "id": "practice.KeeperTest#leavesARunningThreadRunning",
+        "id": "practice.QuoteRoundTest#asksEverySupplierAtTheSameTime",
         "kind": "edge",
-        "says": "A thread that is still running is returned as it is, and nothing is started."
+        "says": "all suppliers are being asked at the same time, so the round takes as long as the slowest one"
       },
       {
-        "id": "practice.KeeperTest#replacesAFinishedThread",
+        "id": "practice.QuoteRoundTest#returnsOnlyOnceEveryPriceIsIn",
         "kind": "edge",
-        "says": "A finished thread is replaced by a new thread that runs the job again."
+        "says": "askAll does not return while suppliers are still answering"
       },
       {
-        "id": "practice.KeeperTest#theReplacementKeepsTheName",
+        "id": "practice.QuoteRoundTest#waitsForTheFirstSupplierWhenItAnswersLast",
         "kind": "edge",
-        "says": "The replacement thread has the finished thread's name."
+        "says": "askAll waits for a supplier that answers after all the others, whichever position it has in the list"
       }
     ],
     "report": {
@@ -150,10 +128,10 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.2.md",
-      "section": "Key Points to Remember"
+      "section": "Results Come Back at join(): Start Every Worker, Then Join Every One"
     },
     "concepts": [
-      "start() is legal only on a NEW thread; a running or finished thread throws IllegalThreadStateException, so a new Thread instance is the way to run the work again."
+      "Results are complete only after join() returns for every worker, and every worker is started before any is joined, so the work takes as long as the slowest one."
     ]
   }
 }

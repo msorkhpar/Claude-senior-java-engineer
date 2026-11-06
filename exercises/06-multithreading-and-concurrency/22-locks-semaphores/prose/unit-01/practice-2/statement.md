@@ -1,20 +1,14 @@
-The page's golden rule: release a `ReentrantLock` in a `finally` block, or one
-exception leaves it held for ever. And unlike `synchronized` or `lock()`,
-`lockInterruptibly()` lets a thread that is **waiting** for the lock be
-cancelled with `Thread.interrupt()`: it leaves with `InterruptedException` and
-does not get the lock.
+On the night a big concert goes on sale, the box office re-syncs its seat map every few minutes,
+and each re-sync keeps the map locked for several seconds. Customers clicking a seat during a
+re-sync see a spinner until their browser gives up, and the ticket site's error rate goes through
+the roof. The product owner's ruling: a hold request gets an answer within its budget, even if the
+answer is "try again in a moment".
 
-Write `Exclusive.run(Runnable action)`, which runs `action` while holding the
-`ReentrantLock` the object was built with:
+Write `hold` in `src/main/java/practice/SeatMap.java`. It does the hold with the `holdLocked`
+method that is already there, under the map's lock, and answers what `holdLocked` answers. If the
+map stays locked for longer than the budget passed to the constructor, it answers `BUSY` and
+changes nothing. A re-sync that ends within the budget must not cost the customer the seat. About
+six lines.
 
-- It waits for the lock as long as it takes (it never gives up on its own), but a caller interrupted **while it waits** leaves
-  with `InterruptedException` and does not run the action.
-- The lock is released after the action, whether the action returns or throws
-  anything at all, an exception or an `Error`; what it throws reaches the
-  caller unchanged.
-
-| situation | call | answer |
-|---|---|---|
-| lock free | `run(action)` | `action` runs holding the lock; the lock is free afterwards |
-| another thread holds the lock; the caller is interrupted while it waits | `run(action)` | throws `InterruptedException`; `action` never runs |
-| lock free; `action` throws `IllegalStateException` | `run(action)` | throws that `IllegalStateException`; the lock is free |
+The tests hold the map's lock themselves to stand in for a re-sync, and send each request from a
+thread of its own.

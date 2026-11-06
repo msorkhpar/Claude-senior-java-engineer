@@ -1,20 +1,13 @@
-`join()` waits until a thread ends, and waits **forever** if it never does. The
-page's safer form is a bounded `join(millis)`, then `isAlive()` to see whether the
-thread is still running, and `interrupt()` to ask it to stop. Two edge cases from
-the page matter here: `join()` on a thread that was never started returns at once
-(it waits only while the thread is alive), and `join(0)` means "wait forever".
+This builds on the previous practice: `HealthCheck` now keeps its time budget, and its `await` is
+the one you wrote.
 
-Write `Deadline.await(Thread worker, long millis)`, returning an `Outcome`:
+Probes report a problem by throwing: the Redis probe throws when the connection is refused, and
+the replica probe uses `assert`-style checks that throw `AssertionError` when replication lags.
+During this morning's Redis outage `/health` answered "postgres PASSED, redis PASSED" for twenty
+minutes, while the service's stderr filled up with stack traces from threads named `probe-redis`.
 
-- `NOT_STARTED` if `worker` was never started (do not wait);
-- `FINISHED` if it ends within `millis` milliseconds;
-- `CANCELLED` if it is still running after `millis`: interrupt it first.
+`run(...)` already reports `FAILED` for any probe whose failure is in the `failures` map once its
+thread has finished. Finish `probeThread(...)` in `src/main/java/practice/HealthCheck.java` so
+that it is.
 
-A `millis` of `0` or less throws `IllegalArgumentException`.
-
-| worker | `millis` | result |
-|---|---|---|
-| started, ends quickly | `5000` | `FINISHED` |
-| started, blocked until interrupted | `100` | `CANCELLED`, and the worker is interrupted |
-| never started | `100` | `NOT_STARTED` |
-| any | `0` | `IllegalArgumentException` |
+When you're done, a probe that throws anything at all is reported as `FAILED`. About eight lines.

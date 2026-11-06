@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A thread factory with names, daemon status and priority",
+  "title": "Give every pool thread a name and a deliberate daemon status",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,26 @@
     },
     {
       "type": "para",
-      "text": "The page asks you to name your threads (\"db-worker-0\", \"db-worker-1\", …) so thread dumps and logs are readable, to set daemon status on purpose, and it shows Java 21's `Thread.Builder` doing all of that before a thread exists: `Thread.ofPlatform().name(\"worker\", 0).daemon(false).priority(Thread.NORM_PRIORITY)`. A priority is a number from `Thread.MIN_PRIORITY` (1) to `Thread.MAX_PRIORITY` (10)."
+      "text": "The billing service has a dozen thread pools, all created with `Executors`' default factory. Two things went wrong last month. During an incident, on-call took a thread dump and found 37 threads called `pool-<N>-thread-<M>`, and had to guess which pool belonged to which component. And after a routine restart, the audit log was missing its last entries: the audit pool is created lazily, on the first audit event, and that event is raised by the housekeeping thread, which is a daemon."
     },
     {
       "type": "para",
-      "text": "Write `Workers.factory(String prefix, boolean daemon, int priority)`. It returns a `ThreadFactory` whose `newThread(task)` makes an **unstarted** platform thread for `task`, named `prefix` followed by a counter that starts at `0` for each factory, with the given daemon status and priority. A priority outside 1..10 throws `IllegalArgumentException` from `factory` itself."
+      "text": "The team now creates every pool with a `ServiceThreads` factory, which knows the component's name and whether the component is background work that may be dropped at exit (a CPU sampler) or foreground work that must finish (audit, ledger). Finish the `TODO` in `src/main/java/practice/ServiceThreads.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "threads made by three `newThread` calls"
-      ],
-      "rows": [
-        [
-          "`factory(\"db-worker-\", false, 5)`",
-          "`db-worker-0`, `db-worker-1`, `db-worker-2`; not daemon; priority 5"
-        ],
-        [
-          "`factory(\"metrics-\", true, 10)`",
-          "`metrics-0`, …; daemon; priority 10"
-        ],
-        [
-          "`factory(\"x-\", false, 11)`",
-          "`IllegalArgumentException`, no factory"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`newThread(...)`: the thread a pool asks for."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, a thread dump shows `audit-1`, `audit-2`, `ledger-1`, ... (each component counting its own threads), and whether the JVM waits for a pool's threads at exit depends only on what the component declared, whichever thread happened to create the pool. About four lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests build real pools with the factory and also call it from a daemon thread."
     },
     {
       "type": "heading",
@@ -59,7 +53,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\npublic final class Workers {\n\n    private Workers() {\n    }\n\n    /** A factory of unstarted platform threads named prefix0, prefix1, ..., with this daemon status and priority. */\n    public static ThreadFactory factory(String prefix, boolean daemon, int priority) {\n        return Thread.ofPlatform().name(prefix, 0).daemon(daemon).priority(priority).factory();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Creates the threads of one component's pool, for example\n * {@code Executors.newFixedThreadPool(4, new ServiceThreads(\"audit\", false))}.\n * A background component's work may be dropped at exit; a foreground component's must finish.\n */\npublic class ServiceThreads implements ThreadFactory {\n\n    private final String component;\n    private final boolean background;\n    private final AtomicInteger created = new AtomicInteger();\n\n    public ServiceThreads(String component, boolean background) {\n        this.component = component;\n        this.background = background;\n    }\n\n    @Override\n    public Thread newThread(Runnable task) {\n        Thread thread = new Thread(task, component + \"-\" + created.incrementAndGet());\n        thread.setDaemon(background);\n        return thread;\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +65,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\npublic final class Workers {\n\n    private Workers() {\n    }\n\n    /** A factory of unstarted platform threads named prefix0, prefix1, ..., with this daemon status and priority. */\n    public static ThreadFactory factory(String prefix, boolean daemon, int priority) {\n        throw new UnsupportedOperationException(\"write factory\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\n/**\n * Creates the threads of one component's pool, for example\n * {@code Executors.newFixedThreadPool(4, new ServiceThreads(\"audit\", false))}.\n * A background component's work may be dropped at exit; a foreground component's must finish.\n */\npublic class ServiceThreads implements ThreadFactory {\n\n    private final String component;\n    private final boolean background;\n\n    public ServiceThreads(String component, boolean background) {\n        this.component = component;\n        this.background = background;\n    }\n\n    @Override\n    public Thread newThread(Runnable task) {\n        // TODO: Create the (unstarted) thread that will run this pool's tasks. In a thread dump,\n        //       on-call must be able to tell which component a thread belongs to and which of\n        //       its threads it is, and whether the JVM waits for it at exit must depend only on\n        //       what the component declared.\n        throw new IllegalStateException(\"TODO: newThread\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +73,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +84,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0c45e96969b37d59b5e899dde6acd2427d14c628e601f8a55db4dbcb05fd5f37",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\npublic final class Workers {\n\n    private Workers() {\n    }\n\n    /** A factory of unstarted platform threads named prefix0, prefix1, ..., with this daemon status and priority. */\n    public static ThreadFactory factory(String prefix, boolean daemon, int priority) {\n        throw new UnsupportedOperationException(\"write factory\");\n    }\n}\n",
+  "content_sha256": "5f602f6866c9f1151c878f8cb4a520228cc820795f89ffdc1df4742bb6a4107d",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ThreadFactory;\n\n/**\n * Creates the threads of one component's pool, for example\n * {@code Executors.newFixedThreadPool(4, new ServiceThreads(\"audit\", false))}.\n * A background component's work may be dropped at exit; a foreground component's must finish.\n */\npublic class ServiceThreads implements ThreadFactory {\n\n    private final String component;\n    private final boolean background;\n\n    public ServiceThreads(String component, boolean background) {\n        this.component = component;\n        this.background = background;\n    }\n\n    @Override\n    public Thread newThread(Runnable task) {\n        // TODO: Create the (unstarted) thread that will run this pool's tasks. In a thread dump,\n        //       on-call must be able to tell which component a thread belongs to and which of\n        //       its threads it is, and whether the JVM waits for it at exit must depend only on\n        //       what the component declared.\n        throw new IllegalStateException(\"TODO: newThread\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/main/java/practice/Workers.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/test/java/practice/WorkersTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/main/java/practice/ServiceThreads.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-3/src/test/java/practice/ServiceThreadsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,29 +109,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.WorkersTest#makesUnstartedThreadsWithThePrefix",
+        "id": "practice.ServiceThreadsTest#aPoolsThreadsCarryTheComponentNameAndItsDeclaredDaemonStatus",
         "kind": "main",
-        "says": "Each thread is new (unstarted), and its name is the prefix followed by a number."
+        "says": "a pool built with the factory runs its tasks on threads named after the component, daemon exactly when the component is background, and the factory hands back its threads unstarted"
       },
       {
-        "id": "practice.WorkersTest#namesCountUpFromZero",
+        "id": "practice.ServiceThreadsTest#eachFactoryNumbersItsOwnThreadsFromOne",
         "kind": "edge",
-        "says": "The numbers are 0, 1, 2 and so on, in creation order."
+        "says": "each factory numbers its own threads from 1, whatever other factories have created"
       },
       {
-        "id": "practice.WorkersTest#daemonStatusIsApplied",
+        "id": "practice.ServiceThreadsTest#aForegroundComponentCreatedFromADaemonThreadStillHoldsTheJvmOpen",
         "kind": "edge",
-        "says": "A factory asked for daemon threads makes daemon threads."
-      },
-      {
-        "id": "practice.WorkersTest#priorityIsApplied",
-        "kind": "edge",
-        "says": "Every thread gets the requested priority."
-      },
-      {
-        "id": "practice.WorkersTest#aBadPriorityIsRefusedUpFront",
-        "kind": "edge",
-        "says": "A priority outside 1 to 10 is refused when the factory is made, before any thread exists."
+        "says": "a foreground component's threads are non-daemon even when the factory is called from a daemon thread"
       }
     ],
     "report": {
@@ -146,12 +130,11 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.1.md",
-      "section": "Relevant Java 21 Features"
+      "section": "A Daemon Thread Doesn't Hold the JVM Open, and Exit Drops It Mid-Step"
     },
     "concepts": [
-      "Java 21's Thread.Builder sets a thread's name, daemon status and priority before the thread exists.",
-      "Threads are named at construction or by a builder with a counting suffix, which makes thread dumps and logs readable.",
-      "Priority runs from MIN_PRIORITY 1 to MAX_PRIORITY 10, defaults to 5, and is only a hint to the scheduler."
+      "A platform thread not told otherwise inherits the daemon status of the thread that creates it, so code that creates threads for work that must finish sets daemon status explicitly.",
+      "Threads are named where they are created, by the constructor, a builder's counter or a ThreadFactory; generated names and unnamed virtual threads make thread dumps unreadable."
     ]
   }
 }

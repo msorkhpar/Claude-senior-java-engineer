@@ -19,22 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Every rolling deploy of the metrics service takes 30 seconds longer than it should, and once a week the orchestrator loses patience and kills the process halfway through writing a file. The shutdown hook is textbook: `executor.shutdownNow()`, then `awaitTermination(30, SECONDS)`. A thread dump taken during those 30 seconds shows one pool thread in `Thread.sleep`, inside the loop that sends metrics, and the log has one new line: `interrupted while waiting, will retry`."
+      "text": "Every rolling deploy of the metrics service takes 30 seconds too long, and once a week the orchestrator kills the process halfway through writing a file. The shutdown hook calls `executor.shutdownNow()`, then `awaitTermination(30, SECONDS)`. A thread dump taken during those 30 seconds shows one pool thread in `Thread.sleep`, inside the loop that sends metrics, and the log has one new line: `interrupted while waiting, will retry`."
     },
     {
       "type": "para",
-      "text": "Nobody wrote code to ignore the shutdown, and the thread ignores it anyway. In Java a running thread can't be stopped from outside: it is asked to stop, and its own code decides. This unit follows that request to the line that acts on it:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`interrupt()` sets a flag, and running code stops only where it looks at it.",
-        "A blocking call answers an interrupt by throwing, and the throw clears the flag.",
-        "Whoever catches `InterruptedException` owns the interrupt: rethrow it, or restore it and stop.",
-        "`Future.cancel(true)` asks; the task decides whether anything stops.",
-        "A thread blocked in classic I/O doesn't hear an interrupt: close what it waits on."
-      ]
+      "text": "In Java a running thread can't be stopped from outside: it is asked to stop, and its own code decides."
     },
     {
       "type": "heading",
@@ -43,7 +32,7 @@
     },
     {
       "type": "para",
-      "text": "Every example in this unit runs a job through the same helper. It starts the job on a pool of its own, waits until the job has done a little work, calls `shutdownNow()`, and reports two things: whether the pool's thread ended within a second, and how much work the job did after it was asked to stop."
+      "text": "The examples run each job through this helper. It starts the job on a pool of its own, calls `shutdownNow()` once the job has done a little work, and reports whether the thread ended within a second and how much work the job did after the request."
     },
     {
       "type": "code",
@@ -52,7 +41,7 @@
     },
     {
       "type": "para",
-      "text": "`shutdownNow()` calls `interrupt()` on the thread running the job. The examples call `currentThread()` through `import static java.lang.Thread.currentThread;`, and every output comes from Java 21."
+      "text": "`shutdownNow()` calls `interrupt()` on the thread running the job. The examples use `import static java.lang.Thread.currentThread;`, and every output is from Java 21."
     },
     {
       "type": "heading",
@@ -61,7 +50,7 @@
     },
     {
       "type": "para",
-      "text": "A reindex job works through 20,000 documents. `reindex(doc)` is a few dozen microseconds of arithmetic, pure CPU work with no waiting. We ask the job to stop a few documents in. How many more does it process before the pool ends?"
+      "text": "A reindex job works through 20,000 documents. `reindex(doc)` is a few dozen microseconds of CPU work, with no waiting. We ask the job to stop a few documents in:"
     },
     {
       "type": "code",
@@ -75,15 +64,15 @@
     },
     {
       "type": "para",
-      "text": "The first job processed every remaining document. The pool did end, but only because the job ran out of work. `interrupt()` doesn't stop anything: it sets a boolean on the target thread, the **interrupt flag**, and returns. A thread that is computing never notices a boolean that nobody reads. The second job reads it before each document and stops within a document or two."
+      "text": "The first job processed every remaining document and ended only when it ran out of work. `interrupt()` doesn't stop anything: it sets a boolean on the target thread, the **interrupt flag**, and returns. The second job reads the flag before each document and stops within two documents."
     },
     {
       "type": "para",
-      "text": "Only the thread being stopped knows where it can stop without leaving half a result: between two documents, but not between writing a document and updating its index entry. So the check goes where stopping is safe, and Java leaves placing it to the code that runs."
+      "text": "Only the thread being stopped knows where it can stop without leaving half a result: between two documents, but not between writing a document and updating its index entry. That is why Java leaves the check to the code that runs."
     },
     {
       "type": "para",
-      "text": "Two other ways of checking look equivalent and aren't:"
+      "text": "Two other checks look equivalent and aren't:"
     },
     {
       "type": "code",
@@ -97,11 +86,11 @@
     },
     {
       "type": "para",
-      "text": "**`Thread.interrupted()` reads the flag and clears it.** The inner loop saw the request and ended its batch, and in doing so erased the request. The outer loop's check then found nothing, and 39 more batches ran. `Thread.currentThread().isInterrupted()` only reads. Use `Thread.interrupted()` only at the point that acts on the request and ends the work, never in a check that someone above you also relies on."
+      "text": "**`Thread.interrupted()` reads the flag and clears it.** The inner loop saw the request, ended its batch and erased the request, so the outer loop's check found nothing, and 39 more batches ran. `Thread.currentThread().isInterrupted()` only reads. Use `Thread.interrupted()` only where the code acts on the request and ends the work, never in a check that code above you also relies on."
     },
     {
       "type": "para",
-      "text": "**A cancellation field of your own is invisible to the JDK.** `shutdownNow()`, and `cancel(true)` on a `Future` from `ExecutorService.submit`, set the interrupt flag, not your field. A field can sit beside the flag when you need a reason the flag can't carry (\"cancelled by the user\" rather than \"shutting down\"), but the loop must check the flag too."
+      "text": "**Your own cancellation field is invisible to the JDK.** `shutdownNow()` and `Future.cancel(true)` set the interrupt flag, not your field. A field can sit beside the flag to carry a reason (\"cancelled by the user\"), but the loop must check the flag too."
     },
     {
       "type": "html",
@@ -114,21 +103,7 @@
     },
     {
       "type": "para",
-      "text": "Most threads spend their time waiting, not computing: in `sleep`, `wait`, `join`, a queue's `take`. A thread that is parked there can't check anything, so these methods check for it. When the thread is interrupted while blocked, or is already interrupted when it calls one, the method returns at once by throwing `InterruptedException`."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Thread t = new Thread(() -> {\n    try {\n        Thread.sleep(10_000);\n    } catch (InterruptedException e) {\n        System.out.println(\"in the catch, isInterrupted() = \" + currentThread().isInterrupted());\n    }\n});\nt.start();\nt.interrupt();\nt.join();"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "in the catch, isInterrupted() = false"
-    },
-    {
-      "type": "para",
-      "text": "The request has been turned into the exception. The flag is cleared, and the exception is now the only record that anyone asked. The metrics sender from the start of the unit has this shape:"
+      "text": "Most threads spend their time waiting: in `sleep`, `wait`, `join`, a queue's `take`. A parked thread can't check anything, so these methods check for it. When the thread is interrupted while blocked, or is already interrupted when it calls one, the method returns at once by throwing `InterruptedException`, and clears the flag. The exception is then the only record that anyone asked. The metrics sender from the start of the unit has this shape:"
     },
     {
       "type": "code",
@@ -142,11 +117,11 @@
     },
     {
       "type": "para",
-      "text": "The condition would work if the request arrived while the thread was sending. It almost never does. The thread sleeps 50 ms per cycle, so the interrupt lands in `sleep`, the exception clears the flag, the catch logs it, and the `while` reads `false` forever. In production, `awaitTermination` times out after 30 seconds and the orchestrator kills whatever is half-done."
+      "text": "The thread spends most of each cycle in `sleep`, so that is where the interrupt lands. The exception clears the flag, the catch logs it, and the `while` reads `false` forever. In production, `awaitTermination` times out after 30 seconds and the orchestrator kills whatever is half-done."
     },
     {
       "type": "para",
-      "text": "The JDK clears the flag because the exception now carries the request. Left set, the flag would make every later blocking call in the thread throw again. Only two things clear it: a call to `Thread.interrupted()`, and a waiting method that throws. Code that never looks at the flag leaves it set, and the thread's next wait throws at once."
+      "text": "The JDK clears the flag because the exception now carries the request; left set, the flag would make every later blocking call in the thread throw again. Only two things clear it: `Thread.interrupted()`, and a waiting method that throws. Code that never looks at the flag leaves it set, and the thread's next wait throws at once."
     },
     {
       "type": "html",
@@ -159,7 +134,7 @@
     },
     {
       "type": "para",
-      "text": "The compiler forces every caller of `sleep` to deal with `InterruptedException`, and the quickest way to make it compile is an empty catch. Here are three catches in a webhook sender that retries up to 100 times. `sleepyWork()` is the pause between attempts, a 20 ms `sleep`:"
+      "text": "The compiler forces every caller of `sleep` to handle `InterruptedException`, and an empty catch is the quickest way to make it compile. A webhook sender makes up to 100 attempts, with `sleepyWork()`, a 20 ms `sleep`, between them. Three versions differ only in the catch:"
     },
     {
       "type": "code",
@@ -173,7 +148,7 @@
     },
     {
       "type": "para",
-      "text": "The empty catch threw the request away, and the sender keeps sending as if nobody had asked. The last one does what the request meant: it puts the flag back, so code above it can still see it, and it stops."
+      "text": "The empty catch threw the request away, and the sender keeps sending. The last one puts the flag back, so code above it can still see it, and stops."
     },
     {
       "type": "heading",
@@ -182,11 +157,11 @@
     },
     {
       "type": "para",
-      "text": "The middle catch passes code review: it restores the flag, and the pool ended within a millisecond. Look at the count again before reading on: what did it do in that millisecond?"
+      "text": "The middle catch passes code review: it restores the flag, and the pool ended within a millisecond. What did it do in that millisecond?"
     },
     {
       "type": "para",
-      "text": "It made the 97 remaining attempts back to back. With the flag set again, every following `sleep` threw at once, so the pause between attempts disappeared and the sender hammered the webhook as fast as the loop could turn. A loop bounded by time instead of attempts runs until its time is up. This sender backs off 100 ms between tries for 250 ms, and is interrupted once:"
+      "text": "It made the 97 remaining attempts back to back. With the flag set again, every following `sleep` threw at once, and the sender hammered the webhook as fast as the loop could turn. A loop bounded by time instead runs until its time is up. This one backs off 100 ms between tries for 250 ms, and is interrupted once:"
     },
     {
       "type": "code",
@@ -200,23 +175,19 @@
     },
     {
       "type": "para",
-      "text": "Almost 200,000 failed sleeps in a quarter of a second, with one core at 100 % until the loop ends by itself. The code that restores the flag must also stop. Code that is meant to stop has two correct shapes:"
+      "text": "That is one core at 100 % for a quarter of a second. Code that restores the flag must also stop, in one of two shapes:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Rethrow it.** A method that can declare `throws InterruptedException` does, and doesn't catch it at all. A helper that sleeps, takes from a queue or waits on a latch has no idea whether an interrupt means \"shut down\" or \"the user pressed Cancel\", so it lets the exception reach the code that does.",
-        "**Restore it and stop.** Code that can't throw it, typically the `run()` at the top of a task, calls `Thread.currentThread().interrupt()` and returns. The flag tells the pool, or whoever called `run()`, that the task ended because it was asked to."
+        "**Rethrow it.** A method that can declare `throws InterruptedException` does, and doesn't catch it. A helper that sleeps or waits can't tell whether an interrupt means \"shut down\" or \"the user pressed Cancel\", so it lets the exception reach code that can.",
+        "**Restore it and stop.** Code that can't throw it, typically a task's `run()`, calls `Thread.currentThread().interrupt()` and returns. The flag tells whoever called `run()` that the task ended because it was asked to."
       ]
     },
     {
       "type": "para",
-      "text": "(A task that must not be cancelled at all can keep waiting, remember that it was interrupted, and restore the flag in a `finally` before it returns. That is a deliberate choice for a few tasks, not a default.)"
-    },
-    {
-      "type": "para",
-      "text": "Wrapping it in an unchecked exception is neither shape. This helper hands its caller something that looks like any other failure:"
+      "text": "Wrapping it in an unchecked exception is neither shape. To its caller, this helper's interrupt looks like any other failure:"
     },
     {
       "type": "code",
@@ -225,7 +196,7 @@
     },
     {
       "type": "para",
-      "text": "and the sender around it retries failures, as senders do:"
+      "text": "and the sender around it retries failures:"
     },
     {
       "type": "code",
@@ -239,7 +210,7 @@
     },
     {
       "type": "para",
-      "text": "The caller's retry logic treats \"we were asked to stop\" as \"the fetch failed\", and with the flag cleared, the next fetch succeeds and the loop goes on. If an interface really forbids checked exceptions, restore the flag before wrapping, so at least the next check sees it."
+      "text": "The retry treats \"we were asked to stop\" as \"the fetch failed\", and with the flag cleared the next fetch succeeds. If an interface forbids checked exceptions, restore the flag before wrapping, so the next check sees it."
     },
     {
       "type": "html",
@@ -252,7 +223,7 @@
     },
     {
       "type": "para",
-      "text": "A user starts an export and presses Cancel. The service calls `future.cancel(true)`, which returns `true`, and the UI says \"cancelled\". The export writes six parts, pausing between them, and then uploads the file:"
+      "text": "A user starts an export and presses Cancel. The service calls `future.cancel(true)`, which returns `true`, and the UI says \"cancelled\". The export writes six parts, pausing between them, then uploads the file:"
     },
     {
       "type": "code",
@@ -270,7 +241,7 @@
     },
     {
       "type": "para",
-      "text": "Each is submitted to a single-thread pool, and once two parts are written, the service calls `export.cancel(true)` on the `Future` that `submit` returned:"
+      "text": "Once two parts are written, the service calls `export.cancel(true)` on the `Future` that `submit` returned:"
     },
     {
       "type": "code",
@@ -279,24 +250,15 @@
     },
     {
       "type": "para",
-      "text": "The three `Future`s report the same thing. `isCancelled()` and `isDone()` describe the `Future`, not the thread: from the moment `cancel` succeeds, `get()` throws `CancellationException`, and nobody will ever see the task's result. What the thread does next is up to the task, and the first two kept going and uploaded a file the user cancelled. The second one even checked: its catch had swallowed the interrupt, so the check found nothing. The user, told it was cancelled, starts it again, and now there are two."
+      "text": "The three `Future`s report the same thing. `isCancelled()` and `isDone()` describe the `Future`, not the thread: once `cancel` succeeds, `get()` throws `CancellationException`. What the thread does next is up to the task. The first two uploaded a file the user cancelled. The second even checked, but its catch had swallowed the interrupt. The user, told it was cancelled, starts it again, and now there are two."
     },
     {
       "type": "para",
-      "text": "`cancel(true)` interrupts the running task's thread. `cancel(false)` only keeps a queued task from starting. On a running export both return `true` and mark the `Future` cancelled, so after `cancel(false)` the caller loses the result and the thread carries on, uninterrupted."
-    },
-    {
-      "type": "quote",
-      "blocks": [
-        {
-          "type": "para",
-          "text": "**Not every Future interrupts.** A `CompletableFuture` ignores the argument: its `cancel(true)` completes the future with a `CancellationException` and never interrupts whatever computes it."
-        }
-      ]
+      "text": "`cancel(true)` interrupts the running task's thread. `cancel(false)` only keeps a queued task from starting. On a running export both return `true`, so after `cancel(false)` the caller loses the result and the thread carries on, uninterrupted."
     },
     {
       "type": "para",
-      "text": "When the task has a side effect that must not happen after a cancel, check right before it, and make sure nothing between the request and the check can swallow it."
+      "text": "When a side effect must not happen after a cancel, check right before it, and make sure nothing between the request and the check can swallow it."
     },
     {
       "type": "html",
@@ -309,7 +271,7 @@
     },
     {
       "type": "para",
-      "text": "Not every blocking call checks the flag. Here a platform thread waits in `accept()`, and we interrupt it, then close the socket:"
+      "text": "Not every blocking call checks the flag. Here a platform thread waits in `accept()`; we interrupt it, then close the socket:"
     },
     {
       "type": "code",
@@ -323,7 +285,7 @@
     },
     {
       "type": "para",
-      "text": "`interrupt()` only set the flag. The waiting methods of the earlier sections are written in Java and check the flag when they are woken; a platform thread in a socket call is blocked in the operating system, and `java.io` gives the interrupt nothing to wake. Closing the socket from another thread does: the blocked call fails with an exception. So a component that owns a blocking stream stops by closing it, and its read loop treats that exception as the end of the work, not as a failure to report."
+      "text": "`interrupt()` only set the flag. The waiting methods of the earlier sections check the flag when woken, but a platform thread in a socket call is blocked in the operating system, and `java.io` gives the interrupt nothing to wake. Closing the socket from another thread makes the blocked call fail with an exception. So a component that owns a blocking stream stops by closing it, and its read loop treats that exception as the end of the work, not as a failure to report."
     },
     {
       "type": "para",
@@ -339,7 +301,7 @@
       "blocks": [
         {
           "type": "para",
-          "text": "**Virtual threads differ.** On a virtual thread, Java 21 makes blocking socket operations interruptible: the interrupt closes the socket and the call throws. NIO channels (`InterruptibleChannel`) behave that way on any thread, with `ClosedByInterruptException`. In both cases the socket or channel is closed afterwards, and the interrupt flag stays set."
+          "text": "**Virtual threads differ.** On a virtual thread, Java 21 makes blocking socket operations interruptible: the interrupt closes the socket and the call throws. NIO channels (`InterruptibleChannel`) behave that way on any thread, with `ClosedByInterruptException`. In both cases the interrupt flag stays set."
         }
       ]
     },
@@ -356,11 +318,11 @@
       "type": "list",
       "ordered": false,
       "items": [
-        "**`interrupt()` sets a flag; running code stops only where it checks.** A loop with no check finishes its whole batch after shutdown, and `Thread.interrupted()` in an inner loop erases the request before the outer loop sees it.",
-        "**A blocking call answers by throwing, and the throw clears the flag.** A catch that logs and carries on leaves a loop that can't be stopped, and a shutdown that waits out its timeout.",
-        "**Whoever catches `InterruptedException` rethrows it, or restores it and stops.** An empty catch ignores the request; restoring and carrying on turns every later wait into a busy loop.",
-        "**`Future.cancel(true)` only asks.** `isCancelled()` is true at once; whether the task stops, and before which side effect, is decided by the task's own checks.",
-        "**Classic I/O doesn't hear an interrupt.** Stop a reader by closing what it waits on, and treat the exception that follows as a stop, not as a failure."
+        "**`interrupt()` sets a flag; running code stops only where it checks.** `Thread.interrupted()` clears the flag it reads.",
+        "**A blocking call answers by throwing, and the throw clears the flag.** A catch that logs and carries on leaves a loop that can't be stopped.",
+        "**Whoever catches `InterruptedException` rethrows it, or restores it and stops.** Restoring and carrying on turns every later wait into a busy loop.",
+        "**`Future.cancel(true)` only asks.** The task's own checks decide whether it stops before its side effect.",
+        "**Classic I/O doesn't hear an interrupt.** Close what the reader waits on, and treat the exception as a stop."
       ]
     },
     {
@@ -416,16 +378,6 @@
           "cleared"
         ],
         [
-          "`Lock.lockInterruptibly`, `Condition.await`",
-          "throws `InterruptedException`",
-          "cleared"
-        ],
-        [
-          "`Lock.lock`, entering `synchronized`",
-          "keeps waiting for the lock",
-          "set"
-        ],
-        [
           "NIO channel read or write (`InterruptibleChannel`)",
           "throws `ClosedByInterruptException`, closes the channel",
           "set"
@@ -444,10 +396,6 @@
     },
     {
       "type": "para",
-      "text": "A thread whose flag is already set when it enters one of the first three rows throws at once if the call would have to wait. A `join` on a thread that has ended, or a `get` on a finished `Future`, returns without looking at the flag."
-    },
-    {
-      "type": "para",
       "text": "**Edge cases (Java 21):**"
     },
     {
@@ -458,28 +406,12 @@
       ],
       "rows": [
         [
-          "`interrupt()` before `start()`",
-          "the thread starts with its flag set; the javadoc says this \"need not have any effect\", so don't rely on it"
-        ],
-        [
-          "`interrupt()` on a terminated thread",
-          "no exception; the javadoc says it \"need not have any effect\" (in JDK 21, `isInterrupted()` then returns `true`), and nothing is left to act on it"
-        ],
-        [
-          "`Thread.stop()`",
-          "deprecated for removal; since Java 20 it throws `UnsupportedOperationException`"
-        ],
-        [
           "`ExecutorService.shutdown()`",
           "interrupts no running task; running tasks finish, queued ones still run"
         ],
         [
           "`ExecutorService.shutdownNow()`",
           "interrupts every running task; returns the queued ones without running them"
-        ],
-        [
-          "`Future.cancel(false)`",
-          "never interrupts; a running task carries on"
         ]
       ]
     },
@@ -498,8 +430,7 @@
       "items": [
         "A task copies rows from one database to another in transactions of 1,000 rows. Where do you check the flag, and what does a reader of the target database see if the check is in the wrong place?",
         "Your task calls a third-party client that swallows `InterruptedException` inside its retry loop. You can't change the client. How do you make your task stoppable, and what does it cost?",
-        "Measure how long `shutdownNow()` plus `awaitTermination` takes for a pool of 50 tasks, each one of the shapes in this unit. Which one decides your deploy time?",
-        "Structured concurrency (`StructuredTaskScope`, a preview API in Java 21) has a policy, `ShutdownOnFailure`, that cancels the remaining subtasks when one fails, by interrupting their threads. What must each subtask do for that to work, and what happens to one that calls the client from challenge 2?"
+        "Measure how long `shutdownNow()` plus `awaitTermination` takes for a pool of 50 tasks, each one of the shapes in this unit. Which one decides your deploy time?"
       ]
     },
     {
@@ -509,11 +440,11 @@
     },
     {
       "type": "para",
-      "text": "Java 1.0 had `Thread.stop()`, which stopped a thread from outside by throwing an error into it wherever it was. The error released every monitor the thread held on the way out. A thread stopped between debiting one account and crediting another released the lock with the money taken from the first and never added to the second, and the next thread to take the lock saw that state as if it were consistent. No code can defend against an exception that can appear between any two of its instructions, so the method was deprecated in Java 1.2 and, since Java 20, it throws instead of stopping anything."
+      "text": "Java 1.0 had `Thread.stop()`, which threw an error into a thread wherever it was, releasing every monitor the thread held. A thread stopped between debiting one account and crediting another released the lock with the money gone from the first and never added to the second, and the next thread to take the lock saw that state as consistent. No code can defend against an exception that can appear between any two of its instructions, so the method was deprecated in Java 1.2 and, since Java 20, throws `UnsupportedOperationException`."
     },
     {
       "type": "para",
-      "text": "The replacement leaves the decision to the code that runs, which knows where it is safe to stop. The request is a flag, and the JDK's waiting methods turn it into an exception. The price is that cancellation works only if every layer between the request and the work cooperates. One empty catch in a library three calls down, or a reader blocked in a socket that nobody closes, and the whole pool can't stop."
+      "text": "The price of cooperative cancellation is that it works only if every layer between the request and the work cooperates: one empty catch in a library three calls down, or a reader blocked in a socket that nobody closes, and the pool can't stop."
     },
     {
       "type": "heading",
@@ -534,16 +465,16 @@
   "attachments": [],
   "counts": {
     "headings": 13,
-    "paras": 39,
-    "code": 22,
+    "paras": 36,
+    "code": 20,
     "tables": 3,
-    "lists": 5,
+    "lists": 4,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 2,
+    "quotes": 1,
     "html": 5,
     "disclosures": 0
   },
-  "content_sha256": "a9236b23f451ad67d3e2cbdf00ee8ebca082b375b2ba830e3e23b89120ba58bd"
+  "content_sha256": "97a188794114727c431c795dfb2734ed4ce75ea297164e7cc61458de660f5f4f"
 }

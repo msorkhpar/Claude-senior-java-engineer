@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Check a thread's life story",
+  "title": "Keep the quote feed answering while it backs off",
   "blocks": [
     {
       "type": "heading",
@@ -19,69 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's transition table, and its answer to \"can a thread go directly from `BLOCKED` to `WAITING`?\": **no**, a thread must be `RUNNABLE` to call `wait()`, `join()` or `park()`. But `WAITING` to `BLOCKED` **is** possible: a thread notified in `Object.wait()` must re-enter the monitor, and while another thread holds it, it is `BLOCKED`."
+      "text": "The trading desk's monitoring page asks every market-data feed for its `status()` once a second. When a feed loses its connection, its own thread calls `reconnect()`, which backs off between attempts, for up to two minutes when the exchange is down. That is exactly when the desk most wants to see the feed's status, and it is when the monitoring threads stop getting answers. At shutdown, `close()` should make a reconnect give up, and today shutdown waits out the back-off."
     },
     {
-      "type": "table",
-      "headers": [
-        "from",
-        "to"
-      ],
-      "rows": [
-        [
-          "`NEW`",
-          "`RUNNABLE`"
-        ],
-        [
-          "`RUNNABLE`",
-          "`BLOCKED`, `WAITING`, `TIMED_WAITING`, `TERMINATED`"
-        ],
-        [
-          "`BLOCKED`",
-          "`RUNNABLE`"
-        ],
-        [
-          "`WAITING`, `TIMED_WAITING`",
-          "`RUNNABLE`, `BLOCKED`"
-        ],
-        [
-          "`TERMINATED`",
-          "nothing"
-        ]
+      "type": "para",
+      "text": "`QuoteFeed` keeps its state under its own monitor, and `reconnect()`, `status()` and `close()` stay `synchronized`. Finish the two `TODO`s in `src/main/java/practice/QuoteFeed.java`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`pause(long millis)`: the back-off between two attempts, called from inside `reconnect()`;",
+        "`close()`: closes the feed, and a reconnect that is backing off gives up at once."
       ]
     },
     {
       "type": "para",
-      "text": "Write `Lifecycle.isValid(List<Thread.State> states)`: the states one thread entered, in order. It is valid when it is not empty, starts at `NEW`, and each state follows the one before it by a transition in the table. A thread need not have ended yet, so the list may stop anywhere."
+      "text": "When you're done, `status()` answers during a back-off of any length, and `close()` ends a back-off in progress. About seven lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "states",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`NEW, RUNNABLE, TIMED_WAITING, RUNNABLE, TERMINATED`",
-          "`true`"
-        ],
-        [
-          "`NEW, TERMINATED`",
-          "`false`"
-        ],
-        [
-          "`NEW, RUNNABLE, BLOCKED, WAITING`",
-          "`false`"
-        ],
-        [
-          "`NEW, RUNNABLE, WAITING, BLOCKED, RUNNABLE`",
-          "`true`"
-        ],
-        [
-          "`NEW, RUNNABLE, TERMINATED, RUNNABLE`",
-          "`false`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests run `reconnect()` on a thread of its own, with back-offs of a few milliseconds and of two minutes."
     },
     {
       "type": "heading",
@@ -96,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\nimport static java.lang.Thread.State.BLOCKED;\nimport static java.lang.Thread.State.NEW;\nimport static java.lang.Thread.State.RUNNABLE;\nimport static java.lang.Thread.State.TERMINATED;\nimport static java.lang.Thread.State.TIMED_WAITING;\nimport static java.lang.Thread.State.WAITING;\n\npublic final class Lifecycle {\n\n    private static final Map<Thread.State, Set<Thread.State>> NEXT = new EnumMap<>(Thread.State.class);\n\n    static {\n        NEXT.put(NEW, EnumSet.of(RUNNABLE));\n        NEXT.put(RUNNABLE, EnumSet.of(BLOCKED, WAITING, TIMED_WAITING, TERMINATED));\n        NEXT.put(BLOCKED, EnumSet.of(RUNNABLE));\n        NEXT.put(WAITING, EnumSet.of(RUNNABLE, BLOCKED));\n        NEXT.put(TIMED_WAITING, EnumSet.of(RUNNABLE, BLOCKED));\n        NEXT.put(TERMINATED, EnumSet.noneOf(Thread.State.class));\n    }\n\n    private Lifecycle() {\n    }\n\n    /** Whether one thread could have entered these states, in this order. */\n    public static boolean isValid(List<Thread.State> states) {\n        if (states.isEmpty() || states.get(0) != NEW) {\n            return false;\n        }\n        for (int i = 1; i < states.size(); i++) {\n            if (!NEXT.get(states.get(i - 1)).contains(states.get(i))) {\n                return false;\n            }\n        }\n        return true;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.TimeUnit;\n\n/**\n * The connection to a market-data feed. The feed's own thread calls reconnect() when the\n * connection drops; the monitoring threads call status() every second; shutdown calls close().\n */\npublic class QuoteFeed {\n\n    /** One attempt to connect; returns whether it succeeded. */\n    public interface Connector {\n        boolean connect(int attempt);\n    }\n\n    private final Connector connector;\n    private final long backoffMillis;\n    private boolean connected;\n    private boolean closed;\n    private int attempts;\n\n    public QuoteFeed(Connector connector, long backoffMillis) {\n        this.connector = connector;\n        this.backoffMillis = backoffMillis;\n    }\n\n    /** Tries to connect, backing off between attempts, until it succeeds or the feed is closed. */\n    public synchronized boolean reconnect() throws InterruptedException {\n        connected = false;\n        while (!closed) {\n            attempts++;\n            if (connector.connect(attempts)) {\n                connected = true;\n                return true;\n            }\n            pause(backoffMillis);\n        }\n        return false;\n    }\n\n    /** What the monitoring page shows for this feed. */\n    public synchronized String status() {\n        return (closed ? \"closed\" : connected ? \"connected\" : \"reconnecting\") + \", attempts: \" + attempts;\n    }\n\n    /** Closes the feed for good; a reconnect in progress gives up. */\n    public synchronized void close() {\n        closed = true;\n        notifyAll();\n    }\n\n    /**\n     * The back-off between two attempts: returns after {@code millis}, or sooner once the feed\n     * is closed. Called from reconnect(), with this feed's monitor held.\n     */\n    void pause(long millis) throws InterruptedException {\n        long left = TimeUnit.MILLISECONDS.toNanos(millis);\n        long end = System.nanoTime() + left;\n        while (!closed && left > 0) {\n            TimeUnit.NANOSECONDS.timedWait(this, left);\n            left = end - System.nanoTime();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -108,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Lifecycle {\n\n    private Lifecycle() {\n    }\n\n    /** Whether one thread could have entered these states, in this order. */\n    public static boolean isValid(List<Thread.State> states) {\n        throw new UnsupportedOperationException(\"write isValid\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * The connection to a market-data feed. The feed's own thread calls reconnect() when the\n * connection drops; the monitoring threads call status() every second; shutdown calls close().\n */\npublic class QuoteFeed {\n\n    /** One attempt to connect; returns whether it succeeded. */\n    public interface Connector {\n        boolean connect(int attempt);\n    }\n\n    private final Connector connector;\n    private final long backoffMillis;\n    private boolean connected;\n    private boolean closed;\n    private int attempts;\n\n    public QuoteFeed(Connector connector, long backoffMillis) {\n        this.connector = connector;\n        this.backoffMillis = backoffMillis;\n    }\n\n    /** Tries to connect, backing off between attempts, until it succeeds or the feed is closed. */\n    public synchronized boolean reconnect() throws InterruptedException {\n        connected = false;\n        while (!closed) {\n            attempts++;\n            if (connector.connect(attempts)) {\n                connected = true;\n                return true;\n            }\n            pause(backoffMillis);\n        }\n        return false;\n    }\n\n    /** What the monitoring page shows for this feed. */\n    public synchronized String status() {\n        return (closed ? \"closed\" : connected ? \"connected\" : \"reconnecting\") + \", attempts: \" + attempts;\n    }\n\n    /** Closes the feed for good; a reconnect in progress gives up. */\n    public synchronized void close() {\n        // TODO: Mark the feed closed. A reconnect that is backing off right now should give up\n        //       promptly, not at the end of its back-off.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n\n    /**\n     * The back-off between two attempts: returns after {@code millis}, or sooner once the feed\n     * is closed. Called from reconnect(), with this feed's monitor held.\n     */\n    void pause(long millis) throws InterruptedException {\n        // TODO: Back off for millis before the next attempt. A back-off can last a minute, and\n        //       during it the monitoring page must still get its status() every second.\n        throw new IllegalStateException(\"TODO: pause\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -116,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 2,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -127,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "bea6c08c334690b99c3109ca09ea480cab4df766eb91f3ca7dfb565a4eddf066",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Lifecycle {\n\n    private Lifecycle() {\n    }\n\n    /** Whether one thread could have entered these states, in this order. */\n    public static boolean isValid(List<Thread.State> states) {\n        throw new UnsupportedOperationException(\"write isValid\");\n    }\n}\n",
+  "content_sha256": "f8c8b9cd58fc183be71f1bff9997ccc4599c4f2056ff078f06534183e851c047",
+  "starting_code": "package practice;\n\n/**\n * The connection to a market-data feed. The feed's own thread calls reconnect() when the\n * connection drops; the monitoring threads call status() every second; shutdown calls close().\n */\npublic class QuoteFeed {\n\n    /** One attempt to connect; returns whether it succeeded. */\n    public interface Connector {\n        boolean connect(int attempt);\n    }\n\n    private final Connector connector;\n    private final long backoffMillis;\n    private boolean connected;\n    private boolean closed;\n    private int attempts;\n\n    public QuoteFeed(Connector connector, long backoffMillis) {\n        this.connector = connector;\n        this.backoffMillis = backoffMillis;\n    }\n\n    /** Tries to connect, backing off between attempts, until it succeeds or the feed is closed. */\n    public synchronized boolean reconnect() throws InterruptedException {\n        connected = false;\n        while (!closed) {\n            attempts++;\n            if (connector.connect(attempts)) {\n                connected = true;\n                return true;\n            }\n            pause(backoffMillis);\n        }\n        return false;\n    }\n\n    /** What the monitoring page shows for this feed. */\n    public synchronized String status() {\n        return (closed ? \"closed\" : connected ? \"connected\" : \"reconnecting\") + \", attempts: \" + attempts;\n    }\n\n    /** Closes the feed for good; a reconnect in progress gives up. */\n    public synchronized void close() {\n        // TODO: Mark the feed closed. A reconnect that is backing off right now should give up\n        //       promptly, not at the end of its back-off.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n\n    /**\n     * The back-off between two attempts: returns after {@code millis}, or sooner once the feed\n     * is closed. Called from reconnect(), with this feed's monitor held.\n     */\n    void pause(long millis) throws InterruptedException {\n        // TODO: Back off for millis before the next attempt. A back-off can last a minute, and\n        //       during it the monitoring page must still get its status() every second.\n        throw new IllegalStateException(\"TODO: pause\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-2/src/main/java/practice/Lifecycle.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-2/src/test/java/practice/LifecycleTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-2/src/main/java/practice/QuoteFeed.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-04/practice-2/src/test/java/practice/QuoteFeedTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -152,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LifecycleTest#acceptsRealLivesAndRejectsImpossibleOnes",
+        "id": "practice.QuoteFeedTest#reconnectsOnTheThirdAttempt",
         "kind": "main",
-        "says": "A sequence of states made only of the page's transitions, starting at NEW, is valid; one with a transition the table lacks is not."
+        "says": "a feed whose first two attempts fail backs off between them and connects on the third"
       },
       {
-        "id": "practice.LifecycleTest#blockedCannotGoStraightToWaiting",
-        "kind": "edge",
-        "says": "BLOCKED goes only to RUNNABLE: a thread must run again before it can wait."
+        "id": "practice.QuoteFeedTest#aClosedFeedDoesNotTryAgain",
+        "kind": "main",
+        "says": "a feed that is already closed makes no attempt"
       },
       {
-        "id": "practice.LifecycleTest#aNotifiedWaiterMayBeBlocked",
+        "id": "practice.QuoteFeedTest#theMonitoringPageGetsItsStatusDuringABackOff",
         "kind": "edge",
-        "says": "WAITING or TIMED_WAITING may go straight to BLOCKED, when a notified thread must re-enter a held monitor."
+        "says": "status() answers while reconnect() is in a two-minute back-off"
       },
       {
-        "id": "practice.LifecycleTest#newIsFirstAndTerminatedIsLast",
+        "id": "practice.QuoteFeedTest#closingEndsABackOffInProgress",
         "kind": "edge",
-        "says": "A life starts at NEW, never returns to it, and nothing follows TERMINATED."
+        "says": "close() during a two-minute back-off makes reconnect() give up at once"
       }
     ],
     "report": {
@@ -178,11 +136,12 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.4.md",
-      "section": "Interview Q&A Section"
+      "section": "A Waiting Thread Keeps Every Lock but the One It Waits On"
     },
     "concepts": [
-      "NEW is left once by start(), and TERMINATED is permanent.",
-      "A thread must be RUNNABLE to start waiting, so BLOCKED never goes straight to WAITING, while a notified waiter may go straight to BLOCKED."
+      "A thread that sleeps or waits for anything but wait() inside synchronized keeps the monitor, so every other caller is BLOCKED for as long as it waits.",
+      "Object.wait() releases the monitor of the object it is called on while it waits, so other threads can enter.",
+      "A waiting thread leaves WAITING only when another thread acts on it (notify, unpark, an interrupt) or its time runs out; setting a field it would check later wakes nothing."
     ]
   }
 }

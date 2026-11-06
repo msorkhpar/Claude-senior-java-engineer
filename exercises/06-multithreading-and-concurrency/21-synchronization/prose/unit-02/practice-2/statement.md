@@ -1,23 +1,16 @@
-The page compares three tools. `volatile` gives visibility, and atomic reads and
-writes of one variable, **including** `long` and `double`, but it never makes
-`count++` atomic. `AtomicInteger`/`AtomicLong` (or `LongAdder`) make a compound
-update atomic without a lock. `synchronized` makes a whole block atomic.
+The API gateway terminates TLS. When its certificate is renewed, a reload thread reads the new
+certificate and private key from the secrets vault and the listener starts presenting them,
+without a restart. Since the last renewal, monitoring has shown a short burst of failed
+handshakes at every reload: clients received a certificate that the server's signature didn't
+match. Both fields in `TlsCredentials` are already `volatile`.
 
-Write `ServerStatus`, choosing the right tool for each of its three fields:
+Finish the two `TODO`s in `src/main/java/practice/TlsCredentials.java`:
 
-- **Up or down**, written by one thread and read by many: `markUp()`,
-  `markDown()`, `isUp()`. A new status is down.
-- **Requests served**, incremented by many threads at once: `request()`,
-  `requests()`. It must never lose an increment.
-- **Last restart**, a `long` of epoch milliseconds written by one thread:
-  `restartedAt(long millis)`, `lastRestart()`. A reader must never see half of
-  one write and half of another. It starts at `0`.
+- `reload(...)`: read the renewed certificate and key from the source and start using them;
+- `current()`: the certificate and key a new handshake uses.
 
-The tests look at the field each method writes and check its kind.
+When you're done, every handshake gets a certificate with the key that belongs to it, whenever it
+starts, and a handshake never waits for a reload, however slow the vault is. You may change how
+the credentials are stored. About five lines in total.
 
-| calls | answer |
-|---|---|
-| `new ServerStatus().isUp()` | `false` |
-| `markUp()`, `isUp()` | `true` |
-| three `request()`, `requests()` | `3` |
-| `restartedAt(1_700_000_000_123L)`, `lastRestart()` | `1700000000123` |
+The tests hold the reload while it reads one part from the vault and start a handshake meanwhile.

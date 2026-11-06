@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Start a task on its own named thread",
+  "title": "Let the background pool run the inbox poller",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,27 @@
     },
     {
       "type": "para",
-      "text": "A `Thread` object is only a description of work until something makes it run. The page's first pitfall is calling `run()` where `start()` was meant: `run()` is an ordinary method call on the **current** thread, while `start()` creates a new thread, returns at once, and runs the task there. The page also asks you to name your threads, so thread dumps and logs say who is doing what."
+      "text": "The support service polls a shared inbox with `InboxPoller`. The class was written as a thread of its own, and the older deployments still create it and call `start()`. Last month the service got a background pool, and the poller is now also handed to it with `pool.execute(poller)`. Since then, on the deployments that use the pool, every deploy waits for the pool until its timeout runs out, and when on-call looks for the poller in a thread dump, the name in its log lines matches no thread at all."
     },
     {
       "type": "para",
-      "text": "Write `Launch.launch(String name, Runnable task)`. It creates a platform thread named `name` for `task`, makes the task run **on that new thread**, and returns the thread **without waiting** for the task to finish."
+      "text": "The polling loop already works. Finish the two `TODO`s in `src/main/java/practice/InboxPoller.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "what the test sees"
-      ],
-      "rows": [
-        [
-          "`launch(\"payment-processor-1\", counter::incrementAndGet)`, then `join`",
-          "the counter is `1`; the thread's name is `payment-processor-1`"
-        ],
-        [
-          "`launch(\"worker-7\", () -> seen.set(Thread.currentThread()))`, then `join`",
-          "`seen` is the returned thread, not the caller"
-        ],
-        [
-          "`launch(\"slow\", taskThatWaitsForAGate)`",
-          "returns while the task still waits for the gate"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`stopRequested()`: whether the poller has been asked to stop;",
+        "`workerName()`: the thread name its log lines carry."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, the poller behaves the same whichever way it runs: started on its own and interrupted, or run by the pool and shut down with `shutdownNow()`, it stops, and its log lines name a thread you can find in a dump. Two lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run the poller both ways, on its own thread and on a real `ExecutorService`."
     },
     {
       "type": "heading",
@@ -59,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Launch {\n\n    private Launch() {\n    }\n\n    /** Runs {@code task} on a new thread named {@code name}, and returns that thread without waiting. */\n    public static Thread launch(String name, Runnable task) {\n        Thread thread = new Thread(task, name);\n        thread.start();\n        return thread;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Polls the shared support inbox and hands each message on. It was written as a thread of its\n * own, and some deployments still run it that way with {@code new InboxPoller(...).start()}. The\n * service now also hands it to its background pool with {@code pool.execute(poller)}, and shuts\n * that pool down with {@code shutdownNow()} on every deploy.\n */\npublic class InboxPoller extends Thread {\n\n    /** The inbox: {@code next()} returns the next message, or null when there is none yet. Never blocks. */\n    public interface Inbox {\n        String next();\n    }\n\n    private final Inbox inbox;\n    private final Consumer<String> log;\n\n    public InboxPoller(Inbox inbox, Consumer<String> log) {\n        super(\"inbox-poller\");\n        this.inbox = inbox;\n        this.log = log;\n    }\n\n    @Override\n    public void run() {\n        while (!stopRequested()) {\n            String message = inbox.next();\n            if (message == null) {\n                Thread.onSpinWait();\n                continue;\n            }\n            log.accept(workerName() + \" handled \" + message);\n        }\n        log.accept(workerName() + \" stopped\");\n    }\n\n    /** Whether whoever is running this poller has asked it to stop. */\n    boolean stopRequested() {\n        return Thread.currentThread().isInterrupted();\n    }\n\n    /** The name of the thread doing the work, for the log lines. */\n    String workerName() {\n        return Thread.currentThread().getName();\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Launch {\n\n    private Launch() {\n    }\n\n    /** Runs {@code task} on a new thread named {@code name}, and returns that thread without waiting. */\n    public static Thread launch(String name, Runnable task) {\n        throw new UnsupportedOperationException(\"write launch\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Polls the shared support inbox and hands each message on. It was written as a thread of its\n * own, and some deployments still run it that way with {@code new InboxPoller(...).start()}. The\n * service now also hands it to its background pool with {@code pool.execute(poller)}, and shuts\n * that pool down with {@code shutdownNow()} on every deploy.\n */\npublic class InboxPoller extends Thread {\n\n    /** The inbox: {@code next()} returns the next message, or null when there is none yet. Never blocks. */\n    public interface Inbox {\n        String next();\n    }\n\n    private final Inbox inbox;\n    private final Consumer<String> log;\n\n    public InboxPoller(Inbox inbox, Consumer<String> log) {\n        super(\"inbox-poller\");\n        this.inbox = inbox;\n        this.log = log;\n    }\n\n    @Override\n    public void run() {\n        while (!stopRequested()) {\n            String message = inbox.next();\n            if (message == null) {\n                Thread.onSpinWait();\n                continue;\n            }\n            log.accept(workerName() + \" handled \" + message);\n        }\n        log.accept(workerName() + \" stopped\");\n    }\n\n    /** Whether whoever is running this poller has asked it to stop. */\n    boolean stopRequested() {\n        // TODO: Answer whether this poller has been asked to stop, both when it runs as a thread\n        //       of its own and when the background pool runs it.\n        throw new IllegalStateException(\"TODO: stopRequested\");\n    }\n\n    /** The name of the thread doing the work, for the log lines. */\n    String workerName() {\n        // TODO: On-call reads these lines to find the thread in a thread dump. Name the thread\n        //       that is actually doing the work.\n        throw new IllegalStateException(\"TODO: workerName\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e2e3ee53d64edcb40088dfcea69cfc062d6db057d42a287fa8918d3ab3aa76d8",
-  "starting_code": "package practice;\n\npublic final class Launch {\n\n    private Launch() {\n    }\n\n    /** Runs {@code task} on a new thread named {@code name}, and returns that thread without waiting. */\n    public static Thread launch(String name, Runnable task) {\n        throw new UnsupportedOperationException(\"write launch\");\n    }\n}\n",
+  "content_sha256": "3a6733e52a3f42bac8ca98de3ae32c12384fb84d44395015ea68f30aa18138d8",
+  "starting_code": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Polls the shared support inbox and hands each message on. It was written as a thread of its\n * own, and some deployments still run it that way with {@code new InboxPoller(...).start()}. The\n * service now also hands it to its background pool with {@code pool.execute(poller)}, and shuts\n * that pool down with {@code shutdownNow()} on every deploy.\n */\npublic class InboxPoller extends Thread {\n\n    /** The inbox: {@code next()} returns the next message, or null when there is none yet. Never blocks. */\n    public interface Inbox {\n        String next();\n    }\n\n    private final Inbox inbox;\n    private final Consumer<String> log;\n\n    public InboxPoller(Inbox inbox, Consumer<String> log) {\n        super(\"inbox-poller\");\n        this.inbox = inbox;\n        this.log = log;\n    }\n\n    @Override\n    public void run() {\n        while (!stopRequested()) {\n            String message = inbox.next();\n            if (message == null) {\n                Thread.onSpinWait();\n                continue;\n            }\n            log.accept(workerName() + \" handled \" + message);\n        }\n        log.accept(workerName() + \" stopped\");\n    }\n\n    /** Whether whoever is running this poller has asked it to stop. */\n    boolean stopRequested() {\n        // TODO: Answer whether this poller has been asked to stop, both when it runs as a thread\n        //       of its own and when the background pool runs it.\n        throw new IllegalStateException(\"TODO: stopRequested\");\n    }\n\n    /** The name of the thread doing the work, for the log lines. */\n    String workerName() {\n        // TODO: On-call reads these lines to find the thread in a thread dump. Name the thread\n        //       that is actually doing the work.\n        throw new IllegalStateException(\"TODO: workerName\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/main/java/practice/Launch.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/test/java/practice/LaunchTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/main/java/practice/InboxPoller.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-01/practice-1/src/test/java/practice/InboxPollerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,19 +110,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LaunchTest#runsTheTaskOnANamedThread",
+        "id": "practice.InboxPollerTest#handlesEachMessageAndStopsWhenItsOwnThreadIsInterrupted",
         "kind": "main",
-        "says": "The task runs once, and the returned thread carries the given name."
+        "says": "started as a thread of its own, the poller handles each message, logs it under its thread's name, and stops when that thread is interrupted"
       },
       {
-        "id": "practice.LaunchTest#runsOnTheNewThreadNotTheCaller",
+        "id": "practice.InboxPollerTest#shuttingDownTheBackgroundPoolStopsIt",
         "kind": "edge",
-        "says": "The task runs on the returned thread, never on the caller's thread."
+        "says": "run by a pool, the poller stops when the pool is shut down with shutdownNow()"
       },
       {
-        "id": "practice.LaunchTest#returnsWithoutWaitingForTheTask",
+        "id": "practice.InboxPollerTest#inThePoolItsLinesNameThePoolThread",
         "kind": "edge",
-        "says": "launch returns while the task is still running."
+        "says": "run by a pool, the poller's log lines name the pool thread that does the work"
       }
     ],
     "report": {
@@ -136,11 +131,10 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.1.md",
-      "section": "Key Points to Remember"
+      "section": "A Thread Runs a Task: Write the Task as a Runnable, Not as a Thread"
     },
     "concepts": [
-      "Runnable is a functional interface, so a lambda can be the task a thread runs.",
-      "Calling run() executes the task on the calling thread; start() creates a new thread that runs it and returns at once."
+      "A Thread subclass run by a pool executes on the pool's thread, while its inherited getName() and isInterrupted() describe the never-started Thread object; a task asks Thread.currentThread()."
     ]
   }
 }

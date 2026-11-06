@@ -1,26 +1,21 @@
-A `ReentrantLock` is **reentrant**: the thread that holds it can call `lock()`
-again without blocking, and the lock keeps a **hold count**. Each `lock()`
-adds one, each `unlock()` takes one away, and the lock is free only when the
-count is back to zero, so the owner must unlock exactly as many times as it
-locked. The page's `ReentrantExample` has `outer()` call `inner()`, both
-locking the same lock.
+A warehouse has a loading dock with a few bays. Trucks that arrive when every bay is taken wait
+for one to free up, and at night the yard manager's app waits for the dock to empty before it
+locks the gate. The dock's software has had three bad weeks: once the yard counted four trucks
+in three bays, a driver sat in front of a free bay for an hour, and the gate was locked with a
+truck still inside.
 
-Write `AuditLog`, guarded by the one **fair** `ReentrantLock` the starter gives
-you (keep it fair: a thread already waiting for it goes before one that asks
-later):
+`LoadingDock` already keeps the count of occupied bays under its lock and has two conditions,
+`bayFree` and `dockEmpty`. Write its three small helpers in
+`src/main/java/practice/LoadingDock.java`; each is called with the lock held:
 
-- `void record(String entry)` appends one entry under the lock.
-- `void recordAll(List<String> entries, Runnable afterEach)` holds the lock for
-  the **whole batch**, from before the first entry until after the last, so no
-  other thread's entry lands in the middle of it. Locking around each entry
-  separately is not enough: a waiting thread gets in between two entries. It
-  records each entry by calling `record(entry)` (which takes the same lock
-  again) and then calls `afterEach.run()`, still holding the lock.
-  If `afterEach` throws, `recordAll` passes that exception on, and the lock is released all the same.
-- `String entries()` is every entry so far, joined by `","` (`""` when empty).
+- `waitForBay()`: returns once the arriving truck can take a bay;
+- `announceLeave()`: runs after a truck has left;
+- `waitForEmpty()`: returns once no truck is at the dock.
 
-| calls | `entries()` |
-|---|---|
-| `recordAll(["a", "b"], hook)`, then `record("c")` | `"a,b,c"` |
-| `recordAll(["a1", "a2"], hook)` while another thread calls `record("x")` after `"a1"` | `"a1,a2,x"` |
-| `recordAll(["a", "b"], hook)`, then another thread's `record("c")` | `"a,b,c"`, and that `record` does not wait |
+A truck never takes a bay that isn't free, a waiting truck gets in as soon as a bay frees, and
+the night close goes ahead only once the dock is empty, and then without delay. About four lines
+in total.
+
+The tests run waiting trucks and the night close on threads of their own. To check that your
+waits hold up, they also take the dock's lock themselves: once to let a newcomer drive into a bay
+right after it was freed, and once to wake the night close while a truck is still in.

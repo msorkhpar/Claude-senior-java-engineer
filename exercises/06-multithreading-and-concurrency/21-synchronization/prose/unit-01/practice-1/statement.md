@@ -1,24 +1,15 @@
-The page's counter protects `count++` with `synchronized`, and prefers a
-**dedicated, private lock object** to `synchronized` methods, because a method
-lock is `this`, and any outside code can take `this` too. It also warns that
-`synchronized (new Object())` protects nothing, since every call gets its own
-lock.
+A retail chain issues invoice numbers from one sequence for the whole company, and every branch's
+tills call `issue(...)` on their own branch's `Branch` object. The finance team has two
+complaints. The audit found pairs of invoices with the same number, issued seconds apart by
+different branches, and journal lines with their numbers out of order. And on the morning a new
+branch opened, every till in the chain froze for as long as the new branch took to load its
+settings from head office.
 
-Write `Balance`, a balance many threads may change:
+Write `issue(...)` in `src/main/java/practice/Branch.java`. Each call takes the next number of the
+company's sequence, writes it to the journal with the branch's name and the customer, and returns
+it. With any number of tills in any number of branches calling it at once, no number is issued
+twice, the journal gets its lines one at a time and in number order, and no till waits for a
+branch that is being opened. About five lines in total, and you may add a field.
 
-- `Balance(int initial)` starts the balance.
-- `int update(IntUnaryOperator change)` applies `change` to the balance and
-  returns the new balance. Only one update runs at a time: a second update
-  **waits** until the first has finished.
-- `int get()` returns the balance.
-- Code outside the class that does `synchronized (balance) { ... }` must not be
-  able to stall `update`.
-- If `change` throws, the exception reaches the caller, the balance keeps its
-  old value, and the next update, from any thread, still runs.
-
-| calls, from `new Balance(10)` | answer |
-|---|---|
-| `update(x -> x + 5)` | `15` |
-| `update(x -> x * 2)`, then `get()` | `30`, `30` |
-| `update(x -> { throw new IllegalStateException(); })` | throws `IllegalStateException`; `get()` is still `30` |
-| another thread holds `synchronized (balance)`; this thread calls `update(x -> x + 1)` | returns `31` without waiting for it |
+The tests use journals and settings loaders that hold a call open, so they can see who waits for
+whom.

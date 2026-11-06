@@ -1,19 +1,13 @@
-The page warns that `volatile int[] arr` makes only the **reference** volatile:
-`arr[0] = 42` is an ordinary write. For element-level guarantees it points to
-`AtomicIntegerArray`. And a read-modify-write such as `scores[i] += x` is a
-compound action that `volatile` never makes atomic.
+The shop keeps each member's loyalty points in a `PointsAccount`. Purchases add points from the
+request threads, refunds take them away, and batch jobs run promotions ("double every balance
+this weekend") and expiry ("half of it expires") over every account, at the same time as the
+shop is busy. Support has a pile of tickets from members whose points went back to an old
+balance after a promotion, and the balance field is already `volatile`.
 
-Write `ScoreBoard`, a board of `size` score slots that many threads update:
+Finish `apply(...)` in `src/main/java/practice/PointsAccount.java`. A rule computes the new balance
+from the current one and has no side effects; some rules take a while to compute. When you're
+done, no rule is lost when rules arrive together, and each rule applies to the balance as it is
+when the rule takes effect. You may change how the balance is stored. About three lines in total.
 
-- `int update(int slot, IntUnaryOperator change)` applies `change` to the slot's
-  score and returns the new score. Two updates of the **same** slot never lose
-  one another's result. `change` has no side effects, so it may be called again
-  on a fresh value.
-- An update of one slot never waits for an update of a **different** slot.
-- `int get(int slot)` reads one score; `int[] snapshot()` copies all of them.
-
-| calls, from `new ScoreBoard(3)` | answer |
-|---|---|
-| `update(0, x -> x + 5)` | `5` |
-| `update(2, x -> x + 1)`, then `snapshot()` | `1`, then `[5, 0, 1]` |
-| slot 1 is 0; one thread adds 10 while another adds 1 | `get(1)` is `11` |
+The tests hold one rule in the middle of its computation while another thread applies a second
+rule, then let the first one finish.

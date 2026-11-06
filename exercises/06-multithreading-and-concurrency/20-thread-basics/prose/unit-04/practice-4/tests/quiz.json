@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "20-thread-basics"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "ordinal": 4,
+  "title": "Check yourself: thread lifecycle and states",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-report-threads-runnable",
+        "stem": "A reporting service's admin page shows 64 of its 70 threads as RUNNABLE. In a thread dump, most of those 64 have `sun.nio.ch.SocketDispatcher.read0` as their top frame, called from the JDBC driver. What are they doing?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Queued for a core, since a thread is reported as RUNNABLE while it waits for a processor to run the driver",
+            "correct": false,
+            "says": "RUNNABLE covers ready threads too, but read0 at the top of the stack means the thread waits for the network, not for a core"
+          },
+          {
+            "id": "b",
+            "text": "Parsing rows, since a thread is reported as RUNNABLE while the driver decodes rows inside read0",
+            "correct": false,
+            "says": "read0 is the native socket read; a thread there waits for bytes from the database (price-call shows 0 ms of CPU in the same call)"
+          },
+          {
+            "id": "c",
+            "text": "Waiting for the reply, since a thread is reported as RUNNABLE while it is blocked in the driver's read0",
+            "correct": true,
+            "says": "the JVM doesn't see inside a system call, so a platform thread waiting in a socket read is reported RUNNABLE"
+          },
+          {
+            "id": "d",
+            "text": "Spinning, since a thread is reported as RUNNABLE while the driver repeats read0 in a loop",
+            "correct": false,
+            "says": "read0 is a native socket method, and a thread in it waits for the network rather than repeating a call"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "RUNNABLE Means the JVM Isn't Holding the Thread Back, Not That It Is Using a CPU"
+        }
+      },
+      {
+        "id": "q-invoice-pool-parked",
+        "stem": "During the month-end run, an invoicing service's admin page reads ThreadMXBean: all 120 pool threads are WAITING, none is BLOCKED, and the lock each one waits for is the same `ReentrantLock$FairSync`. What does that say about the pool?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Idle between invoices, since a pool's queue keeps its idle workers WAITING on a ReentrantLock$FairSync",
+            "correct": false,
+            "says": "an idle worker waits on its queue's ConditionObject; threads whose lock is a ReentrantLock$FairSync wait for whoever holds that lock"
+          },
+          {
+            "id": "b",
+            "text": "Stuck behind that lock's holder, since a thread waiting for a held ReentrantLock$FairSync is parked as WAITING",
+            "correct": true,
+            "says": "a ReentrantLock parks its waiters, so they are WAITING rather than BLOCKED, and all of them wait for its holder"
+          },
+          {
+            "id": "c",
+            "text": "Waiting for that lock's timeout, since a FairSync parks each thread as WAITING until its time limit runs out",
+            "correct": false,
+            "says": "a wait with a time limit shows TIMED_WAITING; WAITING means no timeout, and these threads wait for the lock's holder to unlock"
+          },
+          {
+            "id": "d",
+            "text": "Waiting for that lock's notifyAll(), since a thread WAITING on a ReentrantLock$FairSync is inside Object.wait()",
+            "correct": false,
+            "says": "a ReentrantLock parks its waiters; they go on when the holder unlocks, not on notifyAll()"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "BLOCKED Means Waiting for a synchronized Monitor; a Thread Waiting for a ReentrantLock Is WAITING"
+        }
+      },
+      {
+        "id": "q-audit-throttle",
+        "stem": "To go easy on the database, an audit job calls `Thread.sleep(30_000)` between two batches, inside `synchronized (accounts)`. Transfer threads call methods that are also `synchronized (accounts)`. What does a thread dump taken during the 30 seconds show for the transfers?",
+        "options": [
+          {
+            "id": "a",
+            "text": "TIMED_WAITING like the audit job, since threads that share a monitor share its waiting state",
+            "correct": false,
+            "says": "each thread has its own state; threads that can't enter a monitor someone holds are BLOCKED"
+          },
+          {
+            "id": "b",
+            "text": "RUNNABLE and working, since sleep() releases the monitor until the audit job wakes up again",
+            "correct": false,
+            "says": "only Object.wait() releases the monitor while waiting; sleep keeps it"
+          },
+          {
+            "id": "c",
+            "text": "WAITING for the audit job, since a thread held up by a sleeping thread is parked until it wakes",
+            "correct": false,
+            "says": "threads waiting to enter a synchronized block are BLOCKED, not parked"
+          },
+          {
+            "id": "d",
+            "text": "BLOCKED behind the audit job, since a sleeping thread keeps the monitors that it holds",
+            "correct": true,
+            "says": "sleep gives up the processor, not the monitor, so the transfers wait to enter for the whole 30 seconds"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "Spot the Problem: a Back-Off That Holds the Cache"
+        }
+      },
+      {
+        "id": "q-dispatcher-notify-all",
+        "stem": "Five driver threads are in `board.wait()`. A dispatcher enters `synchronized (board)`, posts a job, calls `board.notifyAll()`, and then spends two seconds writing an audit record before it leaves the block. During those two seconds, what state do the drivers show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "BLOCKED, since each driver must own the board's monitor again before its wait() can return",
+            "correct": true,
+            "says": "a notified thread goes from WAITING to BLOCKED until it gets the monitor back, and the dispatcher still holds it"
+          },
+          {
+            "id": "b",
+            "text": "WAITING, since the drivers stay inside wait() until the dispatcher leaves its synchronized block",
+            "correct": false,
+            "says": "notifyAll() takes them out of WAITING at once; while the dispatcher holds the monitor they are BLOCKED"
+          },
+          {
+            "id": "c",
+            "text": "RUNNABLE, since notifyAll() lets each driver's wait() return while the dispatcher still holds the board",
+            "correct": false,
+            "says": "wait() returns only once the thread owns the monitor again; while the dispatcher holds it, the drivers are BLOCKED"
+          },
+          {
+            "id": "d",
+            "text": "TIMED_WAITING, since a notified driver's wait() turns into a timed wait until the dispatcher leaves",
+            "correct": false,
+            "says": "the drivers called wait() with no timeout, and once notified they are BLOCKED on the monitor, not in a timed wait"
+          }
+        ],
+        "origin": {
+          "path": "20-thread-basics/README_6.1.4.md",
+          "section": "A Notified Thread Is BLOCKED Until It Gets the Monitor Back"
+        }
+      }
+    ]
+  }
+}

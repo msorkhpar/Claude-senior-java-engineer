@@ -1,15 +1,12 @@
-Two pitfalls on this page pull in opposite directions. Reading a worker's result
-without `join()` is a race: "results may be empty when we read it". But calling
-`join()` straight after each `start()` makes the work sequential, with "no benefit
-from threading". The fix is to **start every worker first, then join them all**.
+The service's `/health` endpoint checks Postgres, Redis, Kafka and S3, each on its own thread, and
+the load balancer gives up on the endpoint after two seconds, so the whole check has to fit in that
+budget. During last night's Kafka outage two things went wrong. Most requests to `/health`
+answered "all passed" after two seconds while Kafka was unreachable. A few never answered at all,
+and the load balancer took the instance out of rotation.
 
-Write `Fanout.mapAll(List<Integer> inputs, Function<Integer, Integer> f)`. Run
-`f` on each input on its **own** new thread, start all of those threads before
-joining any, and return the results **in the inputs' order** once every thread has
-finished.
+`run(...)` starts the probes and builds the report. Finish `await(...)` in
+`src/main/java/practice/HealthCheck.java`: the wait for one probe, against the deadline the whole
+check shares.
 
-| inputs, `f` | result |
-|---|---|
-| `[3, 1, 4, 2]`, `x -> x * x` | `[9, 1, 16, 4]` |
-| `[5]`, `x -> x + 1` | `[6]` |
-| `[]`, any | `[]` |
+When you're done, a probe still running at the deadline is reported as timed out, and `/health`
+answers within its budget however the time left is spread over the probes. About three lines.

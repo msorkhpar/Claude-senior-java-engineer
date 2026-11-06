@@ -1,26 +1,17 @@
-The page's transition table, and its answer to "can a thread go directly from
-`BLOCKED` to `WAITING`?": **no**, a thread must be `RUNNABLE` to call `wait()`,
-`join()` or `park()`. But `WAITING` to `BLOCKED` **is** possible: a thread
-notified in `Object.wait()` must re-enter the monitor, and while another thread
-holds it, it is `BLOCKED`.
+The trading desk's monitoring page asks every market-data feed for its `status()` once a second.
+When a feed loses its connection, its own thread calls `reconnect()`, which backs off between
+attempts, for up to two minutes when the exchange is down. That is exactly when the desk most
+wants to see the feed's status, and it is when the monitoring threads stop getting answers. At
+shutdown, `close()` should make a reconnect give up, and today shutdown waits out the back-off.
 
-| from | to |
-|---|---|
-| `NEW` | `RUNNABLE` |
-| `RUNNABLE` | `BLOCKED`, `WAITING`, `TIMED_WAITING`, `TERMINATED` |
-| `BLOCKED` | `RUNNABLE` |
-| `WAITING`, `TIMED_WAITING` | `RUNNABLE`, `BLOCKED` |
-| `TERMINATED` | nothing |
+`QuoteFeed` keeps its state under its own monitor, and `reconnect()`, `status()` and `close()`
+stay `synchronized`. Finish the two `TODO`s in `src/main/java/practice/QuoteFeed.java`:
 
-Write `Lifecycle.isValid(List<Thread.State> states)`: the states one thread
-entered, in order. It is valid when it is not empty, starts at `NEW`, and each
-state follows the one before it by a transition in the table. A thread need not
-have ended yet, so the list may stop anywhere.
+- `pause(long millis)`: the back-off between two attempts, called from inside `reconnect()`;
+- `close()`: closes the feed, and a reconnect that is backing off gives up at once.
 
-| states | answer |
-|---|---|
-| `NEW, RUNNABLE, TIMED_WAITING, RUNNABLE, TERMINATED` | `true` |
-| `NEW, TERMINATED` | `false` |
-| `NEW, RUNNABLE, BLOCKED, WAITING` | `false` |
-| `NEW, RUNNABLE, WAITING, BLOCKED, RUNNABLE` | `true` |
-| `NEW, RUNNABLE, TERMINATED, RUNNABLE` | `false` |
+When you're done, `status()` answers during a back-off of any length, and `close()` ends a
+back-off in progress. About seven lines in total.
+
+The tests run `reconnect()` on a thread of its own, with back-offs of a few milliseconds and of
+two minutes.

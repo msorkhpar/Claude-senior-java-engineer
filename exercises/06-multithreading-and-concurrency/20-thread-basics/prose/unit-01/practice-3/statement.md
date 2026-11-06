@@ -1,17 +1,19 @@
-The page asks you to name your threads ("db-worker-0", "db-worker-1", …) so thread
-dumps and logs are readable, to set daemon status on purpose, and it shows Java
-21's `Thread.Builder` doing all of that before a thread exists:
-`Thread.ofPlatform().name("worker", 0).daemon(false).priority(Thread.NORM_PRIORITY)`.
-A priority is a number from `Thread.MIN_PRIORITY` (1) to `Thread.MAX_PRIORITY` (10).
+The billing service has a dozen thread pools, all created with `Executors`' default factory. Two
+things went wrong last month. During an incident, on-call took a thread dump and found 37 threads
+called `pool-<N>-thread-<M>`, and had to guess which pool belonged to which component. And after a
+routine restart, the audit log was missing its last entries: the audit pool is created lazily, on
+the first audit event, and that event is raised by the housekeeping thread, which is a daemon.
 
-Write `Workers.factory(String prefix, boolean daemon, int priority)`. It returns a
-`ThreadFactory` whose `newThread(task)` makes an **unstarted** platform thread for
-`task`, named `prefix` followed by a counter that starts at `0` for each factory,
-with the given daemon status and priority. A priority outside 1..10 throws
-`IllegalArgumentException` from `factory` itself.
+The team now creates every pool with a `ServiceThreads` factory, which knows the component's name
+and whether the component is background work that may be dropped at exit (a CPU sampler) or
+foreground work that must finish (audit, ledger). Finish the `TODO` in
+`src/main/java/practice/ServiceThreads.java`:
 
-| call | threads made by three `newThread` calls |
-|---|---|
-| `factory("db-worker-", false, 5)` | `db-worker-0`, `db-worker-1`, `db-worker-2`; not daemon; priority 5 |
-| `factory("metrics-", true, 10)` | `metrics-0`, …; daemon; priority 10 |
-| `factory("x-", false, 11)` | `IllegalArgumentException`, no factory |
+- `newThread(...)`: the thread a pool asks for.
+
+When you're done, a thread dump shows `audit-1`, `audit-2`, `ledger-1`, ... (each component
+counting its own threads), and whether the JVM waits for a pool's threads at exit depends only on
+what the component declared, whichever thread happened to create the pool. About four lines in
+total.
+
+The tests build real pools with the factory and also call it from a daemon thread.

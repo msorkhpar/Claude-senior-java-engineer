@@ -1,641 +1,655 @@
 # 6.2.1. Monitors and Synchronized Blocks
 
-## Concept Explanation
+A flash sale offers 500 consoles, and the stock service sells 507. Every method of the class that
+holds the stock is `synchronized`, and the checkout does what looks safe:
 
-Java's synchronization model is built around the concept of **monitors** — a synchronization construct that allows
-threads to have mutual exclusion and the ability to wait for a condition to become true. Every Java object is implicitly
-associated with a monitor, which can be thought of as a lock room with a single door: only one thread can be inside at a
-time.
-
-**Real-world analogy**: Imagine a single-occupancy bathroom in an office. When someone enters, they lock the door
-(acquires the monitor). Others who want to use it wait in line (blocked threads). When the person leaves, they unlock
-the door (releases the monitor), and the next person in line can enter. This ensures only one person at a time can use
-the bathroom — exactly how intrinsic locks enforce mutual exclusion.
-
-### The `synchronized` Keyword
-
-Java provides the `synchronized` keyword to acquire an object's intrinsic lock (monitor) before executing a block of
-code. There are two forms:
-
-**Synchronized instance method** — acquires the lock on `this`:
 ```java
-public synchronized void increment() {
-    count++;
-}
+if (stock.available() >= 1) stock.take(1);
 ```
 
-**Synchronized static method** — acquires the lock on the `Class` object:
-```java
-public static synchronized void staticMethod() {
-    // acquires lock on MyClass.class
-}
-```
+The hotfix moves the whole checkout into one `synchronized` method, payment call included. The
+overselling stops, and the service now completes one checkout per payment round trip: at 50 ms a
+call, 20 orders a second, however many request threads it has. Both versions use the same keyword;
+they differ in what they lock and how much code runs under one hold.
 
-**Synchronized block** — acquires the lock on a specified object (more granular control):
+## A Tool That Starts Threads Together
+
+The racing examples use one helper. It releases the threads together, gives them a second, and
+prints any still running with what the JVM's deadlock detector says about them.
+
 ```java
-public void increment() {
-    synchronized (this) {
-        count++;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+
+/** Starts threads at the same moment, waits up to a second for them, and reports what happened. */
+public final class Together {
+
+    /** The body of thread number i. */
+    public interface Body {
+        void run(int i) throws Exception;
+    }
+
+    public static void run(String name, int threads, Body body) throws InterruptedException {
+        CountDownLatch go = new CountDownLatch(1);
+        List<Thread> started = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            int n = i;
+            Thread t = new Thread(() -> {
+                try {
+                    go.await();
+                    body.run(n);
+                } catch (Exception e) {
+                    System.out.println("  " + Thread.currentThread().getName() + " ended with " + e);
+                }
+            }, name + "-" + i);
+            t.setDaemon(true);                       // a thread that never ends can't keep the JVM alive
+            t.start();
+            started.add(t);
+        }
+        long begin = System.nanoTime();
+        go.countDown();
+        long deadline = begin + 1_000_000_000L;
+        for (Thread t : started) t.join(Math.max(1, (deadline - System.nanoTime()) / 1_000_000));
+        long ms = (System.nanoTime() - begin) / 1_000_000;
+        List<String> stuck = started.stream().filter(Thread::isAlive).map(Thread::getName).toList();
+        if (stuck.isEmpty()) {
+            System.out.printf("%-14s %d threads done in %d ms%n", name, threads, ms);
+            return;
+        }
+        System.out.printf("%-14s still running after 1 s: %s%n", name, stuck);
+        ThreadMXBean mx = ManagementFactory.getThreadMXBean();
+        long[] ids = mx.findDeadlockedThreads();
+        if (ids == null) {
+            System.out.println("  findDeadlockedThreads(): null");
+            return;
+        }
+        for (ThreadInfo info : mx.getThreadInfo(ids)) {
+            System.out.printf("  deadlocked: %s waits for %s held by %s%n", info.getThreadName(),
+                    info.getLockName().replaceAll("@.*", ""), info.getLockOwnerName());
+        }
     }
 }
+```
 
-// Or with a dedicated lock object (preferred):
-private final Object lock = new Object();
-public void increment() {
+Every output on this page comes from Java 21 on a 20-core machine, one JVM per example.
+
+## synchronized Locks an Object, and Excludes Only Code That Locks the Same One
+
+Every Java object has a **monitor**: a lock that one thread at a time can own. `synchronized (x)
+{ ... }` takes `x`'s monitor before the block runs, waiting while another thread owns it, and
+gives it back when the block ends. A `synchronized` instance method does the same with `this`, and
+a `static synchronized` method with the class's `Class` object. The keyword sits on the code, but
+the lock belongs to an object.
+
+Each of 8 threads increments an order counter, `static int ordersToday`, 100,000 times. Which of
+these four versions reach 800,000?
+
+```java
+Together.run("no lock", 8, i -> {
+    for (int k = 0; k < 100_000; k++) ordersToday++;
+});
+Together.run("new Object()", 8, i -> {
+    for (int k = 0; k < 100_000; k++) {
+        synchronized (new Object()) { ordersToday++; }
+    }
+});
+Together.run("handler", 8, i -> {             // one handler per request, as a web framework does
+    for (int k = 0; k < 100_000; k++) new CheckoutHandler().countOrder();
+});
+Together.run("ORDERS_LOCK", 8, i -> {         // private static final Object ORDERS_LOCK
+    for (int k = 0; k < 100_000; k++) {
+        synchronized (ORDERS_LOCK) { ordersToday++; }
+    }
+});
+```
+
+where the handler is
+
+```java
+static class CheckoutHandler {
+    synchronized void countOrder() {
+        ordersToday++;
+    }
+}
+```
+
+```text
+no lock        8 threads done in 8 ms
+  ordersToday = 480535
+new Object()   8 threads done in 40 ms
+  ordersToday = 702443
+handler        8 threads done in 52 ms
+  ordersToday = 620003
+ORDERS_LOCK    8 threads done in 47 ms
+  ordersToday = 800000
+```
+
+`ordersToday++` is three steps: read the field, add one, write it back. Two threads that read the
+same value both write the same result, and one order is gone.
+
+The two middle versions lock and still lose increments. `new Object()` gives every increment a
+lock no other thread will ask for. The handler's `synchronized` method locks the handler, and
+every increment has a new one, while the `static` field is shared by every handler. Only the last
+version has all eight threads asking for the same object.
+
+Choose the lock by the state it protects: one lock object per piece of shared state, and every
+access to that state goes through it, reads included. Releasing a monitor also makes everything
+the thread wrote before the release visible to the next thread that takes the same monitor; a read
+that skips the lock has no such guarantee (unit 6.2.2).
+
+### Spot the Problem: Someone Else Holds Your Monitor
+
+A price cache protects its map with `synchronized` methods:
+
+```java
+static class PriceCache {
+    private final Map<String, Long> prices = new HashMap<>();
+
+    synchronized Long price(String sku) {
+        return prices.get(sku);
+    }
+
+    synchronized void update(String sku, long cents) {
+        prices.put(sku, cents);
+    }
+}
+```
+
+A metrics exporter, someone else's code, receives the cache and exports it every minute:
+
+```java
+static void exportSnapshot(Object cache) throws InterruptedException {
+    synchronized (cache) {                        // "so the snapshot is consistent"
+        Thread.sleep(300);                        // serializing and sending it
+    }
+}
+```
+
+A request asks for a price while an export runs, once on this cache and once on
+`PrivateLockPriceCache`, a copy whose methods lock a `private final Object lock` instead:
+
+```text
+price() on PriceCache:            280 ms
+price() on PrivateLockPriceCache: 0 ms
+```
+
+A `synchronized` method locks `this`, and any code that holds a reference to the object can lock
+it too. The cache's latency now depends on code its author never sees, and if that code takes a
+second lock, on a lock order nobody planned. Only the class itself can take a lock that is a
+private field.
+
+Lock a `private final` object, unless you mean outside code to share your lock, and then document
+it. Never lock an object other code can reach by accident: a string literal is interned, one
+object JVM-wide, so two unrelated classes that lock `"lock"` stall each other.
+
+<!-- practice 1 -->
+
+## Each Synchronized Method Is Atomic; a Check Followed by an Act Is Not
+
+The flash sale's stock, every method `synchronized` on the same object:
+
+```java
+static class Stock {
+    private int units;
+
+    Stock(int units) {
+        this.units = units;
+    }
+
+    synchronized int available() {
+        return units;
+    }
+
+    synchronized void take(int n) {
+        units -= n;
+    }
+}
+```
+
+64 buyers run the checkout until the stock is gone, pricing each order between the check and the
+take:
+
+```java
+while (true) {
+    if (stock.available() >= 1) {
+        priceTheOrder();              // a few microseconds of work
+        stock.take(1);
+        sold.incrementAndGet();
+    } else {
+        break;
+    }
+}
+```
+
+Five runs, 500 units each:
+
+```text
+check, then act 64 threads done in 28 ms
+  sold 509, units left -9
+check, then act 64 threads done in 8 ms
+  sold 505, units left -5
+check, then act 64 threads done in 6 ms
+  sold 500, units left 0
+check, then act 64 threads done in 9 ms
+  sold 501, units left -1
+check, then act 64 threads done in 11 ms
+  sold 503, units left -3
+```
+
+Each call was atomic, but between `available()` returning and `take(1)` starting the buyer holds
+no lock. Several buyers saw the last unit as available, and each took it. Check and act in one
+hold of the lock, inside the class:
+
+```java
+synchronized boolean tryTake(int n) {
+    if (available() < n) return false;        // the thread already holds this monitor
+    take(n);                                  // and takes it again here
+    return true;
+}
+```
+
+```text
+tryTake        64 threads done in 25 ms
+  sold 500, units left 0
+```
+
+`tryTake` calls `available()` and `take()`, which lock the monitor the thread already owns. That
+works because a monitor is **reentrant**: it records its owner and a count, entering again adds
+one, leaving takes one off, and other threads can enter only when the count is back at zero.
+Without reentrancy, `tryTake` would wait for itself forever.
+
+A service with 200 request threads can sell up to 199 units it doesn't have. A class shared
+between threads should offer the combined operation (`tryTake`, or `putIfAbsent` and `compute` on
+a `ConcurrentHashMap`) rather than leave callers to compose one from atomic parts.
+
+## The Monitor Is Released However the Block Exits, Half-Done Changes Included
+
+A ledger moves money from checking to savings, and refuses amounts over a daily limit:
+
+```java
+static class Ledger {
+    private long checking = 1_000;
+    private long savings = 0;
+
+    synchronized void moveToSavings(long amount, long dailyLimit) {
+        checking -= amount;
+        if (amount > dailyLimit) throw new IllegalArgumentException("over the daily limit");
+        savings += amount;
+    }
+
+    synchronized long total() {
+        return checking + savings;
+    }
+}
+```
+
+One thread calls `moveToSavings(300, 200)`. When it has ended, another thread asks for the total:
+
+```text
+mover ended with java.lang.IllegalArgumentException: over the daily limit
+total seen by another thread: 700
+```
+
+The second thread got the lock, so the monitor was released when the exception left the method.
+That is guaranteed: a `synchronized` block is compiled with a handler that releases the monitor
+and rethrows, and the JVM releases a `synchronized` method's monitor however the method
+completes.
+
+The release undoes nothing. The 300 left checking and never reached savings, and the next thread
+saw a ledger 300 short, with no error anywhere but the mover's exception.
+
+Inside a `synchronized` block, make every check that can throw before the first write, here the
+limit check before `checking -= amount`. Where a write must come first, undo it in a `catch`
+before rethrowing.
+
+<!-- practice 5 -->
+
+## Hold the Lock for the State, Not for the Slow Call
+
+The flash sale's hotfix, scaled down: a checkout that holds the lock while the payment service
+answers (50 ms here).
+
+```java
+static class WideShop {
+    private int units = 100;
+
+    synchronized boolean checkout(int qty, Payment payment) throws InterruptedException {
+        if (units < qty) return false;
+        if (!payment.charge(qty * 49_900L)) return false;
+        units -= qty;
+        return true;
+    }
+}
+```
+
+The second version holds the lock twice, briefly, and calls the payment service in between:
+
+```java
+static class Shop {
+    private final Object lock = new Object();
+    private int units = 100;
+
+    boolean checkout(int qty, Payment payment) throws InterruptedException {
+        synchronized (lock) {                     // check and reserve in one hold
+            if (units < qty) return false;
+            units -= qty;
+        }
+        boolean paid = false;
+        try {
+            paid = payment.charge(qty * 49_900L); // the slow call, with no lock held
+        } finally {
+            if (!paid) {
+                synchronized (lock) { units += qty; }   // declined or threw: give them back
+            }
+        }
+        return paid;
+    }
+}
+```
+
+Eight checkouts at once on each, then eight on the second shop with a payment service that
+declines every card:
+
+```text
+pay inside     8 threads done in 410 ms
+  units left 92
+pay outside    8 threads done in 50 ms
+  units left 92
+declined       8 threads done in 50 ms
+  units left 100
+```
+
+Both sell the right number of units. The first takes eight payment round trips in a row: each
+checkout keeps the stock locked while it waits for the network, and every other checkout waits in
+`BLOCKED` (unit 6.1.4). Its throughput is one checkout per round trip whatever the pool size.
+
+The second shop treats the units being paid for as a state of their own. It reserves them in one
+hold, pays with no lock held, and if the charge fails or throws, gives them back under the lock
+from a `finally`, so that an exception can't keep them reserved.
+
+### Spot the Problem: a Listener Called Under the Lock
+
+A price feed calls its listeners with each new price while it holds its lock:
+
+```java
+void publishInside(long newCents) {
     synchronized (lock) {
-        count++;
+        cents = newCents;
+        for (LongConsumer l : listeners) l.accept(newCents);   // other code, lock held
+    }
+}
+
+long current() {
+    synchronized (lock) { return cents; }
+}
+```
+
+Months later, someone adds a listener that records each price on an audit thread and waits until
+it is recorded. The audit task reads the price through `current()`:
+
+```java
+feed.subscribe(cents -> {
+    try {
+        auditPool.submit(() -> feed.current()).get();
+    } catch (Exception e) {
+        throw new RuntimeException(e);
+    }
+});
+```
+
+On the next price, `Together` reports, then each thread's state and the owner of its lock:
+
+```text
+publishInside  still running after 1 s: [publishInside-0]
+  findDeadlockedThreads(): null
+  publishInside-0  WAITING
+  audit-1          BLOCKED  lock held by publishInside-0
+```
+
+The publisher holds the feed's lock and waits for the audit task, which waits for the feed's lock.
+It is a deadlock, and the JVM's detector doesn't report it: one of the two waits is on a `Future`,
+which has no owner for the detector to follow.
+
+Neither author could see the cycle. Run code you don't control (listeners, callbacks, methods a
+subclass can override, a call to another service) after the lock is released, with a copy of what
+it needs: here a `CopyOnWriteArrayList`, which can be iterated without a lock; a plain list is
+copied inside the block. With the loop moved below the `synchronized` block:
+
+```text
+publishOutside 1 threads done in 2 ms
+```
+
+<!-- practice 2 -->
+
+## Two Locks Taken in Opposite Orders Deadlock; One Order for Every Pair Prevents It
+
+A transfer locks both accounts, so that no other thread sees the money in neither of them:
+
+```java
+static void transfer(Account from, Account to, long amount) {
+    synchronized (from) {
+        synchronized (to) {
+            from.balance -= amount;
+            to.balance += amount;
+        }
     }
 }
 ```
 
-### Intrinsic Locks (Monitors)
-
-Intrinsic locks (also called monitor locks) are fundamental to Java's synchronization:
-
-1. **Every object has one intrinsic lock.** When a thread executes code protected by `synchronized`, it acquires the
-   intrinsic lock of the object specified.
-2. **Mutual exclusion**: Only one thread at a time can hold the intrinsic lock.
-3. **Reentrancy**: Java's intrinsic locks are reentrant — a thread that already holds a lock can re-acquire it without
-   blocking. This prevents threads from deadlocking on themselves.
-4. **Automatic release**: The lock is automatically released when the synchronized block/method exits, whether normally
-   or by exception.
-
-### Deadlocks and Starvation
-
-**Deadlock** occurs when two or more threads are permanently blocked, each waiting for a lock held by another:
-
-```
-Thread A holds lock1, waiting for lock2
-Thread B holds lock2, waiting for lock1
-→ Both are blocked forever
-```
-
-**Starvation** occurs when a thread is perpetually denied access to a resource because other threads are always
-preferred. For example, a thread that holds a lock for a long time, or an unfair lock that keeps granting it to other
-threads, can keep a waiting thread from making progress.
-
-**Livelock** is a related concept where threads are not blocked but keep responding to each other without making
-progress (like two people in a hallway continually stepping to the same side to let each other pass). It needs the two
-threads to keep reacting in step, so in real code it comes and goes with timing. The fix is to break the symmetry:
-randomized backoff (wait a random time before retrying), or a rule that decides who goes first (an ordering or a
-priority). `DeadlockPrevention.LivelockDemo` shows both sides: `runPolite` makes two polite threads move in lock step, so
-they give way to each other every round and neither gets through until the round limit stops them; `runWithRandomBackoff`
-adds randomized backoff, and both threads get through within a few rounds.
-
-### Avoiding Deadlocks
-
-The most robust strategies to avoid deadlocks are:
-
-1. **Lock ordering**: Always acquire multiple locks in the same order.
-2. **Lock timeout**: Use `tryLock()` with a timeout (via `ReentrantLock`) instead of blocking indefinitely.
-3. **Lock-free algorithms**: Use atomic variables or concurrent data structures.
-4. **Single lock**: Reduce the need for multiple locks through better design.
-5. **Resource hierarchy**: Assign a global order to lock acquisition.
-
-## Key Points to Remember
-
-1. Every Java object has an intrinsic lock (monitor).
-2. `synchronized` methods lock `this` (instance) or `ClassName.class` (static).
-3. `synchronized` blocks can lock any object, providing more fine-grained control.
-4. Java's intrinsic locks are **reentrant** — the same thread can re-acquire the same lock.
-5. Locks are automatically released when the synchronized block exits (even on exception).
-6. Deadlock requires: mutual exclusion, hold and wait, no preemption, circular wait.
-7. Lock ordering is the most reliable deadlock prevention strategy.
-8. Starvation can occur even without deadlock if locks are held for long periods.
-9. Prefer synchronized blocks over synchronized methods for better performance (narrower critical sections).
-10. Using `this` as the lock is exposed — external code can also synchronize on your object. Prefer private lock objects.
-
-## Relevant Java 21 Features
-
-- **Virtual Threads (Project Loom, JEP 444)**: In Java 21, a virtual thread that blocks inside a `synchronized` block
-  (or while waiting to enter one) pins its carrier thread: the carrier cannot run other virtual threads meanwhile. This
-  is a known limitation, removed in Java 24 (JEP 491). In Java 21, `ReentrantLock` is preferred for virtual
-  thread-friendly code.
-- **Structured Concurrency (JEP 453, preview in Java 21)**: Encourages organizing multi-threaded code so that the lifetime of threads is
-  structured and bounded, reducing synchronization complexity.
-- **Pattern matching in switch (JEP 441)**: Reduces type-checking boilerplate but is orthogonal to synchronization.
-- **Records**: Since records are immutable, they often don't need synchronization, but the record reference itself may
-  need to be guarded.
-
-Java's synchronization has evolved but the intrinsic lock model remains core. Modern Java prefers
-`java.util.concurrent.locks` for complex locking scenarios (try-lock, timed lock, condition variables).
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Synchronizing on a non-shared object** — locks only work if multiple threads use the *same* lock object.
-
-   ```java
-   // WRONG: Each call creates its own lock object
-   public void badExample(int value) {
-       synchronized (new Object()) { // pointless — different instance each time
-           count += value;
-       }
-   }
-
-   // CORRECT: Use a shared, final lock object
-   private final Object lock = new Object();
-   public void goodExample(int value) {
-       synchronized (lock) {
-           count += value;
-       }
-   }
-   ```
-
-2. **Lock scope too wide** — holding a lock longer than necessary reduces concurrency.
-
-   ```java
-   // BAD: Lock held during expensive I/O
-   public synchronized void processAndSave(Data data) {
-       process(data);       // CPU-bound
-       saveToDatabase(data); // Slow I/O — lock held the whole time!
-   }
-
-   // BETTER: Narrow critical section
-   public void processAndSave(Data data) {
-       Result result;
-       synchronized (lock) {
-           result = process(data); // fast, CPU-bound
-       }
-       saveToDatabase(result); // slow I/O outside lock
-   }
-   ```
-
-3. **Deadlock from inconsistent lock ordering**:
-
-   ```java
-   // Thread A: synchronized(account1) { synchronized(account2) { ... } }
-   // Thread B: synchronized(account2) { synchronized(account1) { ... } }
-   // → DEADLOCK
-
-   // FIX: Always acquire locks in consistent order
-   public void transfer(Account from, Account to, int amount) {
-       Account first = from.id() < to.id() ? from : to;
-       Account second = from.id() < to.id() ? to : from;
-       synchronized (first) {
-           synchronized (second) {
-               from.debit(amount);
-               to.credit(amount);
-           }
-       }
-   }
-   ```
-
-4. **Exposing `this` as the lock** — external code can disrupt your synchronization:
-
-   ```java
-   // Dangerous: external code can do synchronized(myObject) { ... }
-   public synchronized void method() { }
-
-   // Safer: private lock object
-   private final Object lock = new Object();
-   public void method() {
-       synchronized (lock) { }
-   }
-   ```
-
-5. **Not handling `InterruptedException`** in wait loops — always restore the interrupt flag.
-
-   ```java
-   // BAD: Swallowing interrupt
-   try { Thread.sleep(100); } catch (InterruptedException e) { /* ignored */ }
-
-   // GOOD: Restore interrupt flag
-   try { Thread.sleep(100); } catch (InterruptedException e) {
-       Thread.currentThread().interrupt();
-   }
-   ```
-
-6. **Calling alien methods while holding a lock** — calling unknown code while holding a lock can cause deadlock:
-
-   ```java
-   // RISKY: calling listener.onEvent() while holding lock
-   synchronized (lock) {
-       data.update();
-       listener.onEvent(data); // unknown code — could deadlock!
-   }
-
-   // SAFER: Release lock before calling alien methods
-   synchronized (lock) { data.update(); }
-   listener.onEvent(data); // outside lock
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use private final lock objects** instead of `this` to prevent lock exposure.
-2. **Minimize critical section size** — hold locks only for the minimum time necessary.
-3. **Prefer `java.util.concurrent`** utilities (`ReentrantLock`, `ReadWriteLock`, `StampedLock`) for complex scenarios.
-4. **Document your locking policy** with a `@GuardedBy` annotation (from `javax.annotation.concurrent` in the JCIP /
-   JSR-305 annotations, or from the Checker Framework).
-5. **Avoid nested locks** where possible; when unavoidable, enforce a strict acquisition order.
-6. **Use thread-safe collections** (`ConcurrentHashMap`, `CopyOnWriteArrayList`) instead of manually synchronizing.
-7. **Prefer atomic variables** (`AtomicInteger`, `AtomicReference`) for single-variable atomic operations.
-8. **Test with stress testing tools** like JCStress to find concurrency bugs.
-9. **Avoid synchronization in constructors** (the object isn't fully constructed yet, and `this` may escape).
-10. **Profile before optimizing** — premature concurrency optimization is a source of bugs.
-
-## Edge Cases and Their Handling
-
-1. **Reentrant lock acquisition**: A thread can re-acquire its own lock without deadlock:
-
-   ```java
-   public synchronized void outer() {
-       inner(); // Works because intrinsic locks are reentrant
-   }
-   public synchronized void inner() {
-       // Same thread already holds the lock
-   }
-   ```
-
-2. **Exception in synchronized block**: The lock is *always* released when a synchronized block exits, even on exception:
-
-   ```java
-   synchronized (lock) {
-       throw new RuntimeException(); // Lock is released automatically
-   }
-   ```
-
-3. **Synchronized on `null`**: Throws `NullPointerException` at runtime:
-
-   ```java
-   Object obj = null;
-   synchronized (obj) { } // NullPointerException!
-   ```
-
-4. **Static vs. instance locking**: Synchronizing a static method and an instance method on the same class use
-   *different* locks — they can run concurrently:
-
-   ```java
-   public static synchronized void staticMethod() { } // lock on Class object
-   public synchronized void instanceMethod() { }      // lock on 'this' — different lock!
-   ```
-
-5. **Long-running synchronized blocks**: Can cause significant thread contention. Consider splitting the work or using
-   `ReadWriteLock` if reads are frequent.
-
-## Interview-specific Insights
-
-Interviewers focus heavily on:
-
-- The difference between `synchronized` methods and `synchronized` blocks
-- Understanding intrinsic locks, reentrancy, and visibility guarantees
-- Deadlock: how it happens, detection, prevention, and avoidance strategies
-- The difference between `synchronized` and `java.util.concurrent.locks.ReentrantLock`
-- How `wait()`, `notify()`, and `notifyAll()` relate to monitors
-- Performance implications of synchronization
-- Common bugs: missed synchronization, inconsistent locking, deadlock
-
-Tricky questions to expect:
-- "Can a class have both a synchronized static method and a synchronized instance method running at the same time?"
-  (Yes — they use different locks)
-- "What happens if an exception is thrown inside a synchronized block?" (Lock is released)
-- "Can a thread deadlock with itself using `synchronized`?" (No — intrinsic locks are reentrant)
-- "What's wrong with `synchronized(new Object())`?" (Each call gets a different lock — no mutual exclusion)
-
-## Interview Q&A Section
-
-**Q1: What is an intrinsic lock (monitor) in Java, and how does the `synchronized` keyword use it?**
+One thread moves 1 from `a` to `b` 100,000 times, another moves 1 from `b` to `a` 100,000 times.
+How many transfers complete?
 
 ```text
-A1: Every Java object has an associated intrinsic lock (also called a monitor lock or just monitor).
-The synchronized keyword tells the JVM to acquire the intrinsic lock of a specified object before
-entering the block, and release it when exiting.
+transfer       still running after 1 s: [transfer-0, transfer-1]
+  deadlocked: transfer-0 waits for Examples$Account held by transfer-1
+  deadlocked: transfer-1 waits for Examples$Account held by transfer-0
+```
 
-- synchronized instance method: acquires lock on `this`
-- synchronized static method: acquires lock on the Class object
-- synchronized(obj) block: acquires lock on `obj`
+Within the first second, `transfer-0` held `a` and asked for `b` while `transfer-1` held `b` and
+asked for `a`. A deadlock needs four things at once: locks that one thread at a time can hold, a
+thread that holds one while it waits for another, no way to take a lock from its holder, and a
+cycle of threads each waiting for the next. A monitor supplies the first and the third by design:
+entering `synchronized` has no timeout, and an interrupt doesn't end the wait. Hold-and-wait
+comes from nesting two blocks and goes away only with one coarser lock. Where two locks are
+needed, remove the cycle by taking them in the same order in every thread:
 
-Key guarantee: only one thread can hold an object's intrinsic lock at a time, giving mutual exclusion.
-Additionally, the JMM guarantees that releasing a lock (exiting synchronized) happens-before any
-subsequent acquisition of the same lock, providing memory visibility guarantees.
+```java
+static void orderedTransfer(Account from, Account to, long amount) {
+    Account first = from.id < to.id ? from : to;  // the lower id is locked first, always
+    Account second = first == from ? to : from;
+    synchronized (first) {
+        synchronized (second) {
+            from.balance -= amount;
+            to.balance += amount;
+        }
+    }
+}
+```
+
+```text
+ordered        2 threads done in 16 ms
+  a + b = 2000000
+```
+
+Both threads now ask for `a` first, and the one that gets it can always get `b`, because nobody
+holds `b` while waiting for `a`. The key that sets the order has to be fixed for the life of the
+object and different for every object: an id, not a balance that changes between two transfers,
+and not `hashCode()`, which two different objects may share.
+
+The order must hold for every piece of code that takes two of these locks, not only `transfer`:
+an audit that locks the two accounts it compares in its own order deadlocks with the transfers
+just the same. A deadlock also spreads: every thread that next needs `a` or `b` queues behind it
+in `BLOCKED` until only a restart helps. Take a thread dump (`jcmd <pid> Thread.print`) first.
+
+### Threads Can Also Stop Making Progress Without Blocking
+
+In a **livelock**, the threads keep running and reacting to each other, and none gets anywhere.
+In the module's `DeadlockPrevention.LivelockDemo`, two polite walkers meet in a hallway and each
+round both step forward, see the other, and step back. With random back-off, a walker steps
+forward after a conflict only on a coin toss:
+
+```text
+polite:         Outcome[walker1Done=false, walker2Done=false, walker1Rounds=25, walker2Rounds=25]
+random backoff: Outcome[walker1Done=true, walker2Done=true, walker1Rounds=8, walker2Rounds=5]
+```
+
+In **starvation**, one thread keeps losing the lock to the others. Nothing promises which waiting
+thread gets a monitor next, so a monitor can't prevent it. `new ReentrantLock(true)` (unit 6.3.1)
+hands the lock to the longest waiter on `lock()`.
+
+<!-- practice 3 -->
+
+## wait() Belongs in a Loop Over Its Condition, and a Change Is Announced With notifyAll()
+
+Unit 6.1.4 showed that `wait()` releases the monitor while the thread waits, and that a notified
+thread is `BLOCKED` until it gets the monitor back. What does it find when it does? Two packers
+wait for orders, and one order arrives:
+
+```java
+static class Orders {
+    private final Deque<String> queue = new ArrayDeque<>();
+
+    synchronized void add(String order) {
+        queue.add(order);
+        notifyAll();
+    }
+
+    synchronized String nextIf() throws InterruptedException {
+        if (queue.isEmpty()) wait();
+        return queue.removeFirst();
+    }
+}
 ```
 
 ```java
-public class Counter {
-    private int count = 0;
-    private final Object lock = new Object();
-
-    // Method-level synchronization (locks 'this')
-    public synchronized void incrementSynchronizedMethod() {
-        count++;
-    }
-
-    // Block-level synchronization (locks 'lock' — more granular)
-    public void incrementSynchronizedBlock() {
-        synchronized (lock) {
-            count++;
-        }
-    }
-
-    public synchronized int getCount() {
-        return count;
-    }
-}
+p1 = packer("packer-1", orders::nextIf);
+p2 = packer("packer-2", orders::nextIf);
+// once both packers are waiting:
+orders.add("order-7001");
 ```
-
-**Q2: What is a deadlock? How do you detect and prevent it?**
 
 ```text
-A2: A deadlock is a situation where two or more threads are permanently blocked, each waiting
-for a lock held by another thread. Four necessary conditions must ALL be present:
-1. Mutual exclusion: a resource can be held by only one thread at a time
-2. Hold and wait: a thread holds at least one resource while waiting for additional resources
-3. No preemption: resources cannot be forcibly taken from threads
-4. Circular wait: a circular chain of threads each waiting for a resource held by the next
-
-Detection:
-- Thread dumps (jstack) show threads in BLOCKED state with a cyclic wait pattern
-- JVM's built-in deadlock detection (ThreadMXBean.findDeadlockedThreads())
-- Monitoring tools like VisualVM, JMC
-
-Prevention strategies:
-1. Lock ordering: always acquire multiple locks in the same global order
-2. Lock timeout: use ReentrantLock.tryLock(timeout) to avoid waiting forever
-3. Lock-free programming: use atomic variables, concurrent collections
-4. Reduce lock scope: minimize the number of locks held simultaneously
+packer-2 ended with java.util.NoSuchElementException
+packer-1 packs order-7001
 ```
 
-```java
-// DEADLOCK EXAMPLE
-class DeadlockExample {
-    private final Object lock1 = new Object();
-    private final Object lock2 = new Object();
-
-    // Thread A calls this
-    public void methodA() {
-        synchronized (lock1) {
-            synchronized (lock2) { /* work */ }  // Deadlock if Thread B runs simultaneously
-        }
-    }
-
-    // Thread B calls this
-    public void methodB() {
-        synchronized (lock2) {
-            synchronized (lock1) { /* work */ }  // Deadlock!
-        }
-    }
-}
-
-// PREVENTION: Consistent lock ordering
-class BankAccount {
-    private final long id;
-    private int balance;
-    private final Object lock = new Object();
-
-    public BankAccount(long id, int balance) {
-        this.id = id;
-        this.balance = balance;
-    }
-
-    public static void transfer(BankAccount from, BankAccount to, int amount) {
-        // Always acquire locks in ID order to prevent deadlock
-        BankAccount first = from.id < to.id ? from : to;
-        BankAccount second = from.id < to.id ? to : from;
-
-        synchronized (first.lock) {
-            synchronized (second.lock) {
-                from.balance -= amount;
-                to.balance += amount;
-            }
-        }
-    }
-}
-```
-
-**Q3: What is lock reentrancy, and why does Java support it?**
+`notifyAll()` woke both packers, and each had to take the monitor back before returning from
+`wait()`. `packer-1` got it first and took the order. `packer-2` got it next and returned into
+code that assumed the queue wasn't empty (each prints after leaving the monitor, so the lines can
+come in either order). A return from `wait()` doesn't mean the condition is true, only that
+somebody notified, or the timeout ran out, or nothing happened at all: the javadoc of
+`Object.wait` warns of spurious wakeups and says to wait in a loop. With
+`while (queue.isEmpty()) wait();` the second packer checks again and goes back to waiting:
 
 ```text
-A3: Reentrancy means a thread can re-acquire a lock that it already holds without blocking.
-Java's intrinsic locks are reentrant by design.
-
-Why it matters: Without reentrancy, if a synchronized method called another synchronized method
-on the same object, the second call would block forever (the thread waits for its own lock).
-
-Implementation: The JVM tracks a "hold count" per thread per lock. Each re-acquisition increments
-the count; each release decrements it. The lock is fully released only when the count reaches zero.
-
-This is especially important for inheritance: if a subclass calls super.method() and both methods
-are synchronized on `this`, reentrancy prevents deadlock.
+packer-1 packs order-7001
+packer-2 WAITING
 ```
+
+The opposite mistake is to wake too few threads. Packers now wait for orders of their own region,
+`next("EU")` and `next("US")`, each in a loop over "is there an order for my region?". The EU
+packer starts waiting first, then the US packer, and a US order arrives, announced with `notify()`
+in one run and `notifyAll()` in the other:
 
 ```java
-public class ReentrancyDemo {
-    public synchronized void outer() {
-        System.out.println("Entering outer");
-        inner();  // Can call synchronized inner() without deadlock
-        System.out.println("Exiting outer");
-    }
-
-    public synchronized void inner() {
-        // This thread already holds the lock on 'this' from outer()
-        // Reentrancy allows re-acquisition without blocking
-        System.out.println("In inner");
-    }
-
-    // Inheritance example
-    static class Base {
-        public synchronized void doSomething() {
-            System.out.println("Base.doSomething");
-        }
-    }
-
-    static class Derived extends Base {
-        @Override
-        public synchronized void doSomething() {
-            // Calls super.doSomething() which is also synchronized on 'this'
-            // Without reentrancy, this would deadlock!
-            super.doSomething();
-            System.out.println("Derived.doSomething");
-        }
-    }
+synchronized void add(String order) {
+    queue.add(order);
+    if (all) notifyAll(); else notify();
 }
 ```
-
-**Q4: What is the difference between `synchronized` methods and `synchronized` blocks? When would you prefer one over the other?**
 
 ```text
-A4:
-synchronized methods:
-- Convenience syntax: automatically locks 'this' (instance) or Class object (static)
-- The entire method body is the critical section
-- The lock object is exposed (external code can synchronize on the same object)
-- Slightly easier to read for simple cases
-
-synchronized blocks:
-- More flexible: you can specify any lock object
-- Narrower critical sections: lock only the parts that need synchronization
-- Support for multiple independent locks in the same class
-- Enable private lock objects (lock encapsulation)
-- Generally preferred for production code
-
-Prefer synchronized blocks when:
-- You need to minimize the critical section size (performance)
-- You want a private lock object to prevent lock exposure
-- You need different locks for different state in the same class
-- You want to document the lock object explicitly (@GuardedBy)
+notify():    us-packer WAITING, queued [US-1001]
+notifyAll(): us-packer TERMINATED, queued []
 ```
 
-```java
-public class BankAccountExample {
-    private int balance;
-    private final List<String> transactionHistory = new ArrayList<>();
+`notify()` wakes one waiting thread, and its javadoc says the choice is arbitrary. Here it woke
+the EU packer, which found nothing for EU and waited again. The notification was spent, and the US
+order sits in the queue until some other order happens to wake the right packer. With
+`notifyAll()` both woke, both checked, and the US packer took its order.
 
-    // Two separate locks for independent state
-    private final Object balanceLock = new Object();
-    private final Object historyLock = new Object();
+`notify()` is enough only when every waiter waits for the same condition and any one of them can
+handle the change. Otherwise, and whenever you aren't sure, use `notifyAll()`: the cost is a few
+threads that wake up, check, and wait again. A waiting thread answers an interrupt with
+`InterruptedException` (unit 6.1.3), so the loop needs no exit of its own for shutdown.
 
-    // synchronized method — simple but locks 'this' (exposed).
-    // (Shown for contrast only: in THIS class it would be a bug, because balance is written
-    // under balanceLock, and reading it under a different lock gives no visibility guarantee.)
-    public synchronized int getBalanceSimple() {
-        return balance;
-    }
+<!-- practice 4 -->
 
-    // synchronized block with private lock — preferred
-    public int getBalance() {
-        synchronized (balanceLock) {
-            return balance;
-        }
-    }
+## Summary
 
-    // Two independent operations don't block each other
-    public void addTransaction(String description) {
-        synchronized (historyLock) {  // Only locks history, not balance
-            transactionHistory.add(description);
-        }
-    }
+- **`synchronized` locks an object, and excludes only code that locks the same one.** Use one
+  `private final` lock per piece of state; a monitor others can reach lets them stall yours.
+- **Each synchronized method is atomic; a check followed by an act is not.** Check and act in one
+  hold; reentrancy makes it easy to write.
+- **The monitor is released however the block exits, half-done changes included.** Check before
+  the first write.
+- **Hold the lock for the state, not for the slow call.** Reserve, call, then settle; call
+  listeners after the lock is released.
+- **Two locks taken in opposite orders deadlock.** One fixed, unique order for every place that
+  takes two of the locks removes the cycle.
+- **`wait()` belongs in a loop, and changes are announced with `notifyAll()`.** A woken thread
+  re-checks its condition; `notify()` can wake a thread that can't use the change.
 
-    public void deposit(int amount) {
-        synchronized (balanceLock) {  // Only locks balance, not history
-            balance += amount;
-        }
-        // History update doesn't need to hold balanceLock
-        addTransaction("deposit: " + amount);
-    }
-}
-```
+## Reference
 
-**Q5: What is starvation in concurrent programming, and how can it be prevented?**
+**What each form locks:**
 
-```text
-A5: Starvation occurs when a thread is perpetually denied access to a resource, preventing it
-from making progress. Unlike deadlock (where threads are completely blocked), a starving thread
-is technically runnable but never gets scheduled or can never acquire a lock.
+| Form | Monitor taken |
+|---|---|
+| `synchronized` instance method | `this` |
+| `static synchronized` method | the class's `Class` object (`Thread.holdsLock(X.class)` is `true` inside a `static synchronized` method of `X`) |
+| `synchronized (expr) { ... }` | the object `expr` evaluates to; `null` throws `NullPointerException` |
 
-Causes of starvation:
-1. The scheduler may favour high-priority threads (priorities are only hints to the OS)
-2. A thread holds a lock for an extremely long time, starving waiting threads
-3. Non-fair scheduling where some threads are repeatedly preferred
-4. Synchronized blocks with unfair lock acquisition (intrinsic locks are not fair)
+**Monitor behaviour (Java 21):**
 
-Prevention:
-1. Use fair locks: ReentrantLock(true) grants the lock to the longest-waiting thread (untimed tryLock() still barges)
-2. Limit lock hold duration — release locks promptly
-3. Avoid holding locks during I/O, sleep, or other long operations
-4. Use appropriate data structures (e.g., ReadWriteLock for read-heavy workloads; with many readers, use its fair
-   mode if writers must not wait indefinitely)
-5. Avoid thread priority as a synchronization mechanism
-```
+| Situation | What happens |
+|---|---|
+| a thread enters a monitor it already holds | it enters (reentrant), as often as it nests |
+| the block or method ends with an exception | the monitor is released; writes made before the throw stay |
+| a thread waiting to enter is interrupted | it keeps waiting, `BLOCKED`, with its interrupt flag set |
+| `wait()`, `notify()`, `notifyAll()` without holding that monitor | `IllegalMonitorStateException` |
+| `wait()` while holding two monitors | releases only the one it waits on; the other stays held |
+| `Thread.sleep` inside `synchronized` | keeps the monitor (unit 6.1.4) |
+| a string literal as the lock | one object JVM-wide, shared with every class that locks the same literal |
+| a boxed small number as the lock | `Integer.valueOf(7) == Integer.valueOf(7)`: shared the same way |
+| a virtual thread blocks inside `synchronized` | it pins its carrier thread; `-Djdk.tracePinnedThreads=short` prints `reason:MONITOR` |
 
-```java
-import java.util.concurrent.locks.ReentrantLock;
+**Finding a deadlock:**
 
-public class StarvationPreventionDemo {
-    // Non-fair lock (default) — no ordering guarantee for waiting threads
-    private final ReentrantLock unfairLock = new ReentrantLock(false);
+| Tool | What it reports |
+|---|---|
+| `ThreadMXBean.findDeadlockedThreads()` | thread ids in a cycle of monitors or ownable synchronizers (such as `ReentrantLock`); `null` if none |
+| `jcmd <pid> Thread.print` | `Found one Java-level deadlock:`, each thread, the monitor it waits for and who holds it |
+| a cycle through a `Future`, a latch or a queue | not reported by any of the above; read the stacks in the thread dump |
 
-    // Fair lock — the longest-waiting thread gets the lock next
-    private final ReentrantLock fairLock = new ReentrantLock(true);
+## Challenges
 
-    private int resourceValue = 0;
+These have no single answer.
 
-    // With fair lock, each waiting thread gets a turn in order
-    public int getValueFairly() {
-        fairLock.lock();
-        try {
-            return resourceValue;
-        } finally {
-            fairLock.unlock();
-        }
-    }
+1. A cache has a `getOrLoad(key)` that loads from the database on a miss. Where does the load go
+   relative to the lock, and what happens when 50 threads miss the same key at once with your
+   choice?
+2. Find every place in a codebase you know that takes two locks at once. What order do they use,
+   and how would you make sure the next change keeps it (a helper that takes both, a review rule,
+   one coarser lock)?
+3. Run the order counter with `ORDERS_LOCK`, an `AtomicInteger` and a `LongAdder`, with 8 and with
+   64 threads. When does the lock stop being the right tool?
 
-    // Alternative: use ReadWriteLock for read-heavy scenarios
-    // Multiple readers can proceed concurrently — this reduces contention among readers.
-    // It does not prevent writer starvation: the javadoc says a continuously contended
-    // nonfair lock may postpone a writer indefinitely; new ReentrantReadWriteLock(true) is fair.
-    private final java.util.concurrent.locks.ReadWriteLock rwLock =
-            new java.util.concurrent.locks.ReentrantReadWriteLock();
+## Design Note: Why Every Object Is a Lock
 
-    public int readValue() {
-        rwLock.readLock().lock();
-        try {
-            return resourceValue; // concurrent reads allowed
-        } finally {
-            rwLock.readLock().unlock();
-        }
-    }
+Java 1.0 gave every object a monitor: a lock and a single wait queue built into the object, with
+`synchronized` to take the lock and `wait`/`notify` to use the queue. Protecting a class became one
+keyword, and the lock can't leak, because the block structure releases it on every path.
 
-    public void writeValue(int value) {
-        rwLock.writeLock().lock();
-        try {
-            resourceValue = value; // exclusive write
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-}
-```
-
-**Q6: How do `wait()`, `notify()`, and `notifyAll()` relate to monitors?**
-
-```text
-A6: wait(), notify(), and notifyAll() are methods defined on java.lang.Object and are tightly
-coupled to the monitor/intrinsic lock mechanism. They MUST be called from within a synchronized
-block or method (otherwise IllegalMonitorStateException is thrown).
-
-wait(): Causes the current thread to release the lock and wait until notified (or interrupted).
-        The thread enters a "wait set" associated with the object's monitor.
-
-notify(): Wakes up exactly one thread from the wait set (JVM chooses which — non-deterministic).
-          The awakened thread must re-acquire the lock before proceeding.
-
-notifyAll(): Wakes up ALL threads in the wait set. Each must compete to re-acquire the lock.
-             Generally preferred over notify() to avoid missed wakeups.
-
-Pattern: Always use wait() in a loop (not an if statement) to guard against spurious wakeups.
-```
-
-```java
-public class ProducerConsumerMonitor {
-    private final Object monitor = new Object();
-    private int data;
-    private boolean hasData = false;
-
-    // Producer
-    public void produce(int value) throws InterruptedException {
-        synchronized (monitor) {
-            while (hasData) {
-                monitor.wait(); // Release lock and wait for consumer
-            }
-            data = value;
-            hasData = true;
-            monitor.notifyAll(); // Wake up waiting consumers
-        }
-    }
-
-    // Consumer
-    public int consume() throws InterruptedException {
-        synchronized (monitor) {
-            while (!hasData) {
-                monitor.wait(); // Release lock and wait for producer
-            }
-            int value = data;
-            hasData = false;
-            monitor.notifyAll(); // Wake up waiting producers
-            return value;
-        }
-    }
-}
-```
+The costs come from the same choice: anyone can lock your object, one wait queue makes
+`notifyAll()` wake every condition's waiters, and entering has no timeout, so a deadlock on
+monitors is permanent. Java 5 added `java.util.concurrent.locks` for those cases (unit 6.3.1): a
+lock with a timeout, several conditions per lock, and an optional fair order. The monitor remains
+the simplest correct choice for a short critical section that doesn't block.
 
 ## Code Examples
 
