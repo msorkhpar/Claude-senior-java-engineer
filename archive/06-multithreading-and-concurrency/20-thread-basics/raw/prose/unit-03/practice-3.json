@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Library code lets the interrupt through",
+  "title": "Make Cancel mean cancelled for a CSV import",
   "blocks": [
     {
       "type": "heading",
@@ -19,41 +19,28 @@
     },
     {
       "type": "para",
-      "text": "The page's first answer to \"how do you handle `InterruptedException`?\" is **propagate it**: library code that can declare `throws InterruptedException` should let it reach the caller, who decides what an interrupt means. Never an empty `catch`, and never a wrapper that hides what happened."
+      "text": "Customers upload CSV files of contacts, and the import runs in the background: each chunk of the file is parsed, its rows are staged, and the staged rows appear in the customer's account when the import commits. A support ticket says: \"I pressed Cancel because I picked the wrong file. The screen said the import was cancelled. An hour later, all 40,000 contacts were in my account.\""
     },
     {
       "type": "para",
-      "text": "Write `Fetcher.fetchAll(List<Fetch> fetches)`, which declares `throws InterruptedException`. `Fetch` is given: `String get() throws InterruptedException`, a blocking call."
+      "text": "`run(...)` already imports correctly. Finish the three `TODO`s in `src/main/java/practice/CsvImport.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Run the fetches one after another, in order, and return their results in that order.",
-        "Before starting each fetch, check whether the current thread has been interrupted; if it has, clear the flag and throw `InterruptedException`, as a blocking call would.",
-        "If a fetch throws `InterruptedException`, let that same exception reach the caller, and start no further fetch."
+        "`cancel(...)`: what the Cancel button does;",
+        "`parse(...)`: one chunk, which may take a while;",
+        "`mayCommit()`: the last word before the rows become visible."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "fetches",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`\"a\"`, `\"b\"`, `\"c\"`",
-          "`[\"a\", \"b\", \"c\"]`"
-        ],
-        [
-          "`\"a\"`, then one that throws `InterruptedException`, then `\"c\"`",
-          "that `InterruptedException`; the third fetch never runs"
-        ],
-        [
-          "any, from a thread already interrupted",
-          "`InterruptedException`; no fetch runs"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, an import the user cancels commits nothing, whether the click arrives while it waits on the storage or just before it commits. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run imports on a real `ExecutorService` and cancel them through the `Future` that `start` returns."
     },
     {
       "type": "heading",
@@ -68,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Fetcher {\n\n    private Fetcher() {\n    }\n\n    /** One blocking fetch. */\n    @FunctionalInterface\n    public interface Fetch {\n        String get() throws InterruptedException;\n    }\n\n    /** Runs each fetch in order and returns the results; an interrupt stops it and reaches the caller. */\n    public static List<String> fetchAll(List<Fetch> fetches) throws InterruptedException {\n        List<String> results = new ArrayList<>();\n        for (Fetch fetch : fetches) {\n            if (Thread.interrupted()) {\n                throw new InterruptedException(\"interrupted before a fetch\");\n            }\n            results.add(fetch.get());\n        }\n        return results;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * Imports a customer's CSV file in the background: each chunk of the file is parsed and staged,\n * and the staged rows become visible only when the import is committed. The user can cancel an\n * import from the UI while it runs.\n */\npublic class CsvImport {\n\n    /** Parses one chunk of the file into rows. Slow: it waits on the file storage. */\n    public interface Parser {\n        List<String> parse(String chunk) throws InterruptedException;\n    }\n\n    /** Where rows wait until the import is committed. */\n    public interface Store {\n        void stage(String importId, List<String> rows);\n\n        void commit(String importId);\n    }\n\n    private final ExecutorService pool;\n    private final Parser parser;\n    private final Store store;\n\n    public CsvImport(ExecutorService pool, Parser parser, Store store) {\n        this.pool = pool;\n        this.parser = parser;\n        this.store = store;\n    }\n\n    /** Starts an import in the background. */\n    public Future<?> start(String importId, List<String> chunks) {\n        return pool.submit(() -> run(importId, chunks));\n    }\n\n    /** What the UI's Cancel button calls. True when the import was cancelled. */\n    public boolean cancel(Future<?> running) {\n        return running.cancel(true);\n    }\n\n    void run(String importId, List<String> chunks) {\n        for (String chunk : chunks) {\n            List<String> rows = parse(chunk);\n            if (rows == null) return;\n            store.stage(importId, rows);\n        }\n        if (mayCommit()) store.commit(importId);\n    }\n\n    /** The rows of one chunk, or null when the import must end here. */\n    List<String> parse(String chunk) {\n        try {\n            return parser.parse(chunk);\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            return null;\n        }\n    }\n\n    /** Whether the staged rows may become visible now. */\n    boolean mayCommit() {\n        return !Thread.currentThread().isInterrupted();\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Fetcher {\n\n    private Fetcher() {\n    }\n\n    /** One blocking fetch. */\n    @FunctionalInterface\n    public interface Fetch {\n        String get() throws InterruptedException;\n    }\n\n    /** Runs each fetch in order and returns the results; an interrupt stops it and reaches the caller. */\n    public static List<String> fetchAll(List<Fetch> fetches) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write fetchAll\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * Imports a customer's CSV file in the background: each chunk of the file is parsed and staged,\n * and the staged rows become visible only when the import is committed. The user can cancel an\n * import from the UI while it runs.\n */\npublic class CsvImport {\n\n    /** Parses one chunk of the file into rows. Slow: it waits on the file storage. */\n    public interface Parser {\n        List<String> parse(String chunk) throws InterruptedException;\n    }\n\n    /** Where rows wait until the import is committed. */\n    public interface Store {\n        void stage(String importId, List<String> rows);\n\n        void commit(String importId);\n    }\n\n    private final ExecutorService pool;\n    private final Parser parser;\n    private final Store store;\n\n    public CsvImport(ExecutorService pool, Parser parser, Store store) {\n        this.pool = pool;\n        this.parser = parser;\n        this.store = store;\n    }\n\n    /** Starts an import in the background. */\n    public Future<?> start(String importId, List<String> chunks) {\n        return pool.submit(() -> run(importId, chunks));\n    }\n\n    /** What the UI's Cancel button calls. True when the import was cancelled. */\n    public boolean cancel(Future<?> running) {\n        // TODO: The user pressed Cancel, usually while the import is busy with a chunk.\n        throw new IllegalStateException(\"TODO: cancel\");\n    }\n\n    void run(String importId, List<String> chunks) {\n        for (String chunk : chunks) {\n            List<String> rows = parse(chunk);\n            if (rows == null) return;\n            store.stage(importId, rows);\n        }\n        if (mayCommit()) store.commit(importId);\n    }\n\n    /** The rows of one chunk, or null when the import must end here. */\n    List<String> parse(String chunk) {\n        // TODO: Ask the parser for the chunk's rows. It may be waiting on the file storage when\n        //       the user cancels.\n        throw new IllegalStateException(\"TODO: parse\");\n    }\n\n    /** Whether the staged rows may become visible now. */\n    boolean mayCommit() {\n        // TODO: A user who cancelled must never find the import's rows in their account.\n        throw new IllegalStateException(\"TODO: mayCommit\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,9 +75,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -99,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "31ab7a40ab395575da918bf2d3db16a3d728b14a05b6d2881ed05815fa512443",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Fetcher {\n\n    private Fetcher() {\n    }\n\n    /** One blocking fetch. */\n    @FunctionalInterface\n    public interface Fetch {\n        String get() throws InterruptedException;\n    }\n\n    /** Runs each fetch in order and returns the results; an interrupt stops it and reaches the caller. */\n    public static List<String> fetchAll(List<Fetch> fetches) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write fetchAll\");\n    }\n}\n",
+  "content_sha256": "e5b4a064b3d15407e9e41619b78a3dcd018324900df74d6af5e4005bcdc09103",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * Imports a customer's CSV file in the background: each chunk of the file is parsed and staged,\n * and the staged rows become visible only when the import is committed. The user can cancel an\n * import from the UI while it runs.\n */\npublic class CsvImport {\n\n    /** Parses one chunk of the file into rows. Slow: it waits on the file storage. */\n    public interface Parser {\n        List<String> parse(String chunk) throws InterruptedException;\n    }\n\n    /** Where rows wait until the import is committed. */\n    public interface Store {\n        void stage(String importId, List<String> rows);\n\n        void commit(String importId);\n    }\n\n    private final ExecutorService pool;\n    private final Parser parser;\n    private final Store store;\n\n    public CsvImport(ExecutorService pool, Parser parser, Store store) {\n        this.pool = pool;\n        this.parser = parser;\n        this.store = store;\n    }\n\n    /** Starts an import in the background. */\n    public Future<?> start(String importId, List<String> chunks) {\n        return pool.submit(() -> run(importId, chunks));\n    }\n\n    /** What the UI's Cancel button calls. True when the import was cancelled. */\n    public boolean cancel(Future<?> running) {\n        // TODO: The user pressed Cancel, usually while the import is busy with a chunk.\n        throw new IllegalStateException(\"TODO: cancel\");\n    }\n\n    void run(String importId, List<String> chunks) {\n        for (String chunk : chunks) {\n            List<String> rows = parse(chunk);\n            if (rows == null) return;\n            store.stage(importId, rows);\n        }\n        if (mayCommit()) store.commit(importId);\n    }\n\n    /** The rows of one chunk, or null when the import must end here. */\n    List<String> parse(String chunk) {\n        // TODO: Ask the parser for the chunk's rows. It may be waiting on the file storage when\n        //       the user cancels.\n        throw new IllegalStateException(\"TODO: parse\");\n    }\n\n    /** Whether the staged rows may become visible now. */\n    boolean mayCommit() {\n        // TODO: A user who cancelled must never find the import's rows in their account.\n        throw new IllegalStateException(\"TODO: mayCommit\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-3/src/main/java/practice/Fetcher.java",
-    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-3/src/test/java/practice/FetcherTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-3/src/main/java/practice/CsvImport.java",
+    "test_path": "practice/06-multithreading-and-concurrency/20-thread-basics/prose/unit-03/practice-3/src/test/java/practice/CsvImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,29 +111,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FetcherTest#fetchesEverythingInOrder",
+        "id": "practice.CsvImportTest#anImportNobodyCancelsCommitsAllItsRows",
         "kind": "main",
-        "says": "With no interrupt, every fetch runs once, in order, and the results come back in that order."
+        "says": "an import that nobody cancels stages every row in order and commits once"
       },
       {
-        "id": "practice.FetcherTest#propagatesTheInterruptedException",
+        "id": "practice.CsvImportTest#cancelEndsAnImportThatIsWaitingOnTheStorage",
         "kind": "edge",
-        "says": "An InterruptedException from a fetch reaches the caller as that same exception, neither swallowed nor wrapped."
+        "says": "cancelling an import that is waiting on the storage ends it, rather than leaving it waiting"
       },
       {
-        "id": "practice.FetcherTest#stopsAtTheInterruptedFetch",
+        "id": "practice.CsvImportTest#anImportCancelledWhileWaitingOnTheStorageCommitsNothing",
         "kind": "edge",
-        "says": "Once a fetch is interrupted, no later fetch is started."
+        "says": "an import cancelled while waiting on the storage stages no further chunk and commits nothing"
       },
       {
-        "id": "practice.FetcherTest#anInterruptedCallerFetchesNothing",
+        "id": "practice.CsvImportTest#aCancelWhileTheLastChunkIsStagedCommitsNothing",
         "kind": "edge",
-        "says": "A caller interrupted before the call gets an InterruptedException before any fetch runs."
-      },
-      {
-        "id": "practice.FetcherTest#theThrowClearsTheFlag",
-        "kind": "edge",
-        "says": "An interrupted caller's InterruptedException comes with the flag cleared, as a blocking call leaves it."
+        "says": "a cancel that arrives after the last chunk was parsed still keeps the rows from being committed"
       }
     ],
     "report": {
@@ -155,10 +137,10 @@
     },
     "origin": {
       "path": "20-thread-basics/README_6.1.3.md",
-      "section": "Interview Q&A Section"
+      "section": "Cancelling a Future Asks; the Task Decides"
     },
     "concepts": [
-      "Library code that can declare throws InterruptedException should let it reach the caller."
+      "Future.cancel(true) interrupts the task's thread and marks the Future cancelled at once; whether the task stops before its side effect depends on its own checks, and cancel(false) never interrupts."
     ]
   }
 }

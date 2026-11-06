@@ -1,19 +1,18 @@
-The page's most dangerous mistake is **swallowing `InterruptedException`**: an
-empty `catch` loses the interrupt for good. Its "meaningful handling" answer is
-a polling wait that treats an interrupt as giving up: catch the exception,
-**restore the flag** with `Thread.currentThread().interrupt()`, and return. It
-also warns that `Thread.interrupted()` **clears** the flag as a side effect.
+The notification service delivers webhooks to customers' endpoints from an outbox, on a pool
+that every deploy shuts down with `shutdownNow()`. Two complaints reached the team in the same
+week. Deploys wait for the notification pool until their timeout runs out. And during one deploy
+a customer's endpoint, which was down at the time, received a burst of identical requests within
+a few milliseconds.
 
-Write `Poller.waitUntil(BooleanSupplier condition, long pollMillis)`:
+`deliver(...)` already retries correctly. Finish the two `TODO`s in
+`src/main/java/practice/WebhookSender.java`:
 
-- Check `condition`. If it holds, return `true`. Otherwise sleep `pollMillis`
-  milliseconds and check again, for as long as it takes.
-- If the thread is interrupted, stop waiting and return `false`, with the
-  thread's interrupt flag **set** when the method returns, so the caller can
-  still see it.
+- `run()`: the sender's life on its pool thread;
+- `backOff(...)`: the pause between two attempts.
 
-| situation | answer |
-|---|---|
-| the condition holds on its third check | `true` |
-| another thread interrupts the caller while it sleeps | `false`, and the caller's flag is set |
-| the caller was already interrupted, and the condition does not hold | `false`, and the caller's flag is still set |
+When you're done, a deploy ends the sender whether it is waiting for the next payload or pausing
+before a retry, and no request goes to the endpoint after the deploy began. About ten lines in
+total.
+
+The tests run the sender on a real `ExecutorService`. The pause they hand it doesn't wait, but it
+answers interrupts exactly as `Thread.sleep` does.

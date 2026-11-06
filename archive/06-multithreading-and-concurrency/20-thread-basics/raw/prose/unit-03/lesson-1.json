@@ -18,340 +18,502 @@
       "text": "6.1.3. Stopping Threads (interrupt() Method and Cooperative Cancellation)"
     },
     {
+      "type": "para",
+      "text": "Every rolling deploy of the metrics service takes 30 seconds longer than it should, and once a week the orchestrator loses patience and kills the process halfway through writing a file. The shutdown hook is textbook: `executor.shutdownNow()`, then `awaitTermination(30, SECONDS)`. A thread dump taken during those 30 seconds shows one pool thread in `Thread.sleep`, inside the loop that sends metrics, and the log has one new line: `interrupted while waiting, will retry`."
+    },
+    {
+      "type": "para",
+      "text": "Nobody wrote code to ignore the shutdown, and the thread ignores it anyway. In Java a running thread can't be stopped from outside: it is asked to stop, and its own code decides. This unit follows that request to the line that acts on it:"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "`interrupt()` sets a flag, and running code stops only where it looks at it.",
+        "A blocking call answers an interrupt by throwing, and the throw clears the flag.",
+        "Whoever catches `InterruptedException` owns the interrupt: rethrow it, or restore it and stop.",
+        "`Future.cancel(true)` asks; the task decides whether anything stops.",
+        "A thread blocked in classic I/O doesn't hear an interrupt: close what it waits on."
+      ]
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Tool That Asks a Thread to Stop"
     },
     {
       "type": "para",
-      "text": "Java does not provide a safe way to forcibly stop a thread. The `Thread.stop()` method (deprecated since Java 1.2 because it could leave shared data in inconsistent states by releasing all monitors held by the thread) is deprecated for removal, and since Java 20 it no longer stops anything: it throws `UnsupportedOperationException`. It still exists (and compiles, with a warning) in Java 21. Instead, Java uses a **cooperative cancellation model**."
+      "text": "Every example in this unit runs a job through the same helper. It starts the job on a pool of its own, waits until the job has done a little work, calls `shutdownNow()`, and reports two things: whether the pool's thread ended within a second, and how much work the job did after it was asked to stop."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/** Runs a job on its own pool, asks the pool to stop, and reports what the job did after that. */\npublic final class Stops {\n\n    /** A job reports each finished unit of work by calling unit.run(). */\n    public interface Job {\n        void run(Runnable unit) throws Exception;\n    }\n\n    public static void stops(String name, Job job) throws InterruptedException {\n        AtomicInteger units = new AtomicInteger();\n        ExecutorService pool = Executors.newSingleThreadExecutor(r -> {\n            Thread t = new Thread(r);\n            t.setDaemon(true);                       // a job that never stops can't keep the JVM alive\n            return t;\n        });\n        pool.execute(() -> {\n            try {\n                job.run(units::incrementAndGet);\n            } catch (Exception e) {\n                System.out.println(\"  job ended with \" + e);\n            }\n        });\n        while (units.get() < 3) Thread.onSpinWait(); // let it get going\n        long asked = System.nanoTime();\n        int atRequest = units.get();\n        pool.shutdownNow();                          // interrupts the pool's thread\n        boolean stopped = pool.awaitTermination(1, TimeUnit.SECONDS);\n        long ms = (System.nanoTime() - asked) / 1_000_000;\n        System.out.printf(\"%-16s %s, %d units after the request%n\", name,\n                stopped ? \"stopped after \" + ms + \" ms\" : \"still running after 1 s\",\n                units.get() - atRequest);\n    }\n}"
     },
     {
       "type": "para",
-      "text": "The cornerstone of this model is the **interrupt mechanism**:"
+      "text": "`shutdownNow()` calls `interrupt()` on the thread running the job. The examples call `currentThread()` through `import static java.lang.Thread.currentThread;`, and every output comes from Java 21."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Interrupting a Thread Sets a Flag, and Running Code Stops Only Where It Looks"
+    },
+    {
+      "type": "para",
+      "text": "A reindex job works through 20,000 documents. `reindex(doc)` is a few dozen microseconds of arithmetic, pure CPU work with no waiting. We ask the job to stop a few documents in. How many more does it process before the pool ends?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stops.stops(\"no check\", unit -> {\n    for (int doc = 0; doc < 20_000; doc++) { reindex(doc); unit.run(); }\n});\nStops.stops(\"isInterrupted()\", unit -> {\n    for (int doc = 0; doc < 20_000 && !currentThread().isInterrupted(); doc++) { reindex(doc); unit.run(); }\n});"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "no check         stopped after 497 ms, 19997 units after the request\nisInterrupted()  stopped after 0 ms, 2 units after the request"
+    },
+    {
+      "type": "para",
+      "text": "The first job processed every remaining document. The pool did end, but only because the job ran out of work. `interrupt()` doesn't stop anything: it sets a boolean on the target thread, the **interrupt flag**, and returns. A thread that is computing never notices a boolean that nobody reads. The second job reads it before each document and stops within a document or two."
+    },
+    {
+      "type": "para",
+      "text": "Only the thread being stopped knows where it can stop without leaving half a result: between two documents, but not between writing a document and updating its index entry. So the check goes where stopping is safe, and Java leaves placing it to the code that runs."
+    },
+    {
+      "type": "para",
+      "text": "Two other ways of checking look equivalent and aren't:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stops.stops(\"interrupted()\", unit -> {\n    for (int batch = 0; batch < 40 && !currentThread().isInterrupted(); batch++) {\n        for (int doc = batch * 500; doc < (batch + 1) * 500; doc++) {\n            if (Thread.interrupted()) break;          // ends this batch...\n            reindex(doc); unit.run();\n        }\n    }\n});\nAtomicBoolean cancelled = new AtomicBoolean();      // stands in for a volatile boolean field\nStops.stops(\"volatile flag\", unit -> {\n    for (int doc = 0; doc < 20_000 && !cancelled.get(); doc++) { reindex(doc); unit.run(); }\n});"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "interrupted()    stopped after 496 ms, 19501 units after the request\nvolatile flag    stopped after 514 ms, 19997 units after the request"
+    },
+    {
+      "type": "para",
+      "text": "**`Thread.interrupted()` reads the flag and clears it.** The inner loop saw the request and ended its batch, and in doing so erased the request. The outer loop's check then found nothing, and 39 more batches ran. `Thread.currentThread().isInterrupted()` only reads. Use `Thread.interrupted()` only at the point that acts on the request and ends the work, never in a check that someone above you also relies on."
+    },
+    {
+      "type": "para",
+      "text": "**A cancellation field of your own is invisible to the JDK.** `shutdownNow()`, and `cancel(true)` on a `Future` from `ExecutorService.submit`, set the interrupt flag, not your field. A field can sit beside the flag when you need a reason the flag can't carry (\"cancelled by the user\" rather than \"shutting down\"), but the loop must check the flag too."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Blocking Call Answers by Throwing, and the Throw Clears the Flag"
+    },
+    {
+      "type": "para",
+      "text": "Most threads spend their time waiting, not computing: in `sleep`, `wait`, `join`, a queue's `take`. A thread that is parked there can't check anything, so these methods check for it. When the thread is interrupted while blocked, or is already interrupted when it calls one, the method returns at once by throwing `InterruptedException`."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Thread t = new Thread(() -> {\n    try {\n        Thread.sleep(10_000);\n    } catch (InterruptedException e) {\n        System.out.println(\"in the catch, isInterrupted() = \" + currentThread().isInterrupted());\n    }\n});\nt.start();\nt.interrupt();\nt.join();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "in the catch, isInterrupted() = false"
+    },
+    {
+      "type": "para",
+      "text": "The request has been turned into the exception. The flag is cleared, and the exception is now the only record that anyone asked. The metrics sender from the start of the unit has this shape:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stops.stops(\"log and go on\", unit -> {\n    while (!currentThread().isInterrupted()) {\n        unit.run();                                  // send one batch of metrics\n        try {\n            Thread.sleep(50);\n        } catch (InterruptedException e) {\n            System.out.println(\"  interrupted while waiting, will retry\");\n        }\n    }\n});"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  interrupted while waiting, will retry\nlog and go on    still running after 1 s, 20 units after the request"
+    },
+    {
+      "type": "para",
+      "text": "The condition would work if the request arrived while the thread was sending. It almost never does. The thread sleeps 50 ms per cycle, so the interrupt lands in `sleep`, the exception clears the flag, the catch logs it, and the `while` reads `false` forever. In production, `awaitTermination` times out after 30 seconds and the orchestrator kills whatever is half-done."
+    },
+    {
+      "type": "para",
+      "text": "The JDK clears the flag because the exception now carries the request. Left set, the flag would make every later blocking call in the thread throw again. Only two things clear it: a call to `Thread.interrupted()`, and a waiting method that throws. Code that never looks at the flag leaves it set, and the thread's next wait throws at once."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 5 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Whoever Catches InterruptedException Rethrows It, or Restores It and Stops"
+    },
+    {
+      "type": "para",
+      "text": "The compiler forces every caller of `sleep` to deal with `InterruptedException`, and the quickest way to make it compile is an empty catch. Here are three catches in a webhook sender that retries up to 100 times. `sleepyWork()` is the pause between attempts, a 20 ms `sleep`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stops.stops(\"empty catch\", unit -> {\n    for (int attempt = 0; attempt < 100; attempt++) {\n        unit.run();\n        try { sleepyWork(); } catch (InterruptedException e) { }\n    }\n});\nStops.stops(\"restore, go on\", unit -> {\n    for (int attempt = 0; attempt < 100; attempt++) {\n        unit.run();\n        try { sleepyWork(); } catch (InterruptedException e) { currentThread().interrupt(); }\n    }\n});\nStops.stops(\"restore, return\", unit -> {\n    for (int attempt = 0; attempt < 100; attempt++) {\n        unit.run();\n        try { sleepyWork(); } catch (InterruptedException e) { currentThread().interrupt(); return; }\n    }\n});"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "empty catch      still running after 1 s, 50 units after the request\nrestore, go on   stopped after 1 ms, 97 units after the request\nrestore, return  stopped after 0 ms, 0 units after the request"
+    },
+    {
+      "type": "para",
+      "text": "The empty catch threw the request away, and the sender keeps sending as if nobody had asked. The last one does what the request meant: it puts the flag back, so code above it can still see it, and it stops."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: Restoring the Flag and Retrying Turns Every Wait into a Spin"
+    },
+    {
+      "type": "para",
+      "text": "The middle catch passes code review: it restores the flag, and the pool ended within a millisecond. Look at the count again before reading on: what did it do in that millisecond?"
+    },
+    {
+      "type": "para",
+      "text": "It made the 97 remaining attempts back to back. With the flag set again, every following `sleep` threw at once, so the pause between attempts disappeared and the sender hammered the webhook as fast as the loop could turn. A loop bounded by time instead of attempts runs until its time is up. This sender backs off 100 ms between tries for 250 ms, and is interrupted once:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "AtomicLong throwsSeen = new AtomicLong();\nThread sender = new Thread(() -> {\n    long end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(250);\n    while (System.nanoTime() < end) {\n        try {\n            Thread.sleep(100);                       // back off before the next attempt\n        } catch (InterruptedException e) {\n            throwsSeen.incrementAndGet();\n            currentThread().interrupt();\n        }\n    }\n});\nsender.start();\nsender.interrupt();\nsender.join();\nSystem.out.println(\"sleeps that threw in 250 ms: \" + throwsSeen.get());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "sleeps that threw in 250 ms: 193734"
+    },
+    {
+      "type": "para",
+      "text": "Almost 200,000 failed sleeps in a quarter of a second, with one core at 100 % until the loop ends by itself. The code that restores the flag must also stop. Code that is meant to stop has two correct shapes:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`thread.interrupt()` sets the thread's **interrupt flag** to `true`.",
-        "The interrupted thread is responsible for **checking** this flag and **responding** gracefully."
+        "**Rethrow it.** A method that can declare `throws InterruptedException` does, and doesn't catch it at all. A helper that sleeps, takes from a queue or waits on a latch has no idea whether an interrupt means \"shut down\" or \"the user pressed Cancel\", so it lets the exception reach the code that does.",
+        "**Restore it and stop.** Code that can't throw it, typically the `run()` at the top of a task, calls `Thread.currentThread().interrupt()` and returns. The flag tells the pool, or whoever called `run()`, that the task ended because it was asked to."
       ]
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Imagine asking a colleague (thread) to stop working on a task. You can't physically pull the pen from their hand (`Thread.stop()`). Instead, you place a note on their desk that says \"please stop when convenient\" (interrupt flag). The colleague checks the note periodically and, when they see it, wraps up what they're doing, cleans up, and stops gracefully. If they're waiting for a phone call (blocking on `sleep()`/`wait()`), the note immediately wakes them up."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "The Two Paths of Interruption"
+      "text": "(A task that must not be cancelled at all can keep waiting, remember that it was interrupted, and restore the flag in a `finally` before it returns. That is a deliberate choice for a few tasks, not a default.)"
     },
     {
       "type": "para",
-      "text": "**Path 1: Thread is blocked on a blocking operation** If a thread is sleeping (`Thread.sleep()`), waiting (`Object.wait()`, `join()`), calling `interrupt()` on it wakes it with an `InterruptedException`. A thread blocked on an interruptible NIO channel gets a `ClosedByInterruptException` instead. Classic `java.io` blocking reads such as `InputStream.read()` on a platform thread are NOT woken by `interrupt()` (see Q6)."
+      "text": "Wrapping it in an unchecked exception is neither shape. This helper hands its caller something that looks like any other failure:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static String fetchWrapped() {\n    try {\n        Thread.sleep(20);\n        return \"ok\";\n    } catch (InterruptedException e) {\n        throw new RuntimeException(\"fetch interrupted\", e);\n    }\n}"
     },
     {
       "type": "para",
-      "text": "**Path 2: Thread is running (not blocked)** The interrupt flag is set to `true`. The thread must explicitly check `Thread.interrupted()` or `Thread.currentThread().isInterrupted()` to detect the interrupt."
+      "text": "and the sender around it retries failures, as senders do:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Stops.stops(\"wrapped\", unit -> {\n    for (int attempt = 0; attempt < 100; attempt++) {\n        try {\n            fetchWrapped();\n        } catch (RuntimeException e) {\n            if (failures.incrementAndGet() <= 2) System.out.println(\"  fetch failed, retrying: \" + e.getMessage()\n                    + \", interrupted=\" + currentThread().isInterrupted());\n        }\n        unit.run();\n    }\n});"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  fetch failed, retrying: fetch interrupted, interrupted=false\nwrapped          still running after 1 s, 50 units after the request"
+    },
+    {
+      "type": "para",
+      "text": "The caller's retry logic treats \"we were asked to stop\" as \"the fetch failed\", and with the flag cleared, the next fetch succeeds and the loop goes on. If an interface really forbids checked exceptions, restore the flag before wrapping, so at least the next check sees it."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Key Interrupt Methods"
+      "level": 2,
+      "text": "Cancelling a Future Asks; the Task Decides"
+    },
+    {
+      "type": "para",
+      "text": "A user starts an export and presses Cancel. The service calls `future.cancel(true)`, which returns `true`, and the UI says \"cancelled\". The export writes six parts, pausing between them, and then uploads the file:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void noCheck() {\n    for (int part = 0; part < 6; part++) {\n        try { Thread.sleep(50); } catch (InterruptedException e) { }\n        writePart();\n    }\n    upload();\n}"
+    },
+    {
+      "type": "para",
+      "text": "A second version, `checkSwallow`, is the same with one line added before the upload: `if (currentThread().isInterrupted()) return;`. A third also changes the catch:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void checkReturn() {\n    for (int part = 0; part < 6; part++) {\n        try {\n            Thread.sleep(50);\n        } catch (InterruptedException e) {\n            currentThread().interrupt();\n            return;\n        }\n        writePart();\n    }\n    if (currentThread().isInterrupted()) return;\n    upload();\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each is submitted to a single-thread pool, and once two parts are written, the service calls `export.cancel(true)` on the `Future` that `submit` returned:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "no check:       cancel=true isCancelled=true isDone=true\n                parts written: 6, published: true\ncheck, swallow: cancel=true isCancelled=true isDone=true\n                parts written: 6, published: true\ncheck, return:  cancel=true isCancelled=true isDone=true\n                parts written: 2, published: false"
+    },
+    {
+      "type": "para",
+      "text": "The three `Future`s report the same thing. `isCancelled()` and `isDone()` describe the `Future`, not the thread: from the moment `cancel` succeeds, `get()` throws `CancellationException`, and nobody will ever see the task's result. What the thread does next is up to the task, and the first two kept going and uploaded a file the user cancelled. The second one even checked: its catch had swallowed the interrupt, so the check found nothing. The user, told it was cancelled, starts it again, and now there are two."
+    },
+    {
+      "type": "para",
+      "text": "`cancel(true)` interrupts the running task's thread. `cancel(false)` only keeps a queued task from starting. On a running export both return `true` and mark the `Future` cancelled, so after `cancel(false)` the caller loses the result and the thread carries on, uninterrupted."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Not every Future interrupts.** A `CompletableFuture` ignores the argument: its `cancel(true)` completes the future with a `CancellationException` and never interrupts whatever computes it."
+        }
+      ]
+    },
+    {
+      "type": "para",
+      "text": "When the task has a side effect that must not happen after a cancel, check right before it, and make sure nothing between the request and the check can swallow it."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Classic I/O Doesn't Hear an Interrupt: Close What It Waits On"
+    },
+    {
+      "type": "para",
+      "text": "Not every blocking call checks the flag. Here a platform thread waits in `accept()`, and we interrupt it, then close the socket:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Runnable accept = () -> {\n    try {\n        server.accept();\n    } catch (IOException e) {\n        System.out.println(\"  accept() ended: \" + e);\n    }\n};\nThread t = virtual ? Thread.ofVirtual().start(accept) : Thread.ofPlatform().start(accept);\n// ... once t is waiting in accept():\nt.interrupt();\nt.join(500);\nSystem.out.println(kind + \": after interrupt(), alive 500 ms later: \" + t.isAlive());\nif (t.isAlive()) {\n    server.close();\n    t.join(500);\n    System.out.println(kind + \": after close(), alive: \" + t.isAlive());\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "platform: after interrupt(), alive 500 ms later: true\n  accept() ended: java.net.SocketException: Socket closed\nplatform: after close(), alive: false"
+    },
+    {
+      "type": "para",
+      "text": "`interrupt()` only set the flag. The waiting methods of the earlier sections are written in Java and check the flag when they are woken; a platform thread in a socket call is blocked in the operating system, and `java.io` gives the interrupt nothing to wake. Closing the socket from another thread does: the blocked call fails with an exception. So a component that owns a blocking stream stops by closing it, and its read loop treats that exception as the end of the work, not as a failure to report."
+    },
+    {
+      "type": "para",
+      "text": "The same code with `virtual` set to `true`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  accept() ended: java.net.SocketException: Closed by interrupt\nvirtual: after interrupt(), alive 500 ms later: false"
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Virtual threads differ.** On a virtual thread, Java 21 makes blocking socket operations interruptible: the interrupt closes the socket and the call throws. NIO channels (`InterruptibleChannel`) behave that way on any thread, with `ClosedByInterruptException`. In both cases the socket or channel is closed afterwards, and the interrupt flag stays set."
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**`interrupt()` sets a flag; running code stops only where it checks.** A loop with no check finishes its whole batch after shutdown, and `Thread.interrupted()` in an inner loop erases the request before the outer loop sees it.",
+        "**A blocking call answers by throwing, and the throw clears the flag.** A catch that logs and carries on leaves a loop that can't be stopped, and a shutdown that waits out its timeout.",
+        "**Whoever catches `InterruptedException` rethrows it, or restores it and stops.** An empty catch ignores the request; restoring and carrying on turns every later wait into a busy loop.",
+        "**`Future.cancel(true)` only asks.** `isCancelled()` is true at once; whether the task stops, and before which side effect, is decided by the task's own checks.",
+        "**Classic I/O doesn't hear an interrupt.** Stop a reader by closing what it waits on, and treat the exception that follows as a stop, not as a failure."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**Reading and setting the flag:**"
     },
     {
       "type": "table",
       "headers": [
-        "Method",
-        "Description"
+        "Call",
+        "Effect on the flag"
       ],
       "rows": [
         [
-          "`thread.interrupt()`",
-          "Sets the interrupt flag on the target thread"
+          "`t.interrupt()`",
+          "sets `t`'s flag; wakes `t` if it is blocked in an interruptible call"
+        ],
+        [
+          "`t.isInterrupted()`",
+          "reads `t`'s flag, leaves it as it is"
         ],
         [
           "`Thread.interrupted()`",
-          "Static method: checks AND CLEARS the interrupt flag of the current thread"
+          "reads the **current** thread's flag and clears it"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**What a blocked thread does when interrupted (Java 21, platform threads unless noted):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Blocked in",
+        "On `interrupt()`",
+        "Flag afterwards"
+      ],
+      "rows": [
+        [
+          "`Thread.sleep`, `Object.wait`, `Thread.join`",
+          "throws `InterruptedException`",
+          "cleared"
         ],
         [
-          "`thread.isInterrupted()`",
-          "Instance method: checks the interrupt flag WITHOUT clearing it"
+          "`BlockingQueue.take`/`put`/`poll(timeout)`, `CountDownLatch.await`, `Future.get`",
+          "throws `InterruptedException`",
+          "cleared"
+        ],
+        [
+          "`Lock.lockInterruptibly`, `Condition.await`",
+          "throws `InterruptedException`",
+          "cleared"
+        ],
+        [
+          "`Lock.lock`, entering `synchronized`",
+          "keeps waiting for the lock",
+          "set"
+        ],
+        [
+          "NIO channel read or write (`InterruptibleChannel`)",
+          "throws `ClosedByInterruptException`, closes the channel",
+          "set"
+        ],
+        [
+          "socket `accept`/`read`, `InputStream.read`",
+          "keeps waiting; closing the socket ends it with `SocketException`",
+          "set"
+        ],
+        [
+          "the same socket call on a virtual thread",
+          "throws `SocketException`, closes the socket",
+          "set"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "A thread whose flag is already set when it enters one of the first three rows throws at once if the call would have to wait. A `join` on a thread that has ended, or a `get` on a finished `Future`, returns without looking at the flag."
+    },
+    {
+      "type": "para",
+      "text": "**Edge cases (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Situation",
+        "What happens"
+      ],
+      "rows": [
+        [
+          "`interrupt()` before `start()`",
+          "the thread starts with its flag set; the javadoc says this \"need not have any effect\", so don't rely on it"
+        ],
+        [
+          "`interrupt()` on a terminated thread",
+          "no exception; the javadoc says it \"need not have any effect\" (in JDK 21, `isInterrupted()` then returns `true`), and nothing is left to act on it"
+        ],
+        [
+          "`Thread.stop()`",
+          "deprecated for removal; since Java 20 it throws `UnsupportedOperationException`"
+        ],
+        [
+          "`ExecutorService.shutdown()`",
+          "interrupts no running task; running tasks finish, queued ones still run"
+        ],
+        [
+          "`ExecutorService.shutdownNow()`",
+          "interrupts every running task; returns the queued ones without running them"
+        ],
+        [
+          "`Future.cancel(false)`",
+          "never interrupts; a running task carries on"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
+    },
+    {
+      "type": "para",
+      "text": "These have no single answer. Try them with the `Stops` helper."
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Cooperative, not forcible**: Java's interruption is a request, not a command. The interrupted thread must cooperate.",
-        "**`InterruptedException` clears the interrupt flag**: When a blocking method throws `InterruptedException`, the thread's interrupt flag is cleared. You must re-set it or handle it immediately.",
-        "**Never swallow `InterruptedException`**: Always either re-throw it, or restore the flag via `Thread.currentThread().interrupt()`.",
-        "**`Thread.interrupted()` vs `isInterrupted()`**: `interrupted()` is static and clears the flag; `isInterrupted()` is instance-based and does not clear it.",
-        "**`Thread.stop()` no longer works**: Deprecated since Java 1.2 and for removal; since Java 20 it throws `UnsupportedOperationException`.",
-        "**Check the flag in loops**: Long-running loops should periodically check `Thread.currentThread().isInterrupted()`."
+        "A task copies rows from one database to another in transactions of 1,000 rows. Where do you check the flag, and what does a reader of the target database see if the check is in the wrong place?",
+        "Your task calls a third-party client that swallows `InterruptedException` inside its retry loop. You can't change the client. How do you make your task stoppable, and what does it cost?",
+        "Measure how long `shutdownNow()` plus `awaitTermination` takes for a pool of 50 tasks, each one of the shapes in this unit. Which one decides your deploy time?",
+        "Structured concurrency (`StructuredTaskScope`, a preview API in Java 21) has a policy, `ShutdownOnFailure`, that cancels the remaining subtasks when one fails, by interrupting their threads. What must each subtask do for that to work, and what happens to one that calls the client from challenge 2?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**`Thread.stop()` disabled**: Since Java 20 the method throws `UnsupportedOperationException` (it remains deprecated for removal in Java 21). (JEP 421 is about deprecating finalization, not `Thread.stop()`.)",
-        "**Virtual threads and interruption**: Virtual threads fully support the interrupt mechanism. Interrupting a virtual thread that is pinned to a carrier thread still works correctly.",
-        [
-          "**`Thread.sleep(Duration)`**: Available since Java 19 (so in Java 21) — more readable than milliseconds:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Thread.sleep(Duration.ofSeconds(2));"
-          }
-        ],
-        [
-          "**Structured Concurrency (`StructuredTaskScope`, preview in Java 21)**: Provides a higher-level cancellation model where cancellation of a scope propagates to all forked threads:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n    scope.fork(() -> longRunningTask());\n    scope.join().throwIfFailed();\n} // cancels remaining tasks on scope exit"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Swallowing `InterruptedException`** (the most dangerous mistake):",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: losing the interrupt signal\ntry {\n    Thread.sleep(1000);\n} catch (InterruptedException e) {\n    // Do nothing! The interrupt is now gone.\n}\n\n// CORRECT: restore the interrupt flag\ntry {\n    Thread.sleep(1000);\n} catch (InterruptedException e) {\n    Thread.currentThread().interrupt(); // restore\n    return; // or break, or throw\n}"
-          }
-        ],
-        [
-          "**Not checking the interrupt flag in CPU-bound loops**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: infinite loop ignores interrupts\nvoid processItems() {\n    while (true) {\n        process(getNextItem());\n        // interrupt() has no effect here!\n    }\n}\n\n// CORRECT: check the flag periodically\nvoid processItems() {\n    while (!Thread.currentThread().isInterrupted()) {\n        process(getNextItem());\n    }\n}"
-          }
-        ],
-        [
-          "**Using `Thread.interrupted()` (static) when you meant `isInterrupted()`**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: clears the flag as a side effect\nif (Thread.interrupted()) {\n    // flag is now cleared — subsequent checks won't see it!\n}\n\n// CORRECT: use instance method to check without clearing\nif (Thread.currentThread().isInterrupted()) {\n    // flag remains set\n}"
-          }
-        ],
-        [
-          "**Calling `stop()` (disabled since Java 20)**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Compiles with a removal warning in Java 21, but does nothing useful\nthread.stop(); // throws UnsupportedOperationException"
-          }
-        ],
-        [
-          "**Busy-waiting without sleep causes CPU spinning**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: wastes CPU, interrupt checking in tight loop still OK but burns resources\nwhile (!done) { /* tight spin */ }\n\n// BETTER: use blocking primitives like wait/notify, locks, or sleep\nwhile (!done) {\n    Thread.sleep(10); // yield CPU\n}"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Design tasks to check `isInterrupted()` at natural checkpoints** — at loop boundaries, before/after expensive operations.",
-        [
-          "**Use a volatile boolean flag as an additional cancellation mechanism**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class CancellableTask implements Runnable {\n    private volatile boolean cancelled = false;\n\n    public void cancel() { cancelled = true; }\n\n    @Override\n    public void run() {\n        while (!cancelled && !Thread.currentThread().isInterrupted()) {\n            doWork();\n        }\n        cleanup(); // always run cleanup\n    }\n}"
-          }
-        ],
-        "**Prefer `Future.cancel(true)`** which calls `interrupt()` on the running thread when using `ExecutorService`.",
-        [
-          "**Propagate `InterruptedException`** in library code (don't catch it unless you handle it):",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// In library code: let the caller decide\npublic void doWork() throws InterruptedException {\n    Thread.sleep(1000); // just propagate\n}"
-          }
-        ],
-        [
-          "**Use `try-finally` for cleanup** to ensure resources are released even when interrupted:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public void run() {\n    try {\n        while (!Thread.currentThread().isInterrupted()) {\n            process();\n        }\n    } finally {\n        releaseResources(); // always runs\n    }\n}"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Interrupting a thread that hasn't started**: The `Thread.interrupt()` javadoc only says that interrupting a thread that is not alive \"need not have any effect\". In JDK 21 the flag is kept: the thread starts with `isInterrupted()` true, and its first blocking call throws `InterruptedException`. Do not rely on this.",
-        "**Interrupting a terminated thread**: Silently ignored. No exception is thrown.",
-        "**Interrupting a thread that ignores interrupts**: The interrupt flag stays set indefinitely. The thread never stops unless it checks the flag or calls a blocking operation.",
-        "**`InterruptedException` in a `Callable`**: Can be propagated — `Callable.call()` declares `throws Exception`.",
-        "**Nested `InterruptedException` handling**: If an inner catch re-interrupts and the outer code calls another blocking operation, `InterruptedException` is thrown again immediately."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Java Has No Safe stop()"
     },
     {
       "type": "para",
-      "text": "Interviewers focus heavily on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Why `Thread.stop()` is dangerous and what replaced it.",
-        "The difference between `Thread.interrupted()` and `isInterrupted()`.",
-        "The correct way to handle `InterruptedException` (NEVER swallow it).",
-        "The difference between interrupt-based and flag-based cancellation.",
-        "How `Future.cancel(true)` uses interruption internally."
-      ]
+      "text": "Java 1.0 had `Thread.stop()`, which stopped a thread from outside by throwing an error into it wherever it was. The error released every monitor the thread held on the way out. A thread stopped between debiting one account and crediting another released the lock with the money taken from the first and never added to the second, and the next thread to take the lock saw that state as if it were consistent. No code can defend against an exception that can appear between any two of its instructions, so the method was deprecated in Java 1.2 and, since Java 20, it throws instead of stopping anything."
     },
     {
       "type": "para",
-      "text": "Frequently asked tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What does `InterruptedException` indicate, and how should you handle it?\"",
-        "\"When would you use a `volatile boolean` flag instead of (or in addition to) `interrupt()`?\"",
-        "\"Can you interrupt a thread that is executing a native method or blocked on I/O?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Why was `Thread.stop()` deprecated, and what does it do in Java 21?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Thread.stop() was dangerous because of how it worked: it forcibly terminated the thread by throwing a ThreadDeath Error, which caused the thread to unwind its stack and release all held monitors (synchronized locks).\n\nThe problem: at the moment stop() is called, the thread might be in the middle of modifying shared data — it could have updated some fields but not others, leaving the data in an inconsistent, partially-updated state. Another thread acquiring the now-released lock would see this corrupt state.\n\nExample: imagine a thread is executing:\n  synchronized (account) {\n    account.debit(100);   // Step 1: done\n    account.credit(100);  // Step 2: thread.stop() called here!\n  }\nIf stopped between steps 1 and 2, the money is simply gone — deducted from one account but never credited to another.\n\nThe replacement: cooperative cancellation via interrupt(). The interrupted thread has the opportunity to complete its current unit of work, release resources properly, and then stop gracefully.\n\nThread.stop() was deprecated in Java 1.2 (1998), deprecated for removal later, and since Java 20 (2023) it only throws UnsupportedOperationException. In Java 21 the method still exists."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Java 21: this still compiles (with a removal warning) but stops nothing\n// thread.stop(); // throws UnsupportedOperationException\n\n// Correct approach: cooperative cancellation\nclass BankTransfer implements Runnable {\n    private volatile boolean cancelled = false;\n\n    public void cancel() { cancelled = true; }\n\n    @Override\n    public void run() {\n        while (!cancelled && !Thread.currentThread().isInterrupted()) {\n            // Each iteration is a complete unit of work\n            performTransfer(); // Atomic from application's perspective\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What is the correct way to handle `InterruptedException`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: There are three correct ways, depending on context:\n\n1. PROPAGATE IT: If your method can declare throws InterruptedException, propagate it to the caller. This is the cleanest approach for library code.\n\n2. RESTORE THE FLAG AND RETURN: If you can't propagate (e.g., because you're implementing Runnable.run() which can't throw checked exceptions), catch InterruptedException, restore the flag with Thread.currentThread().interrupt(), and return or break out of the loop.\n\n3. HANDLE IT MEANINGFULLY: In some cases (e.g., task cancellation logic), you catch InterruptedException, perform necessary cleanup, restore the flag, and exit.\n\nNEVER DO: Catch InterruptedException and do nothing (empty catch block). This loses the interrupt signal permanently. The thread continues running as if nothing happened, with no way for callers to know it was interrupted."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Option 1: Propagate (best for library code)\npublic void waitForData() throws InterruptedException {\n    Thread.sleep(1000); // just let it propagate\n}\n\n// Option 2: Restore and return (for Runnable implementations)\n@Override\npublic void run() {\n    try {\n        while (true) {\n            processItem();\n            Thread.sleep(100);\n        }\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt(); // restore the flag\n        // run() ends, thread terminates gracefully\n    }\n}\n\n// Option 3: Meaningful handling\npublic boolean waitWithTimeout(long timeoutMs) {\n    long deadline = System.currentTimeMillis() + timeoutMs;\n    while (System.currentTimeMillis() < deadline) {\n        try {\n            Thread.sleep(50);\n            if (isConditionMet()) return true;\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            return false; // treat interrupt as timeout/failure\n        }\n    }\n    return false;\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is the difference between `Thread.interrupted()` (static) and `thread.isInterrupted()` (instance)?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3:\nThread.interrupted() — static method:\n- Tests whether the CURRENT thread has been interrupted\n- CLEARS the interrupt flag as a side effect (resets it to false)\n- Use this when you intend to \"consume\" the interrupt and act on it\n\nthread.isInterrupted() — instance method:\n- Tests whether the specific thread has been interrupted\n- Does NOT modify the interrupt flag\n- Use this to CHECK the status without affecting it\n\nThe side-effect of Thread.interrupted() is a common source of bugs. If you call it in a condition check but then don't act on the interrupt, the flag is silently cleared and subsequent code won't see the interrupt."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating the difference\nThread t = new Thread(() -> {\n    // Simulate interrupt\n    Thread.currentThread().interrupt();\n\n    // Check with isInterrupted() — does NOT clear\n    System.out.println(\"isInterrupted: \" + Thread.currentThread().isInterrupted()); // true\n    System.out.println(\"isInterrupted again: \" + Thread.currentThread().isInterrupted()); // still true\n\n    // Check with interrupted() — CLEARS the flag\n    System.out.println(\"interrupted(): \" + Thread.interrupted()); // true\n    System.out.println(\"interrupted() again: \" + Thread.interrupted()); // false! flag was cleared\n});\nt.start();\nt.join();"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: When should you use a `volatile boolean` cancellation flag versus `interrupt()`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Both are valid, but they have different strengths:\n\ninterrupt() is better when:\n- The task involves blocking operations (sleep, wait, I/O) — interrupt() wakes them up immediately\n- You want to use Future.cancel(true) which uses interrupt() internally\n- You're dealing with Java's standard concurrency primitives that respect interrupts\n\nvolatile boolean flag is better when:\n- The task is CPU-bound with no blocking operations\n- You want a more explicit, readable cancellation mechanism\n- The task spans multiple methods and passing interrupts through is inconvenient\n- You need to distinguish between \"interrupted\" and \"cancelled\" semantically\n\nBEST PRACTICE: Use BOTH — volatile boolean for CPU-bound sections, interrupt() for blocking sections.\n\nA volatile flag alone cannot wake a sleeping thread. interrupt() alone requires careful handling of InterruptedException."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class RobustTask implements Runnable {\n    private volatile boolean cancelled = false;\n\n    public void cancel() {\n        cancelled = true;\n        // Also interrupt in case thread is blocked\n        // Note: in practice, keep a reference to the thread to call interrupt()\n    }\n\n    @Override\n    public void run() {\n        while (!cancelled && !Thread.currentThread().isInterrupted()) {\n            // CPU-bound work: volatile flag catches cancellation\n            processChunk();\n\n            // Blocking section: interrupt() catches it here\n            try {\n                Thread.sleep(10);\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n                break; // exit the loop\n            }\n        }\n        cleanup();\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How does `Future.cancel(true)` use thread interruption?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: When you call Future.cancel(true) on a running task submitted to an ExecutorService:\n1. If the task hasn't started yet, it is marked cancelled and will never run (it may stay in the executor's queue until the pool skips it).\n2. If the task is currently running, the thread executing it is interrupted (interrupt() is called on it).\n3. The boolean parameter 'true' means \"interrupt if running\". 'false' means \"cancel if not started, but don't interrupt if running\".\n\nAfter cancellation:\n- future.isCancelled() returns true\n- future.isDone() returns true\n- future.get() throws CancellationException\n\nThe task's run/call method is responsible for detecting the interrupt (via isInterrupted() or catching InterruptedException) and stopping. Future.cancel() does NOT guarantee the task stops immediately."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ExecutorService executor = Executors.newSingleThreadExecutor();\n\nFuture<?> future = executor.submit(() -> {\n    try {\n        while (!Thread.currentThread().isInterrupted()) {\n            doWork();\n            Thread.sleep(100);\n        }\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n        // Task ends gracefully\n    }\n});\n\nThread.sleep(500);\nfuture.cancel(true); // interrupts the running thread\n\nSystem.out.println(\"Cancelled: \" + future.isCancelled()); // true\nexecutor.shutdown();"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: What happens if you interrupt a thread that is blocked on native I/O?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: This is implementation-dependent and often problematic:\n\nFor java.io (legacy I/O):\n- Most blocking operations (InputStream.read(), ServerSocket.accept()) do NOT respond to thread interruption.\n- The thread stays blocked. The interrupt flag is set, but the operation doesn't wake up.\n- Solution: close the underlying stream/socket from another thread, which causes an IOException.\n- Exception: on a virtual thread (Java 21), blocking Socket/ServerSocket operations ARE interruptible — the socket is closed and the operation throws a SocketException.\n\nFor java.nio (non-blocking I/O):\n- NIO channels implement InterruptibleChannel.\n- If a thread is blocked on an NIO channel operation, interruption causes an ClosedByInterruptException (an IOException subclass) and the channel is closed.\n- This is one reason NIO is preferred for cancellable I/O operations.\n\nThis is why for high-performance servers, NIO or virtual threads (which handle I/O blocking differently) are preferred over blocking java.io with platform threads."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// java.io: interrupt doesn't help\nInputStream is = socket.getInputStream();\nThread reader = new Thread(() -> {\n    try {\n        int data = is.read(); // BLOCKED - interrupt() won't wake this up\n    } catch (IOException e) {\n        // Woken only if socket is closed from outside\n    }\n});\nreader.start();\nreader.interrupt(); // Interrupt flag is set, but read() remains blocked!\n\n// java.nio: interrupt works\nSocketChannel channel = SocketChannel.open(address);\nThread reader2 = new Thread(() -> {\n    try {\n        ByteBuffer buf = ByteBuffer.allocate(1024);\n        channel.read(buf); // BLOCKED - but responds to interrupt()\n    } catch (ClosedByInterruptException e) {\n        // Interrupted! Channel is now closed.\n    } catch (IOException e) { /* ... */ }\n});\nreader2.start();\nreader2.interrupt(); // Wakes up the read and closes the channel"
+      "text": "The replacement leaves the decision to the code that runs, which knows where it is safe to stop. The request is a flag, and the JDK's waiting methods turn it into an exception. The price is that cancellation works only if every layer between the request and the work cooperates. One empty catch in a library three calls down, or a reader blocked in a socket that nobody closes, and the whole pool can't stop."
     },
     {
       "type": "heading",
@@ -371,17 +533,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 13,
-    "code": 12,
-    "tables": 1,
-    "lists": 9,
+    "headings": 13,
+    "paras": 39,
+    "code": 22,
+    "tables": 3,
+    "lists": 5,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 2,
+    "html": 5,
     "disclosures": 0
   },
-  "content_sha256": "7200a6d9d25545a08740db8b49308423644610fdae9220c42708786000be01b7"
+  "content_sha256": "a9236b23f451ad67d3e2cbdf00ee8ebca082b375b2ba830e3e23b89120ba58bd"
 }
