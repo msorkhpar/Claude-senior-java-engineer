@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "One read-write lock for every repository",
+  "title": "Stop the workshops from overfilling, whichever way attendees arrive",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's violation gives each repository its own copy of the read-write locking:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public String getUser(String id) {\n    rwLock.readLock().lock();\n    try {\n        return users.get(id);\n    } finally {\n        rwLock.readLock().unlock();\n    }\n}"
+      "text": "The conference sells seats in its hands-on workshops in two ways: attendees sign up on the website, and badges sold by a partner ticketing system are imported in batches. Both run on many threads at once, and the venue's rule decides how many people a room admits. Last year two workshops ended up with more attendees than chairs, and the import was blamed in one case and the sign-up page in the other."
     },
     {
       "type": "para",
-      "text": "Its fix is one shared wrapper, `ReadWriteLockedResource<T>`: every repository uses it, so moving from `ReentrantReadWriteLock` to another lock is a change in one class. `UserRepository` and `ProductRepository` below already use it. Complete the wrapper:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`read(readAction)` applies the action to the resource under the **read** lock and returns its result. **Readers do not block each other**: two reads run at the same time;",
-        "`writeVoid(writeAction)` applies the action under the **write** lock, which **holds back every reader** until the write is done;",
-        "each lock is released in a `finally` block;",
-        "a `null` resource is refused by the constructor, and a `null` action by `read` or `writeVoid`, with `NullPointerException` **before any locking happens**."
-      ]
+      "text": "Finish the `TODO` in `src/main/java/practice/Workshops.java`, `tryEnroll(...)`, and change anything else in the file you need to. When you're done, no workshop gets more attendees than the venue's rule admits, whether they arrive through the sign-up page, the import, or both at the same moment. Staff at the door can still add walk-ins over capacity. About six lines in total."
     },
     {
       "type": "para",
-      "text": "Examples:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "a new `UserRepository` returns an empty list from `getAllUsers()`; after `addUser(\"u-1\", \"Ann\")`, `getUser(\"u-1\")` is `\"Ann\"`, and `getUser(\"u-9\")` is `null`;",
-        "two threads that each call `read` can both be inside their read actions at once;",
-        "while a writer is inside `writeVoid`, a thread calling `read` waits, then sees the writer's change;",
-        "`new ReadWriteLockedResource<>(null)` throws `NullPointerException`."
-      ]
+      "text": "The tests use a venue whose rule can hold its first answer back, so that a second attendee arrives while the first is still being decided."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\n\n/** One read-write locking strategy, shared by every repository. */\npublic final class ReadWriteLockedResource<T> {\n\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    /** Guards this resource; a null resource is refused at once. */\n    public ReadWriteLockedResource(T resource) {\n        this.resource = Objects.requireNonNull(resource, \"resource must not be null\");\n    }\n\n    /** Runs a read under the read lock and returns its result. */\n    public <R> R read(Function<T, R> readAction) {\n        Objects.requireNonNull(readAction, \"readAction must not be null\");\n        rwLock.readLock().lock();\n        try {\n            return readAction.apply(resource);\n        } finally {\n            rwLock.readLock().unlock();\n        }\n    }\n\n    /** Runs a write under the write lock. */\n    public void writeVoid(Consumer<T> writeAction) {\n        Objects.requireNonNull(writeAction, \"writeAction must not be null\");\n        rwLock.writeLock().lock();\n        try {\n            writeAction.accept(resource);\n        } finally {\n            rwLock.writeLock().unlock();\n        }\n    }\n\n    /** Users by id, locked by the shared wrapper. */\n    public static final class UserRepository {\n        private final ReadWriteLockedResource<Map<String, String>> users =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addUser(String id, String name) {\n            users.writeVoid(map -> map.put(id, name));\n        }\n\n        public String getUser(String id) {\n            return users.read(map -> map.get(id));\n        }\n\n        public List<String> getAllUsers() {\n            return users.read(map -> new ArrayList<>(map.values()));\n        }\n    }\n\n    /** Prices by product name, locked by the same shared wrapper. */\n    public static final class ProductRepository {\n        private final ReadWriteLockedResource<Map<String, Double>> products =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addProduct(String name, double price) {\n            products.writeVoid(map -> map.put(name, price));\n        }\n\n        public Double getPrice(String name) {\n            return products.read(map -> map.get(name));\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Enrollments in the conference's workshops. Attendees arrive from two places: the sign-up page,\n * and the import of badges sold by the partner ticketing system. Both run on many threads at once.\n */\npublic class Workshops {\n\n    /** The venue's rule: whether a workshop admits one more attendee, given how many are enrolled. */\n    public interface Capacity {\n        boolean admits(String workshop, int enrolledSoFar);\n    }\n\n    private final Capacity capacity;\n    private final Map<String, Integer> enrolled = new HashMap<>();   // guarded by this\n\n    public Workshops(Capacity capacity) {\n        this.capacity = capacity;\n    }\n\n    /** How many attendees the workshop has now. */\n    public synchronized int enrolled(String workshop) {\n        return enrolled.getOrDefault(workshop, 0);\n    }\n\n    /** Whether the workshop has room for one more right now, by the venue's rule. */\n    public boolean hasRoom(String workshop) {\n        return capacity.admits(workshop, enrolled(workshop));\n    }\n\n    /** Staff at the door may always add a walk-in, over capacity if they choose. */\n    public synchronized void addWalkIn(String workshop) {\n        enrolled.merge(workshop, 1, Integer::sum);\n    }\n\n    /**\n     * Enrolls one attendee if the venue's rule admits one more. True if this call took a seat.\n     * Called from the sign-up page and the badge import, on many threads at once.\n     */\n    public synchronized boolean tryEnroll(String workshop) {\n        int now = enrolled.getOrDefault(workshop, 0);\n        if (!capacity.admits(workshop, now)) return false;\n        enrolled.put(workshop, now + 1);\n        return true;\n    }\n\n    /** The sign-up page. */\n    public static class SignupPage {\n        private final Workshops workshops;\n\n        public SignupPage(Workshops workshops) {\n            this.workshops = workshops;\n        }\n\n        /** True if the attendee got a seat; the page shows the wait list otherwise. */\n        public boolean signUp(String workshop, String email) {\n            return workshops.tryEnroll(workshop);\n        }\n    }\n\n    /** The import of badges sold by the partner ticketing system, one badge per call. */\n    public static class BadgeImport {\n        private final Workshops workshops;\n\n        public BadgeImport(Workshops workshops) {\n            this.workshops = workshops;\n        }\n\n        /** True if the badge holder got a seat; the import puts them on the wait list otherwise. */\n        public boolean importBadge(String workshop, String badgeId) {\n            return workshops.tryEnroll(workshop);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\n\n/** One read-write locking strategy, shared by every repository. */\npublic final class ReadWriteLockedResource<T> {\n\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    /** Guards this resource; a null resource is refused at once. */\n    public ReadWriteLockedResource(T resource) {\n        this.resource = resource;\n    }\n\n    /** Runs a read under the read lock and returns its result. */\n    public <R> R read(Function<T, R> readAction) {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n\n    /** Runs a write under the write lock. */\n    public void writeVoid(Consumer<T> writeAction) {\n        throw new UnsupportedOperationException(\"write writeVoid\");\n    }\n\n    /** Users by id, locked by the shared wrapper. */\n    public static final class UserRepository {\n        private final ReadWriteLockedResource<Map<String, String>> users =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addUser(String id, String name) {\n            users.writeVoid(map -> map.put(id, name));\n        }\n\n        public String getUser(String id) {\n            return users.read(map -> map.get(id));\n        }\n\n        public List<String> getAllUsers() {\n            return users.read(map -> new ArrayList<>(map.values()));\n        }\n    }\n\n    /** Prices by product name, locked by the same shared wrapper. */\n    public static final class ProductRepository {\n        private final ReadWriteLockedResource<Map<String, Double>> products =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addProduct(String name, double price) {\n            products.writeVoid(map -> map.put(name, price));\n        }\n\n        public Double getPrice(String name) {\n            return products.read(map -> map.get(name));\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Enrollments in the conference's workshops. Attendees arrive from two places: the sign-up page,\n * and the import of badges sold by the partner ticketing system. Both run on many threads at once.\n */\npublic class Workshops {\n\n    /** The venue's rule: whether a workshop admits one more attendee, given how many are enrolled. */\n    public interface Capacity {\n        boolean admits(String workshop, int enrolledSoFar);\n    }\n\n    private final Capacity capacity;\n    private final Map<String, Integer> enrolled = new HashMap<>();   // guarded by this\n\n    public Workshops(Capacity capacity) {\n        this.capacity = capacity;\n    }\n\n    /** How many attendees the workshop has now. */\n    public synchronized int enrolled(String workshop) {\n        return enrolled.getOrDefault(workshop, 0);\n    }\n\n    /** Whether the workshop has room for one more right now, by the venue's rule. */\n    public boolean hasRoom(String workshop) {\n        return capacity.admits(workshop, enrolled(workshop));\n    }\n\n    /** Staff at the door may always add a walk-in, over capacity if they choose. */\n    public synchronized void addWalkIn(String workshop) {\n        enrolled.merge(workshop, 1, Integer::sum);\n    }\n\n    /**\n     * Enrolls one attendee if the venue's rule admits one more. True if this call took a seat.\n     * Called from the sign-up page and the badge import, on many threads at once.\n     */\n    public boolean tryEnroll(String workshop) {\n        // TODO: take a seat if the venue's rule admits one more attendee, and say whether this\n        // call got it. Sign-ups and imports arrive on many threads at once.\n        throw new IllegalStateException(\"TODO: tryEnroll\");\n    }\n\n    /** The sign-up page. */\n    public static class SignupPage {\n        private final Workshops workshops;\n\n        public SignupPage(Workshops workshops) {\n            this.workshops = workshops;\n        }\n\n        /** True if the attendee got a seat; the page shows the wait list otherwise. */\n        public boolean signUp(String workshop, String email) {\n            return workshops.tryEnroll(workshop);\n        }\n    }\n\n    /** The import of badges sold by the partner ticketing system, one badge per call. */\n    public static class BadgeImport {\n        private final Workshops workshops;\n\n        public BadgeImport(Workshops workshops) {\n            this.workshops = workshops;\n        }\n\n        /** True if the badge holder got a seat; the import puts them on the wait list otherwise. */\n        public boolean importBadge(String workshop, String badgeId) {\n            if (!workshops.hasRoom(workshop)) return false;\n            workshops.addWalkIn(workshop);\n            return true;\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5fe876d1bfe064534bacf01fba49e315453b76b9f1cdbbb0226c3b203a161c8d",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.locks.ReentrantReadWriteLock;\nimport java.util.function.Consumer;\nimport java.util.function.Function;\n\n/** One read-write locking strategy, shared by every repository. */\npublic final class ReadWriteLockedResource<T> {\n\n    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();\n    private final T resource;\n\n    /** Guards this resource; a null resource is refused at once. */\n    public ReadWriteLockedResource(T resource) {\n        this.resource = resource;\n    }\n\n    /** Runs a read under the read lock and returns its result. */\n    public <R> R read(Function<T, R> readAction) {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n\n    /** Runs a write under the write lock. */\n    public void writeVoid(Consumer<T> writeAction) {\n        throw new UnsupportedOperationException(\"write writeVoid\");\n    }\n\n    /** Users by id, locked by the shared wrapper. */\n    public static final class UserRepository {\n        private final ReadWriteLockedResource<Map<String, String>> users =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addUser(String id, String name) {\n            users.writeVoid(map -> map.put(id, name));\n        }\n\n        public String getUser(String id) {\n            return users.read(map -> map.get(id));\n        }\n\n        public List<String> getAllUsers() {\n            return users.read(map -> new ArrayList<>(map.values()));\n        }\n    }\n\n    /** Prices by product name, locked by the same shared wrapper. */\n    public static final class ProductRepository {\n        private final ReadWriteLockedResource<Map<String, Double>> products =\n                new ReadWriteLockedResource<>(new HashMap<>());\n\n        public void addProduct(String name, double price) {\n            products.writeVoid(map -> map.put(name, price));\n        }\n\n        public Double getPrice(String name) {\n            return products.read(map -> map.get(name));\n        }\n    }\n}\n",
+  "content_sha256": "1b40ed79b566320b4403cf4444822949de76d89996392398705d8280dbaccc9a",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Enrollments in the conference's workshops. Attendees arrive from two places: the sign-up page,\n * and the import of badges sold by the partner ticketing system. Both run on many threads at once.\n */\npublic class Workshops {\n\n    /** The venue's rule: whether a workshop admits one more attendee, given how many are enrolled. */\n    public interface Capacity {\n        boolean admits(String workshop, int enrolledSoFar);\n    }\n\n    private final Capacity capacity;\n    private final Map<String, Integer> enrolled = new HashMap<>();   // guarded by this\n\n    public Workshops(Capacity capacity) {\n        this.capacity = capacity;\n    }\n\n    /** How many attendees the workshop has now. */\n    public synchronized int enrolled(String workshop) {\n        return enrolled.getOrDefault(workshop, 0);\n    }\n\n    /** Whether the workshop has room for one more right now, by the venue's rule. */\n    public boolean hasRoom(String workshop) {\n        return capacity.admits(workshop, enrolled(workshop));\n    }\n\n    /** Staff at the door may always add a walk-in, over capacity if they choose. */\n    public synchronized void addWalkIn(String workshop) {\n        enrolled.merge(workshop, 1, Integer::sum);\n    }\n\n    /**\n     * Enrolls one attendee if the venue's rule admits one more. True if this call took a seat.\n     * Called from the sign-up page and the badge import, on many threads at once.\n     */\n    public boolean tryEnroll(String workshop) {\n        // TODO: take a seat if the venue's rule admits one more attendee, and say whether this\n        // call got it. Sign-ups and imports arrive on many threads at once.\n        throw new IllegalStateException(\"TODO: tryEnroll\");\n    }\n\n    /** The sign-up page. */\n    public static class SignupPage {\n        private final Workshops workshops;\n\n        public SignupPage(Workshops workshops) {\n            this.workshops = workshops;\n        }\n\n        /** True if the attendee got a seat; the page shows the wait list otherwise. */\n        public boolean signUp(String workshop, String email) {\n            return workshops.tryEnroll(workshop);\n        }\n    }\n\n    /** The import of badges sold by the partner ticketing system, one badge per call. */\n    public static class BadgeImport {\n        private final Workshops workshops;\n\n        public BadgeImport(Workshops workshops) {\n            this.workshops = workshops;\n        }\n\n        /** True if the badge holder got a seat; the import puts them on the wait list otherwise. */\n        public boolean importBadge(String workshop, String badgeId) {\n            if (!workshops.hasRoom(workshop)) return false;\n            workshops.addWalkIn(workshop);\n            return true;\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/src/main/java/practice/ReadWriteLockedResource.java",
-    "test_path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/src/test/java/practice/ReadWriteLockedResourceTest.java",
+    "main_path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/src/main/java/practice/Workshops.java",
+    "test_path": "practice/08-principles/33-dry-principle/prose/unit-03/practice-1/src/test/java/practice/WorkshopsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,34 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ReadWriteLockedResourceTest#bothRepositoriesShareTheWrapper",
+        "id": "practice.WorkshopsTest#signUpsFillAWorkshopAndThenAreRefused",
         "kind": "main",
-        "says": "Both repositories store and read back through the shared wrapper."
+        "says": "sign-ups take seats until the venue's rule refuses, and each workshop counts its own"
       },
       {
-        "id": "practice.ReadWriteLockedResourceTest#readersDoNotBlockEachOther",
-        "kind": "edge",
-        "says": "Two readers are inside their read actions at the same time."
+        "id": "practice.WorkshopsTest#importedBadgesAndSignUpsShareTheSameSeats",
+        "kind": "main",
+        "says": "imported badges and sign-ups fill the same seats, and a walk-in can still be added over capacity"
       },
       {
-        "id": "practice.ReadWriteLockedResourceTest#aWriterHoldsReadersBack",
+        "id": "practice.WorkshopsTest#twoSignUpsAtOnceForTheLastSeatGetOneSeat",
         "kind": "edge",
-        "says": "A reader waits while a writer is inside writeVoid."
+        "says": "two sign-ups at once for the last seat: one gets it and the other is refused"
       },
       {
-        "id": "practice.ReadWriteLockedResourceTest#nullsAreRefusedBeforeAnyLocking",
+        "id": "practice.WorkshopsTest#twoImportedBadgesAtOnceForTheLastSeatGetOneSeat",
         "kind": "edge",
-        "says": "A null resource is refused by the constructor, not later."
+        "says": "two imported badges at once for the last seat: one gets it and the other is refused"
       },
       {
-        "id": "practice.ReadWriteLockedResourceTest#aNullActionIsRefusedWithoutWaiting",
+        "id": "practice.WorkshopsTest#anImportedBadgeAndASignUpAtOnceForTheLastSeatGetOneSeat",
         "kind": "edge",
-        "says": "read(null) throws NullPointerException at once, even while a writer holds the lock: the check comes before any locking."
-      },
-      {
-        "id": "practice.ReadWriteLockedResourceTest#aThrowingActionStillReleasesTheLock",
-        "kind": "edge",
-        "says": "When a read action throws, its exception reaches the caller and the read lock is released: a later write goes through."
+        "says": "an imported badge and a sign-up at once for the last seat: one gets it and the other is refused"
       }
     ],
     "report": {
@@ -159,12 +129,11 @@
     },
     "origin": {
       "path": "33-dry-principle/README_8.3.3.md",
-      "section": "Interview Q&A Section"
+      "section": "A Fix Made in the Owning Class Reaches Every Caller Without Touching Them"
     },
     "concepts": [
-      "A null resource or a null action is refused at once, before any locking happens.",
-      "Under a read-write lock, readers do not block each other, while a writer blocks everyone.",
-      "One ReadWriteLockedResource wrapper gives every repository the same locking, so a change of lock strategy is one edit."
+      "When a validate-then-update sequence is copied into several callers, making one copy atomic leaves the other copies racing, with each other and beside the fixed one, while the fixed copy's own load test passes.",
+      "With the validate-then-update as one method of the owning class, one edit to that method fixes every caller, mixed traffic included, without changing the callers, and a load test of that method covers them all."
     ]
   }
 }

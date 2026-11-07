@@ -1,152 +1,16 @@
 # 8.4.1. Definition and Purpose of Composition over Inheritance
 
-## Concept Explanation
-
-The Composition over Inheritance principle (also known as "favor composition over inheritance") is a fundamental object-oriented design guideline stating that classes should achieve polymorphic behavior and code reuse by containing instances of other classes (composition) rather than inheriting from a base or parent class.
-
-**Real-world analogy**: Consider building a car. The inheritance approach would be like saying "a sports car IS a car IS a vehicle IS a machine" and trying to encode every variation through a class hierarchy. The composition approach says "a car HAS an engine, HAS a transmission, HAS brakes" -- each component can be independently designed, tested, and swapped. You can put a turbocharged engine into a sedan or a hybrid drivetrain into an SUV without redesigning the entire vehicle hierarchy.
-
-In Java, inheritance establishes an "is-a" relationship (`SportsCar extends Car`), while composition establishes a "has-a" relationship (`Car` has an `Engine` field). The principle does not say "never use inheritance" -- it says that when choosing between the two, composition should be the default choice unless inheritance is clearly the better fit (e.g., when there is a genuine is-a relationship and the superclass is designed for extension).
-
-Joshua Bloch, in *Effective Java*, dedicates Item 18 to this principle: "Favor composition over inheritance." The key insight is that inheritance violates encapsulation because a subclass depends on the implementation details of its superclass. When those details change, the subclass can break -- this is the **fragile base class problem**.
-
-## Key Points to Remember
-
-- Inheritance creates tight coupling between parent and child classes; composition creates loose coupling through interfaces.
-- The fragile base class problem occurs when changes to a superclass inadvertently break subclasses that depend on its internal behavior.
-- Composition delegates work to contained objects, while inheritance overrides behavior in subclasses.
-- Use inheritance only when there is a genuine "is-a" relationship AND the superclass is designed and documented for extension.
-- The **forwarding/wrapper pattern** (Effective Java Item 18) uses composition + delegation to wrap an existing class and add behavior safely.
-- Composition supports runtime flexibility: you can change the composed object's behavior at runtime by swapping the delegate.
-- Java's single-inheritance constraint makes composition even more valuable, since a class can compose multiple behaviors but can only extend one class.
-
-## Relevant Java 21 Features
-
-- **Records** (JEP 395): Records are implicitly final and cannot be extended. They naturally encourage composition since you cannot build inheritance hierarchies with them.
-- **Sealed classes** (JEP 409): Sealed classes restrict which classes can extend them, providing controlled inheritance. They pair well with composition by defining a closed set of types while delegating behavior through composed objects.
-- **Pattern matching for switch** (JEP 441): When using sealed types with composition, pattern matching allows clean decomposition of behavior without requiring inheritance-based polymorphism.
-- **Interfaces with default methods**: Since Java 8, interfaces can have default methods, enabling a form of multiple inheritance of behavior. This reduces the need for abstract base classes and supports composition through interface delegation.
-- **Functional interfaces and lambdas**: Composing behavior through `Function`, `Predicate`, `Consumer`, etc. is a lightweight form of composition that avoids class hierarchies entirely.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **The fragile base class problem with inheritance**
-
-   When a subclass overrides a method that the superclass calls internally, the subclass's behavior becomes dependent on implementation details:
-
-   ```java
-   // PROBLEM: InstrumentedHashSet extends HashSet
-   public class InstrumentedHashSet<E> extends HashSet<E> {
-       private int addCount = 0;
-
-       @Override
-       public boolean add(E e) {
-           addCount++;
-           return super.add(e);
-       }
-
-       @Override
-       public boolean addAll(Collection<? extends E> c) {
-           addCount += c.size();
-           return super.addAll(c); // BUG: HashSet.addAll calls add() internally!
-       }
-       // addCount will be double the actual adds when using addAll
-   }
-   ```
-
-   **Fix**: Use forwarding wrapper (composition):
-
-   ```java
-   public class InstrumentedSet<E> extends ForwardingSet<E> {
-       private int addCount = 0;
-
-       public InstrumentedSet(Set<E> delegate) { super(delegate); }
-
-       @Override
-       public boolean add(E e) {
-           addCount++;
-           return super.add(e);
-       }
-
-       @Override
-       public boolean addAll(Collection<? extends E> c) {
-           addCount += c.size();
-           return super.addAll(c); // ForwardingSet.addAll delegates directly, no double-counting
-       }
-   }
-   ```
-
-2. **Over-engineering with unnecessary composition layers**
-
-   Adding too many wrapper/decorator layers when simple inheritance is appropriate creates complexity without benefit.
-
-   **Fix**: Use composition when you need flexibility, runtime behavior changes, or wrapping existing classes. Use inheritance for genuine "is-a" relationships with well-designed base classes.
-
-3. **Forgetting to delegate all methods in a wrapper**
-
-   When creating a forwarding class, the compiler makes you implement the interface's abstract methods, but not `equals`, `hashCode` and `toString`. Forgetting those leaves `Object`'s identity-based versions, so the wrapper breaks the `Set` contract (`wrapper.equals(sameSet)` is `false` while `sameSet.equals(wrapper)` is `true`).
-
-   **Fix**: Create a complete forwarding class that delegates all interface methods and the `Object` methods `equals`, `hashCode` and `toString`, as shown in the `ForwardingSet` pattern.
-
-4. **Breaking the Liskov Substitution Principle with inheritance**
-
-   Subclasses that change the semantics of inherited methods violate LSP. Composition avoids this by not establishing an is-a relationship.
-
-   **Fix**: When behavior needs to differ significantly, compose rather than inherit.
-
-## Best Practices and Optimization Techniques
-
-1. **Design interfaces first, then compose implementations**: Define behavior contracts through interfaces and compose implementations using delegation.
-2. **Use the forwarding/wrapper pattern for extending third-party classes**: You cannot control how third-party classes evolve, so wrapping them with composition is safer than extending them.
-3. **Prefer constructor injection for composed dependencies**: This makes dependencies explicit and supports immutability.
-4. **Keep composed objects immutable when possible**: Immutable composed objects are inherently thread-safe and easier to reason about.
-5. **Use Java records for simple value compositions**: Records provide a concise way to compose data without inheritance.
-6. **Leverage functional interfaces for lightweight composition**: Instead of creating new classes, compose behavior using lambdas and method references.
-
-## Edge Cases and Their Handling
-
-1. **Null delegates**: Always validate that composed objects are not null in constructors using `Objects.requireNonNull()`.
-2. **Circular composition**: Avoid A composing B composing A. Use interfaces to break circular dependencies.
-3. **Serialization with composition**: Composed objects must be serializable if the containing class is serializable. Consider using `transient` for non-serializable components.
-4. **Equality and hashCode**: When using composition, define `equals()` and `hashCode()` based on the composed state, not on identity.
-5. **Deep vs. shallow copying**: Composed objects may need deep copying to avoid shared mutable state.
-
-## Interview-specific Insights
-
-Interviewers frequently ask about this principle because it tests understanding of OOP design trade-offs. Key areas:
-
-- The classic `InstrumentedHashSet` example from Effective Java (Item 18) -- be ready to explain the double-counting bug and the forwarding wrapper solution.
-- When inheritance IS appropriate (genuine is-a, designed-for-extension superclass like `AbstractList`).
-- How composition supports the Open/Closed Principle (open for extension via new composed behaviors, closed for modification).
-- The relationship between composition and the Strategy, Decorator, and Adapter patterns.
-- How Java's single inheritance limitation makes composition essential for combining multiple behaviors.
-
-## Interview Q&A Section
-
-**Q1: What is the Composition over Inheritance principle and why does it matter?**
-
-```text
-A1: The Composition over Inheritance principle states that classes should achieve
-code reuse and polymorphic behavior by containing instances of other classes
-(composition/delegation) rather than inheriting from them.
-
-It matters because:
-1. Inheritance creates tight coupling -- subclasses depend on superclass
-   implementation details (fragile base class problem).
-2. Composition creates loose coupling -- the composed object interacts only
-   through a well-defined interface.
-3. Composition allows runtime flexibility -- you can swap behaviors at runtime.
-4. Inheritance is constrained to single inheritance in Java; composition has
-   no such limitation.
-5. Composition makes code easier to test -- you can mock composed dependencies.
-
-This does NOT mean "never use inheritance." Use inheritance when there is a
-genuine is-a relationship and the superclass is designed for extension.
-```
+The editors' dashboard says "tags submitted: 7" for an article that has four tags. The author
+typed one tag and picked three from the suggestion list, which the tag widget sends in one `addAll`.
+The analytics team uses this count to decide whether suggestions are worth keeping. Its tags live in
+this class, whose unit test (three `add` calls) passes:
 
 ```java
-// Inheritance approach (fragile)
-class CountingList<E> extends ArrayList<E> {
+import java.util.Collection;
+import java.util.HashSet;
+
+/** An article's tags; getAddCount() feeds the "tags submitted" metric. */
+public class InstrumentedHashSet<E> extends HashSet<E> {
     private int addCount = 0;
 
     @Override
@@ -154,246 +18,339 @@ class CountingList<E> extends ArrayList<E> {
         addCount++;
         return super.add(e);
     }
-    // What about addAll? It may call add() internally -- fragile!
-}
-
-// Composition approach (robust)
-class CountingList<E> implements List<E> {
-    private final List<E> delegate = new ArrayList<>();
-    private int addCount = 0;
-
-    @Override
-    public boolean add(E e) {
-        addCount++;
-        return delegate.add(e);
-    }
 
     @Override
     public boolean addAll(Collection<? extends E> c) {
         addCount += c.size();
-        return delegate.addAll(c); // no double-counting risk
+        return super.addAll(c);
     }
-    // ... delegate all other List methods
+
+    public int getAddCount() {
+        return addCount;
+    }
 }
 ```
 
-**Q2: What is the fragile base class problem? Give a concrete Java example.**
+Each method counts what it receives, once. Before reading on, work out where the extra three
+come from.
 
-```text
-A2: The fragile base class problem occurs when a subclass depends on the
-internal implementation details of its superclass. If the superclass changes
-how it implements a method, the subclass can break silently.
-
-The classic example is extending HashSet to count element insertions.
-HashSet.addAll() internally calls add() for each element. If a subclass
-overrides both add() and addAll() to count insertions, addAll() will
-double-count because the superclass's addAll() calls the overridden add().
-
-This is fragile because:
-- The subclass depends on the IMPLEMENTATION of HashSet.addAll(), not just
-  its CONTRACT.
-- If a future JDK version changes how addAll() works internally, the
-  subclass breaks.
-- The developer cannot know this without reading HashSet's source code.
-```
+## HashSet's addAll Calls add, So a Subclass That Counts in Both Counts Each Element Twice
 
 ```java
-// Demonstrates the fragile base class problem
-public class CountingInheritanceStack<E> extends InheritanceStack<E> {
-    private int pushCount = 0;
+InstrumentedHashSet<String> tags = new InstrumentedHashSet<>();
+tags.add("java");                          // typed by the author
+tags.addAll(List.of("jvm", "gc", "jit"));  // picked from suggestions
+System.out.println("tags: " + tags.size() + ", tags submitted: " + tags.getAddCount());
+```
 
-    @Override
-    public void push(E item) {
-        pushCount++;
-        super.push(item);
-    }
+```text
+tags: 4, tags submitted: 7
+```
 
-    @Override
-    public void pushAll(Collection<E> items) {
-        pushCount += items.size();
-        super.pushAll(items); // BUG: super.pushAll calls push() for each item!
-    }
-    // After pushAll(List.of("a","b","c")):
-    //   pushCount = 6 (3 from pushAll + 3 from push called by super.pushAll)
-    //   Expected: 3
+`HashSet` has no `addAll` of its own. It inherits this one from `AbstractCollection` (JDK 21 and
+25 source):
+
+```java
+public boolean addAll(Collection<? extends E> c) {
+    boolean modified = false;
+    for (E e : c)
+        if (add(e))
+            modified = true;
+    return modified;
 }
 ```
 
-**Q3: Explain the forwarding wrapper pattern and when to use it.**
+`super.addAll(c)` runs that loop on our object, so `add(e)` reaches `InstrumentedHashSet.add`
+(unit 2.1.4 shows the mechanism with `TreeSet`): three counted in `addAll`, three again in `add`.
+Every batch inflates the metric by its own size.
+
+The subclass is correct only if it knows which of `HashSet`'s methods call which, and `HashSet`
+doesn't say: the loop is documented only as `AbstractCollection`'s implementation note, two
+levels up. This is the fragile base class problem: the subclass depends on its superclass's
+implementation, not its contract.
+
+## Counting Only in add Fixes HashSet and Breaks ArrayList: the Count Follows Code the Subclass Can't See
+
+The quick fix is to delete the `addAll` override, since "`addAll` goes through `add` anyway".
+Here are the same overrides on two superclasses, with and without `addAll`, each given three
+elements through `addAll`:
 
 ```text
-A3: The forwarding wrapper pattern (from Effective Java Item 18) is a
-composition-based alternative to inheritance. It consists of two parts:
-
-1. A forwarding class that implements the same interface as the class to
-   wrap, delegating all method calls to a contained instance.
-2. A wrapper class that extends the forwarding class and overrides only
-   the methods it needs to add behavior to.
-
-When to use it:
-- When you need to add behavior to an existing class but cannot (or should
-  not) modify it.
-- When extending a concrete class that was not designed for inheritance.
-- When wrapping third-party library classes.
-- When you need to decorate or instrument behavior without risking the
-  fragile base class problem.
-
-The pattern works with any class that implements an interface, because the
-forwarding class delegates through the interface contract, not through
-implementation details.
+addAll of 3 elements, counted in   extends HashSet   extends ArrayList
+add and addAll                     6                 3
+add only                           3                 0
 ```
 
+`ArrayList` overrides `addAll`
+with a `System.arraycopy` of the argument's array and never calls `add`, so a counting list that
+trusts `add` misses every batch.
+
+On `HashSet` the "add only" version is right as long as `HashSet` keeps inheriting
+`AbstractCollection.addAll`. If a later JDK gives `HashSet` an `addAll` of its own, as `ArrayList`
+has, batches stop being counted, and the subclass still compiles and passes its `add` tests.
+`AbstractCollection`'s `@implSpec` describes that class's code, not a promise from `HashSet`.
+
+An `addAll` override that loops over `c` calling `this.add`, without `super.addAll`, counts right
+on both, because it no longer uses the superclass's `addAll` at all. That is reimplementing the
+superclass method, which works here only because `addAll` needs nothing but `add`.
+
+## A Forwarding Wrapper Counts Each Element Once over Any Set, Because the Set's Own Calls Stay Inside It
+
+Instead of being a `HashSet`, the counter can hold a `Set` in a field and pass every call on to
+it. The forwarding part is written once per interface:
+
 ```java
-// Step 1: Forwarding class delegates all calls
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.Objects;
+import java.util.Set;
+
+/** Implements Set by forwarding every call to the set it wraps. */
 public class ForwardingSet<E> implements Set<E> {
-    private final Set<E> delegate;
+    private final Set<E> s;
 
-    public ForwardingSet(Set<E> delegate) {
-        this.delegate = Objects.requireNonNull(delegate);
-    }
+    public ForwardingSet(Set<E> s) { this.s = Objects.requireNonNull(s); }
 
-    @Override public boolean add(E e) { return delegate.add(e); }
-    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }
-    @Override public int size() { return delegate.size(); }
-    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }
-    @Override public int hashCode() { return delegate.hashCode(); }
-    // ... all other Set methods (and toString) delegated
+    @Override public int size() { return s.size(); }
+    @Override public boolean isEmpty() { return s.isEmpty(); }
+    @Override public boolean contains(Object o) { return s.contains(o); }
+    @Override public Iterator<E> iterator() { return s.iterator(); }
+    @Override public Object[] toArray() { return s.toArray(); }
+    @Override public <T> T[] toArray(T[] a) { return s.toArray(a); }
+    @Override public boolean add(E e) { return s.add(e); }
+    @Override public boolean remove(Object o) { return s.remove(o); }
+    @Override public boolean containsAll(Collection<?> c) { return s.containsAll(c); }
+    @Override public boolean addAll(Collection<? extends E> c) { return s.addAll(c); }
+    @Override public boolean retainAll(Collection<?> c) { return s.retainAll(c); }
+    @Override public boolean removeAll(Collection<?> c) { return s.removeAll(c); }
+    @Override public void clear() { s.clear(); }
+
+    @Override public boolean equals(Object o) { return o == this || s.equals(o); }
+    @Override public int hashCode() { return s.hashCode(); }
+    @Override public String toString() { return s.toString(); }
 }
+```
 
-// Step 2: Wrapper adds behavior
+and the counter extends it with the same two overrides as before:
+
+```java
+import java.util.Collection;
+import java.util.Set;
+
+/** Counts every element offered to the set it wraps. */
 public class InstrumentedSet<E> extends ForwardingSet<E> {
     private int addCount = 0;
 
-    public InstrumentedSet(Set<E> delegate) { super(delegate); }
+    public InstrumentedSet(Set<E> s) { super(s); }
 
     @Override
     public boolean add(E e) {
         addCount++;
-        return super.add(e);  // delegates to ForwardingSet, which delegates to actual Set
+        return super.add(e);
     }
 
     @Override
     public boolean addAll(Collection<? extends E> c) {
         addCount += c.size();
-        return super.addAll(c);  // no double-counting!
+        return super.addAll(c);
+    }
+
+    public int getAddCount() {
+        return addCount;
     }
 }
 ```
 
-**Q4: When is inheritance the better choice over composition?**
+The same four tags, through `new InstrumentedSet<>(backing)` where `backing` is a new set of
+each of three implementations:
 
 ```text
-A4: Inheritance is appropriate when ALL of these conditions are met:
-
-1. There is a genuine "is-a" relationship (a Dog IS an Animal, an ArrayList
-   IS a List).
-2. The superclass is designed and documented for extension (e.g., AbstractList,
-   AbstractMap in the JDK).
-3. The subclass does not need to work with multiple unrelated types (since
-   Java has single inheritance).
-4. The subclass genuinely extends the superclass's behavior rather than
-   restricting or altering it.
-
-Examples of appropriate inheritance:
-- Extending AbstractList to create a custom List implementation.
-- Creating a SpecificException that extends a base ApplicationException.
-- Sealed class hierarchies (Java 17+) where the set of subtypes is fixed
-  and known.
-
-Red flags that suggest composition instead:
-- You want to "reuse code" but there is no is-a relationship.
-- You are extending a concrete class not designed for inheritance.
-- You override methods primarily to restrict or nullify behavior.
-- You need to combine behaviors from multiple sources.
+HashSet        tags: 4, tags submitted: 4, backing set: [jvm, java, jit, gc]
+TreeSet        tags: 4, tags submitted: 4, backing set: [gc, java, jit, jvm]
+LinkedHashSet  tags: 4, tags submitted: 4, backing set: [java, jvm, gc, jit]
 ```
+
+`InstrumentedSet.addAll` counts three and calls `ForwardingSet.addAll`, which calls
+`s.addAll(c)`. The `HashSet`'s loop still calls `add`, but on the `HashSet`, a different object
+whose `add` is `HashSet`'s own. Nothing the wrapped set does internally can reach the counter.
+The wrapper is a view: what goes in through it lands in `backing`.
+
+Because the wrapper takes any `Set`, the implementation behind it can change without touching the
+counter or its callers (unit 8.4.3 swaps a `HashMap` for a `ConcurrentHashMap` this way). Adding
+behaviour around an object of the same interface is the decorator pattern (unit 9.2.2).
+
+The price is the forwarding class, one line per method of the interface, and the type: an
+`InstrumentedSet` is not a `HashSet`, so a method declared to take a `HashSet` won't accept it.
+
+## javac Makes a Forwarding Class Implement Set's Methods, Not equals and hashCode
+
+`Set` declares `equals` and `hashCode`, but `Object` already implements them, as it does
+`toString`, so a forwarding class without its last three lines compiles cleanly:
 
 ```java
-// Good use of inheritance: AbstractList is designed for extension
-public class ImmutableArrayList<E> extends AbstractList<E> {
-    private final E[] elements;
-
-    @SuppressWarnings("unchecked")
-    public ImmutableArrayList(Collection<E> source) {
-        this.elements = (E[]) source.toArray();
-    }
-
-    @Override
-    public E get(int index) {
-        return elements[index];
-    }
-
-    @Override
-    public int size() {
-        return elements.length;
-    }
-    // AbstractList provides all other methods via get() and size()
-}
-
-// Good use of sealed classes with inheritance
-public sealed interface Shape permits Circle, Rectangle, Triangle {
-    double area();
-}
-public record Circle(double radius) implements Shape {
-    public double area() { return Math.PI * radius * radius; }
-}
+Set<String> saved = Set.of("java", "jvm");          // a tag set stored earlier
+Set<Set<String>> seen = new HashSet<>(List.of(saved));
+Set<String> wrapper = new InstrumentedSet<>(new HashSet<>(List.of("java", "jvm")));
+System.out.println("wrapper.equals(saved):  " + wrapper.equals(saved));
+System.out.println("saved.equals(wrapper):  " + saved.equals(wrapper));
+System.out.println("seen.contains(wrapper): " + seen.contains(wrapper));
+System.out.println("log line: tags=" + wrapper);
 ```
 
-**Q5: How does composition relate to common design patterns?**
+Without `equals`, `hashCode` and `toString` in `ForwardingSet`:
 
 ```text
-A5: Many classic design patterns are implementations of composition:
-
-1. Strategy Pattern: Compose an algorithm object instead of inheriting
-   different algorithm variants. Example: a Sorter class that composes a
-   Comparator rather than creating SortByName, SortByAge subclasses.
-
-2. Decorator Pattern: Wrap an object to add behavior. Each decorator
-   composes the original object and delegates to it. Example: BufferedReader
-   wrapping FileReader.
-
-3. Adapter Pattern: Compose an existing class and present a different
-   interface. Adapts one interface to another via delegation.
-
-4. Observer Pattern: A subject composes a list of observers rather than
-   inheriting notification behavior.
-
-5. Builder Pattern: Composes parts of a complex object step by step.
-
-6. Dependency Injection: The entire DI paradigm is built on composition --
-   dependencies are composed (injected) rather than created via inheritance.
-
-In modern Java, functional interfaces (Function, Predicate, Consumer) enable
-lightweight composition without creating explicit classes, replacing many
-uses of the Strategy and Command patterns.
+wrapper.equals(saved):  false
+saved.equals(wrapper):  true
+seen.contains(wrapper): false
+log line: tags=InstrumentedSet@5cad8086
 ```
+
+With them:
+
+```text
+wrapper.equals(saved):  true
+saved.equals(wrapper):  true
+seen.contains(wrapper): true
+log line: tags=[jvm, java]
+```
+
+`Set.equals` promises that two sets with the same elements are equal. `saved` keeps that promise:
+it checks that the wrapper is a `Set` of the same size containing the same elements. The wrapper
+inherits `Object`'s identity check, so the answer depends on which side is asked, which breaks
+the symmetry `equals` requires (unit 1.5.1). The log line is `Object.toString`. The lookup in `seen` misses because the wrapper's
+identity hash code differs from `saved`'s, so the lookup never compares the two, and code that asks "have we seen this tag set
+before?" answers no every time.
+
+Forwarding `equals` as `s.equals(o)` makes the wrapper equal to every set the wrapped set is
+equal to, and `hashCode` must be forwarded with it, or the hash lookup still misses. `Map.equals`
+makes the same promise about mappings, so a forwarding `Map` without the two methods fails the
+same way: `wrapper.equals(Map.of("x", 1))` is false while `Map.of("x", 1).equals(wrapper)` is
+true.
+
+<!-- practice 1 -->
+
+## Extend a Class Through the Hook It Documents: LinkedHashMap Calls removeEldestEntry from put and putAll
+
+Inheritance still fits when the subclass is a genuine kind of the superclass, and the superclass
+was designed for extension: its javadoc says which overridable method it calls, and when.
+
+A gateway keeps the last three request ids it has seen, to spot client retries. A map of recent
+ids is a `Map`, and `LinkedHashMap` was built to be extended into one. One version bounds it at
+three entries by overriding `put`:
 
 ```java
-// Strategy via composition (modern Java style)
-public class TextProcessor {
-    private final List<Function<String, String>> transformations = new ArrayList<>();
+import java.util.LinkedHashMap;
 
-    public TextProcessor addTransformation(Function<String, String> t) {
-        transformations.add(t);
-        return this;
-    }
-
-    public String process(String input) {
-        String result = input;
-        for (var t : transformations) {
-            result = t.apply(result);
-        }
-        return result;
+/** Keeps the last three ids by overriding put. */
+class RecentIdsByPut extends LinkedHashMap<String, Long> {
+    @Override
+    public Long put(String id, Long seenAt) {
+        Long previous = super.put(id, seenAt);
+        if (size() > 3) remove(keySet().iterator().next());   // drop the eldest
+        return previous;
     }
 }
-
-// Usage: compose behaviors at runtime
-var processor = new TextProcessor()
-    .addTransformation(String::trim)
-    .addTransformation(String::toUpperCase)
-    .addTransformation(s -> s.replace(" ", "_"));
-
-processor.process("  hello world  "); // "HELLO_WORLD"
 ```
+
+the other through the hook `LinkedHashMap` offers:
+
+```java
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/** The last three request ids seen, for spotting retries; evicts through the documented hook. */
+class RecentIds extends LinkedHashMap<String, Long> {
+    @Override
+    protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+        return size() > 3;
+    }
+}
+```
+
+Each gets `r-101` to `r-105` through five `put` calls and, in a new map, through one `putAll` (a
+batch replayed after a restart):
+
+```text
+RecentIdsByPut  after 5 put: [r-103, r-104, r-105]   after putAll of 5: [r-101, r-102, r-103, r-104, r-105]
+RecentIds       after 5 put: [r-103, r-104, r-105]   after putAll of 5: [r-103, r-104, r-105]
+```
+
+`putAll` doesn't call `put`: `HashMap`, which `LinkedHashMap` extends, inserts each entry through
+an internal method, so the override never runs and the map grows with every replay. That is the
+`ArrayList` problem again.
+
+`removeEldestEntry` comes with the promise the `put` override lacked. Its javadoc says: "This
+method is invoked by `put` and `putAll` after inserting a new entry into the map." Three things
+make it a hook:
+
+- it is `protected`, so only subclasses (and `java.util`) can call it;
+- its javadoc names the methods that call it, so the subclass relies on documented behaviour;
+- its default, `return false`, does nothing, so a plain `LinkedHashMap` is unaffected.
+
+A designed base also makes the methods that must not change `final`: the template method of
+unit 2.3.1. The bound is behaviour every caller of `RecentIds` accepts: a `put` can make an older
+key's `get` return `null`.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **`HashSet.addAll` calls `add`.** A subclass that counts in both counts every batch twice, and
+  a test that only calls `add` passes.
+- **Counting in fewer methods moves the bug.** The count depends on which methods the superclass
+  calls internally: right on `HashSet`, zero for batches on `ArrayList`, and open to change in
+  any JDK release.
+- **A forwarding wrapper counts once over any `Set`.** The wrapped set's internal calls stay on
+  the wrapped set, so only `Set`'s contract matters.
+- **A forwarding class must forward `equals` and `hashCode`.** javac doesn't ask for them, and
+  without them equality depends on which side is asked and hash lookups miss.
+- **Extend when the superclass documents its hook.** `removeEldestEntry` is called from `put`
+  and `putAll` by contract; an override of `put` is skipped by `putAll`.
+
+## Reference
+
+**Which overridable method a JDK method calls on itself (Java 21 and 25 source):**
+
+| Method | Calls | Documented for subclasses |
+|---|---|---|
+| `HashSet.addAll` (inherited from `AbstractCollection`) | `add` once per element | in `AbstractCollection`'s `@implSpec`, not in `HashSet` |
+| `ArrayList.addAll` | no `add`: copies the argument's array | no |
+| `TreeSet.addAll` | `add`, except a sorted set into an empty one (unit 2.1.4) | no |
+| `HashMap.putAll`, `LinkedHashMap.putAll` | no `put` | no |
+| `LinkedHashMap.put`, `putAll` | `removeEldestEntry` after inserting a new entry | yes, in `removeEldestEntry` |
+| `AbstractSet.removeAll` (inherited by `HashSet`) | `remove` when the argument is smaller than the set; otherwise the iterator's `remove` | in `AbstractSet`'s javadoc ("This implementation…") |
+
+**Inheritance and forwarding compared, as run on this page:**
+
+| | `extends HashSet` | `ForwardingSet` wrapper |
+|---|---|---|
+| depends on | `HashSet`'s internal calls | `Set`'s contract |
+| works over | `HashSet` only | any `Set` |
+| `equals`, `hashCode` | inherited, correct | must be forwarded by hand |
+| passes where a `HashSet` is required | yes | no |
+
+## Challenges
+
+1. `AbstractSet.removeAll` calls `remove` for a small argument and the iterator's `remove` for a
+   large one. Write a `HashSet` subclass that logs every removal, and find the sizes for which its
+   log is wrong.
+2. A framework requires your entity to extend its base class, and you need a count of writes to
+   one of its collections. Where do you put the counter so a framework upgrade can't change it?
+3. `Collection` gained default methods in Java 8, among them `removeIf`. Which of
+   `ForwardingSet`'s methods does `removeIf` on the wrapper go through, and what does that mean
+   for a wrapper that counts removals?
+
+## Design Note: Why HashSet Isn't Final
+
+Making a published class `final` breaks every subclass that already exists, so `HashSet`,
+`ArrayList` and `HashMap` stay open to subclassing. They are not designed for it: they document
+no self-calls of their own and offer no hooks, which leaves the JDK free to change which of their
+methods call which, and a subclass that overrides a public method breaks without warning when it
+does. A documented hook binds the JDK instead: once `LinkedHashMap` documented that `putAll`
+calls `removeEldestEntry`, every later `putAll` has to keep calling it.
 
 ## Code Examples
 

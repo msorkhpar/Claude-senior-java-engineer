@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "08-principles",
+    "33-dry-principle"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 3,
+  "title": "Check yourself: one place for a locking policy",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-fourth-caller",
+        "stem": "A `Seats` class has `synchronized` methods `isFree(seat)` and `assign(seat, customer)`. The booking page, the box office and the partner API each run `synchronized (seats) { if (seats.isFree(s)) seats.assign(s, c); }`. A group-import job added later, running on one thread, makes the same two calls with no `synchronized` block. Whose bookings can be overwritten by another booking of the same seat?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Only the import job's own bookings, since the other three callers hold the lock from their check to their assign",
+            "correct": false,
+            "says": "holding the lock across their own pair doesn't keep the import job out of the gap between its check and its assign, where a locked caller books the seat and the import job then overwrites it"
+          },
+          {
+            "id": "b",
+            "text": "Bookings made through the three locked callers, since the import job lets go of the lock between its check and its assign",
+            "correct": true,
+            "says": "the import job takes the monitor for each call and lets go in between, so a locked caller can book the seat in that gap and the import job's assign overwrites it"
+          },
+          {
+            "id": "c",
+            "text": "Nobody's, since isFree and assign are each synchronized on the seats object",
+            "correct": false,
+            "says": "each call is atomic, but a check followed by an act across two calls is not"
+          },
+          {
+            "id": "d",
+            "text": "Nobody's, since three of the four callers lock the seats object and so keep the fourth out",
+            "correct": false,
+            "says": "a caller that lets go of the lock between its check and its assign is never kept out by other callers holding it across theirs"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.2.md",
+          "section": "A Lock Written at Each Call Site Is Missing at the Site That Forgets It"
+        }
+      },
+      {
+        "id": "q-with-lock-helper",
+        "stem": "To remove the repeated blocks, a team adds `Locks.withLock(seats, () -> { if (seats.isFree(s)) seats.assign(s, c); })` and rewrites the existing callers to use it; `isFree` and `assign` stay public. Next quarter someone adds a fifth caller. Which statement about it holds?",
+        "options": [
+          {
+            "id": "a",
+            "text": "A fifth caller that skips the helper compiles and can race, since each caller still writes the check and the assign itself",
+            "correct": true,
+            "says": "the helper removes repeated text, not the rule: the compound action is still composed at each call site, and nothing forces the helper"
+          },
+          {
+            "id": "b",
+            "text": "A fifth caller that skips the helper compiles but can't race, since isFree and assign take the same seats monitor the helper takes",
+            "correct": false,
+            "says": "each call takes the monitor and lets go in between, so a caller that pairs them without holding the lock across both still races"
+          },
+          {
+            "id": "c",
+            "text": "The fifth caller is safe whether or not it uses the helper, since the helper makes isFree and assign atomic together for every caller",
+            "correct": false,
+            "says": "the helper's lock covers only the code passed to it"
+          },
+          {
+            "id": "d",
+            "text": "The fifth caller is safe whether or not it uses the helper, since all locking in the code base now goes through one method",
+            "correct": false,
+            "says": "a caller that doesn't call the helper takes no lock across its check and its assign"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.2.md",
+          "section": "The Compound Action Belongs in the Class That Owns the Lock"
+        }
+      },
+      {
+        "id": "q-what-shows-safe",
+        "stem": "The old `Seats` lost bookings in every stress run. The new one has a `synchronized tryAssign(seat, customer)`, `assign` is gone, and 50 stress runs found no double booking. In review, which argument shows the new class is safe?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The 50 clean runs, since a race that showed in every run of the old version would have shown at least once",
+            "correct": false,
+            "says": "clean runs are a sample: they suggest the old race is gone but don't prove the new class has none; the proof is in the class's code"
+          },
+          {
+            "id": "b",
+            "text": "The 50 clean runs, since the stress test ran more threads than the production servers have cores",
+            "correct": false,
+            "says": "however the stress test is run, clean runs are a sample; the proof is in the class's code"
+          },
+          {
+            "id": "c",
+            "text": "The class's code, since the seat map is reached only through synchronized methods of that one class",
+            "correct": true,
+            "says": "every access to the seat map is under one lock in one class, which a reviewer can check in one file"
+          },
+          {
+            "id": "d",
+            "text": "The class's code, since tryAssign runs its check and its assign inside one synchronized method",
+            "correct": false,
+            "says": "one synchronized method shows nothing about other code that reaches the seat map; the argument needs every access to the map to be under the same lock, in one class"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.2.md",
+          "section": "The Compound Action Belongs in the Class That Owns the Lock"
+        }
+      },
+      {
+        "id": "q-two-accounts-report",
+        "stem": "`Account` has synchronized `debit`, `credit` and `balance`. `TransferService.transfer`, synchronized on the service, calls `a.debit(x)` then `b.credit(x)`. While transfers between two accounts run, a report thread prints `a.balance() + b.balance()`. What can the report print?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Sums above the true total and sums below it, since the report's two reads can fall on either side of a transfer's steps",
+            "correct": true,
+            "says": "the report takes neither the service's lock nor both account locks at once, so it can land inside a transfer (too low) or read one account before a transfer and the other after it (too high)"
+          },
+          {
+            "id": "b",
+            "text": "Sums below the true total but never above it, since every transfer debits one account before it credits the other",
+            "correct": false,
+            "says": "the report's own two reads are not one step either, so it can read one account before a transfer and the other after it, and count the moved amount twice"
+          },
+          {
+            "id": "c",
+            "text": "Only the true total, since each transfer runs as one step under the transfer service's lock",
+            "correct": false,
+            "says": "the report doesn't take the transfer service's lock, so it can still read between the debit and the credit"
+          },
+          {
+            "id": "d",
+            "text": "Only the true total, since each balance is read under its own account's lock",
+            "correct": false,
+            "says": "each lock covers one account, and the total is a rule over two"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.2.md",
+          "section": "An Action Across Two Wallets Needs One Owner for Both Balances"
+        }
+      }
+    ]
+  }
+}

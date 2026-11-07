@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Hand out an immutable snapshot, never the shared list",
+  "title": "Make the settlement gate tell the on-call who is inside",
   "blocks": [
     {
       "type": "heading",
@@ -19,39 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's advice for any shared collection: **return an immutable snapshot**. A snapshot is a consistent view of one moment, callers can iterate it while other threads keep logging, and nobody can change the shared state through it."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public List<String> getEvents() {\n    return Collections.unmodifiableList(new ArrayList<>(events));\n}"
+      "text": "The nightly settlement jobs all append to one ledger file, so each job runs through a `Gate` that lets one job in at a time. Last night settlement hung. The ops dashboard, which reads `ThreadMXBean`, showed six job threads `RUNNABLE` at full CPU inside `Gate.inside` and no thread owning anything; it took an hour of reading stacks to find `settle-eu`, the job that was inside, waiting on a file share. The same week, a job that threw on a malformed ledger line was followed by a gate nobody could get through."
     },
     {
       "type": "para",
-      "text": "Write `EventLog`. The page keeps its events in a `CopyOnWriteArrayList`, so that many threads can log at once; do the same (the tests cannot race threads, so they check the snapshot rules below, not the list you choose):"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`log(String event)` records an event, every time: an event logged twice appears twice;",
-        [
-          "`events()` returns the events so far, oldest first, as a snapshot that is both:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "**unmodifiable**: `add`, `remove` or `set` on it throws `UnsupportedOperationException`;",
-              "**a copy**: events logged, or a `clear()`, after the snapshot was taken do not show in it;"
-            ]
-          }
-        ],
-        "`clear()` forgets every event."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Example: after `log(\"first\")`, a snapshot holds `[\"first\"]`, and it still does after `log(\"second\")`."
+      "text": "Rewrite `inside` in `src/main/java/practice/Gate.java`. When you're done, jobs still run one at a time; a thread waiting at the gate is reported by `ThreadMXBean` as waiting for a lock, held by the thread of the job that is inside; and a job that throws passes its exception to its caller without keeping the gate closed for the next job. About three lines."
     },
     {
       "type": "heading",
@@ -66,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\npublic class EventLog {\n\n    private final CopyOnWriteArrayList<String> events = new CopyOnWriteArrayList<>();\n\n    /** Records one event. */\n    public void log(String event) {\n        events.add(event);\n    }\n\n    /** Returns an immutable snapshot of the events so far, oldest first. */\n    public List<String> events() {\n        return Collections.unmodifiableList(new ArrayList<>(events));\n    }\n\n    /** Forgets every event. */\n    public void clear() {\n        events.clear();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The nightly settlement jobs all append to one ledger file, so they pass through this gate:\n * one job at a time.\n */\npublic final class Gate {\n\n    /** Runs job while no other job runs in this gate, and returns what it returned. */\n    public <T> T inside(Supplier<T> job) {\n        synchronized (this) {\n            return job.get();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -78,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\npublic class EventLog {\n\n    private final CopyOnWriteArrayList<String> events = new CopyOnWriteArrayList<>();\n\n    /** Records one event. */\n    public void log(String event) {\n        throw new UnsupportedOperationException(\"write log\");\n    }\n\n    /** Returns an immutable snapshot of the events so far, oldest first. */\n    public List<String> events() {\n        throw new UnsupportedOperationException(\"write events\");\n    }\n\n    /** Forgets every event. */\n    public void clear() {\n        throw new UnsupportedOperationException(\"write clear\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The nightly settlement jobs all append to one ledger file, so they pass through this gate:\n * one job at a time.\n */\npublic final class Gate {\n\n    /** Runs job while no other job runs in this gate, and returns what it returned. */\n    public <T> T inside(Supplier<T> job) {\n        // TODO: run the job with no other job inside, in a way the on-call can read in a thread dump.\n        throw new IllegalStateException(\"TODO: inside\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -86,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -97,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "de01772eb0b9fdd23d418a6f4291d5c98183e355952d253103bf515ca8eb5929",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\npublic class EventLog {\n\n    private final CopyOnWriteArrayList<String> events = new CopyOnWriteArrayList<>();\n\n    /** Records one event. */\n    public void log(String event) {\n        throw new UnsupportedOperationException(\"write log\");\n    }\n\n    /** Returns an immutable snapshot of the events so far, oldest first. */\n    public List<String> events() {\n        throw new UnsupportedOperationException(\"write events\");\n    }\n\n    /** Forgets every event. */\n    public void clear() {\n        throw new UnsupportedOperationException(\"write clear\");\n    }\n}\n",
+  "content_sha256": "ad043503efaee9d82f9acdbb1ef6403a1825e26e64893c4fc0917c8f95c1881a",
+  "starting_code": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The nightly settlement jobs all append to one ledger file, so they pass through this gate:\n * one job at a time.\n */\npublic final class Gate {\n\n    /** Runs job while no other job runs in this gate, and returns what it returned. */\n    public <T> T inside(Supplier<T> job) {\n        // TODO: run the job with no other job inside, in a way the on-call can read in a thread dump.\n        throw new IllegalStateException(\"TODO: inside\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-2/src/main/java/practice/EventLog.java",
-    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-2/src/test/java/practice/EventLogTest.java",
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-2/src/main/java/practice/Gate.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-03/practice-2/src/test/java/practice/GateTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -122,19 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EventLogTest#keepsEventsInOrder",
+        "id": "practice.GateTest#returnsWhatTheJobReturns",
         "kind": "main",
-        "says": "Events come back oldest first, repeats included, and clear() empties the log."
+        "says": "inside(job) runs the job and returns its result"
       },
       {
-        "id": "practice.EventLogTest#aSnapshotCannotBeChanged",
-        "kind": "edge",
-        "says": "add, remove and set on a snapshot throw UnsupportedOperationException."
+        "id": "practice.GateTest#jobsFromManyThreadsRunOneAtATime",
+        "kind": "main",
+        "says": "twenty thousand jobs from four threads run one at a time, so none of their updates is lost"
       },
       {
-        "id": "practice.EventLogTest#aSnapshotIgnoresLaterEvents",
+        "id": "practice.GateTest#aJobWaitingAtTheGateNamesTheJobInside",
         "kind": "edge",
-        "says": "A snapshot taken after \"first\" still holds only \"first\" after more logging and a clear()."
+        "says": "a thread waiting at the gate is reported by ThreadMXBean as waiting for a lock held by the job's thread inside"
+      },
+      {
+        "id": "practice.GateTest#aJobThatFailsDoesNotKeepTheGateClosed",
+        "kind": "edge",
+        "says": "a job that throws passes its exception to its caller, and the next job, on another thread, still gets in"
       }
     ],
     "report": {
@@ -143,10 +120,11 @@
     },
     "origin": {
       "path": "32-kiss-principle/README_8.2.3.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "A Thread Dump Names a Monitor's Holder; a Hand-Rolled Lock Shows Only Busy Threads"
     },
     "concepts": [
-      "A concurrent collection hands callers an immutable snapshot, so they can neither change the shared state nor see it change under them."
+      "A thread waiting on a monitor or a java.util.concurrent lock is reported with the holder's name; a thread spinning on a hand-rolled atomic lock shows as RUNNABLE with no owner.",
+      "A synchronized method or block releases its monitor when the body throws; a hand-written lock is released only by a finally the caller wrote."
     ]
   }
 }

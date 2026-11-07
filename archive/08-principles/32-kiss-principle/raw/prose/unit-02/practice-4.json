@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "The simplest tool that works",
+  "title": "Check yourself: KISS in concurrent code",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,145 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-counter",
-        "stem": "Per this page, which is the KISS way to make a shared counter safe for many threads?",
+        "id": "q-report-over-account-locks",
+        "stem": "Each Account has synchronized deposit(), withdraw() and balance() methods, and transfer(a, b, amount) locks both accounts, lower id first. A nightly report adds up balance() over 10,000 accounts, one after another, while customers keep making transfers. What does the report show?",
         "options": [
           {
             "id": "a",
-            "text": "An `int` field changed with `count++` inside a `synchronized (lock)` block",
+            "text": "The exact total every night, since each balance() it calls holds that account's lock while reading",
             "correct": false,
-            "says": "The page labels the synchronized block around count++ a violation: custom synchronization for a counter."
+            "says": "each lock protects one account; the sum is a fact about all of them that no single lock protects"
           },
           {
             "id": "b",
-            "text": "An `int` field changed with `count++` between `lock()` and `unlock()` calls",
+            "text": "The exact total every night, since transfers take the two account locks in one fixed order",
             "correct": false,
-            "says": "The page shows the ReentrantLock counter as the over-engineered approach that violates KISS."
+            "says": "a fixed lock order prevents deadlock; it does nothing for a reader that takes the locks one at a time"
           },
           {
             "id": "c",
-            "text": "An `AtomicInteger` field changed with `incrementAndGet()` and no lock at all",
+            "text": "A total that is sometimes off, since a transfer can run between an account already added and one not yet added",
             "correct": true,
-            "says": "The page says the simplest way is AtomicInteger: lock-free, with no explicit locking needed."
+            "says": "money moved from an uncounted account into a counted one is missed, and the other way it is counted twice"
+          },
+          {
+            "id": "d",
+            "text": "A total that is sometimes off, since balance() can read an account while a transfer is half way through changing it",
+            "correct": false,
+            "says": "balance() takes the account's lock, so it never sees one account half changed; the error comes from reading accounts at different moments"
           }
         ],
         "origin": {
           "path": "32-kiss-principle/README_8.2.2.md",
-          "section": "Interview Q&A Section"
+          "section": "A Lock per Bin Keeps Every Move Right and Every Total Wrong"
         }
       },
       {
-        "id": "q-lock",
-        "stem": "Per this page's decision guide, when should code use a `ReentrantLock` rather than `synchronized`?",
+        "id": "q-max-latency-loop",
+        "stem": "A tracker keeps the slowest request time: `long seen = max.get(); while (latency > seen && !max.compareAndSet(seen, latency)) { Thread.onSpinWait(); }`, where max is an AtomicLong holding 10. Two threads record 40 and 70 at the same moment, and the one recording 70 wins. What happens to the thread recording 40?",
         "options": [
           {
             "id": "a",
-            "text": "When the code needs tryLock, a timed lock, or Condition objects",
+            "text": "It keeps looping until the process ends, since every retry compares against the 10 it read before the loop",
             "correct": true,
-            "says": "The page's guide: need tryLock, timed lock, interruptible lock or conditions? Use ReentrantLock."
+            "says": "seen is never read again, max never returns to 10, so every compareAndSet fails and the condition stays true"
           },
           {
             "id": "b",
-            "text": "When the code needs one atomic update of one single variable",
+            "text": "It keeps looping until the 70 is stored, since compareAndSet waits for a competing write to complete",
             "correct": false,
-            "says": "The page's guide sends a single atomic operation on one variable to Atomic*, not to a lock."
+            "says": "compareAndSet never waits: it compares and either sets or fails at once"
           },
           {
             "id": "c",
-            "text": "When the code needs plain mutual exclusion around a method",
+            "text": "It leaves the loop with max at 70, since its compareAndSet fails once another thread has changed the value",
             "correct": false,
-            "says": "The page's guide says plain mutual exclusion needs only synchronized."
+            "says": "a failed compareAndSet keeps the loop going: the condition is !compareAndSet(...), and latency > seen is still true"
+          },
+          {
+            "id": "d",
+            "text": "It leaves the loop with max at 40, since its compareAndSet writes 40 over whatever value it finds",
+            "correct": false,
+            "says": "compareAndSet writes only when the current value equals the expected one, and 70 is not 10"
           }
         ],
         "origin": {
           "path": "32-kiss-principle/README_8.2.2.md",
-          "section": "Interview Q&A Section"
+          "section": "A compareAndSet Loop That Reads the Value Once Spins Forever; incrementAndGet Leaves No Loop to Get Wrong"
+        }
+      },
+      {
+        "id": "q-settings-after-outage",
+        "stem": "settings() runs `if (!ready) { synchronized (this) { if (!ready) { ready = true; settings = fetch(); } } } return settings;`, with ready a volatile boolean. At startup the config server is down, and the first call's fetch() throws. Ten minutes later the server is back. What do calls to settings() get from then on?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Every call returns null, since ready already says loaded and nothing calls fetch() again",
+            "correct": true,
+            "says": "the flag was set before the fetch; the failure left settings null and ready true, so the check skips the fetch for good"
+          },
+          {
+            "id": "b",
+            "text": "Every call throws the startup failure, since the exception was kept and is handed to each caller",
+            "correct": false,
+            "says": "nothing stores the exception; later calls skip the block and return the field, which is null"
+          },
+          {
+            "id": "c",
+            "text": "The next call gets the settings, since it finds the settings field null and calls fetch()",
+            "correct": false,
+            "says": "the check reads ready, not the settings field, and ready is true"
+          },
+          {
+            "id": "d",
+            "text": "The next call gets the settings, since the volatile flag makes it check again inside the lock",
+            "correct": false,
+            "says": "volatile makes the write of true visible; the check inside the lock reads that same true and skips the fetch"
+          }
+        ],
+        "origin": {
+          "path": "32-kiss-principle/README_8.2.2.md",
+          "section": "A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't"
+        }
+      },
+      {
+        "id": "q-seat-holds-on-snapshot",
+        "stem": "A ticketing service gives its seats one owner thread and publishes an immutable snapshot after every change. hold(n) runs on the customer's thread: if snapshot().free() >= n it submits a task that subtracts n from the free seats, otherwise it refuses. Four seats are free when two customers each ask for three, while the owner is still busy with an earlier task. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "One hold goes through and one is refused, since the owner runs the two submitted tasks one after the other",
+            "correct": false,
+            "says": "the tasks only subtract; running them one after the other doesn't refuse anything, because the decision was made before"
+          },
+          {
+            "id": "b",
+            "text": "One hold goes through and one is refused, since the second customer's snapshot already includes the first hold",
+            "correct": false,
+            "says": "a snapshot changes only after the owner applies a task, and the owner hasn't run either one yet"
+          },
+          {
+            "id": "c",
+            "text": "Both holds go through and free seats reach -2, since both customers checked the same snapshot before either task ran",
+            "correct": true,
+            "says": "the check and the change are on different threads; both checks saw 4 free, and the owner then subtracted 3 twice"
+          },
+          {
+            "id": "d",
+            "text": "Both holds go through and free seats reach -2, since the owner thread runs the two submitted tasks at the same time",
+            "correct": false,
+            "says": "a single-thread executor runs one task at a time; the problem is that the tasks don't check"
+          }
+        ],
+        "origin": {
+          "path": "32-kiss-principle/README_8.2.2.md",
+          "section": "One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
         }
       }
     ],
     "concepts": [
-      "A thread-safe counter is simplest as an AtomicInteger, not a lock or a synchronized block around count++.",
-      "The simplest tool that works is chosen: immutable, then atomic, then synchronized, and a ReentrantLock only for tryLock, timed locking or conditions."
+      "A lock per object keeps each object consistent, but a reader that takes those locks one at a time can see a total across objects that never existed.",
+      "A compareAndSet retry loop that reads the value once, before the loop, spins forever after its first lost race; incrementAndGet or synchronized needs no loop of your own."
     ]
   }
 }

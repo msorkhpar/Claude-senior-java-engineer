@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A cache without double-checked locking",
+  "title": "Let the leaderboard read wallets without stopping transfers",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's fourth pitfall is a cache guarded by double-checked locking or custom read-write locks. Its KISS fix is one call:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// KISS: Use ConcurrentHashMap.computeIfAbsent\nprivate final ConcurrentHashMap<String, Data> cache = new ConcurrentHashMap<>();\n\npublic Data getData(String key) {\n    return cache.computeIfAbsent(key, this::loadFromDatabase);\n}"
+      "text": "A game keeps its players' credits in `Wallets`. One owner thread applies every transfer, in the order they are requested. The leaderboard and the support console read balances from their own threads, many times a second, and support agents have complained twice: once about a balance sheet that added up to less than the credits in circulation, and once about a console that froze for as long as a large transfer took."
     },
     {
       "type": "para",
-      "text": "Write the generic `LoadingCache<K, V>`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/Wallets.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`get(K key, Function<K, V> loader)` returns the key's value. When the key is absent it calls `loader` to load it and keeps the result; later calls return the kept value without loading again.",
-        "**Check and load are one atomic step.** When two threads call `get` for the same absent key at the same time, the loader runs once, and both callers receive its value. A `get` followed by a `put`, the check-then-act the page warns about, lets both threads load.",
-        "**Loads of different keys do not wait for each other**: while one key's loader is still running, `get` for another absent key loads that key at once. A `synchronized` method or one lock around every load would make it wait, which is why the page reaches for the map's own `computeIfAbsent` rather than a lock of your own.",
-        "`invalidate(K key)` forgets that key alone, so the next `get` of it loads it again, while every other key stays cached."
+        "`publish()`, which the owner thread already calls once the opening balances are in place and after every transfer that changed them;",
+        "`balances()`, which any thread may call."
       ]
     },
     {
       "type": "para",
-      "text": "Example: with a loader returning `key.length() * 1000`, `get(\"answer\", loader)` is `6000`, and asking again does not call the loader a second time."
+      "text": "When you're done, a reader always gets balances as they stand between two transfers, never in the middle of one, and gets them without waiting for a transfer in progress. Balances a reader already holds don't change afterwards, and nothing one reader does to its copy reaches another reader. About two lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests pause a transfer half-way through `Seam.midTransfer()` and read from another thread while it is paused."
     },
     {
       "type": "heading",
@@ -57,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\npublic class LoadingCache<K, V> {\n\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    /** Returns the cached value for the key, loading it once with the loader when absent. */\n    public V get(K key, Function<K, V> loader) {\n        return cache.computeIfAbsent(key, loader);\n    }\n\n    /** Forgets the key's value, so the next get loads it again. */\n    public void invalidate(K key) {\n        cache.remove(key);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        return published;\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        published = Map.copyOf(live);\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n"
         }
       ]
     },
@@ -69,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\npublic class LoadingCache<K, V> {\n\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    /** Returns the cached value for the key, loading it once with the loader when absent. */\n    public V get(K key, Function<K, V> loader) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    /** Forgets the key's value, so the next get loads it again. */\n    public void invalidate(K key) {\n        throw new UnsupportedOperationException(\"write invalidate\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        // TODO: The leaderboard and the support console call this from their own threads, many\n        //       times a second, while transfers are being applied.\n        throw new IllegalStateException(\"TODO: balances\");\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        // TODO: Make the balances as they stand now available to balances().\n        throw new IllegalStateException(\"TODO: publish\");\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -77,8 +74,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -88,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2370d4e57dd334417c80979968697d0e24b81e500c0c9adb24c781e6647739ce",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\npublic class LoadingCache<K, V> {\n\n    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();\n\n    /** Returns the cached value for the key, loading it once with the loader when absent. */\n    public V get(K key, Function<K, V> loader) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    /** Forgets the key's value, so the next get loads it again. */\n    public void invalidate(K key) {\n        throw new UnsupportedOperationException(\"write invalidate\");\n    }\n}\n",
+  "content_sha256": "ca01b1920527bb3fb4a8bfb6e56ff93c27d3ce2dbba8df40fbf3417ffbdfd61a",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\n\n/**\n * Game credits held in player wallets. Every transfer is applied by one owner thread; the\n * leaderboard and the support console read balances from their own threads.\n */\npublic class Wallets implements AutoCloseable {\n\n    /** Called on the owner thread between the debit and the credit of a transfer; tests pause there. */\n    public interface Seam {\n        void midTransfer();\n    }\n\n    private final ExecutorService owner = Executors.newSingleThreadExecutor(r -> {\n        Thread t = new Thread(r, \"wallets-owner\");\n        t.setDaemon(true);\n        return t;\n    });\n    private final Map<String, Long> live = new HashMap<>();   // only the owner thread changes it\n    private final Seam seam;\n    private volatile Map<String, Long> published;\n\n    public Wallets(Map<String, Long> opening, Seam seam) {\n        this.seam = seam;\n        live.putAll(opening);\n        publish();\n    }\n\n    /** Moves credits between two wallets; the future says whether the transfer went through. */\n    public Future<Boolean> transfer(String from, String to, long credits) {\n        return owner.submit(() -> {\n            long balance = live.getOrDefault(from, 0L);\n            if (balance < credits) return false;\n            live.put(from, balance - credits);\n            seam.midTransfer();\n            live.merge(to, credits, Long::sum);\n            publish();\n            return true;\n        });\n    }\n\n    /** Every wallet's balance, for any thread. */\n    public Map<String, Long> balances() {\n        // TODO: The leaderboard and the support console call this from their own threads, many\n        //       times a second, while transfers are being applied.\n        throw new IllegalStateException(\"TODO: balances\");\n    }\n\n    /** Runs after the opening balances are in place and after every transfer that changed them. */\n    void publish() {\n        // TODO: Make the balances as they stand now available to balances().\n        throw new IllegalStateException(\"TODO: publish\");\n    }\n\n    @Override\n    public void close() {\n        owner.shutdownNow();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/main/java/practice/LoadingCache.java",
-    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/test/java/practice/LoadingCacheTest.java",
+    "main_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/main/java/practice/Wallets.java",
+    "test_path": "practice/08-principles/32-kiss-principle/prose/unit-02/practice-1/src/test/java/practice/WalletsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,24 +110,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LoadingCacheTest#loadsAKeyOnceAndReusesIt",
+        "id": "practice.WalletsTest#everyTransferShowsInTheBalances",
         "kind": "main",
-        "says": "A key asked for twice is loaded once, and each key gets its own value."
+        "says": "after a series of transfers, balances() shows every wallet as the transfers left it"
       },
       {
-        "id": "practice.LoadingCacheTest#twoCallersRacingForOneKeyLoadItOnce",
+        "id": "practice.WalletsTest#aReadDuringATransferShowsTheBalancesFromBeforeIt",
         "kind": "edge",
-        "says": "Two threads asking for one absent key at once run the loader once, and both get \"KEY\"."
+        "says": "a read taken while a transfer is half applied shows the balances from before that transfer"
       },
       {
-        "id": "practice.LoadingCacheTest#invalidateMakesTheNextGetLoadAgain",
+        "id": "practice.WalletsTest#aReadDoesNotWaitForATransferInProgress",
         "kind": "edge",
-        "says": "After invalidate(\"k\"), the next get(\"k\") calls the loader again, and \"j\" stays cached."
+        "says": "balances() answers while a transfer is still being applied, rather than waiting for it"
       },
       {
-        "id": "practice.LoadingCacheTest#loadsOfDifferentKeysDoNotWaitForEachOther",
+        "id": "practice.WalletsTest#balancesAlreadyHandedOutStayAsTheyWere",
         "kind": "edge",
-        "says": "While the load of \"a\" waits for the load of \"b\", get(\"b\") runs its loader at once."
+        "says": "balances a reader already holds do not change when a later transfer is applied"
+      },
+      {
+        "id": "practice.WalletsTest#oneReaderCannotChangeWhatAnotherSees",
+        "kind": "edge",
+        "says": "a reader that tries to change the balances it got does not change what other readers get"
       }
     ],
     "report": {
@@ -139,10 +141,11 @@
     },
     "origin": {
       "path": "32-kiss-principle/README_8.2.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
     },
     "concepts": [
-      "ConcurrentHashMap.computeIfAbsent replaces a hand-written check-then-act or double-checked locking cache, loading each key once."
+      "State changed only by one owner thread needs no lock, and readers that take an immutable snapshot published after each change see a whole state without waiting.",
+      "An unmodifiable view reads through to the live state, so it changes under its reader; a snapshot is a copy nothing changes."
     ]
   }
 }

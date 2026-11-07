@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Count adds with a forwarding wrapper, not a subclass",
+  "title": "Count feature-flag writes over any map",
   "blocks": [
     {
       "type": "heading",
@@ -19,29 +19,18 @@
     },
     {
       "type": "para",
-      "text": "The page's classic bug: a subclass of `HashSet` counts the elements added to it, and gets the count wrong."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class InstrumentedHashSet<E> extends HashSet<E> {\n    private int addCount = 0;\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c); // BUG: HashSet.addAll calls add() internally!\n    }\n}"
+      "text": "The config service keeps feature flags in a `Map<String, Boolean>`, and the audit needs to know how many flag writes each deploy made. Flags are written one at a time from the admin UI (`put`) and in batches by the config sync (`putAll`). The store isn't always the same map: production passes a `HashMap`, the nightly report a `TreeMap` so its output is sorted. The audit also compares each snapshot of the flags with the previous one, and keeps the snapshots it has already filed in a `HashSet` so the same one isn't filed twice."
     },
     {
       "type": "para",
-      "text": "`HashSet.addAll` calls `add` for each element, so every element is counted twice. That is the **fragile base class problem**: the subclass depends on how its superclass is implemented, not only on its contract."
-    },
-    {
-      "type": "para",
-      "text": "The fix is **composition**: a `ForwardingSet` holds any `Set` and forwards each call to it, and `InstrumentedSet` extends the forwarding class, not `HashSet`. The starter gives you `ForwardingSet` with the `Set` methods already forwarded. Finish it:"
+      "text": "`WriteCountingMap.java` holds a `WriteCountingMap` that wraps whatever map it is given, on top of a `ForwardingMap` that already passes every `Map` method on to that map. Finish the four `TODO` methods, about six lines in total:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`InstrumentedSet.add` and `addAll` count every element offered (duplicates included), and `getAddCount()` returns the count. `add(\"a\")`, `add(\"b\")`, `add(\"a\")` gives a count of 3 and a set of 2, and `addAll` of three elements adds exactly 3. A duplicate offered to `addAll` counts too: `add(\"a\")` then `addAll(List.of(\"a\", \"b\"))` gives a count of 3;",
-        "the wrapper is a **view** of the set it wraps: what is added through it lands in that set, and what is added to that set is seen through it;",
-        "`ForwardingSet` also forwards `equals`, `hashCode` and `toString`, so the wrapper equals any set with the same elements, and such a set equals the wrapper;",
-        "the constructor refuses a `null` set with a `NullPointerException` (`Objects.requireNonNull`)."
+        "`WriteCountingMap.put` and `putAll`: `writes()` counts every mapping written through the wrapper, an overwrite of an existing key included, whichever map is underneath;",
+        "`ForwardingMap.equals` and `hashCode`: a wrapper compares and hashes like the map it wraps, so the audit's comparisons and its `HashSet` treat it as the flags it holds."
       ]
     },
     {
@@ -57,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.Iterator;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Forwards every Set method to the set it wraps. */\nclass ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    ForwardingSet(Set<E> delegate) {\n        this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n    }\n\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean isEmpty() { return delegate.isEmpty(); }\n    @Override public boolean contains(Object o) { return delegate.contains(o); }\n    @Override public Iterator<E> iterator() { return delegate.iterator(); }\n    @Override public Object[] toArray() { return delegate.toArray(); }\n    @Override public <T> T[] toArray(T[] a) { return delegate.toArray(a); }\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean remove(Object o) { return delegate.remove(o); }\n    @Override public boolean containsAll(Collection<?> c) { return delegate.containsAll(c); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }\n    @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }\n    @Override public void clear() { delegate.clear(); }\n\n    @Override public boolean equals(Object o) { return o == this || delegate.equals(o); }\n    @Override public int hashCode() { return delegate.hashCode(); }\n    @Override public String toString() { return delegate.toString(); }\n}\n\n/** A set that counts every element anyone tried to add, by wrapping another set. */\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n    private int addCount = 0;\n\n    public InstrumentedSet(Set<E> delegate) {\n        super(delegate);\n    }\n\n    @Override\n    public boolean add(E e) {\n        addCount++;\n        return super.add(e);\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        addCount += c.size();\n        return super.addAll(c);\n    }\n\n    /** How many elements were offered through add and addAll, duplicates included. */\n    public int getAddCount() {\n        return addCount;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Implements Map by forwarding every call to the map it wraps. */\nclass ForwardingMap<K, V> implements Map<K, V> {\n    private final Map<K, V> m;\n\n    ForwardingMap(Map<K, V> m) { this.m = Objects.requireNonNull(m, \"map\"); }\n\n    @Override public int size() { return m.size(); }\n    @Override public boolean isEmpty() { return m.isEmpty(); }\n    @Override public boolean containsKey(Object key) { return m.containsKey(key); }\n    @Override public boolean containsValue(Object value) { return m.containsValue(value); }\n    @Override public V get(Object key) { return m.get(key); }\n    @Override public V put(K key, V value) { return m.put(key, value); }\n    @Override public V remove(Object key) { return m.remove(key); }\n    @Override public void putAll(Map<? extends K, ? extends V> other) { m.putAll(other); }\n    @Override public void clear() { m.clear(); }\n    @Override public Set<K> keySet() { return m.keySet(); }\n    @Override public Collection<V> values() { return m.values(); }\n    @Override public Set<Map.Entry<K, V>> entrySet() { return m.entrySet(); }\n    @Override public String toString() { return m.toString(); }\n\n    /** A wrapper must be equal to exactly the maps that the map it wraps is equal to. */\n    @Override\n    public boolean equals(Object o) {\n        return o == this || m.equals(o);\n    }\n\n    /** Must agree with equals, as Map's contract requires. */\n    @Override\n    public int hashCode() {\n        return m.hashCode();\n    }\n}\n\n/** Counts every mapping written into the map it wraps, overwrites included. */\npublic class WriteCountingMap<K, V> extends ForwardingMap<K, V> {\n    private int writes = 0;\n\n    public WriteCountingMap(Map<K, V> m) { super(m); }\n\n    /** One write per call, whether the key is new or not. */\n    @Override\n    public V put(K key, V value) {\n        writes++;\n        return super.put(key, value);\n    }\n\n    /** One write per mapping in the batch. */\n    @Override\n    public void putAll(Map<? extends K, ? extends V> other) {\n        writes += other.size();\n        super.putAll(other);\n    }\n\n    /** How many mappings were written through this wrapper. */\n    public int writes() {\n        return writes;\n    }\n}\n"
         }
       ]
     },
@@ -69,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.Iterator;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Forwards every Set method to the set it wraps. */\nclass ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    ForwardingSet(Set<E> delegate) {\n        this.delegate = delegate; // TODO: refuse a null set\n    }\n\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean isEmpty() { return delegate.isEmpty(); }\n    @Override public boolean contains(Object o) { return delegate.contains(o); }\n    @Override public Iterator<E> iterator() { return delegate.iterator(); }\n    @Override public Object[] toArray() { return delegate.toArray(); }\n    @Override public <T> T[] toArray(T[] a) { return delegate.toArray(a); }\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean remove(Object o) { return delegate.remove(o); }\n    @Override public boolean containsAll(Collection<?> c) { return delegate.containsAll(c); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }\n    @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }\n    @Override public void clear() { delegate.clear(); }\n\n    // TODO: equals, hashCode and toString\n}\n\n/** A set that counts every element anyone tried to add, by wrapping another set. */\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n\n    public InstrumentedSet(Set<E> delegate) {\n        super(delegate);\n    }\n\n    @Override\n    public boolean add(E e) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        throw new UnsupportedOperationException(\"write addAll\");\n    }\n\n    /** How many elements were offered through add and addAll, duplicates included. */\n    public int getAddCount() {\n        throw new UnsupportedOperationException(\"write getAddCount\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Implements Map by forwarding every call to the map it wraps. */\nclass ForwardingMap<K, V> implements Map<K, V> {\n    private final Map<K, V> m;\n\n    ForwardingMap(Map<K, V> m) { this.m = Objects.requireNonNull(m, \"map\"); }\n\n    @Override public int size() { return m.size(); }\n    @Override public boolean isEmpty() { return m.isEmpty(); }\n    @Override public boolean containsKey(Object key) { return m.containsKey(key); }\n    @Override public boolean containsValue(Object value) { return m.containsValue(value); }\n    @Override public V get(Object key) { return m.get(key); }\n    @Override public V put(K key, V value) { return m.put(key, value); }\n    @Override public V remove(Object key) { return m.remove(key); }\n    @Override public void putAll(Map<? extends K, ? extends V> other) { m.putAll(other); }\n    @Override public void clear() { m.clear(); }\n    @Override public Set<K> keySet() { return m.keySet(); }\n    @Override public Collection<V> values() { return m.values(); }\n    @Override public Set<Map.Entry<K, V>> entrySet() { return m.entrySet(); }\n    @Override public String toString() { return m.toString(); }\n\n    /** A wrapper must be equal to exactly the maps that the map it wraps is equal to. */\n    @Override\n    public boolean equals(Object o) {\n        throw new IllegalStateException(\"TODO: equals\");\n    }\n\n    /** Must agree with equals, as Map's contract requires. */\n    @Override\n    public int hashCode() {\n        throw new IllegalStateException(\"TODO: hashCode\");\n    }\n}\n\n/** Counts every mapping written into the map it wraps, overwrites included. */\npublic class WriteCountingMap<K, V> extends ForwardingMap<K, V> {\n    private int writes = 0;\n\n    public WriteCountingMap(Map<K, V> m) { super(m); }\n\n    /** One write per call, whether the key is new or not. */\n    @Override\n    public V put(K key, V value) {\n        throw new IllegalStateException(\"TODO: put\");\n    }\n\n    /** One write per mapping in the batch. */\n    @Override\n    public void putAll(Map<? extends K, ? extends V> other) {\n        throw new IllegalStateException(\"TODO: putAll\");\n    }\n\n    /** How many mappings were written through this wrapper. */\n    public int writes() {\n        return writes;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -77,8 +66,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -88,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d26453dd4649820cfc11ceec9325a8e19d7dc2f849c0e7b21850e6fb92fc1df8",
-  "starting_code": "package practice;\n\nimport java.util.Collection;\nimport java.util.Iterator;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Forwards every Set method to the set it wraps. */\nclass ForwardingSet<E> implements Set<E> {\n    private final Set<E> delegate;\n\n    ForwardingSet(Set<E> delegate) {\n        this.delegate = delegate; // TODO: refuse a null set\n    }\n\n    @Override public int size() { return delegate.size(); }\n    @Override public boolean isEmpty() { return delegate.isEmpty(); }\n    @Override public boolean contains(Object o) { return delegate.contains(o); }\n    @Override public Iterator<E> iterator() { return delegate.iterator(); }\n    @Override public Object[] toArray() { return delegate.toArray(); }\n    @Override public <T> T[] toArray(T[] a) { return delegate.toArray(a); }\n    @Override public boolean add(E e) { return delegate.add(e); }\n    @Override public boolean remove(Object o) { return delegate.remove(o); }\n    @Override public boolean containsAll(Collection<?> c) { return delegate.containsAll(c); }\n    @Override public boolean addAll(Collection<? extends E> c) { return delegate.addAll(c); }\n    @Override public boolean retainAll(Collection<?> c) { return delegate.retainAll(c); }\n    @Override public boolean removeAll(Collection<?> c) { return delegate.removeAll(c); }\n    @Override public void clear() { delegate.clear(); }\n\n    // TODO: equals, hashCode and toString\n}\n\n/** A set that counts every element anyone tried to add, by wrapping another set. */\npublic class InstrumentedSet<E> extends ForwardingSet<E> {\n\n    public InstrumentedSet(Set<E> delegate) {\n        super(delegate);\n    }\n\n    @Override\n    public boolean add(E e) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    @Override\n    public boolean addAll(Collection<? extends E> c) {\n        throw new UnsupportedOperationException(\"write addAll\");\n    }\n\n    /** How many elements were offered through add and addAll, duplicates included. */\n    public int getAddCount() {\n        throw new UnsupportedOperationException(\"write getAddCount\");\n    }\n}\n",
+  "content_sha256": "13beb5006ac83f686eada9fc84681850d46ca5371f4c8749ff4194b2b4c859a3",
+  "starting_code": "package practice;\n\nimport java.util.Collection;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Set;\n\n/** Implements Map by forwarding every call to the map it wraps. */\nclass ForwardingMap<K, V> implements Map<K, V> {\n    private final Map<K, V> m;\n\n    ForwardingMap(Map<K, V> m) { this.m = Objects.requireNonNull(m, \"map\"); }\n\n    @Override public int size() { return m.size(); }\n    @Override public boolean isEmpty() { return m.isEmpty(); }\n    @Override public boolean containsKey(Object key) { return m.containsKey(key); }\n    @Override public boolean containsValue(Object value) { return m.containsValue(value); }\n    @Override public V get(Object key) { return m.get(key); }\n    @Override public V put(K key, V value) { return m.put(key, value); }\n    @Override public V remove(Object key) { return m.remove(key); }\n    @Override public void putAll(Map<? extends K, ? extends V> other) { m.putAll(other); }\n    @Override public void clear() { m.clear(); }\n    @Override public Set<K> keySet() { return m.keySet(); }\n    @Override public Collection<V> values() { return m.values(); }\n    @Override public Set<Map.Entry<K, V>> entrySet() { return m.entrySet(); }\n    @Override public String toString() { return m.toString(); }\n\n    /** A wrapper must be equal to exactly the maps that the map it wraps is equal to. */\n    @Override\n    public boolean equals(Object o) {\n        throw new IllegalStateException(\"TODO: equals\");\n    }\n\n    /** Must agree with equals, as Map's contract requires. */\n    @Override\n    public int hashCode() {\n        throw new IllegalStateException(\"TODO: hashCode\");\n    }\n}\n\n/** Counts every mapping written into the map it wraps, overwrites included. */\npublic class WriteCountingMap<K, V> extends ForwardingMap<K, V> {\n    private int writes = 0;\n\n    public WriteCountingMap(Map<K, V> m) { super(m); }\n\n    /** One write per call, whether the key is new or not. */\n    @Override\n    public V put(K key, V value) {\n        throw new IllegalStateException(\"TODO: put\");\n    }\n\n    /** One write per mapping in the batch. */\n    @Override\n    public void putAll(Map<? extends K, ? extends V> other) {\n        throw new IllegalStateException(\"TODO: putAll\");\n    }\n\n    /** How many mappings were written through this wrapper. */\n    public int writes() {\n        return writes;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/src/main/java/practice/InstrumentedSet.java",
-    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/src/test/java/practice/InstrumentedSetTest.java",
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/src/main/java/practice/WriteCountingMap.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-01/practice-1/src/test/java/practice/WriteCountingMapTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,29 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.InstrumentedSetTest#countsEveryAttemptedAdd",
+        "id": "practice.WriteCountingMapTest#everyPutIsOneWrite",
         "kind": "main",
-        "says": "add(\"a\"), add(\"b\"), add(\"a\") counts 3 and leaves a set of 2."
+        "says": "every put is one write, an overwrite included, and the map holds the latest values"
       },
       {
-        "id": "practice.InstrumentedSetTest#addAllCountsEachElementOnce",
-        "kind": "edge",
-        "says": "addAll of three elements counts 3, not 6: the page's InstrumentedHashSet, which extends HashSet, counts 6."
+        "id": "practice.WriteCountingMapTest#writesLandInTheMapItWraps",
+        "kind": "main",
+        "says": "what is written through the wrapper lands in the map it wraps, and the other way round"
       },
       {
-        "id": "practice.InstrumentedSetTest#theWrapperIsAViewOfTheSetItWraps",
+        "id": "practice.WriteCountingMapTest#aBatchIsCountedOncePerMappingWhateverTheMap",
         "kind": "edge",
-        "says": "Adds through the wrapper reach the wrapped set, and adds to that set show through the wrapper."
+        "says": "a batch written with putAll counts one write per mapping, over a HashMap and over a TreeMap"
       },
       {
-        "id": "practice.InstrumentedSetTest#equalsHashCodeAndToStringFollowTheWrappedSet",
+        "id": "practice.WriteCountingMapTest#equalityIsTheSameFromBothSides",
         "kind": "edge",
-        "says": "The wrapper equals a separate set with the same elements, both ways, with the same hash code and text."
+        "says": "the wrapper equals a plain map with the same mappings, whichever of the two is asked"
       },
       {
-        "id": "practice.InstrumentedSetTest#aNullSetIsRefusedAtOnce",
+        "id": "practice.WriteCountingMapTest#aSnapshotIsFoundInAHashSet",
         "kind": "edge",
-        "says": "new InstrumentedSet<>(null) throws NullPointerException at once."
+        "says": "a wrapper stored in a HashSet is found by a plain map with the same mappings"
       }
     ],
     "report": {
@@ -144,14 +133,11 @@
     },
     "origin": {
       "path": "34-composition-inheritance/README_8.4.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "javac Makes a Forwarding Class Implement Set's Methods, Not equals and hashCode"
     },
     "concepts": [
-      "The forwarding wrapper pattern wraps any implementation of an interface and adds behaviour by delegating to it, so the wrapped object's internals cannot double-count.",
-      "A subclass that overrides methods its superclass calls internally depends on the superclass's implementation, so an InstrumentedHashSet's addAll counts every element twice.",
-      "Composition gives a class a has-a relationship: it holds another object in a field and delegates work to it, where inheritance gives an is-a relationship.",
-      "A composed object is checked with Objects.requireNonNull in the constructor, so a null delegate is refused at once.",
-      "A forwarding class must also delegate equals, hashCode and toString, or it keeps Object's identity-based versions and breaks the Set contract."
+      "javac doesn't make a forwarding class implement equals and hashCode, and without them the wrapper's equality depends on which side is asked and hash lookups miss.",
+      "A forwarding wrapper counts each element once over any implementation, because the wrapped object's internal calls stay on the wrapped object."
     ]
   }
 }

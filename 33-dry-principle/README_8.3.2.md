@@ -1,264 +1,296 @@
 # 8.3.2. Applying DRY in Concurrent Programming
 
-## Concept Explanation
+A customer's prepaid wallet holds 100 credits. She buys an 80-credit item, her monthly plan renews
+for 30, and afterwards her balance reads 70. Checkout, gifts and renewals each charge the wallet,
+and each passed review. Checkout and gifts lock the wallet around the charge; the renewal job,
+written last, doesn't.
 
-Concurrent programming involves boilerplate-heavy patterns -- acquiring locks, managing executor lifecycles, handling retries, caching results thread-safely. When these patterns are copy-pasted across classes, any bug fix or improvement must be applied in every copy. DRY in concurrency means **extracting reusable patterns** so the locking strategy, retry logic, or executor lifecycle is defined once and shared everywhere.
+"Hold the wallet's lock from the read to the write" is knowledge in the sense of unit 8.3.1, and
+here every call site has to repeat it. Every output below is from Java 21 on a 20-core machine.
 
-**Real-world analogy**: Imagine every office in a building has its own independent security system with its own keypad code. When the building manager changes the access policy, every office must be reconfigured individually -- and forgetting one creates a security hole. DRY says: use one centralized access control system that every office relies on.
+## A Lock Written at Each Call Site Is Missing at the Site That Forgets It
 
-This section covers two sub-topics:
-- **8.3.2.1. Extracting reusable concurrency patterns** -- encapsulating lock/try/finally, parallel execution, retry logic into reusable utilities.
-- **8.3.2.2. Avoiding duplication of synchronization logic** -- ensuring all code paths use the same synchronization mechanism rather than each class implementing its own.
-
-## Key Points to Remember
-
-- The lock-try-finally pattern is the most frequently duplicated concurrency code -- extract it into a `LockExecutor`.
-- ExecutorService lifecycle management (create, submit, shutdown, awaitTermination) is another common duplication target.
-- Retry logic for transient failures should live in a single `RetryExecutor`, not be pasted into every call site.
-- Thread-safe caching (using `ConcurrentHashMap.computeIfAbsent`) should be encapsulated in a reusable cache class.
-- When duplicated synchronization logic diverges (e.g., one copy uses `synchronized`, another uses `ReentrantLock`), subtle concurrency bugs emerge.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: Simplify executor management -- `Executors.newVirtualThreadPerTaskExecutor()` reduces the need for custom thread pool boilerplate.
-- **Structured concurrency (JEP 453, preview)**: `StructuredTaskScope` eliminates duplicated fork-join-cancel patterns.
-- **Records**: Ideal for immutable results returned from reusable concurrent utilities.
-- **`try-with-resources`**: ExecutorService implements `AutoCloseable` (since Java 19), reducing shutdown boilerplate.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Duplicated lock-try-finally across methods**
-   ```java
-   // VIOLATION: Same pattern in deposit(), withdraw(), getBalance()
-   lock.lock();
-   try { balance += amount; return balance; }
-   finally { lock.unlock(); }
-   ```
-   **Solution**: Extract into a `LockExecutor.withLock(Supplier)` utility method.
-
-2. **Inconsistent executor shutdown patterns**
-   ```java
-   // Copy A: executor.shutdown(); executor.awaitTermination(5, SECONDS);
-   // Copy B: executor.shutdownNow(); // forgot awaitTermination!
-   ```
-   **Solution**: Centralize into a `ParallelComputation.executeAll()` method.
-
-3. **Duplicated retry logic with different error handling**
-   ```java
-   // ServiceA retries 3 times, ServiceB retries 5 times, ServiceC has no delay
-   ```
-   **Solution**: Use a configurable `RetryExecutor(maxRetries, delayMs)`.
-
-4. **Rolling your own cache in every service**
-   ```java
-   // Each service creates its own ConcurrentHashMap + computeIfAbsent
-   ```
-   **Solution**: Use a reusable `ThreadSafeCache<K,V>` class.
-
-## Best Practices and Optimization Techniques
-
-1. **Parameterize the varying part**: Use `Supplier<T>`, `Callable<T>`, and `Runnable` to inject behavior into reusable lock/retry/execution wrappers.
-2. **Make utilities immutable and thread-safe**: `LockExecutor` and `RetryExecutor` should be safe to share across threads.
-3. **Use `try-with-resources` for executors in Java 21**: `ExecutorService` is `AutoCloseable`.
-4. **Prefer `invokeAll` over manual future collection**: Reduces boilerplate and handles exceptions consistently.
-5. **Keep retry configuration external**: Pass `maxRetries` and `delay` as constructor parameters, not hard-coded values.
-
-## Edge Cases and Their Handling
-
-1. **Null actions**: `LockExecutor.withLock(null)` should throw `NullPointerException` immediately, not after acquiring the lock.
-2. **Zero retries**: `RetryExecutor(0, 0)` should execute exactly once with no retry.
-3. **Exceptions in locked actions**: The lock must be released even if the action throws -- the `finally` block in the reusable utility guarantees this.
-4. **Empty task lists**: `ParallelComputation.executeAll(emptyList, 4)` should return an empty list, not throw.
-5. **Negative thread counts**: Should throw `IllegalArgumentException` with a clear message.
-
-## Interview-specific Insights
-
-Interviewers look for:
-- Whether you recognize the lock-try-finally pattern as a DRY opportunity
-- Your ability to use higher-order functions (`Supplier`, `Callable`) to parameterize concurrent utilities
-- Understanding of why inconsistent synchronization is dangerous
-- Awareness of Java 21 features (virtual threads, structured concurrency) that reduce boilerplate
-
-Tricky questions:
-- "How would you refactor three classes that each have their own ReentrantLock management?" (Extract a `LockExecutor`.)
-- "What happens if your shared retry utility has a bug?" (Single point of failure -- but also a single point of fix.)
-
-## Interview Q&A Section
-
-**Q1: How would you eliminate duplicated lock-try-finally boilerplate in Java?**
-
-```text
-A1: Create a reusable LockExecutor class that accepts a Lock and provides withLock(Supplier<T>)
-and withLockRun(Runnable) methods. The lock acquisition, try block, and finally-unlock pattern
-is written exactly once. All callers pass their business logic as a lambda.
-
-Benefits:
-1. The locking pattern is correct in one place -- no risk of forgetting unlock.
-2. Changing lock type (e.g., to ReadWriteLock) only requires modifying LockExecutor.
-3. The calling code focuses on business logic, not concurrency mechanics.
-```
+The wallet offers a read and a write, each `synchronized`, and leaves the charge to its callers:
 
 ```java
-public class LockExecutor {
-    private final Lock lock;
-    public LockExecutor(Lock lock) { this.lock = lock; }
+/** A customer's prepaid credits. A caller that reads and then writes holds the wallet's monitor across both. */
+public class Wallet {
+    private long credits;
 
-    public <T> T withLock(Supplier<T> action) {
-        lock.lock();
-        try { return action.get(); }
-        finally { lock.unlock(); }
+    public Wallet(long credits) {
+        this.credits = credits;
     }
-}
 
-// Usage: no duplicated lock boilerplate
-class Account {
-    private final LockExecutor locker = new LockExecutor(new ReentrantLock());
-    private int balance = 0;
-
-    public int deposit(int amount) {
-        return locker.withLock(() -> { balance += amount; return balance; });
+    public synchronized long balance() {
+        return credits;
     }
-    public int getBalance() {
-        return locker.withLock(() -> balance);
+
+    public synchronized void setBalance(long credits) {
+        this.credits = credits;
     }
 }
 ```
 
-**Q2: Why is duplicated executor lifecycle management dangerous?**
-
-```text
-A2: ExecutorService requires careful lifecycle management: create, submit tasks, shutdown,
-and awaitTermination. When this pattern is duplicated:
-
-1. One copy might forget shutdown() -- causing thread leaks.
-2. Another might use shutdownNow() instead of shutdown() -- canceling running tasks.
-3. A third might skip awaitTermination() -- returning results before tasks complete.
-
-By extracting a reusable ParallelComputation utility, the lifecycle is correct everywhere.
-Since Java 19, ExecutorService implements AutoCloseable, so try-with-resources handles shutdown
-automatically -- an even DRYer approach.
-```
+Checkout follows the class comment, and `Gifts.send` has the same body. The renewal job asks the
+tax service for the tax between its read and its write:
 
 ```java
-// DRY: Reusable parallel execution utility
-public class ParallelComputation {
-    public <T> List<T> executeAll(List<Callable<T>> tasks, int threadCount)
-            throws InterruptedException {
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        try {
-            List<Future<T>> futures = executor.invokeAll(tasks);
-            List<T> results = new ArrayList<>();
-            for (Future<T> f : futures) {
-                try { results.add(f.get()); }
-                catch (ExecutionException e) { throw new RuntimeException(e); }
-            }
-            return results;
-        } finally {
-            executor.shutdown();
-            executor.awaitTermination(5, TimeUnit.SECONDS);
-        }
+public boolean buy(Wallet wallet, long price) {
+    synchronized (wallet) {
+        long balance = wallet.balance();
+        if (balance < price) return false;
+        wallet.setBalance(balance - price);
+        return true;
     }
+}
+
+public boolean renew(Wallet wallet, long planPrice) throws InterruptedException {
+    long balance = wallet.balance();
+    long due = planPrice + taxes.on(planPrice);
+    if (balance < due) return false;
+    wallet.setBalance(balance - due);
+    return true;
 }
 ```
 
-**Q3: How does a reusable retry pattern improve concurrent systems?**
-
-```text
-A3: Concurrent systems frequently encounter transient failures (network timeouts,
-lock contention, temporary resource unavailability). A reusable RetryExecutor:
-
-1. Centralizes retry count and delay configuration -- no magic numbers scattered around.
-2. Ensures consistent behavior -- all retries use the same backoff strategy.
-3. Makes testing easier -- inject a RetryExecutor with 0 retries for fast tests.
-4. Handles edge cases correctly -- what if maxRetries is 0? What if the delay is 0?
-
-Without DRY, each caller implements its own retry loop, often with subtle differences
-in error handling or delay logic.
-```
+To get the bad order on every run, the test's tax service waits on a latch, and a checkout runs
+while the renewal waits:
 
 ```java
-public class RetryExecutor {
-    private final int maxRetries;
-    private final long retryDelayMs;
-
-    public RetryExecutor(int maxRetries, long retryDelayMs) {
-        this.maxRetries = maxRetries;
-        this.retryDelayMs = retryDelayMs;
-    }
-
-    public <T> T executeWithRetry(Callable<T> action) throws Exception {
-        Exception lastException = null;
-        for (int attempt = 0; attempt <= maxRetries; attempt++) {
-            try { return action.call(); }
-            catch (Exception e) {
-                lastException = e;
-                if (attempt < maxRetries && retryDelayMs > 0) Thread.sleep(retryDelayMs);
-            }
-        }
-        throw lastException;
-    }
-}
+CallSites.Taxes taxes = price -> {
+    inTaxCall.countDown();
+    taxAnswers.await();
+    return 3;
+};
+// another thread runs renewals.renew(wallet, 27)
+inTaxCall.await();
+boolean bought = new CallSites.Checkout().buy(wallet, 80);
+taxAnswers.countDown();
 ```
-
-**Q4: How does ConcurrentHashMap.computeIfAbsent help with DRY caching?**
 
 ```text
-A4: Many services need thread-safe caching -- compute a value on first access and return
-the cached value on subsequent calls. Without DRY, each service creates its own
-ConcurrentHashMap and calls computeIfAbsent directly. With DRY, a reusable
-ThreadSafeCache<K,V> encapsulates this:
-
-1. Thread-safe by construction -- ConcurrentHashMap guarantees atomicity.
-2. Consistent API -- getOrCompute, get, invalidate, clear.
-3. Single place to add features like TTL, max size, or metrics.
-
-This is the same idea behind Guava's LoadingCache or Caffeine, but at a simpler scale.
+renewal waits for the tax service; balance 100
+checkout 80: true, balance 20
+renewal 27 + 3 tax: true, balance 70
+sold 110 credits, the balance fell by 30
 ```
 
-```java
-public class ThreadSafeCache<K, V> {
-    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();
+The renewal kept 100 in a local variable, and its `setBalance(70)` overwrote the checkout's
+charge. Each method of `Wallet` is atomic; the charge is a check followed by an act across two of
+them (unit 6.2.1). The renewal takes the monitor for each call and lets go in between, so
+checkout's lock, held from read to write, never keeps it out.
 
-    public V getOrCompute(K key, Function<K, V> computeFunction) {
-        return cache.computeIfAbsent(key, computeFunction);
-    }
-
-    public Optional<V> get(K key) {
-        return Optional.ofNullable(cache.get(key));
-    }
-
-    public void invalidate(K key) { cache.remove(key); }
-    public int size() { return cache.size(); }
-    public void clear() { cache.clear(); }
-}
-```
-
-**Q5: How does Java 21's structured concurrency reduce duplicated fork-join patterns?**
+With an instant tax service and no latch, seven checkout threads and one renewal thread drain a
+million-credit wallet, ten times:
 
 ```text
-A5: Before structured concurrency, the fork-join pattern was duplicated everywhere:
-create executor, submit tasks, collect futures, handle exceptions, shutdown.
-Java 21's StructuredTaskScope (preview) provides a single, reusable abstraction:
-
-1. StructuredTaskScope.ShutdownOnFailure -- cancel all if one fails.
-2. StructuredTaskScope.ShutdownOnSuccess -- return first result.
-3. Automatic lifecycle -- try-with-resources handles shutdown.
-4. Child threads are bounded to parent scope -- no orphaned threads.
-
-This is DRY at the framework level: the platform provides the correct fork-join
-pattern so developers don't have to rewrite it in every service.
+run  1: sold 1589562, debited 1000000, lost 589562
+run  2: sold 1661016, debited 1000000, lost 661016
+run  3: sold 1621688, debited 1000000, lost 621688
+run  4: sold 1682094, debited 1000000, lost 682094
+run  5: sold 1626598, debited 1000000, lost 626598
+run  6: sold 1643494, debited 1000000, lost 643494
+run  7: sold 1629660, debited 1000000, lost 629660
+run  8: sold 1470406, debited 1000000, lost 470406
+run  9: sold 1576134, debited 1000000, lost 576134
+run 10: sold 1699756, debited 1000000, lost 699756
+runs with lost credits: 10 of 10
 ```
+
+Every run lost credits, as did 30 more, by different amounts each run. The losses are debits made
+by the locked checkouts and overwritten by the renewal. The class's public setter is what lets
+any caller compose the charge.
+
+## The Compound Action Belongs in the Class That Owns the Lock
+
+The charge moves into `Wallet`, and the setter goes:
 
 ```java
-// Java 21 structured concurrency (preview) -- DRY fork-join
-try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
-    Subtask<String> user = scope.fork(() -> fetchUser(id));
-    Subtask<String> order = scope.fork(() -> fetchOrder(id));
-    scope.join().throwIfFailed();
-    return new UserOrder(user.get(), order.get());
+/** A customer's prepaid credits. Thread-safe: every read and change of credits holds this wallet's monitor. */
+public class Wallet {
+    private long credits;
+
+    public Wallet(long credits) {
+        this.credits = credits;
+    }
+
+    public synchronized long balance() {
+        return credits;
+    }
+
+    public synchronized boolean tryDebit(long amount) {
+        if (credits < amount) return false;
+        credits -= amount;
+        return true;
+    }
+
+    public synchronized void credit(long amount) {
+        credits += amount;
+    }
 }
-// No manual executor creation, shutdown, or future handling!
 ```
+
+Checkout and gifts become `return wallet.tryDebit(price);`. The renewal asks for the tax first,
+then calls `wallet.tryDebit(due)`. The same latch and the same order:
+
+```text
+renewal waits for the tax service; balance 100
+checkout 80: true, balance 20
+renewal 27 + 3 tax: false, balance 20
+sold 80 credits, the balance fell by 80
+```
+
+The renewal still waits for the tax service at the same moment, but it holds no balance while it
+waits. The ten stress runs end with `runs with lost credits: 0 of 10`, and so do three more sets
+of ten. Clean runs are a sample; the reason it holds is in one file: after construction, every
+method that reads or changes `credits` is `synchronized` on the wallet, with the lock named next
+to the field as in unit 5.3.4.
+
+Deleting `setBalance` also tells you where the old rule was written. Compiling the old call sites
+against the new `Wallet`:
+
+```text
+CallSites.java:14: error: cannot find symbol
+                wallet.setBalance(balance - price);
+                      ^
+  symbol:   method setBalance(long)
+  location: variable wallet of type Wallet
+CallSites.java:25: error: cannot find symbol
+                from.setBalance(balance - amount);
+                    ^
+  symbol:   method setBalance(long)
+  location: variable from of type Wallet
+CallSites.java:42: error: cannot find symbol
+            wallet.setBalance(balance - due);
+                  ^
+  symbol:   method setBalance(long)
+  location: variable wallet of type Wallet
+3 errors
+```
+
+javac lists all three call sites, the two locked ones and the renewal. A shared
+`withLock(wallet, ...)` helper would remove the repeated `synchronized` lines but none of these
+errors: each caller would still read, decide and write, and a caller that skips the helper still
+compiles. What one fix in the owning class buys later is unit 8.3.3.
+
+<!-- practice 1 -->
+
+## An Action Across Two Wallets Needs One Owner for Both Balances
+
+A gift is a debit from one wallet and a credit to another, two calls, and the reconciliation job
+sums every wallet while gifts are in flight. Ann and Bo, with 100 credits each, send each other
+one credit a million times while an auditor sums their balances, first with `Wallet` as it is:
+
+```java
+if (ann.tryDebit(1)) bo.credit(1);        // Ann sends Bo a gift
+if (bo.tryDebit(1)) ann.credit(1);        // and Bo sends one back
+// the auditor's total, read in a loop on another thread:
+() -> ann.balance() + bo.balance()
+```
+
+then with one class that owns every balance:
+
+```java
+import java.util.HashMap;
+import java.util.Map;
+
+/** Every wallet's credits. Thread-safe: all of them are guarded by this object's monitor. */
+public class Wallets {
+    private final Map<String, Long> credits = new HashMap<>();
+
+    public synchronized void open(String id, long amount) {
+        credits.put(id, amount);
+    }
+
+    public synchronized boolean tryDebit(String id, long amount) {
+        long balance = credits.get(id);
+        if (balance < amount) return false;
+        credits.put(id, balance - amount);
+        return true;
+    }
+
+    public synchronized void credit(String id, long amount) {
+        credits.merge(id, amount, Long::sum);
+    }
+
+    public synchronized boolean transfer(String from, String to, long amount) {
+        if (!tryDebit(from, amount)) return false;
+        credit(to, amount);
+        return true;
+    }
+
+    public synchronized long total() {
+        long sum = 0;
+        for (long c : credits.values()) sum += c;
+        return sum;
+    }
+}
+```
+
+```text
+one lock per wallet  1,472,320 audits, 1,337,515 saw a total other than 200 (from 199 to 201)
+one lock for all     2,644,166 audits, 0 saw a total other than 200 (from 200 to 200)
+```
+
+Two compound actions span both wallets: the gift, between its debit and its credit, and the audit,
+between its two reads. Both 199 and 201 are audits whose two reads straddled part of a gift: one
+that landed between a debit and its credit sees a credit missing, and one that read Ann before a
+gift from her and Bo after it counts the credit twice. Each wallet's lock covers one balance,
+and the rule "the total doesn't change" covers two, so its lock belongs to the object that owns
+both.
+
+The cost is that every charge, gift and audit in the process now waits for one monitor. Fixed-order
+locking of both wallets (unit 6.2.1) keeps unrelated gifts parallel, but an audit must then take
+every wallet's lock.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A lock written at each call site is missing at the site that forgets it.** One unlocked
+  renewal wrote back a stale balance, overwriting debits made by the locked checkouts in every
+  stress run.
+- **The compound action belongs in the class that owns the lock.** With `tryDebit` the same forced
+  order declines the renewal, and deleting the setter makes javac list every caller that composed
+  the charge.
+- **An action across two objects needs one owner for both.** Two thread-safe wallets still showed
+  wrong totals to nine audits in ten; one class with one lock showed none, at the price of one
+  monitor for all wallets.
+
+## Reference
+
+Where the JDK puts compound actions (Java 21 javadoc):
+
+| Class | Compound actions the class performs atomically | Left to the caller |
+|---|---|---|
+| `Collections.synchronizedList` | none beyond single calls | iteration: "the user manually synchronize on the returned list when traversing it" |
+| `ConcurrentHashMap` | `putIfAbsent`, `replace`, `compute`, `merge` for one key | actions across keys (unit 5.3.2) |
+| `AtomicLong` | `compareAndSet`, `updateAndGet`, `accumulateAndGet` | actions across two variables |
+
+## Challenges
+
+1. Product asks for "pay what the wallet covers, the rest by card". Write it as a caller of
+   `balance()` and `tryDebit()`, then as a method of `Wallet`. What can the caller version charge
+   when a checkout runs in between?
+2. `Wallets` serializes every wallet in the process. Measure checkouts per second with 1, 8 and 32
+   threads, then try one lock per wallet with ordered locking for transfers. What does the audit
+   cost in each design?
+3. Find a class in your code whose Javadoc tells callers which lock to hold. Which of its callers
+   would javac list if you removed the methods that make the rule necessary?
+
+## Design Note: Why ConcurrentMap Has putIfAbsent
+
+The synchronized collections made each call atomic and left compound actions to their callers,
+with the collection itself as the lock; their javadoc still tells callers to lock it for iteration.
+Java 5's `ConcurrentMap` moved the common compound actions into the interface (`putIfAbsent`,
+`replace`, `remove(key, value)`), and Java 8 added `compute` and `merge`, where the caller passes
+the decision as a function, which `ConcurrentHashMap` runs atomically.
+
+A class can offer only the compound actions its authors foresaw, so a new one means a new method.
+Accepting a function instead runs the caller's code while the map holds a lock of its own, and
+`ConcurrentHashMap`'s javadoc asks that the function be "short and simple" and not modify the map.
 
 ## Code Examples
 

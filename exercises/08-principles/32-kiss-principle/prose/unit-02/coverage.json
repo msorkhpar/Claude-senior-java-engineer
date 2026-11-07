@@ -2,10 +2,10 @@
   "coverage_api": 2,
   "page": "32-kiss-principle/README_8.2.2.md",
   "kind": "code",
-  "quiz": "quiz",
+  "quiz": "kiss-concurrency-quiz",
   "case": "code-and-tests",
   "digests": {
-    "32-kiss-principle/README_8.2.2.md": "sha256:7ad2deedec4e0ba830b8d872ec493ae9da00d7ea1bd61a852a01634d64967739",
+    "32-kiss-principle/README_8.2.2.md": "sha256:ad6a8ef0a83c98dc60daec6e58d88b596f494e6a91b375fbf3fe51c30dcd24ac",
     "32-kiss-principle/src/test/java/com/github/msorkhpar/claudejavatutor/kissprinciple/KissConcurrencyTest.java": "sha256:0ef95e478a79252ab41ed4d7df49a00f9a813ffb3fa50c7512a2625e4fcb9fe2"
   },
   "plan": {
@@ -14,151 +14,132 @@
     "count": 4,
     "aspects": [
       {
-        "id": "atomic-counter",
-        "says": "A thread-safe counter is simplest as an AtomicInteger, not a lock or a synchronized block around count++.",
+        "id": "decide-on-the-owner",
+        "says": "A decision about owned state is made inside the owner's task; a check on a snapshot followed by a submitted change is a check-then-act that lets two callers pass.",
         "basis": [
-          "section:Common Pitfalls and How to Avoid Them",
-          "section:Interview Q&A Section"
+          "section:One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting",
+          "example:32-kiss-principle/README_8.2.2.md:5"
         ],
-        "exercise": "quiz",
+        "exercise": "wallet-transfers",
         "reason": null
       },
       {
-        "id": "blocking-queue",
-        "says": "A BlockingQueue gives producer-consumer for free: take() waits for an item and put() waits for room.",
+        "id": "failed-load-retries",
+        "says": "With the flag set before the load, a failed load leaves it set and every later call returns null; with the value as its own flag, the next call loads again.",
         "basis": [
-          "section:Common Pitfalls and How to Avoid Them",
-          "tests:32-kiss-principle/src/test/java/com/github/msorkhpar/claudejavatutor/kissprinciple/KissConcurrencyTest.java"
+          "section:A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't",
+          "example:32-kiss-principle/README_8.2.2.md:12"
         ],
-        "exercise": "handoff",
+        "exercise": "lazy-lookup",
         "reason": null
       },
       {
-        "id": "chm-no-nulls",
-        "says": "ConcurrentHashMap permits no null keys or values.",
+        "id": "flag-beside-value",
+        "says": "A double-checked flag kept beside the value can say loaded while the value is null, so a caller during the load gets null; a synchronized getter whose value is its own flag makes it wait.",
         "basis": [
-          "section:Edge Cases and Their Handling"
+          "section:A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't",
+          "example:32-kiss-principle/README_8.2.2.md:10",
+          "example:32-kiss-principle/README_8.2.2.md:11",
+          "example:32-kiss-principle/README_8.2.2.md:12"
+        ],
+        "exercise": "lazy-lookup",
+        "reason": null
+      },
+      {
+        "id": "getter-lock-cost",
+        "says": "A synchronized getter called constantly from many threads costs far more than a volatile-reference double-checked load, which is the fix once a profile shows it.",
+        "basis": [
+          "section:A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't",
+          "example:32-kiss-principle/README_8.2.2.md:13"
         ],
         "exercise": null,
-        "reason": "A rule of the library itself, which a reader's cache inherits rather than writes; incidental to the practice."
+        "reason": "a timing on one machine; both versions are correct, so no deterministic test separates them"
       },
       {
-        "id": "compute-if-absent",
-        "says": "ConcurrentHashMap.computeIfAbsent replaces a hand-written check-then-act or double-checked locking cache, loading each key once.",
+        "id": "owner-and-snapshot",
+        "says": "State changed only by one owner thread needs no lock, and readers that take an immutable snapshot published after each change see a whole state without waiting.",
         "basis": [
-          "section:Common Pitfalls and How to Avoid Them",
-          "section:Interview Q&A Section",
-          "tests:32-kiss-principle/src/test/java/com/github/msorkhpar/claudejavatutor/kissprinciple/KissConcurrencyTest.java"
+          "section:One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting",
+          "example:32-kiss-principle/README_8.2.2.md:3",
+          "example:32-kiss-principle/README_8.2.2.md:4"
         ],
-        "exercise": "cache",
+        "exercise": "wallet-snapshot",
         "reason": null
       },
       {
-        "id": "immutable-and-no-sharing",
-        "says": "Immutable objects and no shared mutable state are the simplest thread safety.",
+        "id": "owner-costs",
+        "says": "The owner design costs a hand-off per write and a copy per snapshot; for large, often-changed state a read sent to the owner as a task, or one lock, is cheaper.",
         "basis": [
-          "section:Key Points to Remember"
+          "section:One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting",
+          "section:A Snapshot of 100,000 Bins Copies 800 KB on Every Move",
+          "example:32-kiss-principle/README_8.2.2.md:6"
         ],
         "exercise": null,
-        "reason": "Practised on 8.2.3, whose event log hands out an immutable snapshot; here it is a design stance with no behaviour of its own to grade."
+        "reason": "a throughput comparison on one machine; a graded test can't check a speed ratio deterministically"
       },
       {
-        "id": "interrupt-flag",
-        "says": "An InterruptedException is re-thrown or the thread's interrupt flag is restored, never swallowed.",
+        "id": "per-object-locks-no-whole",
+        "says": "A lock per object keeps each object consistent, but a reader that takes those locks one at a time can see a total across objects that never existed.",
         "basis": [
-          "section:Edge Cases and Their Handling"
+          "section:A Lock per Bin Keeps Every Move Right and Every Total Wrong",
+          "example:32-kiss-principle/README_8.2.2.md:1",
+          "example:32-kiss-principle/README_8.2.2.md:2"
         ],
-        "exercise": "handoff",
+        "exercise": "kiss-concurrency-quiz",
         "reason": null
       },
       {
-        "id": "juc-utilities",
-        "says": "Java's built-in concurrency utilities come before custom synchronization such as wait/notify.",
+        "id": "stale-cas-loop",
+        "says": "A compareAndSet retry loop that reads the value once, before the loop, spins forever after its first lost race; incrementAndGet or synchronized needs no loop of your own.",
         "basis": [
-          "section:8.2.2.1. Avoiding Unnecessary Complexity",
-          "section:Key Points to Remember"
+          "section:A compareAndSet Loop That Reads the Value Once Spins Forever; incrementAndGet Leaves No Loop to Get Wrong",
+          "example:32-kiss-principle/README_8.2.2.md:7",
+          "example:32-kiss-principle/README_8.2.2.md:8",
+          "example:32-kiss-principle/README_8.2.2.md:9"
         ],
-        "exercise": "handoff",
+        "exercise": "kiss-concurrency-quiz",
         "reason": null
       },
       {
-        "id": "preview-features",
-        "says": "Structured concurrency and scoped values are Java 21 previews that simplify task coordination and shared context.",
+        "id": "view-is-not-snapshot",
+        "says": "An unmodifiable view reads through to the live state, so it changes under its reader; a snapshot is a copy nothing changes.",
         "basis": [
-          "section:Relevant Java 21 Features"
+          "section:One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
         ],
-        "exercise": null,
-        "reason": "Preview features, named only; the runner's build does not enable previews, and the page shows no code for them."
-      },
-      {
-        "id": "readability-safety",
-        "says": "In concurrent code readability is a safety feature: thread-safety is obvious from the types used.",
-        "basis": [
-          "section:8.2.2.2. Favoring Simplicity and Readability"
-        ],
-        "exercise": null,
-        "reason": "A judgement about how code reads; a test sees only behaviour, and each practice here already builds on a type whose thread-safety is plain."
-      },
-      {
-        "id": "small-critical-sections",
-        "says": "Critical sections are kept small, and one class keeps to one synchronization mechanism.",
-        "basis": [
-          "section:Best Practices and Optimization Techniques"
-        ],
-        "exercise": null,
-        "reason": "How long a lock is held, or which mechanisms a class mixes, does not change a result a test can observe."
-      },
-      {
-        "id": "sync-hierarchy",
-        "says": "The simplest tool that works is chosen: immutable, then atomic, then synchronized, and a ReentrantLock only for tryLock, timed locking or conditions.",
-        "basis": [
-          "section:Interview Q&A Section"
-        ],
-        "exercise": "quiz",
-        "reason": null
-      },
-      {
-        "id": "thread-per-task",
-        "says": "Virtual threads make a simple thread-per-task executor, closed by try-with-resources, the KISS way to run tasks in parallel.",
-        "basis": [
-          "section:Relevant Java 21 Features",
-          "section:Best Practices and Optimization Techniques",
-          "tests:32-kiss-principle/src/test/java/com/github/msorkhpar/claudejavatutor/kissprinciple/KissConcurrencyTest.java"
-        ],
-        "exercise": "tasks",
+        "exercise": "wallet-snapshot",
         "reason": null
       }
     ],
     "exercises": [
       {
         "slot": 1,
-        "name": "cache",
+        "name": "wallet-snapshot",
         "aspects": [
-          "compute-if-absent"
+          "owner-and-snapshot",
+          "view-is-not-snapshot"
         ]
       },
       {
         "slot": 2,
-        "name": "handoff",
+        "name": "wallet-transfers",
         "aspects": [
-          "blocking-queue",
-          "interrupt-flag",
-          "juc-utilities"
+          "decide-on-the-owner"
         ]
       },
       {
         "slot": 3,
-        "name": "tasks",
+        "name": "lazy-lookup",
         "aspects": [
-          "thread-per-task"
+          "failed-load-retries",
+          "flag-beside-value"
         ]
       },
       {
         "slot": 4,
-        "name": "quiz",
+        "name": "kiss-concurrency-quiz",
         "aspects": [
-          "atomic-counter",
-          "sync-hierarchy"
+          "per-object-locks-no-whole",
+          "stale-cas-loop"
         ]
       }
     ],
@@ -175,35 +156,49 @@
       "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-1",
       "origin": {
         "path": "32-kiss-principle/README_8.2.2.md",
-        "section": "Common Pitfalls and How to Avoid Them"
+        "section": "One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
       }
     },
     {
       "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-2",
       "origin": {
         "path": "32-kiss-principle/README_8.2.2.md",
-        "section": "Common Pitfalls and How to Avoid Them"
+        "section": "One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
       }
     },
     {
       "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-3",
       "origin": {
         "path": "32-kiss-principle/README_8.2.2.md",
-        "section": "Relevant Java 21 Features"
+        "section": "A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't"
       }
     },
     {
-      "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-4:q-counter",
+      "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-4:q-report-over-account-locks",
       "origin": {
         "path": "32-kiss-principle/README_8.2.2.md",
-        "section": "Interview Q&A Section"
+        "section": "A Lock per Bin Keeps Every Move Right and Every Total Wrong"
       }
     },
     {
-      "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-4:q-lock",
+      "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-4:q-max-latency-loop",
       "origin": {
         "path": "32-kiss-principle/README_8.2.2.md",
-        "section": "Interview Q&A Section"
+        "section": "A compareAndSet Loop That Reads the Value Once Spins Forever; incrementAndGet Leaves No Loop to Get Wrong"
+      }
+    },
+    {
+      "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-4:q-settings-after-outage",
+      "origin": {
+        "path": "32-kiss-principle/README_8.2.2.md",
+        "section": "A Double-Checked Flag Can Say Loaded Before the Value Is; a synchronized Getter Can't"
+      }
+    },
+    {
+      "exercise": "exercises/08-principles/32-kiss-principle/prose/unit-02/practice-4:q-seat-holds-on-snapshot",
+      "origin": {
+        "path": "32-kiss-principle/README_8.2.2.md",
+        "section": "One Lock Makes the Total Right; One Owner Thread Also Keeps Readers From Waiting"
       }
     }
   ],

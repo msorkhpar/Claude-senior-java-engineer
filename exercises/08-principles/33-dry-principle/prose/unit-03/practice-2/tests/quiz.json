@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "08-principles",
+    "33-dry-principle"
+  ],
+  "variant": "prose",
+  "unit": 3,
+  "ordinal": 2,
+  "title": "Check yourself: benefits of DRY for concurrency",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-mixed-traffic",
+        "stem": "An inventory module hands three services the AtomicInteger of each SKU's stock, and each service reserves with its own copy of `if (stock.get() >= qty) stock.addAndGet(-qty);`. After an oversell, the warehouse service's copy becomes one getAndUpdate call that subtracts only when enough is left, and a 16-thread stress test of the warehouse service finds nothing. What does a stress test that runs all three services against the same SKUs find?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No oversell, since the warehouse service's atomic update now keeps the shared counter consistent for every service",
+            "correct": false,
+            "says": "the atomic update makes only the warehouse copy's read and write one step; the other copies still check and subtract in two"
+          },
+          {
+            "id": "b",
+            "text": "No oversell, since the two other services' copies now write to a counter that the warehouse's atomic update keeps in order",
+            "correct": false,
+            "says": "an atomic update by one copy does not order another copy's separate read and write; the mixed row was oversold in every run"
+          },
+          {
+            "id": "c",
+            "text": "Oversell, since the warehouse's atomic update can't stop a read and a write made separately in the other services' copies",
+            "correct": true,
+            "says": "the remaining copies race with each other and with the fixed one: one reads, another update lands, and the first subtracts anyway"
+          },
+          {
+            "id": "d",
+            "text": "Oversell, since the warehouse service's getAndUpdate can subtract twice when the other services' copies make it retry",
+            "correct": false,
+            "says": "getAndUpdate may call its function again, but it stores a result only if no other thread changed the count in between, so it never subtracts twice; the fixed rows stayed at zero"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.3.md",
+          "section": "A Fix Made in One Copy of a Check-Then-Update Leaves the Other Copy Racing"
+        }
+      },
+      {
+        "id": "q-which-test",
+        "stem": "A refund limit per account is enforced by two copies of the same code, one in RefundApi and one in RefundBatch. RefundApi's copy has just been made atomic. Before the release, which test would show whether accounts can still go over the limit?",
+        "options": [
+          {
+            "id": "a",
+            "text": "A stress test of RefundBatch's path on many threads, since another refund can land between its limit test and its record",
+            "correct": true,
+            "says": "the unfixed copy races on its own, as the mobile row did, and beside the fixed one, as the mixed row did"
+          },
+          {
+            "id": "b",
+            "text": "A stress test of RefundApi's path on many threads, since its limit test is the one that last let accounts go over",
+            "correct": false,
+            "says": "the fixed path alone runs only fixed code; the web-only rows went to zero while the mobile and mixed rows still oversold"
+          },
+          {
+            "id": "c",
+            "text": "A single-threaded test of RefundBatch's path at the limit, since its copy tests the last refund against a stale count",
+            "correct": false,
+            "says": "one thread at a time, the two-step copy refuses correctly at the limit; the defect needs a second thread between its check and its update"
+          },
+          {
+            "id": "d",
+            "text": "A single-threaded test of RefundApi's path at the limit, since the two copies now disagree on where the limit is",
+            "correct": false,
+            "says": "on one thread both copies refuse at the same limit; they differ only in whether the check and the update are one step"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.3.md",
+          "section": "A Fix Made in One Copy of a Check-Then-Update Leaves the Other Copy Racing"
+        }
+      },
+      {
+        "id": "q-callers-unchanged",
+        "stem": "An API gateway and a nightly batch both call QuotaService.tryConsume(tenant); QuotaService keeps its counters private. A race inside tryConsume is found and fixed. What must change in the gateway's and the batch's code for the fix to reach them?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Nothing in either, since neither class holds any part of the sequence that raced or of its fix",
+            "correct": true,
+            "says": "the owner's one edit took every caller's row to zero, and the callers compiled to the same bytes before and after"
+          },
+          {
+            "id": "b",
+            "text": "Nothing in either, since the fix inside QuotaService makes its private counters safe to read and update in two calls",
+            "correct": false,
+            "says": "the fix is in tryConsume's sequence, not in the counters; code that read and updated a counter in two steps would still race, as the mobile copy did"
+          },
+          {
+            "id": "c",
+            "text": "Each wraps its call in a lock of its own, since tryConsume runs on threads that QuotaService does not own",
+            "correct": false,
+            "says": "no caller needed a change: after the one edit to tryRedeem every row, mixed traffic included, went to zero with the callers' bytes unchanged"
+          },
+          {
+            "id": "d",
+            "text": "Each repeats the quota check before calling, since another caller may use the quota up between two calls",
+            "correct": false,
+            "says": "a check before the call adds nothing: tryConsume checks again inside its atomic step, and that check is the one that decides"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.3.md",
+          "section": "A Fix Made in the Owning Class Reaches Every Caller Without Touching Them"
+        }
+      },
+      {
+        "id": "q-accessor",
+        "stem": "A SeatLedger keeps each show's booked count in a private AtomicInteger and offers tryBook(show), which checks and books in one atomic step. Two additions are proposed: `int booked(String show)`, returning the count, and `AtomicInteger counter(String show)`, for a live dashboard. Which of them lets a later caller overbook a show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The int accessor only, since a caller can act on a count that is stale by the time tryBook runs",
+            "correct": false,
+            "says": "acting on a stale number can't overbook: the only way to book is tryBook, which checks again inside its atomic step"
+          },
+          {
+            "id": "b",
+            "text": "The AtomicInteger accessor only, since its holder can change the count without going through tryBook",
+            "correct": true,
+            "says": "handing out the counter hands the update back to callers, as the public counter() of the first design did"
+          },
+          {
+            "id": "c",
+            "text": "Both accessors, since either lets a caller write its own check and update beside tryBook",
+            "correct": false,
+            "says": "a returned int can't be updated; only the returned counter lets a caller write its own check-then-update"
+          },
+          {
+            "id": "d",
+            "text": "Neither accessor, since a dashboard only reads the count, and booking still goes through tryBook",
+            "correct": false,
+            "says": "the type decides what a later caller can do, not the first caller's intent; a pasted copy compiled while counter() was public"
+          }
+        ],
+        "origin": {
+          "path": "33-dry-principle/README_8.3.3.md",
+          "section": "The Fix Holds Only While No Caller Can Reach the Counter"
+        }
+      }
+    ]
+  }
+}

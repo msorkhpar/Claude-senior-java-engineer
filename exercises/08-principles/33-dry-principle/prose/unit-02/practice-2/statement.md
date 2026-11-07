@@ -1,40 +1,11 @@
-`ExecutorService` needs its whole lifecycle each time: create, submit, `shutdown()`,
-`awaitTermination`. The page's violation pastes it into `computeSquares` and
-`computeCubes`, and warns what diverging copies do: one forgets `shutdown()` and leaks
-threads, another returns results before its tasks complete. Its fix writes the lifecycle
-**once**, in `ParallelComputation.executeAll`:
+Pickers move stock between the bins of a warehouse all day, and every hour a job compares the
+warehouse's total with the books. Each bin is thread-safe on its own. The books are right, yet the
+hourly count sometimes reports a few units missing, and sometimes a few too many, always while
+stock is being moved.
 
-```java
-ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-try {
-    List<Future<T>> futures = executor.invokeAll(tasks);
-    ...
-} finally {
-    executor.shutdown();
-    executor.awaitTermination(5, TimeUnit.SECONDS);
-}
-```
+Write `move(...)` and `total()` in `src/main/java/practice/Warehouse.java`, so that a move either
+happens whole or not at all, and a total taken at any moment, while moves run, equals the stock
+in the warehouse. About eight lines in total.
 
-Complete `ParallelComputation`:
-
-- `executeAll(tasks, threadCount)` runs every task on a pool of `threadCount` threads and
-  returns their results **in task order**, not in the order the tasks happen to finish. A
-  failed task becomes a new `RuntimeException` that wraps the `ExecutionException` from `get()`, as the
-  page's `new RuntimeException("Task execution failed", e)` does, so its cause's cause is the task's
-  exception, even an unchecked one. A
-  `threadCount` of zero or less throws `IllegalArgumentException`, even for an empty task list,
-  and an empty task list with a valid count gives an empty list;
-- **the pool is shut down before `executeAll` returns**, so no thread outlives the call.
-  (Since Java 19, `ExecutorService` is `AutoCloseable`, so try-with-resources is fine
-  too.);
-- `squares(numbers, threadCount)` and `cubes(numbers, threadCount)` build their tasks and
-  reuse `executeAll`: neither has a lifecycle of its own. (The tests see their results, not how
-  they were computed, so the reuse is the page's lesson rather than a graded step.)
-
-Examples:
-
-- `squares(List.of(1, 2, 3, 200), 1)` is `[1, 4, 9, 40000]`, and
-  `cubes(List.of(2, 3), 1)` is `[8, 27]`;
-- with two threads, when the second task finishes before the first, the result is still
-  `[first, second]`;
-- once `executeAll` returns, the pool's threads have ended.
+The tests use bins of their own, which can stop a call partway through, and run a move and a
+total against each other at that point.
