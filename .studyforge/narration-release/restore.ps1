@@ -34,7 +34,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Tag = $(if ($env:NARRATION_TAG) { $env:NARRATION_TAG } else { 'narration-1.0.0' }),
+    [string] $Tag = $(if ($env:NARRATION_TAG) { $env:NARRATION_TAG } else { 'narration-2.0.0' }),
     [string] $Repo = $env:NARRATION_REPO,
     [string] $LocalDir = $env:NARRATION_LOCAL_DIR,
     [switch] $KeepDownloads = [bool] $env:NARRATION_KEEP_DOWNLOADS

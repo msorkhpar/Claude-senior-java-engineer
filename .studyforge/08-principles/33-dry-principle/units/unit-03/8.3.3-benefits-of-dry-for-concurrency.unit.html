@@ -25,9 +25,9 @@
 <nav aria-label="Outline"><p>On this page</p><ol><li data-level="1"><a href="#s-prose">Benefits of DRY for concurrency</a></li><li data-level="2"><a href="#prose-b2">A Fix Made in One Copy of a Check-Then-Update Leaves the Other Copy Racing</a></li><li data-level="2"><a href="#prose-b12">A Fix Made in the Owning Class Reaches Every Caller Without Touching Them</a></li><li data-level="2"><a href="#prose-b23">The Fix Holds Only While No Caller Can Reach the Counter</a></li><li data-level="2"><a href="#prose-b31">Summary</a></li><li data-level="2"><a href="#prose-b33">Reference</a></li><li data-level="2"><a href="#prose-b36">Challenges</a></li><li data-level="2"><a href="#prose-b38">Design Note: Why the Counter Is Hidden Rather Than Documented</a></li><li data-level="2"><a href="#prose-b41">Code Examples</a></li><li data-level="1"><a href="#practices">Practice (2)</a></li><li data-level="2"><a href="#card-practice-prose">Stop the workshops from overfilling, whichever way attendees arrive</a></li><li data-level="2"><a href="#card-practice-prose-2">Check yourself: benefits of DRY for concurrency</a></li></ol></nav>
 <main id="content">
 <section id="s-prose" data-section="prose" data-kind="lesson" data-label="Benefits of DRY for concurrency">
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b2-77d4b726.mp3">Each code of the spring campaign may be redeemed three times. A week after launch, finance finds codes redeemed four and five times. The web checkout reads how often a code was used and, if that is under the limit, adds one, so two orders that read at the same moment both pass. The team makes the web checkout check and update in one atomic step, its load test goes from oversold to clean, and the fix ships. The next week's report still shows oversold codes.</p>
-<h2 id="prose-b2" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b3-b372f107.mp3">A Fix Made in One Copy of a Check-Then-Update Leaves the Other Copy Racing</h2>
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b4-2840aca5.mp3">The counters live in <code>PromoCodes</code>, which hands each checkout a code's counter:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b2-6ad9a7ef.mp3">Each code of the spring campaign may be redeemed three times. A week after launch, finance finds codes redeemed four and five times. The web checkout reads how often a code was used and, if that is under the limit, adds one, so two orders that read at the same moment both pass. The team makes the web checkout check and update in one atomic step, its load test goes from oversold to clean, and the fix ships. The next week's report still shows oversold codes.</p>
+<h2 id="prose-b2" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b3-a7d63955.mp3">A Fix Made in One Copy of a Check-Then-Update Leaves the Other Copy Racing</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b4-c7404156.mp3">The counters live in <code>PromoCodes</code>, which hands each checkout a code's counter:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,7 +49,7 @@ public class PromoCodes {
         return used.computeIfAbsent(code, c -&gt; new AtomicInteger());
     }
 }</code></pre></figure>
-<p>The mobile checkout, which nobody looked at during the incident, has the same lines the web checkout had:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b6-8f06d252.mp3">The mobile checkout, which nobody looked at during the incident, has the same lines the web checkout had:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">import java.util.concurrent.atomic.AtomicInteger;
 
 public class MobileCheckout {
@@ -67,7 +67,7 @@ public class MobileCheckout {
         return true;
     }
 }</code></pre></figure>
-<p>After its fix, the web checkout uses <code>getAndUpdate</code>, which stores the function's result only if no other thread changed the count in between, and retries otherwise. The function adds one only while the count is under the limit:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b8-9ee70ebd.mp3">After its fix, the web checkout uses <code>getAndUpdate</code>, which stores the function's result only if no other thread changed the count in between, and retries otherwise. The function adds one only while the count is under the limit:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">public class WebCheckout {
     private final PromoCodes codes;
 
@@ -82,15 +82,15 @@ public class MobileCheckout {
         return before &lt; limit;                            // validate and update in one step
     }
 }</code></pre></figure>
-<p>The load test releases eight threads together; each tries each of 20,000 codes once, in the same order; the mixed rows split the eight threads four and four. A code is oversold when more than three of its eight attempts succeed. Each row is 20 runs on fresh counters:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b10-30ca8283.mp3">The load test releases eight threads together; each tries each of 20,000 codes once, in the same order; the mixed rows split the eight threads four and four. A code is oversold when more than three of its eight attempts succeed. Each row is 20 runs on fresh counters:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">8 threads, 20000 codes, limit 3, 20 runs each
 web, before its fix          20 of 20 runs oversold, worst run: 2905 codes
 web, after its fix            0 of 20 runs oversold, worst run: 0 codes
 mobile                       20 of 20 runs oversold, worst run: 3825 codes
 web (fixed) and mobile       20 of 20 runs oversold, worst run: 2109 codes</code></pre></figure>
-<p>The first two rows are the team's load test, which the fix passed. The mobile row is the same check-then-update, still racing. The last row is production: both checkouts share the codes, and the fixed web copy doesn't protect them. The mobile copy reads 2, a web order moves the counter to 3, and the mobile copy adds a fourth. This is the check-then-act of unit <em>Monitors and synchronized blocks</em>: each call is atomic, and the pair is not. On one thread nothing can come between the mobile copy's check and its update, so it refuses the fourth redemption too; only a test that runs several threads through the unfixed copy finds the race. With the incident closed, the next report's oversold codes look like a new bug.</p>
-<h2 id="prose-b12" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b13-26690257.mp3">A Fix Made in the Owning Class Reaches Every Caller Without Touching Them</h2>
-<p>Unit <em>Applying DRY in concurrent programming</em> shows how to move a compound action into the class that guards its state. Here <code>PromoCodes.tryRedeem</code> first held the mobile checkout's <code>get</code> and <code>incrementAndGet</code>, racing as before; after the fix it reads:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b12-63f34141.mp3">The first two rows are the team's load test, which the fix passed. The mobile row is the same check-then-update, still racing. The last row is production: both checkouts share the codes, and the fixed web copy doesn't protect them. The mobile copy reads 2, a web order moves the counter to 3, and the mobile copy adds a fourth. This is the check-then-act of unit <em>Monitors and synchronized blocks</em>: each call is atomic, and the pair is not. On one thread nothing can come between the mobile copy's check and its update, so it refuses the fourth redemption too; only a test that runs several threads through the unfixed copy finds the race. With the incident closed, the next report's oversold codes look like a new bug.</p>
+<h2 id="prose-b12" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b13-e98d38b9.mp3">A Fix Made in the Owning Class Reaches Every Caller Without Touching Them</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b14-4cc88055.mp3">Unit <em>Applying DRY in concurrent programming</em> shows how to move a compound action into the class that guards its state. Here <code>PromoCodes.tryRedeem</code> first held the mobile checkout's <code>get</code> and <code>incrementAndGet</code>, racing as before; after the fix it reads:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -110,7 +110,7 @@ public class PromoCodes {
         return counter.getAndUpdate(n -&gt; n &lt; limit ? n + 1 : n) &lt; limit;
     }
 }</code></pre></figure>
-<p>The checkouts never see a counter. Each is now one line, and <code>MobileCheckout</code> is the same class under another name:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b16-1a755b1b.mp3">The checkouts never see a counter. Each is now one line, and <code>MobileCheckout</code> is the same class under another name:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">public class WebCheckout {
     private final PromoCodes codes;
 
@@ -122,7 +122,7 @@ public class PromoCodes {
         return codes.tryRedeem(code);
     }
 }</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b18-0631fb38.mp3">The same load test, before and after the one edit to <code>tryRedeem</code>:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b18-09ce32f0.mp3">The same load test, before and after the one edit to <code>tryRedeem</code>:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">owner before its fix: 8 threads, 20000 codes, limit 3, 20 runs each
 web                          20 of 20 runs oversold, worst run: 2524 codes
 mobile                       19 of 20 runs oversold, worst run: 2489 codes
@@ -131,12 +131,12 @@ owner after its fix: 8 threads, 20000 codes, limit 3, 20 runs each
 web                           0 of 20 runs oversold, worst run: 0 codes
 mobile                        0 of 20 runs oversold, worst run: 0 codes
 web and mobile                0 of 20 runs oversold, worst run: 0 codes</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b20-8fddda04.mp3">Every row went to zero, mixed traffic included. javac produced the same bytes for <code>WebCheckout.class</code> and <code>MobileCheckout.class</code> before and after the fix, so a load test of <code>tryRedeem</code> covers every caller that only delegates to it.</p>
-<blockquote><p><strong>One machine.</strong> Java 21, 20 cores, each program run three times: every racing row was oversold in 19 or 20 of its 20 runs, every fixed row in none.</p></blockquote>
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b22-3c3cabb5.mp3"><code>getAndUpdate</code> may call its function more than once when threads collide (unit <em>Atomicity violations and ensuring atomic operations</em>), so the function only computes the new count; anything with a side effect, such as recording the order, goes after <code>tryRedeem</code> returns <code>true</code>.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b20-75c6b29f.mp3">Every row went to zero, mixed traffic included. javac produced the same bytes for <code>WebCheckout.class</code> and <code>MobileCheckout.class</code> before and after the fix, so a load test of <code>tryRedeem</code> covers every caller that only delegates to it.</p>
+<blockquote><p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b21.b1-949d3ab4.mp3"><strong>One machine.</strong> Java 21, 20 cores, each program run three times: every racing row was oversold in 19 or 20 of its 20 runs, every fixed row in none.</p></blockquote>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b22-a2c9850f.mp3"><code>getAndUpdate</code> may call its function more than once when threads collide (unit <em>Atomicity violations and ensuring atomic operations</em>), so the function only computes the new count; anything with a side effect, such as recording the order, goes after <code>tryRedeem</code> returns <code>true</code>.</p>
 <!-- practice 1 -->
-<h2 id="prose-b23">The Fix Holds Only While No Caller Can Reach the Counter</h2>
-<p>A month later, a support tool needs to apply codes to phone orders, and its author pastes the redemption lines from an old branch of the mobile checkout:</p>
+<h2 id="prose-b23" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b24-43404e60.mp3">The Fix Holds Only While No Caller Can Reach the Counter</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b25-c886be9d.mp3">A month later, a support tool needs to apply codes to phone orders, and its author pastes the redemption lines from an old branch of the mobile checkout:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">import java.util.concurrent.atomic.AtomicInteger;
 
 /** Lets an agent apply a code to a phone order: the old mobile lines, pasted in. */
@@ -154,7 +154,7 @@ public class SupportDesk {
         return true;
     }
 }</code></pre></figure>
-<p>Against the fixed <code>PromoCodes</code>:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b27-9da1899b.mp3">Against the fixed <code>PromoCodes</code>:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">pasted/SupportDesk.java:12: error: cannot find symbol
         AtomicInteger used = codes.counter(code);
                                   ^
@@ -166,19 +166,19 @@ pasted/SupportDesk.java:13: error: cannot find symbol
   symbol:   method limit()
   location: variable codes of type PromoCodes
 2 errors</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b29-baa0798c.mp3">The public <code>counter()</code> of the first design is what made the copies possible: any class holding the <code>AtomicInteger</code> could write its own check-then-update, and nothing but review would stop it. With <code>counter()</code> gone, and <code>limit()</code>, which only the copies needed, the third copy fails to compile, and the author has to call <code>tryRedeem</code>.</p>
-<p>Not every accessor reopens the race. A method <code>int redeemed(String code)</code> that returns the count as a number is safe to add: a caller may check it, but the only way to change the count is <code>tryRedeem</code>, which checks again.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b29-5e475ccb.mp3">The public <code>counter()</code> of the first design is what made the copies possible: any class holding the <code>AtomicInteger</code> could write its own check-then-update, and nothing but review would stop it. With <code>counter()</code> gone, and <code>limit()</code>, which only the copies needed, the third copy fails to compile, and the author has to call <code>tryRedeem</code>.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b30-1d469fc5.mp3">Not every accessor reopens the race. A method <code>int redeemed(String code)</code> that returns the count as a number is safe to add: a caller may check it, but the only way to change the count is <code>tryRedeem</code>, which checks again.</p>
 <!-- practice 2 -->
-<h2 id="prose-b31" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b32-1abba9a3.mp3">Summary</h2>
-<ul class="items"><li><strong>A fix made in one copy of a check-then-update leaves every other copy racing.</strong> The fixed copy's own load test passes, and with mixed traffic the codes are still oversold.</li><li><strong>A fix made in the owning class reaches every caller without an edit to them.</strong> One method and one load test cover every path; the callers compiled to the same bytes.</li><li><strong>The fix holds only while no caller can reach the state around the owner's method.</strong> Return values, not the counter, and a pasted copy stops compiling.</li></ul>
-<h2 id="prose-b33">Reference</h2>
-<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b35-1acdb454.mp3"><strong>One call that validates and updates (Java 21 javadoc):</strong></p>
-<div class="scroll"><table><thead><tr><th>Need</th><th>Call</th><th>Caveat in the javadoc</th></tr></thead><tbody><tr><td>a counter with a ceiling</td><td><code>AtomicInteger.getAndUpdate(n -&gt; n &lt; limit ? n + 1 : n)</code></td><td>the function should be side-effect-free; it may be re-applied under contention</td></tr><tr><td>a per-key value in a map</td><td><code>ConcurrentHashMap.compute(key, (k, v) -&gt; ...)</code></td><td>the whole call is atomic and the function runs once; keep it short and simple, and don't modify the map from it</td></tr><tr><td>create a value once per key</td><td><code>ConcurrentHashMap.computeIfAbsent(key, k -&gt; ...)</code></td><td>atomic; the function runs at most once, only if the key is absent; keep it short and simple, and don't modify the map from it</td></tr></tbody></table></div>
-<h2 id="prose-b36">Challenges</h2>
-<ol class="items"><li>The redemption limit moves into a database that three services in different languages share. Where is the owner now, and what is the single step that validates and updates?</li><li>Finance adds a per-customer limit next to the per-code one. Can <code>tryRedeem</code> still be one atomic step, and what does keeping two counters consistent cost?</li><li>A code base has a dozen copies of a check-then-update against a shared cache. Which change tells you, with a compile, that you have found all of them?</li></ol>
-<h2 id="prose-b38">Design Note: Why the Counter Is Hidden Rather Than Documented</h2>
-<p>The first design had a rule, &quot;check and update a code's count in one step&quot;, that nothing in the code enforced. Hiding the counter moves the rule into the type: the only operation a caller has is the one that is correct.</p>
-<p>The cost is that the owner must offer every compound action callers need. A checkout that wants &quot;redeem these two codes together, or neither&quot; can't build it from two <code>tryRedeem</code> calls; the owner needs a new method, and with it a lock or a single holder for both counts. Each such method makes the owner larger, and merging actions that only look alike has its own failure, which unit <em>Balancing DRY with other principles (e.g., SRP)</em> shows.</p>
+<h2 id="prose-b31" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b32-8e76a94a.mp3">Summary</h2>
+<ul class="items"><li data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b33.i1-5ad17966.mp3"><strong>A fix made in one copy of a check-then-update leaves every other copy racing.</strong> The fixed copy's own load test passes, and with mixed traffic the codes are still oversold.</li><li data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b33.i2-60b910eb.mp3"><strong>A fix made in the owning class reaches every caller without an edit to them.</strong> One method and one load test cover every path; the callers compiled to the same bytes.</li><li data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b33.i3-0941e543.mp3"><strong>The fix holds only while no caller can reach the state around the owner's method.</strong> Return values, not the counter, and a pasted copy stops compiling.</li></ul>
+<h2 id="prose-b33" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b34-71bf9093.mp3">Reference</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b35-8b9e01ad.mp3"><strong>One call that validates and updates (Java 21 javadoc):</strong></p>
+<div class="scroll"><table><thead><tr><th>Need</th><th>Call</th><th>Caveat in the javadoc</th></tr></thead><tbody><tr data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b36.r1-2cf03570.mp3"><td>a counter with a ceiling</td><td><code>AtomicInteger.getAndUpdate(n -&gt; n &lt; limit ? n + 1 : n)</code></td><td>the function should be side-effect-free; it may be re-applied under contention</td></tr><tr data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b36.r2-4cbce3b1.mp3"><td>a per-key value in a map</td><td><code>ConcurrentHashMap.compute(key, (k, v) -&gt; ...)</code></td><td>the whole call is atomic and the function runs once; keep it short and simple, and don't modify the map from it</td></tr><tr data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b36.r3-b18c7787.mp3"><td>create a value once per key</td><td><code>ConcurrentHashMap.computeIfAbsent(key, k -&gt; ...)</code></td><td>atomic; the function runs at most once, only if the key is absent; keep it short and simple, and don't modify the map from it</td></tr></tbody></table></div>
+<h2 id="prose-b36" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b37-40b9c8f4.mp3">Challenges</h2>
+<ol class="items"><li data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b38.i1-d3aeeaa7.mp3">The redemption limit moves into a database that three services in different languages share. Where is the owner now, and what is the single step that validates and updates?</li><li data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b38.i2-add8a5ab.mp3">Finance adds a per-customer limit next to the per-code one. Can <code>tryRedeem</code> still be one atomic step, and what does keeping two counters consistent cost?</li><li data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b38.i3-c8af393b.mp3">A code base has a dozen copies of a check-then-update against a shared cache. Which change tells you, with a compile, that you have found all of them?</li></ol>
+<h2 id="prose-b38" data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b39-8eff9f78.mp3">Design Note: Why the Counter Is Hidden Rather Than Documented</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b40-01e07d0c.mp3">The first design had a rule, &quot;check and update a code's count in one step&quot;, that nothing in the code enforced. Hiding the counter moves the rule into the type: the only operation a caller has is the one that is correct.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-03.prose.b41-80eee240.mp3">The cost is that the owner must offer every compound action callers need. A checkout that wants &quot;redeem these two codes together, or neither&quot; can't build it from two <code>tryRedeem</code> calls; the owner needs a new method, and with it a lock or a single holder for both counts. Each such method makes the owner larger, and merging actions that only look alike has its own failure, which unit <em>Balancing DRY with other principles (e.g., SRP)</em> shows.</p>
 <h2 id="prose-b41">Code Examples</h2>
 <div data-code-examples data-corpus="claude-senior-java-engineer-interview-preparation">
 <details data-code-example data-code-open="33-dry-principle/src/test/java/com/github/msorkhpar/claudejavatutor/dryprinciple/DryBenefitsTest.java">
