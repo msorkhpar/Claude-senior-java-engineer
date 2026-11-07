@@ -1,15 +1,17 @@
-The page's pitfall: every single call on a `ConcurrentHashMap` is atomic, but
-`get` followed by `put` is **two** atomic calls, not one. Two threads can both
-read the old count and both write the same new count, and one visit is lost.
-The page's Q5 shows exactly this lost update on a counter.
+The login service keeps the time each session was last seen in a
+`Collections.synchronizedMap`. Every request calls `touch`, so the map changes many times a
+second. Once a minute a sweeper removes the sessions that have expired, and on busy days it dies
+with `ConcurrentModificationException`, leaving stale sessions behind. The debug endpoint that
+dumps the sessions has a problem of its own: the dump it is writing out changes while it writes.
 
-Write `Visits.record(ConcurrentHashMap<String, Integer> counts, String page)`.
-It adds one to `page`'s count, starting from 1 when the page is not in the map
-yet. Many threads call it at the same time on one map, and no visit may be
-lost.
+Finish the two `TODO`s in `src/main/java/practice/SessionSweeper.java`:
 
-| counts before | calls | counts after |
-|---|---|---|
-| `{home=1000}` | `record(counts, "home")` twice | `{home=1002}` |
-| `{}` | `record(counts, "about")` | `{about=1}` |
-| `{home=1000}` | two threads each call `record(counts, "home")` at once | `{home=1002}` |
+- `sweep(policy)`: remove every session the policy says has expired, and return their ids;
+- `snapshot()`: the sessions as they are now, in a map that later requests don't change.
+
+When you're done, a sweep finishes however many requests arrive while it runs, a request that
+arrives during a sweep is kept, and a dump doesn't change once it is taken. About ten lines in
+total.
+
+The tests send a request into the middle of a sweep, through the expiry policy, and check from
+the JVM's thread data whether the request had to wait for the sweep.

@@ -1,21 +1,14 @@
-The page contrasts the ways to hand a task to a pool: `invoke(task)` **blocks**
-until the task is done, while `submit(task)` returns a `ForkJoinTask<V>` (a
-`Future`) **at once**, and you call `join()` or `get()` later to collect the
-result.
+The fulfilment service builds the morning pick lists with one task per warehouse, on a
+`ForkJoinPool` that the service creates at start-up and passes in. The morning run is called from
+a scheduler thread, not from the pool. With six warehouses it takes six times as long as one,
+although the pool has room for all six. Since two warehouses started sharing a cross-dock (each
+task waits until its partner's task has started), the run doesn't finish at all. And when one
+warehouse's data is broken, the alert should name that warehouse's own exception type, not a
+generic wrapper.
 
-Write `Batch.runAll(pool, tasks)`. It hands **every** task to **`pool`** with
-`submit` before it waits for any of them, then joins them and returns their
-results in the order of the list.
+Finish the `TODO` in `src/main/java/practice/PickLists.java`: `buildAll(...)` builds every
+warehouse's list and returns them in the order of the tasks.
 
-| tasks, pool of parallelism 2 | answer |
-|---|---|
-| a task returning `"alpha"`, then one returning `"beta"` once alpha is done | `["alpha", "beta"]` |
-| two tasks that each wait until the other has started | both finish: `["left", "right"]` |
-| three tasks that note the pool they run in | all three ran in `pool` |
-| an empty list | `[]` |
-
-Calling `pool.invoke(task)` for each task in turn would run them one after the
-other: a task that needs another one running beside it would then never finish.
-
-Note that `task.fork()` called from a thread outside any pool pushes the task to
-the **common** pool, not to `pool`.
+When you're done, all the warehouse tasks run at the same time on the service's pool, partners
+finish, and a warehouse task that throws makes `buildAll` throw that exception's type. About four
+lines in total.

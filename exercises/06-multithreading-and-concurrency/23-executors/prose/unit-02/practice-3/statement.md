@@ -1,21 +1,15 @@
-The page's batch execution: `invokeAll(tasks)` submits every task, waits until
-all are done and returns their `Future`s **in the same order as the input**.
-`invokeAll(tasks, timeout, unit)` also cancels the tasks that have not finished
-when the time runs out. The page's best practices recommend that timed form, so
-one slow task cannot hold up the whole batch.
+The on-call engineers open the operations dashboard first thing in an incident. It has a dozen
+panels, and each panel runs its own query on a pool. The complaint: the dashboard stays blank for
+forty seconds whenever the weekly-revenue panel's query is slow, even though the error rate and
+the queue depth, the two panels anyone looks at during an incident, were ready almost at once.
 
-Write `Gather.all(executor, tasks, timeout, unit, fallback)`, returning one
-result per task, in the order of `tasks`:
+The screen can show a panel from any thread. Write the `TODO` in
+`src/main/java/practice/Dashboard.java`:
 
-- the task's result if it finished;
-- `fallback` if the task threw, or if it was still running at the deadline and
-  so was cancelled.
+- `load(...)`: run the panels' queries and put each panel on the screen.
 
-The timeout is **one deadline for the whole batch**, counted from the call, not a fresh wait per task.
+When you're done, each panel appears as soon as its own query has answered, a query that fails
+shows its panel as `unavailable` without keeping the others off the screen, and `load` returns
+once every panel is shown. About twelve lines in total.
 
-| `tasks` | `all(executor, tasks, 300, MILLISECONDS, -1)` |
-|---|---|
-| `() -> 1`, `() -> 4`, `() -> 9` | `[1, 4, 9]` |
-| three tasks where the last finishes first and the first finishes last | their results in task order |
-| `() -> 1`, one that throws, `() -> 9` | `[1, -1, 9]` |
-| `() -> 1`, one that never finishes | `[1, -1]`, and the unfinished task is cancelled, freeing its thread |
+The tests run the queries on a real `ExecutorService` and hold some of them with latches.

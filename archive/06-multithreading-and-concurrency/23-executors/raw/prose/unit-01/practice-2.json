@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A pool that reports its failed tasks",
+  "title": "Alert on every settlement job that fails",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's pitfall: an exception thrown by a task run with `execute()` never reaches the caller, and one thrown by a task run with `submit()` is kept inside the returned `Future`, so if nobody calls `get()` it is lost. The page also says `ThreadPoolExecutor` exposes hooks, `beforeExecute()`, `afterExecute()` and `terminated()`, for monitoring."
+      "text": "The nightly settlement run reported success, and in the morning three merchants had not been paid. The jobs that should have paid them had thrown, and nobody heard about it. The callers that hand jobs to `SettlementPool` are spread over a dozen services: some use `execute()`, some use `submit()`, and most ignore whatever comes back. Changing them all is not an option."
     },
     {
       "type": "para",
-      "text": "Write `MonitoredPool`, a `ThreadPoolExecutor` of `threads` threads and an unbounded queue, that uses those hooks to keep a record:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`List<String> failures()` holds the message of every task that failed, whether it was run with `execute()` or `submit()`. For a submitted task, report the exception the task threw, not the `ExecutionException` around it.",
-        "`int successes()` counts the tasks that ended without an exception.",
-        "`boolean finished()` is `true` once the pool has terminated, and `false` before."
-      ]
+      "text": "`SettlementPool` already passes every failure it finds to `Alerts` from its `afterExecute` hook. Finish `failureOf(job, thrown)` in `src/main/java/practice/SettlementPool.java`, so that every job that fails raises one alert, however it was handed over, and the alert carries the exception the job itself threw. An operator sometimes cancels a rerun while it is running; that is not a failure, and must not cost the pool its worker. About ten lines in total."
     },
     {
       "type": "para",
-      "text": "The record is written from the pool's worker threads, so keep it thread-safe; the tests run one worker at a time, so they check the record's contents, not its thread safety."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "tasks on `new MonitoredPool(1)`, then `shutdown()` and wait",
-        "`failures()`",
-        "`successes()`"
-      ],
-      "rows": [
-        [
-          "`execute` one that returns, `execute` one that throws `new IllegalStateException(\"boom\")`",
-          "`[\"boom\"]`",
-          "`1`"
-        ],
-        [
-          "`submit` one that throws `new IllegalStateException(\"bad\")`, `submit` one that returns",
-          "`[\"bad\"]`",
-          "`1`"
-        ],
-        [
-          "`submit` a `Callable` that throws `new IOException(\"disk\")`",
-          "`[\"disk\"]`",
-          "`0`"
-        ],
-        [
-          "a task still running after `shutdown()`",
-          "`finished()` is `false` until it ends",
-          ""
-        ]
-      ]
+      "text": "The tests use a pool with one worker and wait for it to finish before they read the alerts."
     },
     {
       "type": "heading",
@@ -81,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CancellationException;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic class MonitoredPool extends ThreadPoolExecutor {\n\n    private final List<String> failures = new CopyOnWriteArrayList<>();\n    private final AtomicInteger successes = new AtomicInteger();\n    private volatile boolean finished;\n\n    public MonitoredPool(int threads) {\n        super(threads, threads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());\n    }\n\n    @Override\n    protected void afterExecute(Runnable task, Throwable thrown) {\n        super.afterExecute(task, thrown);\n        if (thrown == null && task instanceof Future<?> future && future.isDone()) {\n            try {\n                future.get();\n            } catch (ExecutionException e) {\n                thrown = e.getCause();\n            } catch (CancellationException e) {\n                thrown = e;\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        }\n        if (thrown == null) {\n            successes.incrementAndGet();\n        } else {\n            failures.add(thrown.getMessage());\n        }\n    }\n\n    @Override\n    protected void terminated() {\n        super.terminated();\n        finished = true;\n    }\n\n    /** The message of every task that failed, from execute() or submit(). */\n    public List<String> failures() {\n        return List.copyOf(failures);\n    }\n\n    /** How many tasks ended without an exception. */\n    public int successes() {\n        return successes.get();\n    }\n\n    /** Whether the pool has terminated. */\n    public boolean finished() {\n        return finished;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Runs the nightly settlement jobs. Some callers hand it jobs with execute(), others with submit(),\n * and most of them never look at the Future they get back.\n */\npublic class SettlementPool extends ThreadPoolExecutor {\n\n    /** Where failures go: one call per failed job. */\n    public interface Alerts {\n        void jobFailed(Throwable cause);\n    }\n\n    private final Alerts alerts;\n\n    public SettlementPool(int threads, Alerts alerts) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), job -> {\n            Thread t = new Thread(job);\n            t.setDaemon(true);\n            return t;\n        });\n        this.alerts = alerts;\n    }\n\n    @Override\n    protected void afterExecute(Runnable job, Throwable thrown) {\n        super.afterExecute(job, thrown);\n        Throwable failure = failureOf(job, thrown);\n        if (failure != null) alerts.jobFailed(failure);\n    }\n\n    /**\n     * What the job that just ran on this thread failed with, or null if it did not fail.\n     * Called by afterExecute with its own arguments.\n     */\n    Throwable failureOf(Runnable job, Throwable thrown) {\n        if (thrown != null) return thrown;\n        if (job instanceof Future<?> result && result.isDone() && !result.isCancelled()) {\n            try {\n                result.get();\n            } catch (ExecutionException e) {\n                return e.getCause();\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        }\n        return null;\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\npublic class MonitoredPool extends ThreadPoolExecutor {\n\n    public MonitoredPool(int threads) {\n        super(threads, threads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());\n    }\n\n    /** The message of every task that failed, from execute() or submit(). */\n    public List<String> failures() {\n        throw new UnsupportedOperationException(\"write failures\");\n    }\n\n    /** How many tasks ended without an exception. */\n    public int successes() {\n        throw new UnsupportedOperationException(\"write successes\");\n    }\n\n    /** Whether the pool has terminated. */\n    public boolean finished() {\n        throw new UnsupportedOperationException(\"write finished\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Runs the nightly settlement jobs. Some callers hand it jobs with execute(), others with submit(),\n * and most of them never look at the Future they get back.\n */\npublic class SettlementPool extends ThreadPoolExecutor {\n\n    /** Where failures go: one call per failed job. */\n    public interface Alerts {\n        void jobFailed(Throwable cause);\n    }\n\n    private final Alerts alerts;\n\n    public SettlementPool(int threads, Alerts alerts) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), job -> {\n            Thread t = new Thread(job);\n            t.setDaemon(true);\n            return t;\n        });\n        this.alerts = alerts;\n    }\n\n    @Override\n    protected void afterExecute(Runnable job, Throwable thrown) {\n        super.afterExecute(job, thrown);\n        Throwable failure = failureOf(job, thrown);\n        if (failure != null) alerts.jobFailed(failure);\n    }\n\n    /**\n     * What the job that just ran on this thread failed with, or null if it did not fail.\n     * Called by afterExecute with its own arguments.\n     */\n    Throwable failureOf(Runnable job, Throwable thrown) {\n        // TODO: Tonight three settlement jobs failed and nobody was alerted. Work out whether\n        //       the job that just ran failed, however it was handed to the pool, and return\n        //       the exception the job itself threw. A job an operator cancelled is not a failure.\n        throw new IllegalStateException(\"TODO: failureOf\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "97e1dc26957e4503f79b8ed39ffe01edaf97e3ef1efe0599c95b3c9bec0a5aac",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\npublic class MonitoredPool extends ThreadPoolExecutor {\n\n    public MonitoredPool(int threads) {\n        super(threads, threads, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());\n    }\n\n    /** The message of every task that failed, from execute() or submit(). */\n    public List<String> failures() {\n        throw new UnsupportedOperationException(\"write failures\");\n    }\n\n    /** How many tasks ended without an exception. */\n    public int successes() {\n        throw new UnsupportedOperationException(\"write successes\");\n    }\n\n    /** Whether the pool has terminated. */\n    public boolean finished() {\n        throw new UnsupportedOperationException(\"write finished\");\n    }\n}\n",
+  "content_sha256": "9550a8edbb3293edb5a444ef656b4b2f5cb5e88a8436d48205bee711957d3596",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * Runs the nightly settlement jobs. Some callers hand it jobs with execute(), others with submit(),\n * and most of them never look at the Future they get back.\n */\npublic class SettlementPool extends ThreadPoolExecutor {\n\n    /** Where failures go: one call per failed job. */\n    public interface Alerts {\n        void jobFailed(Throwable cause);\n    }\n\n    private final Alerts alerts;\n\n    public SettlementPool(int threads, Alerts alerts) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), job -> {\n            Thread t = new Thread(job);\n            t.setDaemon(true);\n            return t;\n        });\n        this.alerts = alerts;\n    }\n\n    @Override\n    protected void afterExecute(Runnable job, Throwable thrown) {\n        super.afterExecute(job, thrown);\n        Throwable failure = failureOf(job, thrown);\n        if (failure != null) alerts.jobFailed(failure);\n    }\n\n    /**\n     * What the job that just ran on this thread failed with, or null if it did not fail.\n     * Called by afterExecute with its own arguments.\n     */\n    Throwable failureOf(Runnable job, Throwable thrown) {\n        // TODO: Tonight three settlement jobs failed and nobody was alerted. Work out whether\n        //       the job that just ran failed, however it was handed to the pool, and return\n        //       the exception the job itself threw. A job an operator cancelled is not a failure.\n        throw new IllegalStateException(\"TODO: failureOf\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/main/java/practice/MonitoredPool.java",
-    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/test/java/practice/MonitoredPoolTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/main/java/practice/SettlementPool.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-01/practice-2/src/test/java/practice/SettlementPoolTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MonitoredPoolTest#reportsAFailureFromExecute",
+        "id": "practice.SettlementPoolTest#jobsThatSucceedAllRunAndRaiseNoAlert",
         "kind": "main",
-        "says": "A task run with execute() that throws is reported as a failure, and a task that returns is counted as a success."
+        "says": "jobs that succeed all run on the pool's worker, whether handed over with execute() or submit(), and raise no alert"
       },
       {
-        "id": "practice.MonitoredPoolTest#reportsAFailureFromSubmit",
+        "id": "practice.SettlementPoolTest#aSubmittedJobThatFailsRaisesAnAlert",
         "kind": "edge",
-        "says": "A task run with submit() that throws is reported too, although its exception stays inside its Future."
+        "says": "a job handed over with submit() that throws raises an alert, though nobody reads its Future"
       },
       {
-        "id": "practice.MonitoredPoolTest#reportsTheCauseNotTheWrapper",
+        "id": "practice.SettlementPoolTest#aJobHandedOverWithExecuteThatFailsRaisesAnAlert",
         "kind": "edge",
-        "says": "A submitted Callable's checked exception is reported by its own message, not by the ExecutionException that wraps it."
+        "says": "a job handed over with execute() that throws raises an alert"
       },
       {
-        "id": "practice.MonitoredPoolTest#finishedOnlyAfterTermination",
+        "id": "practice.SettlementPoolTest#theAlertCarriesTheExceptionTheJobThrew",
         "kind": "edge",
-        "says": "The pool says it has finished only once shutdown has let every task end."
+        "says": "the alert carries the exception the job threw, not the wrapper around it"
+      },
+      {
+        "id": "practice.SettlementPoolTest#aJobCancelledWhileItRanIsNotAFailure",
+        "kind": "edge",
+        "says": "a job cancelled while it ran raises no alert, and the worker that ran it goes on to the next job"
       }
     ],
     "report": {
@@ -163,11 +129,11 @@
     },
     "origin": {
       "path": "23-executors/README_6.4.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "execute() Hands a Task's Exception to the Thread; submit() Keeps It in the Future"
     },
     "concepts": [
-      "An exception from a task run with execute() goes to the thread's uncaught-exception handler, while one from submit() is kept in the Future.",
-      "ThreadPoolExecutor's afterExecute() and terminated() hooks let a subclass monitor every task and the pool's end."
+      "afterExecute receives thrown == null for a submitted task; the task is the done FutureTask, which must be asked for its outcome.",
+      "A task run with execute() that throws ends its worker thread and reaches the uncaught-exception handler; one run with submit() has its exception stored in the Future, where only get() shows it."
     ]
   }
 }

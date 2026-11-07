@@ -1,27 +1,8 @@
-The page's typical `CopyOnWriteArrayList` use is an **event listener
-registry**: listeners register rarely, events fire often, and a listener may
-change the registry while an event is being delivered. Its `addIfAbsent`
-refuses a listener that is already there.
+The fare search keeps the fares on sale for a route, in cents, in a `ConcurrentSkipListSet` that
+pricing threads change all the time. The search page has two filters. "From 64.00 to 110.00"
+must show a fare of exactly 110.00. "Under 40.00" must not show a fare of exactly 40.00. A result
+the page has already shown must not change underneath it while the customer scrolls.
 
-Write the class `Listeners`, a registry whose listeners may change it while an
-event is being delivered. (The page's choice, `CopyOnWriteArrayList`, also makes
-it safe to share between threads; the tests check the single-threaded rules
-below.)
-
-- `register(Consumer<String> listener)` adds the listener and returns `true`,
-  or returns `false` if that listener is already registered.
-- `unregister(Consumer<String> listener)` removes it, returning whether it was
-  there.
-- `fire(String event)` passes `event` to each listener registered **when the
-  call began**, in registration order, and returns how many it called.
-  A listener may call `register` or `unregister` from inside `fire`: a listener
-  added that way hears only later events, and a listener removed that way does
-  not stop the others from hearing this one.
-
-| calls | answer |
-|---|---|
-| `register(a)`, `register(b)`, `fire("x")` | `2`; `a` and `b` each got `"x"` |
-| `register(a)`, `register(a)` | `true`, then `false` |
-| `a` registers `b` when called; `register(a)`, `fire("1")`, `fire("2")` | `1`, then `2`; `b` got only `"2"` |
-| `a` unregisters itself when called; `register(a)`, `register(b)`, `fire("1")`, `fire("2")` | `2`, then `1` |
-| `a` unregisters `b` when called; `register(a)`, `register(b)`, `fire("1")`, `fire("2")` | `2`, then `1`; `b` got `"1"` only |
+Finish `between(min, max)` and `under(limit)` in `src/main/java/practice/FareIndex.java`. Both
+return the matching fares lowest first, as they are when the method runs. About two lines in
+total.

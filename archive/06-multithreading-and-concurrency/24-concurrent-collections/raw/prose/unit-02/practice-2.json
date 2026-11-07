@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Count page visits without losing one",
+  "title": "Make the session sweeper safe to run beside live requests",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's pitfall: every single call on a `ConcurrentHashMap` is atomic, but `get` followed by `put` is **two** atomic calls, not one. Two threads can both read the old count and both write the same new count, and one visit is lost. The page's Q5 shows exactly this lost update on a counter."
+      "text": "The login service keeps the time each session was last seen in a `Collections.synchronizedMap`. Every request calls `touch`, so the map changes many times a second. Once a minute a sweeper removes the sessions that have expired, and on busy days it dies with `ConcurrentModificationException`, leaving stale sessions behind. The debug endpoint that dumps the sessions has a problem of its own: the dump it is writing out changes while it writes."
     },
     {
       "type": "para",
-      "text": "Write `Visits.record(ConcurrentHashMap<String, Integer> counts, String page)`. It adds one to `page`'s count, starting from 1 when the page is not in the map yet. Many threads call it at the same time on one map, and no visit may be lost."
+      "text": "Finish the two `TODO`s in `src/main/java/practice/SessionSweeper.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "counts before",
-        "calls",
-        "counts after"
-      ],
-      "rows": [
-        [
-          "`{home=1000}`",
-          "`record(counts, \"home\")` twice",
-          "`{home=1002}`"
-        ],
-        [
-          "`{}`",
-          "`record(counts, \"about\")`",
-          "`{about=1}`"
-        ],
-        [
-          "`{home=1000}`",
-          "two threads each call `record(counts, \"home\")` at once",
-          "`{home=1002}`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`sweep(policy)`: remove every session the policy says has expired, and return their ids;",
+        "`snapshot()`: the sessions as they are now, in a map that later requests don't change."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, a sweep finishes however many requests arrive while it runs, a request that arrives during a sweep is kept, and a dump doesn't change once it is taken. About ten lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests send a request into the middle of a sweep, through the expiry policy, and check from the JVM's thread data whether the request had to wait for the sweep."
     },
     {
       "type": "heading",
@@ -63,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Visits {\n\n    private Visits() {\n    }\n\n    /** Adds one to page's count (1 for a new page); safe to call from many threads at once. */\n    public static void record(ConcurrentHashMap<String, Integer> counts, String page) {\n        counts.merge(page, 1, Integer::sum);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Login sessions: the time each session was last seen, in a synchronized map. Request threads\n * call touch(...) on every request; a sweeper thread calls sweep(...) every minute; the debug\n * endpoint calls snapshot() and writes the result out while requests go on.\n */\npublic class SessionSweeper {\n\n    /** Decides whether a session has expired; it may look up the user, so it is not free. */\n    public interface ExpiryPolicy {\n        boolean expired(String sessionId, long lastSeen);\n    }\n\n    private final Map<String, Long> lastSeen = Collections.synchronizedMap(new HashMap<>());\n\n    /** Records that a session was seen at the given time. */\n    public void touch(String sessionId, long time) {\n        lastSeen.put(sessionId, time);\n    }\n\n    /** The time the session was last seen, or null if it is not (or no longer) a session. */\n    public Long lastSeen(String sessionId) {\n        return lastSeen.get(sessionId);\n    }\n\n    /** Removes every session the policy says has expired, and returns their ids. */\n    public List<String> sweep(ExpiryPolicy policy) {\n        List<String> gone = new ArrayList<>();\n        synchronized (lastSeen) {\n            Iterator<Map.Entry<String, Long>> it = lastSeen.entrySet().iterator();\n            while (it.hasNext()) {\n                Map.Entry<String, Long> e = it.next();\n                if (policy.expired(e.getKey(), e.getValue())) {\n                    it.remove();\n                    gone.add(e.getKey());\n                }\n            }\n        }\n        return gone;\n    }\n\n    /** The sessions as they are now, in a map of the caller's own that later touches don't change. */\n    public Map<String, Long> snapshot() {\n        synchronized (lastSeen) {\n            return new HashMap<>(lastSeen);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Visits {\n\n    private Visits() {\n    }\n\n    /** Adds one to page's count (1 for a new page); safe to call from many threads at once. */\n    public static void record(ConcurrentHashMap<String, Integer> counts, String page) {\n        throw new UnsupportedOperationException(\"write record\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Login sessions: the time each session was last seen, in a synchronized map. Request threads\n * call touch(...) on every request; a sweeper thread calls sweep(...) every minute; the debug\n * endpoint calls snapshot() and writes the result out while requests go on.\n */\npublic class SessionSweeper {\n\n    /** Decides whether a session has expired; it may look up the user, so it is not free. */\n    public interface ExpiryPolicy {\n        boolean expired(String sessionId, long lastSeen);\n    }\n\n    private final Map<String, Long> lastSeen = Collections.synchronizedMap(new HashMap<>());\n\n    /** Records that a session was seen at the given time. */\n    public void touch(String sessionId, long time) {\n        lastSeen.put(sessionId, time);\n    }\n\n    /** The time the session was last seen, or null if it is not (or no longer) a session. */\n    public Long lastSeen(String sessionId) {\n        return lastSeen.get(sessionId);\n    }\n\n    /** Removes every session the policy says has expired, and returns their ids. */\n    public List<String> sweep(ExpiryPolicy policy) {\n        // TODO: Remove every session the policy says has expired, and return their ids. Request\n        //       threads keep calling touch(...) while the sweep runs, on sessions old and new.\n        throw new IllegalStateException(\"TODO: sweep\");\n    }\n\n    /** The sessions as they are now, in a map of the caller's own that later touches don't change. */\n    public Map<String, Long> snapshot() {\n        // TODO: Return the sessions as they are now. The debug endpoint writes the result out\n        //       slowly while requests go on, and what it writes must not change under it.\n        throw new IllegalStateException(\"TODO: snapshot\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -94,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "efbc54c5828256b7eb413bb1a4556c2b7978d0cbf876f225aa3242e0d684cdcb",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Visits {\n\n    private Visits() {\n    }\n\n    /** Adds one to page's count (1 for a new page); safe to call from many threads at once. */\n    public static void record(ConcurrentHashMap<String, Integer> counts, String page) {\n        throw new UnsupportedOperationException(\"write record\");\n    }\n}\n",
+  "content_sha256": "b57f6ce89ee5c87113c836573735b706b4ac09aff4d3a968ff442442ab3a822e",
+  "starting_code": "package practice;\n\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Login sessions: the time each session was last seen, in a synchronized map. Request threads\n * call touch(...) on every request; a sweeper thread calls sweep(...) every minute; the debug\n * endpoint calls snapshot() and writes the result out while requests go on.\n */\npublic class SessionSweeper {\n\n    /** Decides whether a session has expired; it may look up the user, so it is not free. */\n    public interface ExpiryPolicy {\n        boolean expired(String sessionId, long lastSeen);\n    }\n\n    private final Map<String, Long> lastSeen = Collections.synchronizedMap(new HashMap<>());\n\n    /** Records that a session was seen at the given time. */\n    public void touch(String sessionId, long time) {\n        lastSeen.put(sessionId, time);\n    }\n\n    /** The time the session was last seen, or null if it is not (or no longer) a session. */\n    public Long lastSeen(String sessionId) {\n        return lastSeen.get(sessionId);\n    }\n\n    /** Removes every session the policy says has expired, and returns their ids. */\n    public List<String> sweep(ExpiryPolicy policy) {\n        // TODO: Remove every session the policy says has expired, and return their ids. Request\n        //       threads keep calling touch(...) while the sweep runs, on sessions old and new.\n        throw new IllegalStateException(\"TODO: sweep\");\n    }\n\n    /** The sessions as they are now, in a map of the caller's own that later touches don't change. */\n    public Map<String, Long> snapshot() {\n        // TODO: Return the sessions as they are now. The debug endpoint writes the result out\n        //       slowly while requests go on, and what it writes must not change under it.\n        throw new IllegalStateException(\"TODO: snapshot\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/main/java/practice/Visits.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/test/java/practice/VisitsTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/main/java/practice/SessionSweeper.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-2/src/test/java/practice/SessionSweeperTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,19 +110,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.VisitsTest#countsVisits",
+        "id": "practice.SessionSweeperTest#sweepsTheExpiredAndKeepsTheRest",
         "kind": "main",
-        "says": "Each recorded visit adds one to its page's count."
+        "says": "a sweep removes and returns the sessions the policy calls expired, keeps the others, and a snapshot shows what is left"
       },
       {
-        "id": "practice.VisitsTest#firstVisitCountsOne",
+        "id": "practice.SessionSweeperTest#aTouchDuringTheSweepWaitsForTheSweep",
         "kind": "edge",
-        "says": "The first visit to a page not yet in the map sets its count to 1."
+        "says": "a request that touches a session while the sweep walks the map waits until the walk is over"
       },
       {
-        "id": "practice.VisitsTest#simultaneousVisitsAreNotLost",
+        "id": "practice.SessionSweeperTest#aSnapshotStaysAsItWasWhenTaken",
         "kind": "edge",
-        "says": "Two visits recorded at the same moment by two threads both count, even when both threads read the old count before either writes."
+        "says": "touches made after a snapshot was taken don't show in it"
       }
     ],
     "report": {
@@ -140,10 +131,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Walking a Wrapper Is Many Calls: Hold the Wrapper's Lock for the Whole Walk"
     },
     "concepts": [
-      "get followed by put is two atomic calls, not one; a concurrent counter must use an atomic read-modify-write such as merge or compute, or updates are lost."
+      "Walking a synchronized wrapper is many calls; the walk holds the wrapper's own lock throughout, and every writer waits for it."
     ]
   }
 }

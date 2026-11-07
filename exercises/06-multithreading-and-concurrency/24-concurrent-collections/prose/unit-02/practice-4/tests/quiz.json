@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "06-multithreading-and-concurrency",
+    "24-concurrent-collections"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 4,
+  "title": "Check yourself: thread safety of common data structures",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-warmup-distinct-keys",
+        "stem": "A cache warm-up splits 40,000 product ids among 8 threads. Each thread puts its own ids into one shared HashMap, and no id appears in two threads' shares. What can the map look like once the threads are done?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It holds all 40,000 entries, since different keys land in different buckets and no two threads write into one bucket",
+            "correct": false,
+            "says": "different keys still share the map's table, and a put during another thread's resize or linking loses entries"
+          },
+          {
+            "id": "b",
+            "text": "It holds all 40,000 entries, since put() links each new entry into the table before the next put() can begin",
+            "correct": false,
+            "says": "the puts of different threads run inside a plain HashMap at the same time, which is how their resizes and links overwrite each other"
+          },
+          {
+            "id": "c",
+            "text": "It may hold fewer, since threads that link entries or resize the table at the same time overwrite each other's work",
+            "correct": true,
+            "says": "the table is shared whatever the keys; concurrent puts lose entries, and can also throw or never return"
+          },
+          {
+            "id": "d",
+            "text": "It may hold fewer, since two keys that land in one bucket make the second put() replace the first key's entry",
+            "correct": false,
+            "says": "one thread alone keeps every distinct key, colliding or not; the entries are lost because threads change the shared table at the same time"
+          }
+        ],
+        "origin": {
+          "path": "24-concurrent-collections/README_6.5.2.md",
+          "section": "A Plain HashMap Shared by Writers Loses Entries and Can Hang"
+        }
+      },
+      {
+        "id": "q-stock-reserve",
+        "stem": "Fifty threads reserve stock with `int left = stock.get(sku); if (left > 0) stock.put(sku, left - 1);` on `Collections.synchronizedMap(new HashMap<>())`, and the shop oversells. Which change stops the overselling?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Switching the map to a ConcurrentHashMap, since its lock on the key's bin lasts from the get() to the put() that follows",
+            "correct": false,
+            "says": "each call is atomic on its own; nothing is held between the get and the put, on either map"
+          },
+          {
+            "id": "b",
+            "text": "Switching the map to a ConcurrentHashMap, since its get() reads without a lock and so sees each put() at once",
+            "correct": false,
+            "says": "seeing the latest value doesn't help: two threads can still read the same value before either writes"
+          },
+          {
+            "id": "c",
+            "text": "Moving the two calls into one compute() on the map, since the map runs that read and write as one step",
+            "correct": true,
+            "says": "compute and merge read and write in one atomic call, on the wrapper and on ConcurrentHashMap alike"
+          },
+          {
+            "id": "d",
+            "text": "Moving the two calls into a block synchronized on the HashMap inside the wrapper, since that map is what the wrapper's calls lock",
+            "correct": false,
+            "says": "the wrapper's lock is the wrapper object itself, so a block on the inner HashMap excludes no other caller"
+          }
+        ],
+        "origin": {
+          "path": "24-concurrent-collections/README_6.5.2.md",
+          "section": "A Synchronized Wrapper Makes Each Call Atomic, Not a Sequence of Calls"
+        }
+      },
+      {
+        "id": "q-scanner-serials",
+        "stem": "Scanner threads record serial numbers per warehouse with `serials.computeIfAbsent(warehouse, w -> new ArrayList<>()).add(serial)`, where serials is a ConcurrentHashMap. What happens when many scanners in one warehouse scan at once?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Serials can go missing, since add() runs on one ArrayList from many threads after computeIfAbsent() has returned",
+            "correct": true,
+            "says": "the map's atomicity covers finding or creating the list; the list itself is a plain ArrayList shared by every scanner"
+          },
+          {
+            "id": "b",
+            "text": "Serials can go missing, since computeIfAbsent() can create two lists for one warehouse and keep only the second",
+            "correct": false,
+            "says": "computeIfAbsent runs the factory at most once per missing key and returns the same list to every caller"
+          },
+          {
+            "id": "c",
+            "text": "Every serial is kept, since computeIfAbsent() keeps the warehouse's entry locked until add() has finished",
+            "correct": false,
+            "says": "the call returns before add() runs; nothing the map does covers the add"
+          },
+          {
+            "id": "d",
+            "text": "Every serial is kept, since a value stored in a ConcurrentHashMap is safe to change from any thread",
+            "correct": false,
+            "says": "the map guards its entries, not the objects stored in them; a shared value needs its own thread safety"
+          }
+        ],
+        "origin": {
+          "path": "24-concurrent-collections/README_6.5.2.md",
+          "section": "A Thread-Safe Map Guards Its Entries, Not the Objects Stored in Them"
+        }
+      },
+      {
+        "id": "q-gateway-lists",
+        "stem": "A gateway keeps about 300 routes in a list that every request reads and that changes only on deploy. It also keeps an audit trail that gets one entry per request, 20,000 a second, and is read once an hour. Which pair of lists suits them?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Routes in a CopyOnWriteArrayList and the trail in a synchronized list, since a copy per write costs little when writes are rare",
+            "correct": true,
+            "says": "a copy per write is cheap for rare deploys and readers never wait; the trail would copy a growing array on every request"
+          },
+          {
+            "id": "b",
+            "text": "Routes in a CopyOnWriteArrayList and the trail in one too, since a walk over either list never waits for a writer",
+            "correct": false,
+            "says": "every add copies the whole array, so a trail growing 20,000 times a second gets slower with every entry"
+          },
+          {
+            "id": "c",
+            "text": "Routes in a synchronized list and the trail in a CopyOnWriteArrayList, since a copy per write keeps each append short",
+            "correct": false,
+            "says": "each write copies the whole array, which makes appends the expensive operation"
+          },
+          {
+            "id": "d",
+            "text": "Routes in a synchronized list and the trail in one too, since a reader of a CopyOnWriteArrayList waits while a write copies it",
+            "correct": false,
+            "says": "reads and walks use whichever array is current and never wait for a write"
+          }
+        ],
+        "origin": {
+          "path": "24-concurrent-collections/README_6.5.2.md",
+          "section": "CopyOnWriteArrayList Copies the Whole Array on Every Write"
+        }
+      }
+    ]
+  }
+}

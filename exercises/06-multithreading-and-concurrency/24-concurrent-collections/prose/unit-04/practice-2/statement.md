@@ -1,24 +1,17 @@
-The page's HashMap resizing rules: the **threshold** is
-`(int) (capacity * loadFactor)`, and the table **doubles** as soon as the
-number of entries goes **above** the threshold. With the defaults (16, 0.75)
-that is 7 resizes on the way to 1000 entries. The page's pitfall: asking for
-`new HashMap<>(100)` gives capacity 128 and threshold 96, so the map still
-resizes on the 97th put. To hold `n` entries with no resize, the page requests
-`(int) (n / 0.75f) + 1`.
+Each writer thread of the audit service collects records in a `RecordBuffer` and drains it to
+storage in batches of a few thousand. After an outage, a replay pushes hundreds of thousands of
+records through the same buffers. A week after the last outage, a heap dump shows every writer's
+buffer still holding an array of hundreds of thousands of slots, all of them empty. Decoding a frame,
+whose header gives its row count before the rows arrive one by one, also shows the buffer's array
+being copied while the rows go in.
 
-Write two methods of `Resizes`:
+Finish the two `TODO`s in `src/main/java/practice/RecordBuffer.java`:
 
-- `capacities(int capacity, float loadFactor, int entries)`: the table
-  capacities a map whose table starts at `capacity` (a power of two) goes
-  through while `entries` entries are put one by one, starting with
-  `capacity`.
-- `initialCapacityFor(int entries)`: the page's initial capacity for `entries`
-  entries at the default load factor 0.75.
+- `prepareFor(incoming)`: called before a frame's rows are added;
+- `drain()`: hands back the records added since the last drain, in order, and leaves the buffer empty.
 
-| call | answer |
-|---|---|
-| `capacities(16, 0.75f, 13)` | `[16, 32]` |
-| `capacities(16, 0.75f, 1000)` | `[16, 32, 64, 128, 256, 512, 1024, 2048]` |
-| `capacities(128, 0.75f, 97)` | `[128, 256]` |
-| `capacities(16, 0.75f, 12)` | `[16]` |
-| `initialCapacityFor(100)` | `134` |
+When you're done, a buffer drained after a replay keeps no more than `NORMAL_BATCH` slots, a
+normal batch neither reallocates the array nor grows it again, and a frame's rows go in without
+the array growing while they are added. About seven lines in total.
+
+The tests read the buffer's array by reflection.

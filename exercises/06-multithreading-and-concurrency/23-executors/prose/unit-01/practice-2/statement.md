@@ -1,24 +1,12 @@
-The page's pitfall: an exception thrown by a task run with `execute()` never
-reaches the caller, and one thrown by a task run with `submit()` is kept inside
-the returned `Future`, so if nobody calls `get()` it is lost. The page also says
-`ThreadPoolExecutor` exposes hooks, `beforeExecute()`, `afterExecute()` and
-`terminated()`, for monitoring.
+The nightly settlement run reported success, and in the morning three merchants had not been
+paid. The jobs that should have paid them had thrown, and nobody heard about it. The callers that
+hand jobs to `SettlementPool` are spread over a dozen services: some use `execute()`, some use
+`submit()`, and most ignore whatever comes back. Changing them all is not an option.
 
-Write `MonitoredPool`, a `ThreadPoolExecutor` of `threads` threads and an
-unbounded queue, that uses those hooks to keep a record:
+`SettlementPool` already passes every failure it finds to `Alerts` from its `afterExecute` hook.
+Finish `failureOf(job, thrown)` in `src/main/java/practice/SettlementPool.java`, so that every job
+that fails raises one alert, however it was handed over, and the alert carries the exception the
+job itself threw. An operator sometimes cancels a rerun while it is running; that is not a failure,
+and must not cost the pool its worker. About ten lines in total.
 
-- `List<String> failures()` holds the message of every task that failed, whether
-  it was run with `execute()` or `submit()`. For a submitted task, report the
-  exception the task threw, not the `ExecutionException` around it.
-- `int successes()` counts the tasks that ended without an exception.
-- `boolean finished()` is `true` once the pool has terminated, and `false` before.
-
-The record is written from the pool's worker threads, so keep it thread-safe; the tests run one worker at
-a time, so they check the record's contents, not its thread safety.
-
-| tasks on `new MonitoredPool(1)`, then `shutdown()` and wait | `failures()` | `successes()` |
-|---|---|---|
-| `execute` one that returns, `execute` one that throws `new IllegalStateException("boom")` | `["boom"]` | `1` |
-| `submit` one that throws `new IllegalStateException("bad")`, `submit` one that returns | `["bad"]` | `1` |
-| `submit` a `Callable` that throws `new IOException("disk")` | `["disk"]` | `0` |
-| a task still running after `shutdown()` | `finished()` is `false` until it ends | |
+The tests use a pool with one worker and wait for it to finish before they read the alerts.

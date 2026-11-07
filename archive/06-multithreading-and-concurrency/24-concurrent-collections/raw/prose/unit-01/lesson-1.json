@@ -18,344 +18,294 @@
       "text": "6.5.1. Common Collections and Their Implementations"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The tenant-settings cache is a `HashMap<String, String>`, and a setting a tenant cleared is stored as `null`, so the cache can tell it from one never set. A reviewer asks for thread safety, and the change is one line: `settings = new ConcurrentHashMap<>(settings)`. The next deploy fails at startup with a `NullPointerException` from that line."
     },
     {
       "type": "para",
-      "text": "Java's Collections Framework provides a rich set of data structures, each designed for specific use cases. Understanding the characteristics, performance trade-offs, and thread-safety guarantees of each collection is essential for writing efficient, correct Java code."
+      "text": "Both classes implement `Map`, and the interface leaves `null`, order and cost to each implementation. Swapping one for another changes those promises along with the speed."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Collection Costs What Its Structure Makes It Cost: ArrayList by Index, ArrayDeque at the Ends"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of collections like different types of containers in a warehouse. An **ArrayList** is like a numbered shelf where you can quickly find items by position but inserting in the middle requires shifting everything. A **LinkedList** is like a chain of boxes where adding/removing from either end is fast but finding a specific box requires walking the chain. A **CopyOnWriteArrayList** is like a whiteboard that gets photocopied before any changes -- readers always see a consistent snapshot while the writer works on the original."
+      "text": "The same call costs a different amount in each implementation, and in a loop the difference multiplies. An export sums 100,000 order amounts by index. Pause before the output: how much slower is the same loop over a `LinkedList`? The second measurement uses a list as a queue, taking from the front:"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "6.5.1.1. List Implementations"
+      "type": "code",
+      "lang": "java",
+      "text": "static long sumByIndex(List<Integer> orders) {\n    long sum = 0;\n    for (int i = 0; i < orders.size(); i++) sum += orders.get(i);\n    return sum;\n}\n\nwhile (!queue.isEmpty()) queue.remove(0);      // an ArrayList of 100,000\nwhile (deque.poll() != null) { }               // an ArrayDeque of 100,000"
     },
     {
-      "type": "table",
-      "headers": [
-        "Implementation",
-        "Random Access",
-        "Insertion (middle)",
-        "Thread-Safe",
-        "Null Elements",
-        "Iterator Behavior"
-      ],
-      "rows": [
-        [
-          "ArrayList",
-          "O(1)",
-          "O(n)",
-          "No",
-          "Yes",
-          "Fail-fast"
-        ],
-        [
-          "LinkedList",
-          "O(n)",
-          "O(1) once positioned (O(n) to walk there)",
-          "No",
-          "Yes",
-          "Fail-fast"
-        ],
-        [
-          "CopyOnWriteArrayList",
-          "O(1)",
-          "O(n) (full copy)",
-          "Yes",
-          "Yes",
-          "Snapshot (never throws CME)"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "6.5.1.2. Set Implementations"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "Implementation",
-        "Ordering",
-        "Lookup",
-        "Thread-Safe",
-        "Null Elements",
-        "Iterator Behavior"
-      ],
-      "rows": [
-        [
-          "HashSet",
-          "None",
-          "O(1) avg",
-          "No",
-          "Yes (one)",
-          "Fail-fast"
-        ],
-        [
-          "ConcurrentSkipListSet",
-          "Sorted",
-          "O(log n)",
-          "Yes",
-          "No",
-          "Weakly consistent"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "6.5.1.3. Map Implementations"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "Implementation",
-        "Ordering",
-        "Lookup",
-        "Thread-Safe",
-        "Null Key/Value",
-        "Iterator Behavior"
-      ],
-      "rows": [
-        [
-          "HashMap",
-          "None",
-          "O(1) avg",
-          "No",
-          "Yes / Yes",
-          "Fail-fast"
-        ],
-        [
-          "ConcurrentHashMap",
-          "None",
-          "O(1) avg",
-          "Yes",
-          "No / No",
-          "Weakly consistent"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**ArrayList** is the go-to general-purpose list: backed by an array, O(1) random access, O(n) insertion/removal in the middle.",
-        "**LinkedList** implements both `List` and `Deque`: ideal for queue/deque usage, O(1) add/remove at head/tail, but O(n) random access.",
-        "**CopyOnWriteArrayList** creates a fresh copy of the underlying array on every mutation: ideal for read-heavy workloads with rare writes.",
-        "**HashSet** uses a **HashMap** internally; it does not preserve insertion order (use `LinkedHashSet` if you need that).",
-        "**ConcurrentSkipListSet** is a thread-safe, sorted set backed by a skip list; it does **not** allow null elements.",
-        "**HashMap** offers O(1) average lookup but degrades to O(log n) when many keys collide (Java 8+ tree bins).",
-        "**ConcurrentHashMap** uses fine-grained locking (per-bin locks plus CAS since Java 8; the Java 7 version used lock striping over segments) for high-throughput concurrent access; it does **not** allow null keys or values.",
-        "All non-concurrent collections are **not** thread-safe by default."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Sequenced Collections (JEP 431)**: Java 21 introduced `SequencedCollection`, `SequencedSet`, and `SequencedMap` interfaces that provide uniform access to the first and last elements and a reversed view. `ArrayList`, `LinkedList`, and `LinkedHashSet` implement these.",
-        "**`List.of()` / `Set.of()` / `Map.of()` factory methods** (Java 9+): create unmodifiable collections.",
-        "**`toList()` terminal operation** on streams (Java 16+): returns an unmodifiable list.",
-        "**Virtual threads (Java 21)**: ConcurrentHashMap and CopyOnWriteArrayList work well with virtual threads since they avoid long-held locks."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Using ArrayList for frequent insertions/removals in the middle**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: O(n) for each removal\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\", \"d\"));\nlist.remove(0); // Shifts all elements left\n\n// BETTER: Use LinkedList or filter with streams\nList<String> filtered = list.stream().skip(1).toList();"
-          }
-        ],
-        [
-          "**Assuming HashSet preserves insertion order**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: Order may differ from insertion order\nSet<String> set = new HashSet<>();\nset.add(\"banana\"); set.add(\"apple\"); set.add(\"cherry\");\n// Iteration order is NOT guaranteed to be banana, apple, cherry\n\n// FIX: Use LinkedHashSet for insertion-order preservation\nSet<String> ordered = new LinkedHashSet<>();"
-          }
-        ],
-        [
-          "**Putting null into ConcurrentHashMap or ConcurrentSkipListSet**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// THROWS NullPointerException\nConcurrentHashMap<String, String> map = new ConcurrentHashMap<>();\nmap.put(\"key\", null); // NPE!\n\n// FIX: Use Optional or a sentinel value\nmap.put(\"key\", \"\");"
-          }
-        ],
-        [
-          "**Using CopyOnWriteArrayList for write-heavy workloads**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: Every add copies the entire array\nCopyOnWriteArrayList<Integer> list = new CopyOnWriteArrayList<>();\nfor (int i = 0; i < 100_000; i++) {\n    list.add(i); // Each add allocates a new array\n}\n\n// BETTER: Use Collections.synchronizedList or a concurrent queue"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Choose the right collection for your access pattern**: Random access -> ArrayList; Queue/Deque -> LinkedList or ArrayDeque; Thread-safe reads -> CopyOnWriteArrayList.",
-        "**Pre-size collections** when the number of elements is known to avoid resizing overhead.",
-        "**Use `ConcurrentHashMap.computeIfAbsent()`** for lazy initialization in concurrent contexts.",
-        "**Prefer `ArrayDeque` over `LinkedList`** for stack/queue usage -- it has less memory overhead and better cache locality.",
-        "**Use `Map.of()` / `List.of()`** for small, immutable collections."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null elements**: ArrayList, LinkedList, HashSet, HashMap and CopyOnWriteArrayList (including `addIfAbsent(null)`) all accept null. ConcurrentHashMap and ConcurrentSkipListSet reject null.",
-        "**Empty collections**: All collections handle empty state gracefully; check with `isEmpty()` before calling `get(0)` on lists.",
-        "**Single-element collections**: Use `Collections.singletonList()` or `List.of(element)` for immutable single-element collections.",
-        "**Concurrent iteration**: Non-concurrent collections throw `ConcurrentModificationException`; concurrent collections provide weakly consistent iterators."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "type": "code",
+      "lang": "text",
+      "text": "get(i) over 100,000:    ArrayList 0 ms, LinkedList 3098 ms\ntake 100,000 from the front: ArrayList.remove(0) 145 ms, ArrayDeque.poll() 0 ms"
     },
     {
       "type": "para",
-      "text": "Interviewers frequently ask about:"
+      "text": "An `ArrayList` is an array: `get(i)` is one address computation. A `LinkedList` is a chain of nodes, and `get(i)` walks from the nearer end, so the loop makes about n²/4 hops: 2.5 billion here. `LinkedList`'s constant-time insert needs a position you already hold, through a `ListIterator`; getting there is the same walk."
+    },
+    {
+      "type": "para",
+      "text": "Taking from the front is the opposite case: `remove(0)` shifts every remaining element down by one. `ArrayDeque` is a circular array that only moves its head index, so `poll()` costs the same at any size."
+    },
+    {
+      "type": "para",
+      "text": "Both loops are quadratic: ten times the rows makes them about a hundred times slower. The code that hits this rarely builds the list. It takes a `List` parameter, and one caller passes a `LinkedList`. Loop with for-each, which walks either list once, or check for the `RandomAccess` marker interface, which `ArrayList` implements and `LinkedList` doesn't. For a queue or a stack, use `ArrayDeque`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Hash Set Iterates in Hash Order, and the Order Changes as the Set Grows"
+    },
+    {
+      "type": "para",
+      "text": "A `HashSet` promises no order at all. An importer drops repeated airport codes with a `HashSet` and then writes the codes out:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> first = List.of(\"LIS\", \"OSL\", \"ROM\", \"BER\", \"PAR\");\nSet<String> hash = new HashSet<>(), linked = new LinkedHashSet<>();\nhash.addAll(first); linked.addAll(first);\nhash.addAll(List.of(\"MAD\", \"VIE\", \"DUB\", \"AMS\", \"BRU\", \"CPH\", \"HEL\", \"ATH\", \"WAW\", \"PRG\"));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "added:         [LIS, OSL, ROM, BER, PAR]\nHashSet:       [PAR, ROM, LIS, OSL, BER]\nLinkedHashSet: [LIS, OSL, ROM, BER, PAR]\nHashSet after 10 more, the first five: [PAR, OSL, BER, ROM, LIS]"
+    },
+    {
+      "type": "para",
+      "text": "A `HashSet` keeps its elements in a table of buckets chosen by `hashCode()`, and iterates by walking the table. For the same elements and table size the order is the same on every run, so it looks stable while the set is small. The default table has 16 buckets and doubles when it passes three-quarters full, 12 elements; then the elements are spread over twice as many buckets, and the same five codes come out in another order (unit 6.5.4 explains the resize). A test written with five codes passes, and production, with fifteen, writes them in a different order."
+    },
+    {
+      "type": "para",
+      "text": "When order matters, say which one: `LinkedHashSet` keeps the order of first insertion, and `add` of an element already there doesn't move it (Java 21's `addFirst` and `addLast` do). `TreeSet` and `ConcurrentSkipListSet` keep sorted order."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "ConcurrentHashMap Refuses null, So That null from get Means Absent"
+    },
+    {
+      "type": "para",
+      "text": "`ConcurrentHashMap` throws on a `null` key or value, where `HashMap` stores it. The settings map from the start of the unit, and a few other collections (`attempt` runs a call and prints how it ended):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, String> settings = new HashMap<>();\nsettings.put(\"timezone\", \"UTC\");\nsettings.put(\"proxy\", null);                 // the tenant cleared it\nSystem.out.println(\"get(\\\"proxy\\\") = \" + settings.get(\"proxy\") + \", containsKey = \" + settings.containsKey(\"proxy\"));\nSystem.out.println(\"get(\\\"locale\\\") = \" + settings.get(\"locale\") + \", containsKey = \" + settings.containsKey(\"locale\"));\n\nattempt(\"new ConcurrentHashMap<>(settings)\", () -> new ConcurrentHashMap<>(settings));\nattempt(\"ConcurrentSkipListSet.add(null)\", () -> new ConcurrentSkipListSet<String>().add(null));\nattempt(\"ArrayDeque.add(null)\", () -> new ArrayDeque<String>().add(null));\nattempt(\"CopyOnWriteArrayList.add(null)\", () -> new CopyOnWriteArrayList<String>().add(null));\nattempt(\"ConcurrentHashMap.get(null)\", () -> new ConcurrentHashMap<String, String>().get(null));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "get(\"proxy\") = null, containsKey = true\nget(\"locale\") = null, containsKey = false\nnew ConcurrentHashMap<>(settings): NullPointerException\nConcurrentSkipListSet.add(null): NullPointerException\nArrayDeque.add(null): NullPointerException\nCopyOnWriteArrayList.add(null): ok\nConcurrentHashMap.get(null): NullPointerException"
+    },
+    {
+      "type": "para",
+      "text": "A `HashMap` returns `null` both for a key mapped to `null` and for a missing key, and `containsKey` tells them apart. In a map that other threads write, that takes two calls, and another thread can put or remove the key between them, so the two answers describe different moments. `ConcurrentHashMap` refuses `null` keys and values, which makes `get` returning `null` mean \"absent\" on its own. The skip-list collections and the concurrent queues refuse `null` for the same reason, and so does `ArrayDeque`, which isn't concurrent, through `add` and `offer` alike: `poll()` returning `null` must mean \"empty\". The copy-on-write classes and the synchronized wrappers accept it."
+    },
+    {
+      "type": "para",
+      "text": "Storing `null` let the cache tell \"the tenant cleared this\" from \"never set, use the default\". The quick fix is to store `\"\"` for \"cleared\". Then a tenant whose order-number suffix really is empty reads back as cleared. A stand-in for `null` has to be a value no caller can store: a private object in a `Map<String, Object>`, or an `Optional<String>` value type."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "CopyOnWriteArrayList Copies Its Array on Every Write, So Readers Iterate a Snapshot"
+    },
+    {
+      "type": "para",
+      "text": "A deploy event goes to a list of listeners. The first listener runs once: it removes itself, and the audit listener with it, while the event is being delivered:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Consumer<String> once = new Consumer<>() {\n    public void accept(String e) {\n        System.out.println(\"  once got \" + e + \", removes itself and audit\");\n        listeners.remove(this);\n        listeners.remove(audit);\n    }\n};\nlisteners.add(once);                         // listeners is an ArrayList, then a CopyOnWriteArrayList\nlisteners.add(audit);\nfor (Consumer<String> l : listeners) l.accept(\"deploy-1\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ArrayList:\n  once got deploy-1, removes itself and audit\n  ConcurrentModificationException\nCopyOnWriteArrayList:\n  once got deploy-1, removes itself and audit\n  audit got deploy-1\n  listeners left: 0"
+    },
+    {
+      "type": "para",
+      "text": "Every write to a `CopyOnWriteArrayList` copies the array, changes the copy and swaps it in. An iterator keeps the array it started with, so it takes no lock, a writer never waits for it, it never throws `ConcurrentModificationException`, and it doesn't see a change made after it began. That is why `audit` heard the event after being removed: removal takes effect from the next event."
+    },
+    {
+      "type": "para",
+      "text": "That fits a listener list, written a few times at startup and read on every event; unit 6.5.2 measures what each write costs, and unit 6.5.3 shows how the iterator behaves."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Sorted Set Answers Ranges Through Views Backed by the Set"
+    },
+    {
+      "type": "para",
+      "text": "A stock report lists the SKUs in a band. `ConcurrentSkipListSet` is the concurrent counterpart of `TreeSet`: sorted, a `NavigableSet`, with O(log n) expected cost. Is `D-400` in the band below?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ConcurrentSkipListSet<String> skus = new ConcurrentSkipListSet<>(List.of(\"B-200\", \"A-100\", \"D-400\", \"C-300\", \"b-250\"));\nNavigableSet<String> band = skus.subSet(\"B-200\", \"D-400\");\nskus.add(\"C-350\");\ntry { band.add(\"E-500\"); } catch (IllegalArgumentException e) { /* printed below */ }\nList<String> copy = List.copyOf(band);\nskus.remove(\"C-300\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "set:                     [A-100, B-200, C-300, D-400, b-250]\nsubSet(B-200, D-400):    [B-200, C-300]\nsubSet(.., true, .., true): [B-200, C-300, D-400]\nafter skus.add(C-350):   [B-200, C-300, C-350]\nband.add(E-500):         IllegalArgumentException\nafter remove(C-300): view [B-200, C-350], copy [B-200, C-300, C-350]"
+    },
+    {
+      "type": "para",
+      "text": "The two-argument `subSet` includes its lower bound and excludes its upper one, so adjacent bands don't overlap. The four-argument form sets each bound. `b-250` sorts last because natural `String` order compares character codes, and lower case comes after upper case."
+    },
+    {
+      "type": "para",
+      "text": "`subSet`, `headSet` and `tailSet` return live views, not copies. A view shows later changes to the set, writes through to it, and refuses an element outside its range. A report that returns the view and prints a total first and the lines later can print lines that don't add up to the total. A result that must stay as it was returns `List.copyOf(view)`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 5 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "When to use ArrayList vs. LinkedList (answer: almost always ArrayList due to cache locality)",
-        "The difference between HashMap and ConcurrentHashMap (null handling, thread safety, performance)",
-        "Why ConcurrentHashMap does not allow null keys/values (ambiguity: does `get()` returning null mean absent or null value?)",
-        "Internal structure of HashMap (array of buckets, linked list / tree for collisions)",
-        "Time complexity of common operations across different collection types"
+        "**A collection costs what its structure makes it cost.** `get(i)` on a `LinkedList` walks, and `remove(0)` on an `ArrayList` shifts; both turn a loop quadratic. Use `ArrayDeque` for queues.",
+        "**A hash set iterates in hash order**, which changes when the table resizes. Ask for the order you need with `LinkedHashSet` or a sorted set.",
+        "**`ConcurrentHashMap` refuses `null`**, as do the skip-list collections, the concurrent queues and `ArrayDeque`, so `null` from `get` or `poll` means absent or empty. A stand-in for `null` must be a value no caller can store.",
+        "**`CopyOnWriteArrayList` copies on every write.** Iteration takes no lock and walks a snapshot that ignores later changes; writes cost the whole array.",
+        "**A sorted set's ranges are views**, half-open by default, that follow the set."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview Q&A Section"
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "**Q1: When should you use ArrayList vs. LinkedList?**"
+      "text": "Java 21. Costs are the javadoc's; `null` handling is from a run."
     },
     {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: In almost all cases, ArrayList is preferred over LinkedList because:\n\n1. Cache locality: ArrayList's contiguous memory layout is CPU-cache-friendly, making sequential access \n   significantly faster in practice.\n2. Random access: ArrayList provides O(1) access by index; LinkedList is O(n).\n3. Memory overhead: Each LinkedList element needs its own node object (header plus item/prev/next\n   references, about 24 bytes with compressed oops) versus one 4-byte array slot in ArrayList —\n   several times the memory per element.\n\nLinkedList is better ONLY when:\n- You need constant-time insertions/removals at both ends (use as Deque)\n- You never need random access by index\n- You need to remove elements during iteration via ListIterator\n\nIn modern Java, ArrayDeque is generally preferred over LinkedList even for queue/deque usage."
+      "type": "table",
+      "headers": [
+        "Class",
+        "Iteration order",
+        "`null`",
+        "Cost",
+        "Thread-safe"
+      ],
+      "rows": [
+        [
+          "`ArrayList`",
+          "index",
+          "yes",
+          "`get(i)` constant; add or remove at the front or middle linear",
+          "no"
+        ],
+        [
+          "`LinkedList`",
+          "index",
+          "yes",
+          "ends constant; `get(i)` linear",
+          "no"
+        ],
+        [
+          "`ArrayDeque`",
+          "head to tail",
+          "no",
+          "most operations amortized constant",
+          "no"
+        ],
+        [
+          "`CopyOnWriteArrayList`",
+          "index",
+          "yes",
+          "every write copies the array",
+          "yes"
+        ],
+        [
+          "`HashSet`, `HashMap`",
+          "none promised",
+          "yes, keys and values",
+          "basic operations constant, given a good hash",
+          "no"
+        ],
+        [
+          "`LinkedHashSet`, `LinkedHashMap`",
+          "first insertion, unless moved by `addFirst`/`addLast` or `putFirst`/`putLast`",
+          "yes",
+          "basic operations constant",
+          "no"
+        ],
+        [
+          "`TreeSet`, `TreeMap`",
+          "sorted",
+          "no elements or keys with natural ordering; values yes",
+          "log(n)",
+          "no"
+        ],
+        [
+          "`ConcurrentSkipListSet`, `ConcurrentSkipListMap`",
+          "sorted",
+          "no elements, keys or values",
+          "expected log(n)",
+          "yes"
+        ],
+        [
+          "`ConcurrentHashMap`",
+          "none promised",
+          "no keys, no values",
+          "a hash table, like `HashMap`",
+          "yes"
+        ]
+      ]
     },
     {
-      "type": "code",
-      "lang": "java",
-      "text": "// ArrayList - preferred for most use cases\nList<String> arrayList = new ArrayList<>();\narrayList.add(\"fast\");           // O(1) amortized\nString item = arrayList.get(0);  // O(1) random access\n\n// LinkedList as Deque - valid use case\nDeque<String> deque = new LinkedList<>();\ndeque.addFirst(\"front\");  // O(1)\ndeque.addLast(\"back\");    // O(1)\nString first = deque.pollFirst(); // O(1)\n\n// ArrayDeque - usually better than LinkedList for queue/stack\nDeque<String> better = new ArrayDeque<>();\nbetter.push(\"stack\");\nbetter.offer(\"queue\");"
+      "type": "heading",
+      "level": 2,
+      "text": "Challenges"
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "items": [
+        "A method takes a `List<Row>` and loops over it by index. You can't control what callers pass. Which change do you make, and how do you test that it worked?",
+        "Your registry has 10,000 subscribers and gains one per second. Measure whether `CopyOnWriteArrayList` is still the right choice, and what you would replace it with.",
+        "A report must list the distinct customer ids from today's events in a stable order. Compare `LinkedHashSet`, `TreeSet` and sorting a `HashSet`'s contents: which order does each give, and which does the reader of the report expect?"
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Design Note: One Interface, Different Promises"
     },
     {
       "type": "para",
-      "text": "**Q2: Why does ConcurrentHashMap not allow null keys or values?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: ConcurrentHashMap prohibits null keys and values to avoid ambiguity in concurrent contexts.\n\nWith a regular HashMap, when map.get(key) returns null, you can call map.containsKey(key) to distinguish \nbetween \"key is absent\" and \"key maps to null.\" But in a concurrent environment, between the get() and \ncontainsKey() calls, another thread could modify the map, making the check unreliable.\n\nThis is called the \"check-then-act\" race condition. By disallowing null values, ConcurrentHashMap \nensures that get() returning null unambiguously means \"key not present,\" and all single-method \noperations (like putIfAbsent, computeIfAbsent) can be safely atomic.\n\nDoug Lea (the author) explicitly chose this design to prevent subtle bugs in concurrent code."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// HashMap allows null - fine in single-threaded contexts\nHashMap<String, String> hashMap = new HashMap<>();\nhashMap.put(\"key\", null);\nif (hashMap.containsKey(\"key\")) {\n    // We know the key exists but maps to null\n}\n\n// ConcurrentHashMap rejects null\nConcurrentHashMap<String, String> concMap = new ConcurrentHashMap<>();\n// concMap.put(\"key\", null);  // Throws NullPointerException!\n// concMap.put(null, \"value\"); // Throws NullPointerException!\n\n// Safe alternative: use a sentinel value or Optional\nconcMap.put(\"key\", \"\"); // Empty string as sentinel"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is CopyOnWriteArrayList and when would you use it?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: CopyOnWriteArrayList is a thread-safe variant of ArrayList where every mutative operation \n(add, set, remove) creates a fresh copy of the underlying array.\n\nWhen to use it:\n1. Read-heavy, write-rare scenarios (e.g., listener/observer lists, configuration caches)\n2. When you need safe iteration without external synchronization\n3. When the dataset is small enough that copying the array is acceptable\n\nKey characteristics:\n- Reads (get, iteration) are lock-free and very fast\n- Writes are expensive: O(n) time and memory for each mutation\n- Iterators operate on a snapshot and never throw ConcurrentModificationException\n- Iterator.remove() throws UnsupportedOperationException (snapshot is immutable)\n\nReal-world examples:\n- Event listener registries in GUI frameworks\n- Security policy lists that rarely change\n- Configuration lists read by many threads"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Typical use case: event listener registry\nCopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();\n\n// Registration (rare) - copies the array\nlisteners.add(() -> System.out.println(\"Event fired!\"));\n\n// Notification (frequent) - iterates over snapshot, no locking\nfor (Runnable listener : listeners) {\n    listener.run(); // Safe even if another thread modifies the list\n}\n\n// addIfAbsent prevents duplicates\nlisteners.addIfAbsent(() -> System.out.println(\"Unique listener\"));"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does ConcurrentSkipListSet differ from a synchronized TreeSet?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: ConcurrentSkipListSet is a lock-free, thread-safe, sorted set implementation based on a skip list \ndata structure. It differs from a synchronized TreeSet in several important ways:\n\n1. Concurrency: ConcurrentSkipListSet uses lock-free algorithms (CAS operations), allowing multiple \n   threads to read and write simultaneously without blocking. A synchronized TreeSet locks the entire \n   structure for every operation.\n\n2. Scalability: ConcurrentSkipListSet scales much better under contention because operations on \n   different parts of the skip list don't interfere with each other.\n\n3. Iteration: ConcurrentSkipListSet provides weakly consistent iterators that never throw \n   ConcurrentModificationException. A synchronized TreeSet's iterator requires external synchronization.\n\n4. Performance: Individual operations on ConcurrentSkipListSet are O(log n) like TreeSet, but under \n   high concurrency, the throughput is significantly higher.\n\n5. Null handling: ConcurrentSkipListSet does NOT allow null elements (throws NullPointerException). \n   TreeSet allows null only if the comparator handles it.\n\n6. Navigation: Both support NavigableSet operations (headSet, tailSet, subSet, floor, ceiling)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// ConcurrentSkipListSet - thread-safe, sorted, no locking needed\nConcurrentSkipListSet<String> skipSet = new ConcurrentSkipListSet<>();\nskipSet.add(\"banana\");\nskipSet.add(\"apple\");\nskipSet.add(\"cherry\");\n// Always iterates in sorted order: apple, banana, cherry\n\n// Range operations\nNavigableSet<String> subset = skipSet.subSet(\"apple\", true, \"cherry\", false);\n// Returns: [apple, banana]\n\n// vs. synchronized TreeSet - requires external locking for iteration\nSet<String> syncTree = Collections.synchronizedSet(new TreeSet<>());\nsynchronized (syncTree) {\n    for (String s : syncTree) {\n        // Must hold lock during entire iteration\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What are the internal mechanics of HashMap?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: HashMap is an array-based hash table that stores key-value pairs in \"buckets.\"\n\nInternal structure:\n1. An array of Node objects (called \"table\"), where each Node contains: hash, key, value, next pointer.\n2. Default initial capacity: 16 buckets. Default load factor: 0.75.\n3. When the number of entries exceeds capacity * loadFactor (the \"threshold\"), the table doubles in size \n   (rehashing all entries).\n\nCollision handling (Java 8+):\n- When multiple keys hash to the same bucket, they form a linked list.\n- If a bucket's linked list exceeds 8 nodes AND the table has >= 64 buckets, the list is converted to \n  a balanced red-black tree (O(log n) lookup instead of O(n)).\n- If a tree bin shrinks to 6 or fewer nodes (checked when the table is resized), it converts back to a linked list.\n\nHash computation:\n- HashMap applies a supplementary hash function that XORs the upper and lower 16 bits of hashCode():\n  hash = (h = key.hashCode()) ^ (h >>> 16)\n- This reduces collisions when many keys have similar lower bits.\n\nThe bucket index is computed as: index = hash & (capacity - 1), which works because capacity is always \na power of 2."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Creating HashMap with custom capacity and load factor\nMap<String, Integer> map = new HashMap<>(32, 0.75f);\n\n// merge() for atomic-like operations\nmap.merge(\"key\", 1, Integer::sum); // Adds 1 if absent, increments if present\n\n// computeIfAbsent() for lazy initialization\nMap<String, List<Integer>> groups = new HashMap<>();\ngroups.computeIfAbsent(\"group1\", k -> new ArrayList<>()).add(42);\n\n// HashMap supports null key (stored at index 0)\nmap.put(null, 0);\nInteger nullValue = map.get(null); // Returns 0"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does ConcurrentHashMap achieve thread safety without locking the entire map?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: ConcurrentHashMap uses several techniques for fine-grained concurrency:\n\nJava 8+ implementation (current):\n1. Per-bin locking: Instead of locking the entire table, it locks individual buckets (bins) using \n   synchronized blocks on the first node of each bin. (The Java 7 version locked \"segments\" —\n   lock striping; Java 8 removed segments.)\n2. CAS operations: Many operations (like adding to an empty bucket) use Compare-And-Swap (CAS) \n   atomic operations, avoiding locks entirely.\n3. Volatile reads: The table array and node values use volatile semantics, ensuring visibility across \n   threads without locking.\n\nBulk operations (Java 8+):\n- forEach, search, reduce with a parallelism threshold parameter\n- When threshold is 1, operations run in the ForkJoinPool.commonPool()\n- These operations are designed for concurrent traversal\n\nKey guarantees:\n- Individual operations (get, put, remove) are thread-safe and atomic\n- Compound operations (putIfAbsent, computeIfAbsent, merge) are also atomic\n- Iteration is weakly consistent: reflects some concurrent modifications\n- size() and isEmpty() are approximations under concurrent modification"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();\n\n// Atomic compound operations\nmap.putIfAbsent(\"counter\", 0);\nmap.merge(\"counter\", 1, Integer::sum); // Atomic increment\n\n// Bulk operations with parallelism threshold\nmap.put(\"a\", 10); map.put(\"b\", 20); map.put(\"c\", 30);\n\n// Parallel forEach (threshold=1 means always parallelize)\nmap.forEach(1, (key, value) -> System.out.println(key + \"=\" + value));\n\n// Parallel reduce\nlong sum = map.reduceValuesToLong(1, Integer::longValue, 0L, Long::sum);\n\n// Parallel search\nString found = map.search(1, (key, value) -> value > 15 ? key : null);"
+      "text": "The collection interfaces let a method accept any `List` or `Map`, and let a caller swap implementations without touching it. The cost is that a parameter typed `Map` tells you nothing about the promises this unit compared: whether `null` is allowed, what order iteration gives, what `get` costs, or whether another thread may write. Code that relies on one of those relies on something the type doesn't say, and the one-line swap from the start of the unit breaks it. Name the promise you depend on, in the type (`SequencedSet`, `NavigableSet`, `ConcurrentMap`) where one exists, and in the documentation where none does."
     },
     {
       "type": "heading",
@@ -375,17 +325,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 9,
-    "code": 12,
-    "tables": 3,
-    "lists": 7,
+    "headings": 11,
+    "paras": 20,
+    "code": 10,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 5,
     "disclosures": 0
   },
-  "content_sha256": "c9139612501af9d0b9ce631cbe8d7f0e82535267228d21763d4c4656045c5c9a"
+  "content_sha256": "b01107c9c687e5c68b4e7a2fecb39f659b39fae83daff4160cd5b9342cec4481"
 }

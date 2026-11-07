@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Change a map while walking it",
+  "title": "Hand out alerts while subscribers come and go",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,24 @@
     },
     {
       "type": "para",
-      "text": "The page separates two kinds of change made while a `HashMap` is being walked. Changing the **value** of an existing entry (`entry.setValue(...)`, or `put` with a key already there) is not structural and is safe. **Adding or removing** a key is structural, and the walk's next step throws `ConcurrentModificationException`."
+      "text": "The on-call system hands each alert to its subscribers: the pager, the chat bridge, the SMS gateway, the escalation timer. Subscribers change the list while they handle an alert. When the pager reaches someone, it unsubscribes the SMS gateway, so the person isn't texted as well. The escalation timer unsubscribes itself once an alert is acknowledged. A new audit subscriber may be added halfway through."
     },
     {
       "type": "para",
-      "text": "Write three methods that change a `Map<String, Integer>` of account balances **in place** (the caller keeps using the same map object):"
+      "text": "The engineer on call wrote this on Monday's incident: \"Paged, answered, and still got the SMS a second later.\" Finish `publish(String alert)` in `src/main/java/practice/AlertBus.java`, which keeps its subscribers in a `CopyOnWriteArrayList`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Ledger.addInterest(balances, percent)` adds `balance * percent / 100` (integer division) to every balance.",
-        "`Ledger.dropBelow(balances, minimum)` removes every account whose balance is below `minimum`.",
-        "`Ledger.prefixKeys(balances, prefix)` renames every account `k` to `prefix + k`, keeping its balance. A new name may equal an old name still waiting to be renamed: every account survives the renaming."
+        "a subscriber unsubscribed before its turn comes doesn't get the alert;",
+        "one subscribed during an alert starts with the next alert;",
+        "everyone else gets it once, in the order they subscribed."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "balances",
-        "call",
-        "balances after"
-      ],
-      "rows": [
-        [
-          "`{ann=1000, bob=2000}`",
-          "`addInterest(balances, 10)`",
-          "`{ann=1100, bob=2200}`"
-        ],
-        [
-          "`{ann=1000, bob=150, cy=90, dee=5000, fay=500}`",
-          "`dropBelow(balances, 500)`",
-          "`{ann=1000, dee=5000, fay=500}`"
-        ],
-        [
-          "`{ann=1000, bob=2000, cy=3000}`",
-          "`prefixKeys(balances, \"old-\")`",
-          "`{old-ann=1000, old-bob=2000, old-cy=3000}`"
-        ]
-      ]
+      "type": "para",
+      "text": "About three lines."
     },
     {
       "type": "heading",
@@ -72,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\npublic final class Ledger {\n\n    private Ledger() {\n    }\n\n    /** Adds balance * percent / 100 to every balance, in place. */\n    public static void addInterest(Map<String, Integer> balances, int percent) {\n        for (Map.Entry<String, Integer> e : balances.entrySet()) {\n            e.setValue(e.getValue() + e.getValue() * percent / 100);\n        }\n    }\n\n    /** Removes every account whose balance is below minimum, in place. */\n    public static void dropBelow(Map<String, Integer> balances, int minimum) {\n        balances.values().removeIf(balance -> balance < minimum);\n    }\n\n    /** Renames every account k to prefix + k, keeping its balance, in place. */\n    public static void prefixKeys(Map<String, Integer> balances, String prefix) {\n        Map<String, Integer> renamed = new LinkedHashMap<>();\n        balances.forEach((k, v) -> renamed.put(prefix + k, v));\n        balances.clear();\n        balances.putAll(renamed);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\n/**\n * Hands each alert to the subscribers of an on-call system: the pager, the chat bridge, the\n * escalation timer. A subscriber may subscribe or unsubscribe others, or itself, while it handles\n * an alert: the escalation timer unsubscribes itself once someone acknowledges.\n */\npublic class AlertBus {\n\n    public interface Subscriber {\n        void deliver(String alert);\n    }\n\n    private final List<Subscriber> subscribers = new CopyOnWriteArrayList<>();\n\n    public void subscribe(Subscriber s) {\n        subscribers.add(s);\n    }\n\n    public void unsubscribe(Subscriber s) {\n        subscribers.remove(s);\n    }\n\n    /**\n     * Hands the alert to each subscriber, in the order they subscribed. A subscriber that is\n     * unsubscribed before its turn comes doesn't get this alert. One subscribed while this alert is\n     * being handed out starts with the next alert. Every other subscriber gets it exactly once.\n     */\n    public void publish(String alert) {\n        for (Subscriber s : subscribers) {\n            if (subscribers.contains(s)) s.deliver(alert);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Map;\n\npublic final class Ledger {\n\n    private Ledger() {\n    }\n\n    /** Adds balance * percent / 100 to every balance, in place. */\n    public static void addInterest(Map<String, Integer> balances, int percent) {\n        throw new UnsupportedOperationException(\"write addInterest\");\n    }\n\n    /** Removes every account whose balance is below minimum, in place. */\n    public static void dropBelow(Map<String, Integer> balances, int minimum) {\n        throw new UnsupportedOperationException(\"write dropBelow\");\n    }\n\n    /** Renames every account k to prefix + k, keeping its balance, in place. */\n    public static void prefixKeys(Map<String, Integer> balances, String prefix) {\n        throw new UnsupportedOperationException(\"write prefixKeys\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\n/**\n * Hands each alert to the subscribers of an on-call system: the pager, the chat bridge, the\n * escalation timer. A subscriber may subscribe or unsubscribe others, or itself, while it handles\n * an alert: the escalation timer unsubscribes itself once someone acknowledges.\n */\npublic class AlertBus {\n\n    public interface Subscriber {\n        void deliver(String alert);\n    }\n\n    private final List<Subscriber> subscribers = new CopyOnWriteArrayList<>();\n\n    public void subscribe(Subscriber s) {\n        subscribers.add(s);\n    }\n\n    public void unsubscribe(Subscriber s) {\n        subscribers.remove(s);\n    }\n\n    /**\n     * Hands the alert to each subscriber, in the order they subscribed. A subscriber that is\n     * unsubscribed before its turn comes doesn't get this alert. One subscribed while this alert is\n     * being handed out starts with the next alert. Every other subscriber gets it exactly once.\n     */\n    public void publish(String alert) {\n        throw new IllegalStateException(\"TODO: publish(alert)\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -103,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "768c39641034fa0c640531c5bd98cdc7cf1931888b2860d9f82013ed6aadfa23",
-  "starting_code": "package practice;\n\nimport java.util.Map;\n\npublic final class Ledger {\n\n    private Ledger() {\n    }\n\n    /** Adds balance * percent / 100 to every balance, in place. */\n    public static void addInterest(Map<String, Integer> balances, int percent) {\n        throw new UnsupportedOperationException(\"write addInterest\");\n    }\n\n    /** Removes every account whose balance is below minimum, in place. */\n    public static void dropBelow(Map<String, Integer> balances, int minimum) {\n        throw new UnsupportedOperationException(\"write dropBelow\");\n    }\n\n    /** Renames every account k to prefix + k, keeping its balance, in place. */\n    public static void prefixKeys(Map<String, Integer> balances, String prefix) {\n        throw new UnsupportedOperationException(\"write prefixKeys\");\n    }\n}\n",
+  "content_sha256": "f48ebc4231032d306a73d9db4b42b21ac87e56bdb0e048d0b6a3cbc790dc73a5",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\n/**\n * Hands each alert to the subscribers of an on-call system: the pager, the chat bridge, the\n * escalation timer. A subscriber may subscribe or unsubscribe others, or itself, while it handles\n * an alert: the escalation timer unsubscribes itself once someone acknowledges.\n */\npublic class AlertBus {\n\n    public interface Subscriber {\n        void deliver(String alert);\n    }\n\n    private final List<Subscriber> subscribers = new CopyOnWriteArrayList<>();\n\n    public void subscribe(Subscriber s) {\n        subscribers.add(s);\n    }\n\n    public void unsubscribe(Subscriber s) {\n        subscribers.remove(s);\n    }\n\n    /**\n     * Hands the alert to each subscriber, in the order they subscribed. A subscriber that is\n     * unsubscribed before its turn comes doesn't get this alert. One subscribed while this alert is\n     * being handed out starts with the next alert. Every other subscriber gets it exactly once.\n     */\n    public void publish(String alert) {\n        throw new IllegalStateException(\"TODO: publish(alert)\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-03/practice-3/src/main/java/practice/Ledger.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-03/practice-3/src/test/java/practice/LedgerTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-03/practice-3/src/main/java/practice/AlertBus.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-03/practice-3/src/test/java/practice/AlertBusTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,29 +107,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LedgerTest#updatesInPlace",
+        "id": "practice.AlertBusTest#everySubscriberGetsEachAlertOnceInOrder",
         "kind": "main",
-        "says": "addInterest raises every balance in place, and dropBelow and prefixKeys leave a map that needs no change as it is."
+        "says": "with no changes during an alert, every subscriber gets each alert once, in the order they subscribed"
       },
       {
-        "id": "practice.LedgerTest#dropsSeveralAccounts",
+        "id": "practice.AlertBusTest#aSubscriberDroppedBeforeItsTurnDoesNotGetTheAlert",
         "kind": "edge",
-        "says": "dropBelow removes every account under the minimum from a HashMap, however many there are, and keeps an account exactly at the minimum."
+        "says": "a subscriber unsubscribed by another during an alert, before its turn, does not get that alert"
       },
       {
-        "id": "practice.LedgerTest#renamesEveryKey",
+        "id": "practice.AlertBusTest#aSubscriberAddedDuringAnAlertStartsWithTheNextOne",
         "kind": "edge",
-        "says": "prefixKeys replaces every key of a HashMap with its prefixed name, keeping each value."
+        "says": "a subscriber added while an alert is handed out does not get that alert"
       },
       {
-        "id": "practice.LedgerTest#renamingDoesNotOverwrite",
+        "id": "practice.AlertBusTest#aSubscriberThatLeavesDuringAnAlertDoesNotCostTheNextOneIt",
         "kind": "edge",
-        "says": "Renaming a to x-a while an account x-a exists keeps both: x-a=1 and x-x-a=2, nothing overwritten."
-      },
-      {
-        "id": "practice.LedgerTest#interestRoundsDown",
-        "kind": "edge",
-        "says": "Interest is integer division: 1005 at 10% gains 100, not a rounded 101."
+        "says": "a subscriber that unsubscribes itself during an alert does not keep the subscriber after it from getting the alert"
       }
     ],
     "report": {
@@ -159,10 +133,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.3.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "A CopyOnWriteArrayList Iterator Walks the Array It Started With"
     },
     "concepts": [
-      "While walking a HashMap, entry.setValue is safe, but putting a new key or removing one is structural; the removal goes through removeIf and new keys go into a separate map first."
+      "A CopyOnWriteArrayList iterator walks the array current when it was created: an element removed during the walk is still visited and one added is not."
     ]
   }
 }

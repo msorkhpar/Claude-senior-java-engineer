@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Every way a Future can end",
+  "title": "Make the settlement report say what went wrong",
   "blocks": [
     {
       "type": "heading",
@@ -19,58 +19,26 @@
     },
     {
       "type": "para",
-      "text": "The page's interview answer lists what `Future.get()` can throw: `ExecutionException` when the task failed (the real exception is its `getCause()`, even a checked one), `CancellationException` when the task was cancelled, `TimeoutException` from `get(timeout, unit)`, and `InterruptedException` when the waiting thread is interrupted. Its pitfalls add: always wait with a timeout, and handle the cause, not the wrapper."
+      "text": "The finance team reads the nightly settlement report every morning. It has one line per merchant, and each merchant's day is settled with its bank on a pool, all at once. The line for every merchant whose bank call went wrong reads `failed: ExecutionException`, so nobody can tell a bank that timed out from a bug in the ledger. And on the night the ledger database ran out of connections, the report job died after the first failing merchant, and nobody got a report."
     },
     {
       "type": "para",
-      "text": "Write `Outcomes.describe(future, timeout, unit)`, which waits at most `timeout` for the future and returns one line:"
+      "text": "`run(...)` already submits the settlements and builds the report. Finish the `TODO` in `src/main/java/practice/SettlementReport.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`\"value: \" + value` when the task returned;",
-        "`\"failed: \" + SimpleClassName + \": \" + message` of the exception **the task threw**;",
-        "`\"cancelled\"` when the task was cancelled;",
-        "`\"timed out\"` when it did not finish in time."
+        "`line(...)`: wait for one merchant's settlement and write its line."
       ]
     },
     {
       "type": "para",
-      "text": "An interrupt of the waiting thread is not an outcome: let the `InterruptedException` out."
+      "text": "When you're done, a failed merchant's line names what the bank call threw and its message, every merchant gets its line whatever happened to the others, and stopping the report job while it waits ends the job instead of filling the report with failures. About six lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "the future's task",
-        "`describe(future, 1, SECONDS)`"
-      ],
-      "rows": [
-        [
-          "returned `42`",
-          "`\"value: 42\"`"
-        ],
-        [
-          "threw `new IOException(\"File not found\")`",
-          "`\"failed: IOException: File not found\"`"
-        ],
-        [
-          "was cancelled before it ran",
-          "`\"cancelled\"`"
-        ],
-        [
-          "finishes while `describe` is waiting (timeout 5 s)",
-          "`\"value: late\"`"
-        ],
-        [
-          "never finishes (timeout 50 ms)",
-          "`\"timed out\"`"
-        ],
-        [
-          "never finishes, and the calling thread is interrupted",
-          "throws `InterruptedException`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests settle merchants on a real `ExecutorService`."
     },
     {
       "type": "heading",
@@ -85,7 +53,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.CancellationException;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\npublic final class Outcomes {\n\n    private Outcomes() {\n    }\n\n    /** Waits at most timeout for the future and describes how its task ended. */\n    public static String describe(Future<?> future, long timeout, TimeUnit unit) throws InterruptedException {\n        try {\n            return \"value: \" + future.get(timeout, unit);\n        } catch (ExecutionException e) {\n            Throwable cause = e.getCause();\n            return \"failed: \" + cause.getClass().getSimpleName() + \": \" + cause.getMessage();\n        } catch (CancellationException e) {\n            return \"cancelled\";\n        } catch (TimeoutException e) {\n            return \"timed out\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The nightly settlement report. Each merchant's day is settled with its bank on the pool, all of\n * them at once, and the report has one line per merchant, in the order the merchants were given.\n */\npublic class SettlementReport {\n\n    /** Settles one merchant's day with its bank and returns the amount, in cents. */\n    public interface Bank {\n        long settle(String merchant) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Bank bank;\n\n    public SettlementReport(ExecutorService pool, Bank bank) {\n        this.pool = pool;\n        this.bank = bank;\n    }\n\n    /** Settles every merchant and returns the report's lines, one per merchant, in order. */\n    public List<String> run(List<String> merchants) throws InterruptedException {\n        List<Future<Long>> settlements = new ArrayList<>();\n        for (String merchant : merchants) {\n            settlements.add(pool.submit(() -> bank.settle(merchant)));\n        }\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < merchants.size(); i++) {\n            lines.add(line(merchants.get(i), settlements.get(i)));\n        }\n        return lines;\n    }\n\n    /**\n     * The report's line for one merchant, once its settlement is over:\n     * \"m-114: settled 1999\" when the bank settled it, or\n     * \"m-114: failed: SocketTimeoutException: bank-7 timed out\" when the bank call threw, naming\n     * what the bank call threw and its message.\n     */\n    String line(String merchant, Future<Long> settlement) throws InterruptedException {\n        try {\n            return merchant + \": settled \" + settlement.get();\n        } catch (ExecutionException e) {\n            Throwable cause = e.getCause();\n            return merchant + \": failed: \" + cause.getClass().getSimpleName() + \": \" + cause.getMessage();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -97,7 +65,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Outcomes {\n\n    private Outcomes() {\n    }\n\n    /** Waits at most timeout for the future and describes how its task ended. */\n    public static String describe(Future<?> future, long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write describe\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The nightly settlement report. Each merchant's day is settled with its bank on the pool, all of\n * them at once, and the report has one line per merchant, in the order the merchants were given.\n */\npublic class SettlementReport {\n\n    /** Settles one merchant's day with its bank and returns the amount, in cents. */\n    public interface Bank {\n        long settle(String merchant) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Bank bank;\n\n    public SettlementReport(ExecutorService pool, Bank bank) {\n        this.pool = pool;\n        this.bank = bank;\n    }\n\n    /** Settles every merchant and returns the report's lines, one per merchant, in order. */\n    public List<String> run(List<String> merchants) throws InterruptedException {\n        List<Future<Long>> settlements = new ArrayList<>();\n        for (String merchant : merchants) {\n            settlements.add(pool.submit(() -> bank.settle(merchant)));\n        }\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < merchants.size(); i++) {\n            lines.add(line(merchants.get(i), settlements.get(i)));\n        }\n        return lines;\n    }\n\n    /**\n     * The report's line for one merchant, once its settlement is over:\n     * \"m-114: settled 1999\" when the bank settled it, or\n     * \"m-114: failed: SocketTimeoutException: bank-7 timed out\" when the bank call threw, naming\n     * what the bank call threw and its message.\n     */\n    String line(String merchant, Future<Long> settlement) throws InterruptedException {\n        // TODO: Wait for this merchant's settlement and describe how it went, as above. A bank\n        //       that fails for one merchant must not cost the other merchants their lines.\n        throw new IllegalStateException(\"TODO: line\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -105,9 +73,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -116,11 +84,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "63952f85347c59c3f847003cc2a8babf76f8b7e743a844d0a50ca8db2f14e95b",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.Future;\nimport java.util.concurrent.TimeUnit;\n\npublic final class Outcomes {\n\n    private Outcomes() {\n    }\n\n    /** Waits at most timeout for the future and describes how its task ended. */\n    public static String describe(Future<?> future, long timeout, TimeUnit unit) throws InterruptedException {\n        throw new UnsupportedOperationException(\"write describe\");\n    }\n}\n",
+  "content_sha256": "cfd664aa893555e3ec07898e7b071605eb68bf5b3e9e6d819a6c3d54ee064da4",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\n/**\n * The nightly settlement report. Each merchant's day is settled with its bank on the pool, all of\n * them at once, and the report has one line per merchant, in the order the merchants were given.\n */\npublic class SettlementReport {\n\n    /** Settles one merchant's day with its bank and returns the amount, in cents. */\n    public interface Bank {\n        long settle(String merchant) throws Exception;\n    }\n\n    private final ExecutorService pool;\n    private final Bank bank;\n\n    public SettlementReport(ExecutorService pool, Bank bank) {\n        this.pool = pool;\n        this.bank = bank;\n    }\n\n    /** Settles every merchant and returns the report's lines, one per merchant, in order. */\n    public List<String> run(List<String> merchants) throws InterruptedException {\n        List<Future<Long>> settlements = new ArrayList<>();\n        for (String merchant : merchants) {\n            settlements.add(pool.submit(() -> bank.settle(merchant)));\n        }\n        List<String> lines = new ArrayList<>();\n        for (int i = 0; i < merchants.size(); i++) {\n            lines.add(line(merchants.get(i), settlements.get(i)));\n        }\n        return lines;\n    }\n\n    /**\n     * The report's line for one merchant, once its settlement is over:\n     * \"m-114: settled 1999\" when the bank settled it, or\n     * \"m-114: failed: SocketTimeoutException: bank-7 timed out\" when the bank call threw, naming\n     * what the bank call threw and its message.\n     */\n    String line(String merchant, Future<Long> settlement) throws InterruptedException {\n        // TODO: Wait for this merchant's settlement and describe how it went, as above. A bank\n        //       that fails for one merchant must not cost the other merchants their lines.\n        throw new IllegalStateException(\"TODO: line\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/main/java/practice/Outcomes.java",
-    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/test/java/practice/OutcomesTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/main/java/practice/SettlementReport.java",
+    "test_path": "practice/06-multithreading-and-concurrency/23-executors/prose/unit-02/practice-1/src/test/java/practice/SettlementReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -141,44 +109,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.OutcomesTest#describesAValue",
+        "id": "practice.SettlementReportTest#everySettledMerchantGetsItsLineInOrder",
         "kind": "main",
-        "says": "A task that returned is described by its value."
+        "says": "every merchant the bank settled gets a line with its amount, in the order the merchants were given"
       },
       {
-        "id": "practice.OutcomesTest#describesTheCauseOfAFailure",
+        "id": "practice.SettlementReportTest#aBankErrorIsReportedAsWhatTheBankCallThrew",
         "kind": "edge",
-        "says": "A task that threw is described by the exception it threw, unwrapped from the ExecutionException."
+        "says": "a failed settlement is reported as the exception the bank call threw, with its message"
       },
       {
-        "id": "practice.OutcomesTest#describesACancelledTask",
+        "id": "practice.SettlementReportTest#oneFailedMerchantDoesNotCostTheOthersTheirLines",
         "kind": "edge",
-        "says": "A cancelled task is described as cancelled, since get() throws CancellationException for it."
+        "says": "a merchant whose settlement failed still gets its line, and so do the merchants after it"
       },
       {
-        "id": "practice.OutcomesTest#waitsForALateResult",
+        "id": "practice.SettlementReportTest#interruptingTheReportEndsItRatherThanFailingTheMerchants",
         "kind": "edge",
-        "says": "A result that arrives while describe is still waiting, within the timeout, is described as a value."
-      },
-      {
-        "id": "practice.OutcomesTest#anInterruptLeavesAsAnException",
-        "kind": "edge",
-        "says": "An interrupt of the waiting thread comes out as InterruptedException, not as an outcome."
-      },
-      {
-        "id": "practice.OutcomesTest#givesUpAfterTheTimeout",
-        "kind": "edge",
-        "says": "A task that does not finish in time is described as timed out instead of blocking forever."
-      },
-      {
-        "id": "practice.OutcomesTest#theTimeoutUnitIsHonoured",
-        "kind": "edge",
-        "says": "describe(task, 2, SECONDS) waits in seconds: a result that comes after 0.3 s is described as a value."
-      },
-      {
-        "id": "practice.OutcomesTest#theTasksOwnExceptionNotItsRoot",
-        "kind": "edge",
-        "says": "A task that throws IllegalStateException(\"outer\") caused by an IOException is described by the IllegalStateException it threw."
+        "says": "an interrupt of the thread waiting for the report ends the report with InterruptedException instead of being reported as a merchant's failure"
       }
     ],
     "report": {
@@ -187,13 +135,11 @@
     },
     "origin": {
       "path": "23-executors/README_6.4.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A Callable's Result and Its Exception Both Come Back Through get()"
     },
     "concepts": [
-      "A Callable returns a value and may throw a checked exception, which a Runnable can do neither of.",
-      "A task's exception, checked or not, reaches get() wrapped in ExecutionException, and getCause() gives the original.",
-      "get() on a cancelled Future throws CancellationException.",
-      "get(timeout, unit) throws TimeoutException instead of blocking forever when the result is late."
+      "Whatever a task throws comes back from get() as an ExecutionException whose cause is the original exception.",
+      "InterruptedException from get() means the waiting thread was interrupted, not that the task failed."
     ]
   }
 }

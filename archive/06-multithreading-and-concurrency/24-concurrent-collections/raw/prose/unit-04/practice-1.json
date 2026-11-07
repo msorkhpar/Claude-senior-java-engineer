@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Round a capacity up to a power of two",
+  "title": "Size the catalogue import's maps for the batch",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,28 @@
     },
     {
       "type": "para",
-      "text": "The page's HashMap always rounds a requested capacity **up** to the nearest power of two, so that `hash & (capacity - 1)` can stand in for `hash % capacity`. Its `tableSizeFor` gives 16 for 10, 32 for 17, and 64 for 64. A request of 0 is valid and gives the minimum table."
+      "text": "The catalogue import loads one batch of SKUs at a time, and the batch header says how many rows follow. A profile of an import shows time in `HashMap.resize` and `ConcurrentHashMap.transfer` on every batch, and a heap dump shows the stock cache's table twice the length of the price index's, for the same number of SKUs."
     },
     {
       "type": "para",
-      "text": "Write `TableSize.tableSizeFor(int requested)`: the smallest power of two that is at least `requested`, and `1` for a request of zero or less. Requests go up to `1 << 30`."
+      "text": "`CatalogMaps` builds three maps per batch. Finish its three factory methods in `src/main/java/practice/CatalogMaps.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "requested",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`10`",
-          "`16`"
-        ],
-        [
-          "`17`",
-          "`32`"
-        ],
-        [
-          "`100`",
-          "`128`"
-        ],
-        [
-          "`64`",
-          "`64`"
-        ],
-        [
-          "`0`",
-          "`1`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`newPriceIndex(skus)`: filled once by the import thread, then only read;",
+        "`newStockCache(skus)`: shared by the request threads;",
+        "`newRecentTable(maxEntries)`: the table behind `RecentLookups`, a cache of the prices users looked up most recently, which drops the one used least recently when it is full."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, none of the three grows its table while a batch loads or while the cache evicts, and the stock cache's table is no longer than it needs to be. About three lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests read each map's table length by reflection."
     },
     {
       "type": "heading",
@@ -67,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class TableSize {\n\n    private TableSize() {\n    }\n\n    /** The smallest power of two at least requested; 1 for zero or less. */\n    public static int tableSizeFor(int requested) {\n        if (requested <= 0) {\n            return 1;\n        }\n        int n = requested - 1;\n        n |= n >>> 1;\n        n |= n >>> 2;\n        n |= n >>> 4;\n        n |= n >>> 8;\n        n |= n >>> 16;\n        return n + 1;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The maps the catalogue import builds for one batch. The batch header says how many SKUs follow,\n * so each map knows how many entries it will hold before the first row arrives.\n */\npublic class CatalogMaps {\n\n    /** SKU to price in cents. The import thread fills it with exactly {@code skus} rows; then it is only read. */\n    static Map<String, Long> newPriceIndex(int skus) {\n        return HashMap.newHashMap(skus);\n    }\n\n    /** SKU to units in stock. Request threads share it; it holds every SKU of the batch. */\n    static ConcurrentHashMap<String, Integer> newStockCache(int skus) {\n        return new ConcurrentHashMap<>(skus);\n    }\n\n    /** The table behind {@link RecentLookups}: up to {@code maxEntries} SKUs, least recently used first. */\n    static LinkedHashMap<String, Long> newRecentTable(int maxEntries) {\n        return new LinkedHashMap<>((int) (maxEntries / 0.75f) + 1, 0.75f, true);\n    }\n\n    /** The prices of the SKUs looked up most recently, at most {@code maxEntries} of them. */\n    public static final class RecentLookups {\n\n        private final int maxEntries;\n        private final LinkedHashMap<String, Long> table;\n\n        public RecentLookups(int maxEntries) {\n            this.maxEntries = maxEntries;\n            this.table = newRecentTable(maxEntries);\n        }\n\n        public Long get(String sku) {\n            return table.get(sku);\n        }\n\n        public void put(String sku, long price) {\n            table.put(sku, price);\n            if (table.size() > maxEntries) {\n                table.remove(table.keySet().iterator().next());   // the first entry of the table goes\n            }\n        }\n\n        public int size() {\n            return table.size();\n        }\n\n        public boolean contains(String sku) {\n            return table.containsKey(sku);\n        }\n\n        LinkedHashMap<String, Long> table() {\n            return table;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class TableSize {\n\n    private TableSize() {\n    }\n\n    /** The smallest power of two at least requested; 1 for zero or less. */\n    public static int tableSizeFor(int requested) {\n        throw new UnsupportedOperationException(\"write tableSizeFor\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The maps the catalogue import builds for one batch. The batch header says how many SKUs follow,\n * so each map knows how many entries it will hold before the first row arrives.\n */\npublic class CatalogMaps {\n\n    /** SKU to price in cents. The import thread fills it with exactly {@code skus} rows; then it is only read. */\n    static Map<String, Long> newPriceIndex(int skus) {\n        // TODO: The import fills this map with exactly `skus` rows on every batch. Return a map\n        //       that takes them all without ever growing its table.\n        throw new IllegalStateException(\"TODO: newPriceIndex\");\n    }\n\n    /** SKU to units in stock. Request threads share it; it holds every SKU of the batch. */\n    static ConcurrentHashMap<String, Integer> newStockCache(int skus) {\n        // TODO: Return a concurrent map that takes all `skus` entries without growing its table,\n        //       and whose table is no bigger than that needs.\n        throw new IllegalStateException(\"TODO: newStockCache\");\n    }\n\n    /** The table behind {@link RecentLookups}: up to {@code maxEntries} SKUs, least recently used first. */\n    static LinkedHashMap<String, Long> newRecentTable(int maxEntries) {\n        // TODO: Return the table RecentLookups keeps its entries in. put() below takes the first\n        //       entry of the table as the one to evict, and the cache must never grow its table.\n        throw new IllegalStateException(\"TODO: newRecentTable\");\n    }\n\n    /** The prices of the SKUs looked up most recently, at most {@code maxEntries} of them. */\n    public static final class RecentLookups {\n\n        private final int maxEntries;\n        private final LinkedHashMap<String, Long> table;\n\n        public RecentLookups(int maxEntries) {\n            this.maxEntries = maxEntries;\n            this.table = newRecentTable(maxEntries);\n        }\n\n        public Long get(String sku) {\n            return table.get(sku);\n        }\n\n        public void put(String sku, long price) {\n            table.put(sku, price);\n            if (table.size() > maxEntries) {\n                table.remove(table.keySet().iterator().next());   // the first entry of the table goes\n            }\n        }\n\n        public int size() {\n            return table.size();\n        }\n\n        public boolean contains(String sku) {\n            return table.containsKey(sku);\n        }\n\n        LinkedHashMap<String, Long> table() {\n            return table;\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,10 +75,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4071d99c8093a0129d8ce159a3ffb393a473ea69b6e82d5e0d6d2020296c08c5",
-  "starting_code": "package practice;\n\npublic final class TableSize {\n\n    private TableSize() {\n    }\n\n    /** The smallest power of two at least requested; 1 for zero or less. */\n    public static int tableSizeFor(int requested) {\n        throw new UnsupportedOperationException(\"write tableSizeFor\");\n    }\n}\n",
+  "content_sha256": "8ae14f89439ef0128f83d4841ade95063f0c4176c59c24417977eae3be4a5fe8",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The maps the catalogue import builds for one batch. The batch header says how many SKUs follow,\n * so each map knows how many entries it will hold before the first row arrives.\n */\npublic class CatalogMaps {\n\n    /** SKU to price in cents. The import thread fills it with exactly {@code skus} rows; then it is only read. */\n    static Map<String, Long> newPriceIndex(int skus) {\n        // TODO: The import fills this map with exactly `skus` rows on every batch. Return a map\n        //       that takes them all without ever growing its table.\n        throw new IllegalStateException(\"TODO: newPriceIndex\");\n    }\n\n    /** SKU to units in stock. Request threads share it; it holds every SKU of the batch. */\n    static ConcurrentHashMap<String, Integer> newStockCache(int skus) {\n        // TODO: Return a concurrent map that takes all `skus` entries without growing its table,\n        //       and whose table is no bigger than that needs.\n        throw new IllegalStateException(\"TODO: newStockCache\");\n    }\n\n    /** The table behind {@link RecentLookups}: up to {@code maxEntries} SKUs, least recently used first. */\n    static LinkedHashMap<String, Long> newRecentTable(int maxEntries) {\n        // TODO: Return the table RecentLookups keeps its entries in. put() below takes the first\n        //       entry of the table as the one to evict, and the cache must never grow its table.\n        throw new IllegalStateException(\"TODO: newRecentTable\");\n    }\n\n    /** The prices of the SKUs looked up most recently, at most {@code maxEntries} of them. */\n    public static final class RecentLookups {\n\n        private final int maxEntries;\n        private final LinkedHashMap<String, Long> table;\n\n        public RecentLookups(int maxEntries) {\n            this.maxEntries = maxEntries;\n            this.table = newRecentTable(maxEntries);\n        }\n\n        public Long get(String sku) {\n            return table.get(sku);\n        }\n\n        public void put(String sku, long price) {\n            table.put(sku, price);\n            if (table.size() > maxEntries) {\n                table.remove(table.keySet().iterator().next());   // the first entry of the table goes\n            }\n        }\n\n        public int size() {\n            return table.size();\n        }\n\n        public boolean contains(String sku) {\n            return table.containsKey(sku);\n        }\n\n        LinkedHashMap<String, Long> table() {\n            return table;\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-1/src/main/java/practice/TableSize.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-1/src/test/java/practice/TableSizeTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-1/src/main/java/practice/CatalogMaps.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-1/src/test/java/practice/CatalogMapsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,24 +111,44 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TableSizeTest#roundsUp",
+        "id": "practice.CatalogMapsTest#priceIndexHoldsEveryRowOfTheBatch",
         "kind": "main",
-        "says": "A requested capacity is rounded up to the next power of two."
+        "says": "the price index holds every row of a batch"
       },
       {
-        "id": "practice.TableSizeTest#powerOfTwoStays",
-        "kind": "edge",
-        "says": "A request that is already a power of two is kept as it is."
+        "id": "practice.CatalogMapsTest#stockCacheHoldsEveryRowOfTheBatch",
+        "kind": "main",
+        "says": "the stock cache holds every row of a batch"
       },
       {
-        "id": "practice.TableSizeTest#zeroOrLessGivesOne",
-        "kind": "edge",
-        "says": "A request of zero or less gives the smallest table, one bucket."
+        "id": "practice.CatalogMapsTest#recentLookupsKeepAtMostTheirLimit",
+        "kind": "main",
+        "says": "the recent-lookups cache keeps at most its limit of entries, the newest ones when nothing is read"
       },
       {
-        "id": "practice.TableSizeTest#largePowersOfTwoStay",
+        "id": "practice.CatalogMapsTest#priceIndexNeverGrowsItsTableWhileTheBatchLoads",
         "kind": "edge",
-        "says": "Large powers of two such as 2^29 and 2^30 are their own answer, and 2^29 + 1 gives 2^30: exact integer arithmetic, no floating-point logarithm."
+        "says": "the price index takes a whole batch without growing its table"
+      },
+      {
+        "id": "practice.CatalogMapsTest#stockCacheNeverGrowsItsTableWhileTheBatchLoads",
+        "kind": "edge",
+        "says": "the stock cache takes a whole batch without growing its table"
+      },
+      {
+        "id": "practice.CatalogMapsTest#stockCacheTableIsNoBiggerThanTheBatchNeeds",
+        "kind": "edge",
+        "says": "the stock cache's table is the smallest that holds the batch"
+      },
+      {
+        "id": "practice.CatalogMapsTest#recentLookupsEvictTheEntryUsedLeastRecently",
+        "kind": "edge",
+        "says": "an entry read recently survives the next eviction, and the one nobody read goes"
+      },
+      {
+        "id": "practice.CatalogMapsTest#recentLookupsNeverGrowTheirTable",
+        "kind": "edge",
+        "says": "the recent-lookups cache never grows its table, while it fills or while it evicts"
       }
     ],
     "report": {
@@ -149,10 +157,13 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.4.md",
-      "section": "6.5.4.1. Initial Capacity and Load Factor in HashMap"
+      "section": "ConcurrentHashMap Is Sized in Entries, and Its Load Factor Only Sizes the First Table"
     },
     "concepts": [
-      "HashMap rounds a requested capacity up to the nearest power of two."
+      "An access-ordered LinkedHashMap needs the three-argument constructor, whose int is a bucket count; LinkedHashMap.newLinkedHashMap(n) gives insertion order.",
+      "ConcurrentHashMap's constructor takes a number of entries, so passing it the HashMap formula doubles its table for some counts.",
+      "A ConcurrentHashMap's load factor argument only sizes its first table; every resize comes when the size reaches three-quarters of the table.",
+      "The int that HashMap's, HashSet's and LinkedHashMap's constructors take is a bucket count rounded up to a power of two, and the table doubles once the size goes above capacity x load factor, so new HashMap<>(n) resizes before n entries for many n; HashMap.newHashMap(n) takes the entry count."
     ]
   }
 }

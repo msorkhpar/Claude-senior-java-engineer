@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Claim a seat once, whatever the timing",
+  "title": "Stop the search index from losing documents",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's key point 7: a thread-safe collection does **not** make a check-then-act sequence atomic. `if (!map.containsKey(k)) map.put(k, v)` is two calls, and another thread can put `k` between them. The page's fix is a single atomic method on `ConcurrentHashMap`."
+      "text": "The search service indexes documents by word: a `ConcurrentHashMap` from each word to the set of documents that contain it. Indexing threads add and remove documents all day, while search threads look words up and walk the sets they get back. Support tickets say that a freshly published document sometimes can't be found by a word it plainly contains, and a search now and then fails with `ConcurrentModificationException`."
     },
     {
       "type": "para",
-      "text": "Write `Seats.claim(ConcurrentHashMap<String, String> seats, String seat, String person)`. If `seat` is free, `person` takes it. If it is taken, nothing changes. Either way it returns whoever holds the seat after the call. Two threads claiming the same free seat at the same moment must agree on one winner, and that winner must be the one in the map."
+      "text": "Finish the two `TODO`s in `src/main/java/practice/WordIndex.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "seats before",
-        "call",
-        "answer",
-        "seats after"
-      ],
-      "rows": [
-        [
-          "`{}`",
-          "`claim(seats, \"A1\", \"ann\")`",
-          "`\"ann\"`",
-          "`{A1=ann}`"
-        ],
-        [
-          "`{A1=ann}`",
-          "`claim(seats, \"A1\", \"bob\")`",
-          "`\"ann\"`",
-          "`{A1=ann}`"
-        ],
-        [
-          "`{}`",
-          "`claim(seats, \"A1\", \"ann\")` and `claim(seats, \"A1\", \"bob\")` at once",
-          "the same name from both",
-          "`{A1=` that name `}`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`add(word, documentId)`: record the document under the word;",
+        "`remove(word, documentId)`: take it off again, and drop the word once no document has it."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, no document is lost however the indexing threads interleave, including one added at the moment the word's last other document is removed, and a search can walk a word's documents while they change. About ten lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests make the threads interleave the same way on every run, through the map and the sets the index is given."
     },
     {
       "type": "heading",
@@ -67,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Seats {\n\n    private Seats() {\n    }\n\n    /** Gives a free seat to person; returns whoever holds the seat afterwards. */\n    public static String claim(ConcurrentHashMap<String, String> seats, String seat, String person) {\n        String holder = seats.putIfAbsent(seat, person);\n        return holder == null ? person : holder;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The search service's index: for each word, the ids of the documents that contain it. Indexing\n * threads add and remove documents while search threads look words up and walk the results.\n */\npublic class WordIndex {\n\n    private final ConcurrentHashMap<String, Set<String>> documents;\n\n    public WordIndex() {\n        this(new ConcurrentHashMap<>());\n    }\n\n    /** Keeps the index in the given map, which the admin endpoints share. */\n    public WordIndex(ConcurrentHashMap<String, Set<String>> documents) {\n        this.documents = documents;\n    }\n\n    /** The documents that contain the word. Search threads walk this set while indexing goes on. */\n    public Set<String> documentsWith(String word) {\n        return documents.getOrDefault(word, Set.of());\n    }\n\n    /** Whether any document contains the word. */\n    public boolean knows(String word) {\n        return documents.containsKey(word);\n    }\n\n    /** Records that the document contains the word. */\n    public void add(String word, String documentId) {\n        documents.compute(word, (w, ids) -> {\n            if (ids == null) ids = ConcurrentHashMap.newKeySet();\n            ids.add(documentId);\n            return ids;\n        });\n    }\n\n    /** Records that the document no longer contains the word; a word no document contains is dropped. */\n    public void remove(String word, String documentId) {\n        documents.computeIfPresent(word, (w, ids) -> {\n            ids.remove(documentId);\n            return ids.isEmpty() ? null : ids;\n        });\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Seats {\n\n    private Seats() {\n    }\n\n    /** Gives a free seat to person; returns whoever holds the seat afterwards. */\n    public static String claim(ConcurrentHashMap<String, String> seats, String seat, String person) {\n        throw new UnsupportedOperationException(\"write claim\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The search service's index: for each word, the ids of the documents that contain it. Indexing\n * threads add and remove documents while search threads look words up and walk the results.\n */\npublic class WordIndex {\n\n    private final ConcurrentHashMap<String, Set<String>> documents;\n\n    public WordIndex() {\n        this(new ConcurrentHashMap<>());\n    }\n\n    /** Keeps the index in the given map, which the admin endpoints share. */\n    public WordIndex(ConcurrentHashMap<String, Set<String>> documents) {\n        this.documents = documents;\n    }\n\n    /** The documents that contain the word. Search threads walk this set while indexing goes on. */\n    public Set<String> documentsWith(String word) {\n        return documents.getOrDefault(word, Set.of());\n    }\n\n    /** Whether any document contains the word. */\n    public boolean knows(String word) {\n        return documents.containsKey(word);\n    }\n\n    /** Records that the document contains the word. */\n    public void add(String word, String documentId) {\n        // TODO: Record the document under the word. Documents for one word, new or not, arrive\n        //       from many indexing threads at once, while search threads walk the word's set.\n        throw new IllegalStateException(\"TODO: add\");\n    }\n\n    /** Records that the document no longer contains the word; a word no document contains is dropped. */\n    public void remove(String word, String documentId) {\n        // TODO: Take the document off the word, and drop the word once no document has it. A\n        //       document for the same word may be added at that very moment, and must be kept.\n        throw new IllegalStateException(\"TODO: remove\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "702a6c4b3f37cf2e57dd411b94bae6e7dca02549001361b7c7a1c96471b25f72",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Seats {\n\n    private Seats() {\n    }\n\n    /** Gives a free seat to person; returns whoever holds the seat afterwards. */\n    public static String claim(ConcurrentHashMap<String, String> seats, String seat, String person) {\n        throw new UnsupportedOperationException(\"write claim\");\n    }\n}\n",
+  "content_sha256": "1f9b9fb4c4d5b7529cd85fef67875b99311ecd90ad00e249b71c374663056b92",
+  "starting_code": "package practice;\n\nimport java.util.Set;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * The search service's index: for each word, the ids of the documents that contain it. Indexing\n * threads add and remove documents while search threads look words up and walk the results.\n */\npublic class WordIndex {\n\n    private final ConcurrentHashMap<String, Set<String>> documents;\n\n    public WordIndex() {\n        this(new ConcurrentHashMap<>());\n    }\n\n    /** Keeps the index in the given map, which the admin endpoints share. */\n    public WordIndex(ConcurrentHashMap<String, Set<String>> documents) {\n        this.documents = documents;\n    }\n\n    /** The documents that contain the word. Search threads walk this set while indexing goes on. */\n    public Set<String> documentsWith(String word) {\n        return documents.getOrDefault(word, Set.of());\n    }\n\n    /** Whether any document contains the word. */\n    public boolean knows(String word) {\n        return documents.containsKey(word);\n    }\n\n    /** Records that the document contains the word. */\n    public void add(String word, String documentId) {\n        // TODO: Record the document under the word. Documents for one word, new or not, arrive\n        //       from many indexing threads at once, while search threads walk the word's set.\n        throw new IllegalStateException(\"TODO: add\");\n    }\n\n    /** Records that the document no longer contains the word; a word no document contains is dropped. */\n    public void remove(String word, String documentId) {\n        // TODO: Take the document off the word, and drop the word once no document has it. A\n        //       document for the same word may be added at that very moment, and must be kept.\n        throw new IllegalStateException(\"TODO: remove\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-3/src/main/java/practice/Seats.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-3/src/test/java/practice/SeatsTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-3/src/main/java/practice/WordIndex.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-02/practice-3/src/test/java/practice/WordIndexTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SeatsTest#claimsAFreeSeat",
+        "id": "practice.WordIndexTest#indexesAndForgetsDocuments",
         "kind": "main",
-        "says": "Claiming a free seat gives it to the claimant, and claim returns the claimant."
+        "says": "documents added under a word are found, a removed one is gone, and a word with no document left is dropped"
       },
       {
-        "id": "practice.SeatsTest#firstClaimKeepsTheSeat",
+        "id": "practice.WordIndexTest#aSearchCanWalkAWordWhileItIsIndexed",
         "kind": "edge",
-        "says": "A later claim on a taken seat changes nothing and returns the person who already holds it."
+        "says": "a search that walks a word's documents finishes while another thread adds a document to that word"
       },
       {
-        "id": "practice.SeatsTest#simultaneousClaimsAgree",
+        "id": "practice.WordIndexTest#twoFirstDocumentsForANewWordAreBothKept",
         "kind": "edge",
-        "says": "When two threads claim one free seat at the same moment, both calls return the same winner and the map holds that winner, even when both check the seat before either writes."
+        "says": "when the first two documents for a new word are added together, both are kept"
+      },
+      {
+        "id": "practice.WordIndexTest#aDocumentAddedWhileTheLastIsRemovedIsKept",
+        "kind": "edge",
+        "says": "a document added to a word while its last other document is removed is kept, and so is the word"
       }
     ],
     "report": {
@@ -144,10 +136,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.2.md",
-      "section": "Key Points to Remember"
+      "section": "A Thread-Safe Map Guards Its Entries, Not the Objects Stored in Them"
     },
     "concepts": [
-      "A thread-safe collection does not make a check-then-act sequence atomic; putIfAbsent does the check and the put as one step."
+      "A concurrent map makes finding or creating an entry atomic, not later changes to the object stored in it; computeIfAbsent creates a missing value once, a shared value needs its own thread safety, and a change that must agree with the entry being there goes inside compute."
     ]
   }
 }

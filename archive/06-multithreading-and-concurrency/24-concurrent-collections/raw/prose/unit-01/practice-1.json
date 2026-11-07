@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Drop repeated words, keep first-seen order",
+  "title": "Write each audit event once, in the order it arrived",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page warns that a `HashSet` does **not** keep insertion order: it rejects duplicates, but it iterates in whatever order its buckets give. A set compares elements with `equals` and `hashCode`, never with `==`."
+      "text": "The audit service collects events from several collectors. A collector that times out sends its whole batch again, so one event can reach the importer two or three times, each copy stamped with the time it was received. Auditors read the log top to bottom and expect each event once, in the order the events reached us."
     },
     {
       "type": "para",
-      "text": "Write `Dedupe.distinct(List<String> words)`. It returns a **new** list holding each distinct word once, in the order the words were **first seen**. Two words are the same word when their text is equal, even if they are different `String` objects. The input list is not changed."
+      "text": "`AuditImport` already writes a batch to the log. Finish `firstOfEach(...)` in `src/main/java/practice/AuditImport.java`: it returns each event of the batch once, as the first copy that arrived, in the order of first arrival, and leaves the batch it was given unchanged. About three lines."
     },
     {
-      "type": "table",
-      "headers": [
-        "words",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[\"a\", \"b\", \"c\", \"c\"]`",
-          "`[\"a\", \"b\", \"c\"]`"
-        ],
-        [
-          "`[\"d\", \"c\", \"b\", \"a\"]`",
-          "`[\"d\", \"c\", \"b\", \"a\"]`"
-        ],
-        [
-          "`[\"b\", \"a\", \"b\"]`",
-          "`[\"b\", \"a\"]`"
-        ],
-        [
-          "`[new String(\"a\"), new String(\"a\")]`",
-          "`[\"a\"]`"
-        ]
-      ]
+      "type": "para",
+      "text": "Copies of an event are the same event when their ids are equal; nothing else about them has to match."
     },
     {
       "type": "heading",
@@ -63,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashSet;\nimport java.util.List;\n\npublic final class Dedupe {\n\n    private Dedupe() {\n    }\n\n    /** Each distinct word once, in first-seen order, as a new list. */\n    public static List<String> distinct(List<String> words) {\n        return new ArrayList<>(new LinkedHashSet<>(words));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports audit events collected from several collectors. A collector that times out sends its\n * batch again, so the same event can arrive more than once, each copy stamped with the time this\n * copy was received.\n */\npublic class AuditImport {\n\n    /** One audit event. Two copies of the same event share its id. */\n    public record Event(String id, String action, long receivedAt) {}\n\n    /** Writes the events to the audit log, each event once. */\n    public interface AuditLog {\n        void write(Event event);\n    }\n\n    private final AuditLog log;\n\n    public AuditImport(AuditLog log) {\n        this.log = log;\n    }\n\n    /** Writes every event of the batch once and returns how many it wrote. */\n    public int importBatch(List<Event> received) {\n        List<Event> events = firstOfEach(received);\n        events.forEach(log::write);\n        return events.size();\n    }\n\n    /**\n     * The events of the batch with each event once, as the first copy that arrived, in the order\n     * the events first arrived. The input is not changed.\n     */\n    List<Event> firstOfEach(List<Event> received) {\n        Map<String, Event> first = new LinkedHashMap<>();\n        for (Event e : received) first.putIfAbsent(e.id(), e);\n        return new ArrayList<>(first.values());\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Dedupe {\n\n    private Dedupe() {\n    }\n\n    /** Each distinct word once, in first-seen order, as a new list. */\n    public static List<String> distinct(List<String> words) {\n        throw new UnsupportedOperationException(\"write distinct\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports audit events collected from several collectors. A collector that times out sends its\n * batch again, so the same event can arrive more than once, each copy stamped with the time this\n * copy was received.\n */\npublic class AuditImport {\n\n    /** One audit event. Two copies of the same event share its id. */\n    public record Event(String id, String action, long receivedAt) {}\n\n    /** Writes the events to the audit log, each event once. */\n    public interface AuditLog {\n        void write(Event event);\n    }\n\n    private final AuditLog log;\n\n    public AuditImport(AuditLog log) {\n        this.log = log;\n    }\n\n    /** Writes every event of the batch once and returns how many it wrote. */\n    public int importBatch(List<Event> received) {\n        List<Event> events = firstOfEach(received);\n        events.forEach(log::write);\n        return events.size();\n    }\n\n    /**\n     * The events of the batch with each event once, as the first copy that arrived, in the order\n     * the events first arrived. The input is not changed.\n     */\n    List<Event> firstOfEach(List<Event> received) {\n        // TODO: A retried batch repeats events, and the audit log must show each event once, as\n        //       it first arrived, in the order the events happened to arrive.\n        throw new IllegalStateException(\"TODO: firstOfEach\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,9 +62,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b3c4ec0d137ee82ed72b00ddc82941742a5ef7696cb08de0bb7210b9549ab1f1",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Dedupe {\n\n    private Dedupe() {\n    }\n\n    /** Each distinct word once, in first-seen order, as a new list. */\n    public static List<String> distinct(List<String> words) {\n        throw new UnsupportedOperationException(\"write distinct\");\n    }\n}\n",
+  "content_sha256": "8fa88a003c2f85ac0a138f7ade14358bd2889d4001a4a3c0a754e0bd6a0497ab",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports audit events collected from several collectors. A collector that times out sends its\n * batch again, so the same event can arrive more than once, each copy stamped with the time this\n * copy was received.\n */\npublic class AuditImport {\n\n    /** One audit event. Two copies of the same event share its id. */\n    public record Event(String id, String action, long receivedAt) {}\n\n    /** Writes the events to the audit log, each event once. */\n    public interface AuditLog {\n        void write(Event event);\n    }\n\n    private final AuditLog log;\n\n    public AuditImport(AuditLog log) {\n        this.log = log;\n    }\n\n    /** Writes every event of the batch once and returns how many it wrote. */\n    public int importBatch(List<Event> received) {\n        List<Event> events = firstOfEach(received);\n        events.forEach(log::write);\n        return events.size();\n    }\n\n    /**\n     * The events of the batch with each event once, as the first copy that arrived, in the order\n     * the events first arrived. The input is not changed.\n     */\n    List<Event> firstOfEach(List<Event> received) {\n        // TODO: A retried batch repeats events, and the audit log must show each event once, as\n        //       it first arrived, in the order the events happened to arrive.\n        throw new IllegalStateException(\"TODO: firstOfEach\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-1/src/main/java/practice/Dedupe.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-1/src/test/java/practice/DedupeTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-1/src/main/java/practice/AuditImport.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-1/src/test/java/practice/AuditImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,34 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DedupeTest#dropsRepeats",
+        "id": "practice.AuditImportTest#writesEachEventOfTheBatchOnce",
         "kind": "main",
-        "says": "Each word appears once in the answer, in the order it was first seen."
+        "says": "a batch with a repeated event writes each event once and reports how many it wrote"
       },
       {
-        "id": "practice.DedupeTest#keepsInsertionOrder",
-        "kind": "edge",
-        "says": "Words come back in the order they arrived, even when a hash set would iterate them in another order."
+        "id": "practice.AuditImportTest#leavesTheReceivedBatchAsItWas",
+        "kind": "main",
+        "says": "the batch the importer received is not changed"
       },
       {
-        "id": "practice.DedupeTest#firstOccurrenceWins",
+        "id": "practice.AuditImportTest#writesTheEventsInTheOrderTheyFirstArrived",
         "kind": "edge",
-        "says": "A repeated word stays at the place it was first seen; a later repeat does not move it."
+        "says": "the events are written in the order of their first arrival, not in an order the importer's own bookkeeping gives"
       },
       {
-        "id": "practice.DedupeTest#equalWordsAreOneWord",
+        "id": "practice.AuditImportTest#keepsTheCopyThatArrivedFirst",
         "kind": "edge",
-        "says": "Two distinct String objects with the same text are the same word."
+        "says": "when an event arrives twice, the copy written is the first one, not the last"
       },
       {
-        "id": "practice.DedupeTest#wordsAreComparedExactly",
+        "id": "practice.AuditImportTest#aResentCopyWithALaterReceiptTimeIsStillTheSameEvent",
         "kind": "edge",
-        "says": "\"Aa\" and \"BB\" share a hash code but are two words, and so are \"Hello\" and \"hello\": equality is the text, exactly."
-      },
-      {
-        "id": "practice.DedupeTest#eachCallReturnsItsOwnNewList",
-        "kind": "edge",
-        "says": "Each call returns a new list of its own, even when nothing repeats, and a later call does not change an earlier answer."
+        "says": "two copies of an event are the same event by id, even when their receipt times differ"
       }
     ],
     "report": {
@@ -155,11 +129,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.1.md",
-      "section": "6.5.1.2. Set Implementations"
+      "section": "A Hash Set Iterates in Hash Order, and the Order Changes as the Set Grows"
     },
     "concepts": [
-      "A HashSet does not keep insertion order; an ordered set such as LinkedHashSet keeps the order elements were first added.",
-      "A set refuses an element equal to one it already holds, comparing by equals and hashCode rather than by identity."
+      "A HashSet or HashMap iterates in the order of its hash table, which is not insertion order and changes when the table resizes; LinkedHashSet and LinkedHashMap keep first-insertion order."
     ]
   }
 }

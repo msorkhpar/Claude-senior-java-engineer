@@ -18,293 +18,320 @@
       "text": "6.5.4. Collection Capacity and Resizing"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
-    },
-    {
       "type": "para",
-      "text": "Understanding how collections manage their internal storage is critical for writing performant Java code. Most array-backed collections (ArrayList, HashMap, HashSet) allocate an internal array with some initial capacity and grow it when the number of elements exceeds a threshold. This growth involves creating a new, larger array and copying all existing elements -- an expensive O(n) operation."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of collection capacity like renting office space. Starting with a small office (initial capacity) is cheap, but when your team grows beyond the office's capacity, you need to move to a bigger space (resize). Moving means copying all your furniture and files (rehashing). If you know your team will be 100 people, you should rent a 100-person office from the start (pre-sizing) rather than moving 3-4 times as you grow from 10 to 20 to 40 to 100."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "6.5.4.1. Initial Capacity and Load Factor in HashMap"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Initial capacity**: The number of buckets in the hash table when it is created. Default: **16**.",
-        "**Load factor**: The ratio of entries to capacity at which the table resizes. Default: **0.75**.",
-        "**Threshold**: `capacity * loadFactor`. When `size > threshold`, the table doubles.",
-        "HashMap always rounds the capacity up to the nearest **power of 2** (e.g., requesting 10 gives 16)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "6.5.4.2. Resizing and Rehashing in HashMap"
-    },
-    {
-      "type": "para",
-      "text": "When a HashMap exceeds its threshold:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "A new array of **double** the current capacity is allocated.",
-        "Every entry is **rehashed** and placed in its new position (`hash & (newCapacity - 1)`).",
-        "This is an O(n) operation; the old and the new bucket arrays exist at the same time (the entries themselves are relinked, not copied).",
-        "In Java 8+, tree bins (red-black trees used for collision buckets) may be split during rehashing."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "6.5.4.3. Capacity Considerations in Other Collections"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**ArrayList**: Default initial capacity is **10**. Grows by approximately **50%** (`oldCapacity + (oldCapacity >> 1)`). Use `trimToSize()` to shrink to actual size.",
-        "**ConcurrentHashMap**: Accepts initial capacity, load factor, and **concurrency level** (hint for internal sizing).",
-        "**HashSet**: Internally backed by HashMap, so the same capacity and load factor rules apply.",
-        "**LinkedList**: No capacity concept -- nodes are individually allocated.",
-        "**CopyOnWriteArrayList**: The internal array always exactly matches the number of elements (no spare capacity)."
-      ]
+      "text": "The pricing service rebuilds its SKU lookup every ten minutes from 900,000 rows, and the team sized the map for it: `new HashMap<>(900_000)`. The latency graph still shows one request every ten minutes that waits about 25 ms longer than the rest, always during the rebuild. The map still resizes once during the load."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A Probe That Reads the Array Behind a Collection"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Pre-sizing saves time**: If you know the expected number of elements, set the initial capacity to avoid repeated resizing. For HashMap: `new HashMap<>((int)(expectedSize / 0.75f) + 1)`.",
-        "**HashMap capacity is always a power of 2**: This enables fast modulo via bitwise AND (`hash & (capacity - 1)`).",
-        "**Load factor 0.75 is a good trade-off**: Lower values waste space; higher values increase collision probability.",
-        "**Resizing is O(n)**: Every element must be rehashed and repositioned.",
-        "**ArrayList grows by ~50%**: Each resize copies the entire array. Pre-sizing with the constructor avoids this.",
-        "**`trimToSize()`** reduces ArrayList's internal array to match its current size, freeing unused memory.",
-        "**ConcurrentHashMap** uses the concurrency level only as a sizing hint (initial capacity is raised to at least it)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**`HashMap.newHashMap(int numMappings)`** (Java 19+): Factory method that creates a HashMap pre-sized to hold the specified number of mappings without resizing. Eliminates the need to manually calculate initial capacity.",
-        "**`HashSet.newHashSet(int numElements)`** (Java 19+): Similar factory method for HashSet.",
-        "**`LinkedHashMap.newLinkedHashMap(int numMappings)`** (Java 19+): Same for LinkedHashMap."
-      ]
+      "type": "para",
+      "text": "A collection's capacity is the length of the array behind it, and the API doesn't show it. `Capacity.of` reads the array by reflection, with the two `--add-opens` flags in its comment."
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Java 19+ - the right way to pre-size\nMap<String, Integer> map = HashMap.newHashMap(100); // Sized to hold 100 entries\nSet<String> set = HashSet.newHashSet(50);           // Sized to hold 50 elements"
+      "text": "import java.lang.reflect.Field;\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/** Reads the length of a collection's internal array. Run with --add-opens java.base/java.util=ALL-UNNAMED\n *  and --add-opens java.base/java.util.concurrent=ALL-UNNAMED. A diagnostic, never production code. */\npublic final class Capacity {\n\n    public static int of(Object collection) {\n        try {\n            if (collection instanceof HashSet<?>) {\n                return of(read(HashSet.class, \"map\", collection));\n            }\n            Object array = switch (collection) {\n                case HashMap<?, ?> m -> read(HashMap.class, \"table\", m);\n                case ConcurrentHashMap<?, ?> m -> read(ConcurrentHashMap.class, \"table\", m);\n                case ArrayList<?> l -> read(ArrayList.class, \"elementData\", l);\n                default -> throw new IllegalArgumentException(collection.getClass().getName());\n            };\n            return array == null ? 0 : ((Object[]) array).length;\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n\n    private static Object read(Class<?> type, String name, Object target) throws ReflectiveOperationException {\n        Field f = type.getDeclaredField(name);\n        f.setAccessible(true);\n        return f.get(target);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The examples put the keys `1..n` into a map and print every table length it passes through:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void growth(String name, Map<Integer, Integer> map, int n) {\n    StringJoiner tables = new StringJoiner(\", \");\n    int last = Capacity.of(map);                 // 0: no table until the first put\n    for (int i = 1; i <= n; i++) {\n        map.put(i, i);\n        int now = Capacity.of(map);\n        if (now != last) tables.add(now + \" (put \" + i + \")\");\n        last = now;\n    }\n    System.out.printf(\"%-36s %s%n\", name + \":\", tables);\n}"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "A HashMap Is Sized in Buckets, and It Doubles at Three-Quarters Full"
+    },
+    {
+      "type": "para",
+      "text": "Before you run it: a map created with `new HashMap<>(100)` gets 100 puts. Does its table change?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "growth(\"new HashMap<>()\", new HashMap<>(), 1000);\ngrowth(\"new HashMap<>(100)\", new HashMap<>(100), 100);\ngrowth(\"HashMap.newHashMap(100)\", HashMap.newHashMap(100), 100);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "new HashMap<>():                     16 (put 1), 32 (put 13), 64 (put 25), 128 (put 49), 256 (put 97), 512 (put 193), 1024 (put 385), 2048 (put 769)\nnew HashMap<>(100):                  128 (put 1), 256 (put 97)\nHashMap.newHashMap(100):             256 (put 1)"
+    },
+    {
+      "type": "para",
+      "text": "It does. `HashMap`'s constructor takes a number of **buckets** (the table's length) and rounds it up to a power of two: 100 becomes 128. The map doubles the table as soon as its size goes above the **threshold**, capacity × load factor, and the default load factor is 0.75. A 128-bucket table holds 96 entries, and put 97 doubles it. The table is allocated on the first put, not in the constructor."
+    },
+    {
+      "type": "para",
+      "text": "The opening problem is the same arithmetic: 900,000 rounds up to 1,048,576 buckets, whose threshold is 786,432. The rebuild resizes once, at put 786,433."
+    },
+    {
+      "type": "para",
+      "text": "`HashMap.newHashMap(n)` (Java 19) takes the number of **entries** and picks a table that holds them. Before Java 19 the usual request was `(int) (n / 0.75f) + 1`, the pre-Java-19 formula, which also gives 256 for 100. `new HashSet<>(n)` and `new LinkedHashMap<>(n)` take buckets too, and so does the three-argument `LinkedHashMap` constructor that an access-ordered cache needs. Its factory, `LinkedHashMap.newLinkedHashMap(n)`, takes no access-order argument, so there you compute the bucket count yourself."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Resize Moves Every Entry in One put"
+    },
+    {
+      "type": "para",
+      "text": "Doubling keeps the average put cheap: the moves over a whole load add up to fewer than two per entry. The cost lands on one call. This loads the opening problem's SKUs, 900,000 distinct `String` keys in `skus`, and times every put:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void load(String name, Map<String, Integer> map, String[] skus) {\n    long slowest = 0;\n    int slowestAt = 0;\n    long start = System.nanoTime();\n    for (int i = 0; i < skus.length; i++) {\n        long t = System.nanoTime();\n        map.put(skus[i], i);\n        long took = System.nanoTime() - t;\n        if (took > slowest) { slowest = took; slowestAt = i + 1; }\n    }\n    long total = System.nanoTime() - start;\n    System.out.printf(\"%-28s total %4d ms, slowest put %5.1f ms (put %,d)%n\",\n            name, total / 1_000_000, slowest / 1e6, slowestAt);\n}\n\nload(\"new HashMap<>(900_000)\", new HashMap<>(900_000), skus);\nload(\"HashMap.newHashMap(900_000)\", HashMap.newHashMap(900_000), skus);"
+    },
+    {
+      "type": "para",
+      "text": "Third round, after two to warm up, with a 3 GB young generation so that no collection runs during the load:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "new HashMap<>(900_000)       total  115 ms, slowest put  18.9 ms (put 786,433)\nHashMap.newHashMap(900_000)  total   92 ms, slowest put   1.1 ms (put 1)"
+    },
+    {
+      "type": "para",
+      "text": "Most of the 23 ms between the totals is one put. It took 19 ms: it allocated a table of 2,097,152 buckets and moved 786,433 entries into it while the old table was still alive. Across runs that put took 19 to 29 ms. A resize doesn't call your `hashCode()` again (`HashMap` stores each key's hash; 1,000 puts through seven resizes made 1,000 calls); its cost is the walk over every entry."
+    },
+    {
+      "type": "para",
+      "text": "So pre-sizing mainly removes a pause. Oversizing costs memory: `HashMap.newHashMap(1_000_000)` allocates 2,097,152 buckets on its first put, about 8 MB with compressed references (4 bytes each, the default below a 32 GB heap), even if only ten entries arrive."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "ConcurrentHashMap Is Sized in Entries, and Its Load Factor Only Sizes the First Table"
+    },
+    {
+      "type": "para",
+      "text": "The stock cache is shared between request threads, so it's a `ConcurrentHashMap`, and someone copied the pre-Java-19 formula into it. The maps built for 100 get 200 puts; those built for 40 or 54 get 40:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "growth(\"new ConcurrentHashMap<>(100)\", new ConcurrentHashMap<>(100), 200);\ngrowth(\"new ConcurrentHashMap<>(40)\", new ConcurrentHashMap<>(40), 40);\ngrowth(\"new ConcurrentHashMap<>(54)\", new ConcurrentHashMap<>(54), 40);\ngrowth(\"new ConcurrentHashMap<>(100, 0.5f)\", new ConcurrentHashMap<>(100, 0.5f), 200);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "new ConcurrentHashMap<>(100):        256 (put 1), 512 (put 192)\nnew ConcurrentHashMap<>(40):         64 (put 1)\nnew ConcurrentHashMap<>(54):         128 (put 1)\nnew ConcurrentHashMap<>(100, 0.5f):  256 (put 1), 512 (put 192)"
+    },
+    {
+      "type": "para",
+      "text": "`new ConcurrentHashMap<>(100)` is already sized for 100 entries: its javadoc says it sizes the table \"to accommodate this many elements\", the meaning `newHashMap` has. Passing it the formula, 54 for 40 entries, sizes for 54 entries and gets 128 buckets where 64 hold 40. Not every count crosses a power of two (100 and its 134 both give 256), so the waste shows on some maps and not others."
+    },
+    {
+      "type": "para",
+      "text": "The load factor sizes only the first table: 100 entries at 0.5 asked for 200 buckets and got 256, but the next resize still came when the size *reached* three-quarters, put 192. That is one put earlier than `HashMap`'s rule (the default map resizes at put 12, not 13). A load factor above 0.75 makes the first table smaller, and the map still resizes at three-quarters. In `new ConcurrentHashMap<>(n, lf, concurrencyLevel)` the last argument is a sizing hint as well: the initial capacity is raised to at least its value."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An ArrayList Grows by Half When Full, and Nothing Shrinks on Its Own"
+    },
+    {
+      "type": "para",
+      "text": "An `ArrayList` grows only when its array is full, to about one and a half times its length: `new ArrayList<>()` gets 10 slots on its first add, then 15, 22, 33. Each writer thread of a batching service reuses one list as its buffer, and one night a burst of a million records goes through it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ArrayList<Integer> buffer = new ArrayList<>();\nfor (int i = 0; i < 1_000_000; i++) buffer.add(i);\nSystem.out.println(\"ArrayList, 1,000,000 adds:  \" + Capacity.of(buffer) + \" slots\");\nbuffer.clear();\nSystem.out.println(\"after clear():              \" + Capacity.of(buffer) + \" slots\");\nbuffer.trimToSize();\nSystem.out.println(\"after trimToSize():         \" + Capacity.of(buffer) + \" slots\");\n\nHashMap<Integer, Integer> sessions = new HashMap<>();\nfor (int i = 0; i < 100_000; i++) sessions.put(i, i);\nfor (int i = 0; i < 100_000; i++) sessions.remove(i);\nSystem.out.println(\"HashMap, 100,000 puts, all removed: size \" + sessions.size()\n        + \", \" + Capacity.of(sessions) + \" buckets\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ArrayList, 1,000,000 adds:  1215487 slots\nafter clear():              1215487 slots\nafter trimToSize():         0 slots\nHashMap, 100,000 puts, all removed: size 0, 262144 buckets"
+    },
+    {
+      "type": "para",
+      "text": "`clear()` nulls the slots so the records can be collected, and keeps the array. With compressed references, the empty buffer holds 4.9 MB for as long as the writer keeps the list, once per writer thread. `trimToSize()` gives it back but leaves 0 slots, and the next batch regrows from 1: 1, 2, 3, 4, 6,"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
+        "A buffer that should stay at its normal size after a burst is better replaced with a new list of that size. A `HashMap` doesn't shrink either: emptied of 100,000 sessions, it keeps 262,144 buckets, and `clear()` keeps them too."
+      ],
+      "start": 9
+    },
+    {
+      "type": "para",
+      "text": "Before adding a known number of elements one by one, `ensureCapacity(minCapacity)` grows the array once. Its argument is the total the list must hold, not the number to add: on a list that already holds 500 elements in 549 slots, `ensureCapacity(500)` does nothing."
+    },
+    {
+      "type": "para",
+      "text": "`CopyOnWriteArrayList` keeps no spare capacity at all: every add copies the array into a new one exactly one longer (unit 6.5.2 shows what that costs)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**A `HashMap` is sized in buckets and doubles above three-quarters full.** `new HashMap<>(n)` resizes before n entries for many n; `HashMap.newHashMap(n)` takes the entry count.",
+        "**A resize moves every entry in one put.** On a large map, pre-sizing removes a pause of tens of milliseconds, more than it speeds up the load.",
+        "**`ConcurrentHashMap` is sized in entries, and its load factor only sizes the first table.** The `HashMap` formula can oversize it, and every later resize comes at three-quarters full.",
+        "**An `ArrayList` grows by half when full, and nothing shrinks on its own.** `clear()` keeps the array, and an emptied `HashMap` keeps its table: trim the list, or replace either."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**What the constructor's int means (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "The int is",
+        "Example (ran)"
+      ],
+      "rows": [
         [
-          "**Not pre-sizing HashMap when the number of entries is known**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: Default capacity 16, will resize multiple times for 1000 entries\nMap<String, Integer> map = new HashMap<>();\nfor (int i = 0; i < 1000; i++) {\n    map.put(\"key\" + i, i); // Resizes at 12, 24, 48, 96, 192, 384, 768\n}\n\n// GOOD: Pre-sized to avoid resizing\nMap<String, Integer> preSized = new HashMap<>((int)(1000 / 0.75f) + 1);\n// Or in Java 19+:\n// Map<String, Integer> preSized = HashMap.newHashMap(1000);"
-          }
+          "`new HashMap<>(n)`, `new HashSet<>(n)`, `new LinkedHashMap<>(n)`, `new LinkedHashMap<>(n, lf, accessOrder)`",
+          "buckets, rounded up to a power of two",
+          "`new HashMap<>(100)`: 128, resizes at put 97"
         ],
         [
-          "**Confusing initial capacity with number of elements for HashMap**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: capacity 100 is rounded up to 128 (threshold 96): it resizes on the 97th element!\nMap<String, Integer> map = new HashMap<>(100);\n// To hold 100 elements without resizing, you need capacity >= 134\n\n// GOOD: Account for load factor\nMap<String, Integer> correct = new HashMap<>((int)(100 / 0.75f) + 1);"
-          }
+          "`HashMap.newHashMap(n)`, `HashSet.newHashSet(n)`, `LinkedHashMap.newLinkedHashMap(n)`",
+          "entries",
+          "`newHashMap(100)`: 256, no resize"
         ],
         [
-          "**Using overly large initial capacities**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: Wastes 4MB of memory for a map that holds 10 entries\nMap<String, Integer> wasteful = new HashMap<>(1_000_000);\n\n// GOOD: Size appropriately\nMap<String, Integer> appropriate = new HashMap<>(16); // Holds up to 12 elements"
-          }
+          "`new ConcurrentHashMap<>(n)`, `new ConcurrentHashMap<>(n, lf)`",
+          "entries, at load factor `lf`",
+          "256 for 100"
         ],
         [
-          "**Forgetting to trimToSize() large ArrayLists after initial population**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// The internal array may be much larger than needed after removals\nArrayList<String> list = new ArrayList<>(10_000);\n// ... populate and then remove most elements\nlist.subList(100, list.size()).clear();\n// Internal array still has capacity 10_000\nlist.trimToSize(); // Now internal array is exactly 100"
-          }
+          "`new ArrayList<>(n)`",
+          "slots",
+          "exactly n"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Growth and shrinking:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Collection",
+        "Grows",
+        "Shrinks"
+      ],
+      "rows": [
+        [
+          "`HashMap`, `HashSet`, `LinkedHashMap`",
+          "doubles when size > capacity × load factor (default 0.75); table allocated on first put",
+          "never; `clear()` keeps the table"
+        ],
+        [
+          "`ConcurrentHashMap`",
+          "doubles when size reaches 0.75 × capacity (single-threaded puts), whatever load factor it was built with",
+          "never"
+        ],
+        [
+          "`ArrayList`",
+          "when full, to old + old/2 (at least +1); `new ArrayList<>()` allocates 10 on first add",
+          "only on `trimToSize()`"
+        ],
+        [
+          "`CopyOnWriteArrayList`",
+          "a new array, one longer, on every add",
+          "a new array, one shorter, on every remove that finds its element"
+        ],
+        [
+          "`LinkedList`",
+          "one node per element; no capacity",
+          ""
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Edge cases (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "Result"
+      ],
+      "rows": [
+        [
+          "`new HashMap<>(-1)`, `new ArrayList<>(-1)`",
+          "`IllegalArgumentException`"
+        ],
+        [
+          "`new HashMap<>(16, 0f)`",
+          "`IllegalArgumentException: Illegal load factor: 0.0`"
+        ],
+        [
+          "`new HashMap<>(16, 2f)`",
+          "valid: 16 buckets hold 32 entries; it doubles at put 33"
+        ],
+        [
+          "`new ConcurrentHashMap<>(4, 0.75f, 64)`",
+          "128 buckets: initial capacity raised to the concurrency level"
+        ],
+        [
+          "`ensureCapacity(m)` with m ≤ current length",
+          "does nothing"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Pre-size collections when possible**: `new HashMap<>(expectedSize * 4 / 3 + 1)` or `HashMap.newHashMap(n)`.",
-        "**Use the `ensureCapacity()` method on ArrayList** before bulk insertions.",
-        "**Profile before optimizing**: Collection resizing is rarely the bottleneck in production applications.",
-        "**Consider `Map.of()` / `List.of()`** for small, fixed-size collections -- they use optimized internal representations.",
-        "**For ConcurrentHashMap, pre-size with `initialCapacity`**: since Java 8 the concurrency level only raises the initial capacity to at least that value; it no longer controls any internal partitioning.",
-        "**Use `Collections.emptyList()` / `Collections.emptyMap()`** instead of creating new empty collections."
+        "A map is filled once at startup and only read afterwards. Measure what a load factor of 1.0 instead of 0.75 saves in memory and costs in `get` time, with `String` keys.",
+        "Your service builds one `HashMap` per request for a few dozen entries. Is pre-sizing worth a line of code there? Decide with a measurement.",
+        "A cache's size swings between 1,000 and 1,000,000 entries over a day. Design how it gives back memory after a peak, and what each rebuild costs the requests in flight."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Capacity of 0**: `new HashMap<>(0)` creates a valid map with minimum capacity (1 bucket, or resized to the minimum on first put).",
-        "**Negative capacity**: Throws `IllegalArgumentException` for ArrayList and HashMap.",
-        "**Load factor of 0 or negative**: Throws `IllegalArgumentException`.",
-        "**Load factor > 1**: Valid but unusual. The map will hold more entries than buckets before resizing, increasing collision chains but using less memory.",
-        "**Integer overflow in capacity**: Extremely large capacities may cause `OutOfMemoryError` during array allocation.",
-        "**Empty ArrayList after trimToSize()**: The internal array has length 0; the next `add()` will allocate a new array."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why HashMap's Constructor Takes a Bucket Count"
     },
     {
       "type": "para",
-      "text": "Interviewers commonly ask about:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Default initial capacity and load factor of HashMap (16 and 0.75)",
-        "Why HashMap capacity is a power of 2 (enables bitwise AND for bucket index)",
-        "How to properly pre-size a HashMap for N elements",
-        "The resizing behavior (doubles capacity, O(n) rehash)",
-        "ArrayList growth strategy (~50% increase each time)",
-        "The difference between `size()` and `capacity` (size is public, capacity is internal)",
-        "How to calculate the number of resizes for a given number of insertions",
-        "Why CopyOnWriteArrayList has no capacity concept (exact-size array)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the default initial capacity and load factor of HashMap, and why?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The default initial capacity is 16 and the default load factor is 0.75.\n\nWhy 16?\n- It is a power of 2, which enables fast bucket index computation using bitwise AND: \n  index = hash & (capacity - 1). This is equivalent to hash % capacity but significantly faster.\n- 16 is a reasonable default that balances memory usage (16 object references) with the need to \n  avoid immediate resizing for small maps.\n\nWhy 0.75?\n- It represents a sweet spot between space and time efficiency:\n  * Lower load factors (e.g., 0.5) -> fewer collisions, faster lookups, but more wasted space\n  * Higher load factors (e.g., 0.9) -> more collisions, slower lookups, but less wasted space\n- At 0.75, the expected number of entries per bucket is about 0.5 (using Poisson distribution), \n  meaning most buckets have 0 or 1 entries, keeping lookup time close to O(1).\n- The Javadoc states that 0.75 offers \"a good tradeoff between time and space costs.\"\n\nThe threshold (when resizing occurs) = capacity * loadFactor = 16 * 0.75 = 12.\nSo a default HashMap resizes after the 12th entry."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Default HashMap: capacity=16, loadFactor=0.75, threshold=12\nMap<String, Integer> defaultMap = new HashMap<>();\n\n// After 12 entries, the map resizes to capacity=32, threshold=24\nfor (int i = 0; i < 13; i++) {\n    defaultMap.put(\"key\" + i, i);\n}\n// Internal capacity is now 32\n\n// Custom capacity and load factor\nMap<String, Integer> custom = new HashMap<>(32, 0.6f);\n// threshold = 32 * 0.6 = 19, resizes after 19 entries\n\n// Pre-sizing for known count (Java 19+)\nMap<String, Integer> preSized = HashMap.newHashMap(100);\n// Properly sized to hold 100 entries without resizing"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How many times does a HashMap resize when you insert 1000 elements with default settings?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Starting from default capacity (16) with load factor 0.75:\n\nResize #1: At 13th element (threshold 12 exceeded) -> capacity 32, threshold 24\nResize #2: At 25th element (threshold 24 exceeded) -> capacity 64, threshold 48\nResize #3: At 49th element (threshold 48 exceeded) -> capacity 128, threshold 96\nResize #4: At 97th element (threshold 96 exceeded) -> capacity 256, threshold 192\nResize #5: At 193rd element (threshold 192 exceeded) -> capacity 512, threshold 384\nResize #6: At 385th element (threshold 384 exceeded) -> capacity 1024, threshold 768\nResize #7: At 769th element (threshold 768 exceeded) -> capacity 2048, threshold 1536\n\nTotal: 7 resizes! Each resize rehashes ALL existing elements.\n\nTo avoid this, pre-size: new HashMap<>((int)(1000 / 0.75f) + 1) = new HashMap<>(1334)\nThis rounds up to capacity 2048 (next power of 2) with threshold 1536 -- no resizing needed.\n\nOr use Java 19+: HashMap.newHashMap(1000)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// 7 resizes for 1000 elements with default capacity\nMap<String, Integer> inefficient = new HashMap<>();\nfor (int i = 0; i < 1000; i++) {\n    inefficient.put(\"key\" + i, i);\n}\n\n// 0 resizes with pre-sizing\nMap<String, Integer> efficient = new HashMap<>((int)(1000 / 0.75f) + 1);\nfor (int i = 0; i < 1000; i++) {\n    efficient.put(\"key\" + i, i);\n}\n\n// The efficient version avoids 7 O(n) resize operations"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Why must HashMap capacity always be a power of 2?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: HashMap capacity must be a power of 2 for performance and correctness reasons:\n\n1. Fast modulo operation:\n   - The bucket index is computed as: index = hash & (capacity - 1)\n   - When capacity is a power of 2, (capacity - 1) is a bitmask of all 1s\n   - Example: capacity=16 -> 16-1=15 -> binary: 1111\n   - hash & 1111 extracts the lower 4 bits, equivalent to hash % 16\n   - Bitwise AND is much faster than modulo division\n\n2. Even distribution:\n   - The bitmask ensures hash values are evenly distributed across buckets\n   - With non-power-of-2 capacity, some buckets would never be used\n\n3. Efficient resizing:\n   - When capacity doubles (power of 2 to power of 2), each entry either stays in the same \n     bucket or moves to (oldIndex + oldCapacity)\n   - This is determined by a single bit: the NEW high bit in the new capacity\n   - This optimization makes resizing faster and avoids full rehashing\n\nThe tableSizeFor() method ensures any requested capacity is rounded up to the nearest power of 2:\n   tableSizeFor(10) -> 16\n   tableSizeFor(17) -> 32\n   tableSizeFor(64) -> 64 (already a power of 2)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating the power-of-2 bucket index calculation\nint capacity = 16; // 10000 in binary\nint mask = capacity - 1; // 01111 in binary\n\n// For hash value 42:\nint hash = 42; // 101010 in binary\nint index = hash & mask; // 101010 & 01111 = 01010 = 10\n\n// For hash value 58:\nhash = 58; // 111010 in binary\nindex = hash & mask; // 111010 & 01111 = 01010 = 10 (same bucket! collision)\n\n// After resize to 32:\nint newCapacity = 32; // 100000 in binary\nint newMask = newCapacity - 1; // 011111 in binary\n// hash 42: 101010 & 011111 = 001010 = 10 (stays in bucket 10)\n// hash 58: 111010 & 011111 = 011010 = 26 (moves to bucket 26 = 10 + 16)"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does ArrayList grow when it runs out of capacity?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: ArrayList grows by approximately 50% each time it runs out of capacity:\n\nGrowth formula (OpenJDK implementation):\n   newCapacity = oldCapacity + (oldCapacity >> 1)\n   This is equivalent to: newCapacity = oldCapacity * 1.5 (integer arithmetic)\n\nGrowth sequence from default capacity 10:\n   10 -> 15 -> 22 -> 33 -> 49 -> 73 -> 109 -> 163 -> ...\n\nThe growth process:\n1. When add() detects that size == capacity, it calls grow()\n2. grow() calculates newCapacity = oldCapacity + oldCapacity/2\n3. A new array of newCapacity is allocated\n4. All existing elements are copied using Arrays.copyOf() (which uses System.arraycopy)\n5. The old array becomes eligible for garbage collection\n\nKey differences from HashMap:\n- ArrayList grows by ~50% (not doubling)\n- No load factor concept - grows only when array is completely full\n- No rehashing - just array copy\n- ensureCapacity(minCapacity) lets you pre-allocate\n- trimToSize() lets you shrink the array to match size\n\nPerformance tip: If you know the final size, use the constructor:\n   new ArrayList<>(expectedSize)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Default ArrayList: initial capacity 10\nArrayList<Integer> list = new ArrayList<>();\n// Growth: 10 -> 15 -> 22 -> 33 -> 49 -> 73 -> ...\n\n// Pre-sized ArrayList: no resizing needed\nArrayList<Integer> preSized = new ArrayList<>(1000);\nfor (int i = 0; i < 1000; i++) {\n    preSized.add(i); // No array copying!\n}\n\n// ensureCapacity before bulk insert\nArrayList<String> list2 = new ArrayList<>();\nlist2.ensureCapacity(5000); // Pre-allocate before large insert\nfor (int i = 0; i < 5000; i++) {\n    list2.add(\"item\" + i);\n}\n\n// trimToSize to reclaim memory\nArrayList<String> list3 = new ArrayList<>(10_000);\nlist3.addAll(List.of(\"a\", \"b\", \"c\"));\n// Internal array has 10,000 slots but only 3 elements\nlist3.trimToSize();\n// Internal array now has exactly 3 slots"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What are the capacity considerations for ConcurrentHashMap?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: ConcurrentHashMap has a more complex capacity model than HashMap:\n\nConstructor parameters:\n1. initialCapacity - hint for the initial table size (default 16)\n2. loadFactor - threshold ratio for resizing (default 0.75)\n3. concurrencyLevel - estimated number of concurrently updating threads (default 16)\n\nKey differences from HashMap:\n- The concurrencyLevel parameter was significant in Java 7 (determined segment count) but in \n  Java 8+ it primarily serves as a sizing hint for initial capacity\n- In Java 8+, ConcurrentHashMap uses a single flat table with per-bucket locking\n- If initialCapacity < concurrencyLevel, it is rounded up to concurrencyLevel\n- The table may be lazily initialized (allocated on first put, not at construction time)\n\nResizing behavior:\n- Resizing is done cooperatively: when a thread detects the table needs resizing, it helps \n  migrate entries from the old table to the new table\n- Multiple threads can participate in the migration simultaneously\n- New insertions during migration may go into either the old or new table\n- The forwarding node mechanism ensures correct routing during migration\n\nBest practice:\n- Pre-size for the expected number of entries: new ConcurrentHashMap<>(expectedSize)\n- concurrencyLevel is optional: in Java 8+ it only raises the initial capacity to at least that value"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Default ConcurrentHashMap\nConcurrentHashMap<String, Integer> map1 = new ConcurrentHashMap<>();\n// initialCapacity=16, loadFactor=0.75, concurrencyLevel=16\n\n// Pre-sized for 1000 entries with 8 writer threads\nConcurrentHashMap<String, Integer> map2 = new ConcurrentHashMap<>(\n    1000,   // initialCapacity\n    0.75f,  // loadFactor\n    8       // concurrencyLevel\n);\n\n// Common pattern: sized for known data\nList<String> keys = List.of(\"a\", \"b\", \"c\", \"d\", \"e\");\nConcurrentHashMap<String, Integer> map3 = new ConcurrentHashMap<>(keys.size());\nfor (int i = 0; i < keys.size(); i++) {\n    map3.put(keys.get(i), i);\n}\n\n// mappingCount() instead of size() for better accuracy in concurrent contexts\nlong count = map3.mappingCount();"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does CopyOnWriteArrayList handle capacity differently from ArrayList?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: CopyOnWriteArrayList has no concept of \"spare capacity.\" Its internal array is ALWAYS exactly \nthe size of the number of elements it contains.\n\nKey differences from ArrayList:\n1. No initial capacity parameter: The constructor creates an array of exactly the size needed.\n2. No growth factor: Every add() creates a new array of size = old.length + 1.\n3. No ensureCapacity(): There is no way to pre-allocate space.\n4. No trimToSize(): Not needed because the array is always exact-sized.\n5. Bulk operations: addAll() creates a new array of size = old.length + elements.length.\n\nMemory implications:\n- Every single add() allocates a new array and copies all existing elements\n- After add(), the old array becomes garbage (unless held by an existing iterator)\n- This is why CopyOnWriteArrayList is expensive for writes: O(n) per mutation\n\nWhen this design makes sense:\n- The list is small (< 100 elements typically)\n- Writes are very rare\n- Reads (including iteration) dominate\n- Thread safety without external locking is required\n\nFor large lists or frequent writes, use Collections.synchronizedList(new ArrayList<>()) \nor a ConcurrentLinkedQueue instead."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// CopyOnWriteArrayList - array always matches size\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>();\n// Internal array: [] (length 0)\n\ncowList.add(\"a\");\n// Internal array: [\"a\"] (length 1) - allocated new array\n\ncowList.add(\"b\");\n// Internal array: [\"a\", \"b\"] (length 2) - allocated new array, copied \"a\"\n\ncowList.add(\"c\");\n// Internal array: [\"a\", \"b\", \"c\"] (length 3) - allocated new array, copied \"a\", \"b\"\n\n// vs. ArrayList - has spare capacity\nArrayList<String> arrayList = new ArrayList<>();\n// Internal array: [] (length 0, lazy init)\n\narrayList.add(\"a\");\n// Internal array: [a, null, null, ..., null] (length 10) - default capacity\n\narrayList.add(\"b\");\n// Internal array: [a, b, null, ..., null] (length 10) - no allocation needed!\n\n// Bulk initialization is more efficient\nCopyOnWriteArrayList<String> bulk = new CopyOnWriteArrayList<>(\n    List.of(\"a\", \"b\", \"c\", \"d\", \"e\") // Single array allocation\n);"
+      "text": "`HashMap` picks a bucket with `hash & (capacity - 1)`, which needs a power-of-two table, so its constructor asks for the thing it allocates. The number a caller actually knows is how many entries are coming, and turning it into a bucket count means dividing by the load factor first, a step that is easy to skip. Java 19 added `newHashMap` and a note on both constructors pointing to it, and left the constructors' meaning alone, likely because changing it would change the memory and the resize points of every existing `new HashMap<>(n)`. The cost is that the same int means buckets in `HashMap` and entries in `ConcurrentHashMap`, two classes that often sit in the same service."
     },
     {
       "type": "heading",
@@ -324,17 +351,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 10,
-    "code": 13,
-    "tables": 0,
-    "lists": 10,
+    "headings": 11,
+    "paras": 22,
+    "code": 10,
+    "tables": 3,
+    "lists": 4,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "c4ad251e07c46b6f373c1eee82b9191cd950754a5ed4d3bfee6cddb236788b35"
+  "content_sha256": "4009a3b0f5c1fa68d751c4a6e0d0293846cf4c916700801f84bbcc0515d85d38"
 }

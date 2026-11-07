@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "When a HashMap resizes, and how to pre-size it",
+  "title": "Keep a writer's buffer from holding on to a replay",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's HashMap resizing rules: the **threshold** is `(int) (capacity * loadFactor)`, and the table **doubles** as soon as the number of entries goes **above** the threshold. With the defaults (16, 0.75) that is 7 resizes on the way to 1000 entries. The page's pitfall: asking for `new HashMap<>(100)` gives capacity 128 and threshold 96, so the map still resizes on the 97th put. To hold `n` entries with no resize, the page requests `(int) (n / 0.75f) + 1`."
+      "text": "Each writer thread of the audit service collects records in a `RecordBuffer` and drains it to storage in batches of a few thousand. After an outage, a replay pushes hundreds of thousands of records through the same buffers. A week after the last outage, a heap dump shows every writer's buffer still holding an array of hundreds of thousands of slots, all of them empty. Decoding a frame, whose header gives its row count before the rows arrive one by one, also shows the buffer's array being copied while the rows go in."
     },
     {
       "type": "para",
-      "text": "Write two methods of `Resizes`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/RecordBuffer.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`capacities(int capacity, float loadFactor, int entries)`: the table capacities a map whose table starts at `capacity` (a power of two) goes through while `entries` entries are put one by one, starting with `capacity`.",
-        "`initialCapacityFor(int entries)`: the page's initial capacity for `entries` entries at the default load factor 0.75."
+        "`prepareFor(incoming)`: called before a frame's rows are added;",
+        "`drain()`: hands back the records added since the last drain, in order, and leaves the buffer empty."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`capacities(16, 0.75f, 13)`",
-          "`[16, 32]`"
-        ],
-        [
-          "`capacities(16, 0.75f, 1000)`",
-          "`[16, 32, 64, 128, 256, 512, 1024, 2048]`"
-        ],
-        [
-          "`capacities(128, 0.75f, 97)`",
-          "`[128, 256]`"
-        ],
-        [
-          "`capacities(16, 0.75f, 12)`",
-          "`[16]`"
-        ],
-        [
-          "`initialCapacityFor(100)`",
-          "`134`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a buffer drained after a replay keeps no more than `NORMAL_BATCH` slots, a normal batch neither reallocates the array nor grows it again, and a frame's rows go in without the array growing while they are added. About seven lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests read the buffer's array by reflection."
     },
     {
       "type": "heading",
@@ -75,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Resizes {\n\n    private Resizes() {\n    }\n\n    /** The table capacities a map starting at capacity passes through while entries are put one by one. */\n    public static List<Integer> capacities(int capacity, float loadFactor, int entries) {\n        List<Integer> out = new ArrayList<>();\n        out.add(capacity);\n        for (int size = 1; size <= entries; size++) {\n            if (size > (int) (capacity * loadFactor)) {\n                capacity *= 2;\n                out.add(capacity);\n            }\n        }\n        return out;\n    }\n\n    /** The page's initial capacity for holding entries at load factor 0.75 with no resize. */\n    public static int initialCapacityFor(int entries) {\n        return (int) (entries / 0.75f) + 1;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\n\n/**\n * The buffer of one writer thread: records collect here and are drained to storage in batches.\n * A normal batch is a few thousand records; a replay after an outage can push hundreds of\n * thousands through the same buffer.\n */\npublic class RecordBuffer {\n\n    /** The slots a buffer keeps between batches: enough for a normal batch. */\n    static final int NORMAL_BATCH = 4_096;\n\n    private ArrayList<String> records = new ArrayList<>(NORMAL_BATCH);\n\n    public void add(String record) {\n        records.add(record);\n    }\n\n    /** Adds one decoded frame; the frame header gives {@code count}, then the rows follow one by one. */\n    public void addFrame(int count, Iterator<String> rows) {\n        prepareFor(count);\n        for (int i = 0; i < count; i++) {\n            records.add(rows.next());\n        }\n    }\n\n    /** Makes room for {@code incoming} more records before they are added one by one. */\n    void prepareFor(int incoming) {\n        records.ensureCapacity(records.size() + incoming);\n    }\n\n    /** Returns every record added since the last drain, in order, and leaves the buffer empty. */\n    public List<String> drain() {\n        List<String> batch = new ArrayList<>(records);\n        if (records.size() > NORMAL_BATCH) {\n            records = new ArrayList<>(NORMAL_BATCH);\n        } else {\n            records.clear();\n        }\n        return batch;\n    }\n\n    public int size() {\n        return records.size();\n    }\n\n    /** The list the records are kept in; the tests read its array. */\n    ArrayList<String> backing() {\n        return records;\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Resizes {\n\n    private Resizes() {\n    }\n\n    /** The table capacities a map starting at capacity passes through while entries are put one by one. */\n    public static List<Integer> capacities(int capacity, float loadFactor, int entries) {\n        throw new UnsupportedOperationException(\"write capacities\");\n    }\n\n    /** The page's initial capacity for holding entries at load factor 0.75 with no resize. */\n    public static int initialCapacityFor(int entries) {\n        throw new UnsupportedOperationException(\"write initialCapacityFor\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\n\n/**\n * The buffer of one writer thread: records collect here and are drained to storage in batches.\n * A normal batch is a few thousand records; a replay after an outage can push hundreds of\n * thousands through the same buffer.\n */\npublic class RecordBuffer {\n\n    /** The slots a buffer keeps between batches: enough for a normal batch. */\n    static final int NORMAL_BATCH = 4_096;\n\n    private ArrayList<String> records = new ArrayList<>(NORMAL_BATCH);\n\n    public void add(String record) {\n        records.add(record);\n    }\n\n    /** Adds one decoded frame; the frame header gives {@code count}, then the rows follow one by one. */\n    public void addFrame(int count, Iterator<String> rows) {\n        prepareFor(count);\n        for (int i = 0; i < count; i++) {\n            records.add(rows.next());\n        }\n    }\n\n    /** Makes room for {@code incoming} more records before they are added one by one. */\n    void prepareFor(int incoming) {\n        // TODO: A frame of `incoming` rows is about to be added one row at a time. Make room for\n        //       them, so that the array doesn't grow again while they are added.\n        throw new IllegalStateException(\"TODO: prepareFor\");\n    }\n\n    /** Returns every record added since the last drain, in order, and leaves the buffer empty. */\n    public List<String> drain() {\n        // TODO: Hand back the records in order and leave the buffer empty. After a replay the buffer\n        //       must not keep a replay-sized array, and after a normal batch it should neither\n        //       allocate nor grow again for the next one.\n        throw new IllegalStateException(\"TODO: drain\");\n    }\n\n    public int size() {\n        return records.size();\n    }\n\n    /** The list the records are kept in; the tests read its array. */\n    ArrayList<String> backing() {\n        return records;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c8a00a5b50b4e9f448d2b56107692719250de3d7548a7e1c3f2a3bcafb0a73db",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Resizes {\n\n    private Resizes() {\n    }\n\n    /** The table capacities a map starting at capacity passes through while entries are put one by one. */\n    public static List<Integer> capacities(int capacity, float loadFactor, int entries) {\n        throw new UnsupportedOperationException(\"write capacities\");\n    }\n\n    /** The page's initial capacity for holding entries at load factor 0.75 with no resize. */\n    public static int initialCapacityFor(int entries) {\n        throw new UnsupportedOperationException(\"write initialCapacityFor\");\n    }\n}\n",
+  "content_sha256": "0fc151108f1d0eba26143118678b271a22b57bd39f6bc32062c71c98fc321393",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Iterator;\nimport java.util.List;\n\n/**\n * The buffer of one writer thread: records collect here and are drained to storage in batches.\n * A normal batch is a few thousand records; a replay after an outage can push hundreds of\n * thousands through the same buffer.\n */\npublic class RecordBuffer {\n\n    /** The slots a buffer keeps between batches: enough for a normal batch. */\n    static final int NORMAL_BATCH = 4_096;\n\n    private ArrayList<String> records = new ArrayList<>(NORMAL_BATCH);\n\n    public void add(String record) {\n        records.add(record);\n    }\n\n    /** Adds one decoded frame; the frame header gives {@code count}, then the rows follow one by one. */\n    public void addFrame(int count, Iterator<String> rows) {\n        prepareFor(count);\n        for (int i = 0; i < count; i++) {\n            records.add(rows.next());\n        }\n    }\n\n    /** Makes room for {@code incoming} more records before they are added one by one. */\n    void prepareFor(int incoming) {\n        // TODO: A frame of `incoming` rows is about to be added one row at a time. Make room for\n        //       them, so that the array doesn't grow again while they are added.\n        throw new IllegalStateException(\"TODO: prepareFor\");\n    }\n\n    /** Returns every record added since the last drain, in order, and leaves the buffer empty. */\n    public List<String> drain() {\n        // TODO: Hand back the records in order and leave the buffer empty. After a replay the buffer\n        //       must not keep a replay-sized array, and after a normal batch it should neither\n        //       allocate nor grow again for the next one.\n        throw new IllegalStateException(\"TODO: drain\");\n    }\n\n    public int size() {\n        return records.size();\n    }\n\n    /** The list the records are kept in; the tests read its array. */\n    ArrayList<String> backing() {\n        return records;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/main/java/practice/Resizes.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/test/java/practice/ResizesTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/main/java/practice/RecordBuffer.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-04/practice-2/src/test/java/practice/RecordBufferTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,29 +110,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ResizesTest#doublesPastTheThreshold",
+        "id": "practice.RecordBufferTest#drainHandsBackSinglesAndFramesInOrder",
         "kind": "main",
-        "says": "capacities lists every table size a map passes through, doubling each time its size goes above capacity * loadFactor."
+        "says": "a drain hands back single records and frame rows in the order they were added, and leaves the buffer empty"
       },
       {
-        "id": "practice.ResizesTest#exactlyAtThresholdNoResize",
-        "kind": "edge",
-        "says": "A map resizes as soon as a put takes its size above the threshold, and not before: reaching the threshold exactly does not resize, the next put does."
+        "id": "practice.RecordBufferTest#aReplayIsDrainedWhole",
+        "kind": "main",
+        "says": "a replay of tens of thousands of records is drained whole and in order"
       },
       {
-        "id": "practice.ResizesTest#presizedMapNeverResizes",
+        "id": "practice.RecordBufferTest#afterAReplayTheBufferKeepsOnlyANormalBatchOfSlots",
         "kind": "edge",
-        "says": "initialCapacityFor(n) gives a request that holds n entries with no resize, as the page computes it."
+        "says": "after a replay is drained the buffer keeps no more slots than a normal batch needs, and the next normal batch doesn't grow it"
       },
       {
-        "id": "practice.ResizesTest#thePagesFormulaExactly",
+        "id": "practice.RecordBufferTest#aNormalBatchReusesTheSameArray",
         "kind": "edge",
-        "says": "initialCapacityFor(75) is 101 and (3) is 5: (int) (n / 0.75f) + 1, not a rounded-up quotient."
+        "says": "draining a normal batch keeps the buffer's array, and the next normal batch goes into the same array"
       },
       {
-        "id": "practice.ResizesTest#theThresholdIsRecomputedAfterEachResize",
+        "id": "practice.RecordBufferTest#aFrameOnTopOfRecordsGrowsTheArrayOnlyBeforeItsRows",
         "kind": "edge",
-        "says": "After each resize the threshold is (int) (capacity * loadFactor) again, not the old threshold doubled: at 32 with 0.6 it is 19."
+        "says": "a frame added to a buffer that already holds records grows the array, if at all, before its first row, never while its rows go in"
       }
     ],
     "report": {
@@ -162,11 +141,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "An ArrayList Grows by Half When Full, and Nothing Shrinks on Its Own"
     },
     "concepts": [
-      "To hold n entries with no resize a HashMap is requested with (int) (n / 0.75f) + 1, since new HashMap<>(n) still resizes before n entries.",
-      "A HashMap doubles its table when its size goes above capacity * loadFactor, which is 7 resizes on the way to 1000 entries from the defaults."
+      "An ArrayList grows by half when full and keeps its array through clear(); trimToSize() leaves zero slots, and ensureCapacity takes the total the list must hold."
     ]
   }
 }

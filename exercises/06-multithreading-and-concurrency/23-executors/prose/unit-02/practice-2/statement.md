@@ -1,21 +1,17 @@
-The page's pitfalls: `future.get()` without a timeout can block forever, and a
-`get(timeout, unit)` that times out leaves the task **running in the
-background** unless you cancel it. Its interview answer shows the fix,
-`computeWithTimeout`: wait with a timeout, and on a timeout call
-`future.cancel(true)` and return a fallback.
+A product page shows a price from the supplier's pricing API, asked on a pool that every product
+page shares. When the supplier is slow, the page is meant to show the last price we cached rather
+than wait. Last month the supplier stopped answering for one product line. Its pages showed the
+cached prices for a few minutes, as designed, and then every product page on the site, including
+those of other product lines, started showing cached prices too.
 
-Write `Fallback.within(executor, task, timeout, unit, fallback)`:
+`priceOf(...)` already asks the supplier. Finish the `TODO` in
+`src/main/java/practice/PriceService.java`:
 
-- submit `task` to `executor` and wait at most `timeout` for its result;
-- on a timeout: cancel the task, interrupting it, and return `fallback`;
-- if the task failed: throw a `RuntimeException` whose **cause is the exception
-  the task threw**;
-- if the calling thread is interrupted while it waits: cancel the task, restore
-  the interrupt flag and return `fallback`.
+- `priceOrCached(...)`: what the page gets back from the call it started.
 
-| `task` (on a single-thread executor) | `within(executor, task, 200, MILLISECONDS, "stale")` |
-|---|---|
-| `() -> "fresh"` | `"fresh"` |
-| a task that never finishes | `"stale"`, and the executor's thread is free again |
-| `() -> { throw new IOException("down"); }` | throws a `RuntimeException` with cause that `IOException` |
-| any task, called from a thread that is already interrupted | `"stale"`, and the thread is still interrupted |
+When you're done, a page shows the supplier's price if it comes within the budget and the cached
+price otherwise, a supplier that fails gets the cached price too, and a supplier that stops
+answering doesn't keep the pool's threads from the pages after it. About eight lines in total.
+
+The tests run the pages on a real one-thread pool. Their supplier gives up when its thread is
+interrupted, as `HttpClient.send` does.

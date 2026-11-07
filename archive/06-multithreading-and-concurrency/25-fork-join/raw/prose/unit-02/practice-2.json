@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Submit a batch, then join it",
+  "title": "Build every warehouse's pick list at once",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page contrasts the ways to hand a task to a pool: `invoke(task)` **blocks** until the task is done, while `submit(task)` returns a `ForkJoinTask<V>` (a `Future`) **at once**, and you call `join()` or `get()` later to collect the result."
+      "text": "The fulfilment service builds the morning pick lists with one task per warehouse, on a `ForkJoinPool` that the service creates at start-up and passes in. The morning run is called from a scheduler thread, not from the pool. With six warehouses it takes six times as long as one, although the pool has room for all six. Since two warehouses started sharing a cross-dock (each task waits until its partner's task has started), the run doesn't finish at all. And when one warehouse's data is broken, the alert should name that warehouse's own exception type, not a generic wrapper."
     },
     {
       "type": "para",
-      "text": "Write `Batch.runAll(pool, tasks)`. It hands **every** task to **`pool`** with `submit` before it waits for any of them, then joins them and returns their results in the order of the list."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "tasks, pool of parallelism 2",
-        "answer"
-      ],
-      "rows": [
-        [
-          "a task returning `\"alpha\"`, then one returning `\"beta\"` once alpha is done",
-          "`[\"alpha\", \"beta\"]`"
-        ],
-        [
-          "two tasks that each wait until the other has started",
-          "both finish: `[\"left\", \"right\"]`"
-        ],
-        [
-          "three tasks that note the pool they run in",
-          "all three ran in `pool`"
-        ],
-        [
-          "an empty list",
-          "`[]`"
-        ]
-      ]
+      "text": "Finish the `TODO` in `src/main/java/practice/PickLists.java`: `buildAll(...)` builds every warehouse's list and returns them in the order of the tasks."
     },
     {
       "type": "para",
-      "text": "Calling `pool.invoke(task)` for each task in turn would run them one after the other: a task that needs another one running beside it would then never finish."
-    },
-    {
-      "type": "para",
-      "text": "Note that `task.fork()` called from a thread outside any pool pushes the task to the **common** pool, not to `pool`."
+      "text": "When you're done, all the warehouse tasks run at the same time on the service's pool, partners finish, and a warehouse task that throws makes `buildAll` throw that exception's type. About four lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\npublic final class Batch {\n\n    private Batch() {\n    }\n\n    /** Submits every task to the pool before joining any, then returns their results in list order. */\n    public static <T> List<T> runAll(ForkJoinPool pool, List<? extends ForkJoinTask<T>> tasks) {\n        List<ForkJoinTask<T>> submitted = new ArrayList<>();\n        for (ForkJoinTask<T> task : tasks) {\n            submitted.add(pool.submit(task));\n        }\n        List<T> results = new ArrayList<>();\n        for (ForkJoinTask<T> task : submitted) {\n            results.add(task.join());\n        }\n        return results;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\n/**\n * Builds the morning pick lists: one task per warehouse, all on the fulfilment service's\n * ForkJoinPool. Some warehouses share a cross-dock, and their tasks wait for each other.\n */\npublic class PickLists {\n\n    private final ForkJoinPool pool;\n\n    public PickLists(ForkJoinPool pool) {\n        this.pool = pool;\n    }\n\n    /** Builds every warehouse's pick list and returns them in the order of the tasks. */\n    public <T> List<T> buildAll(List<? extends ForkJoinTask<T>> warehouseTasks) {\n        for (ForkJoinTask<T> task : warehouseTasks) pool.submit(task);\n        List<T> lists = new ArrayList<>();\n        for (ForkJoinTask<T> task : warehouseTasks) lists.add(task.join());\n        return lists;\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\npublic final class Batch {\n\n    private Batch() {\n    }\n\n    /** Submits every task to the pool before joining any, then returns their results in list order. */\n    public static <T> List<T> runAll(ForkJoinPool pool, List<? extends ForkJoinTask<T>> tasks) {\n        throw new UnsupportedOperationException(\"write runAll\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\n/**\n * Builds the morning pick lists: one task per warehouse, all on the fulfilment service's\n * ForkJoinPool. Some warehouses share a cross-dock, and their tasks wait for each other.\n */\npublic class PickLists {\n\n    private final ForkJoinPool pool;\n\n    public PickLists(ForkJoinPool pool) {\n        this.pool = pool;\n    }\n\n    /** Builds every warehouse's pick list and returns them in the order of the tasks. */\n    public <T> List<T> buildAll(List<? extends ForkJoinTask<T>> warehouseTasks) {\n        // TODO: Six warehouses take six times as long as one, and partner warehouses that share a\n        //       cross-dock never finish. Build every list on this service's pool, all of them at\n        //       the same time, and return them in the order of the tasks. A warehouse that fails\n        //       fails the whole run with its own exception.\n        throw new IllegalStateException(\"TODO: buildAll\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +62,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -102,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cefb790e17ec77be47bfa46154010465a8cb35a5eee4617b8849d0750e74238a",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\npublic final class Batch {\n\n    private Batch() {\n    }\n\n    /** Submits every task to the pool before joining any, then returns their results in list order. */\n    public static <T> List<T> runAll(ForkJoinPool pool, List<? extends ForkJoinTask<T>> tasks) {\n        throw new UnsupportedOperationException(\"write runAll\");\n    }\n}\n",
+  "content_sha256": "84f88acdfa1f90d2f509e4accc27c12e644b56432d69c2c51d07d7e82eba1962",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.ForkJoinPool;\nimport java.util.concurrent.ForkJoinTask;\n\n/**\n * Builds the morning pick lists: one task per warehouse, all on the fulfilment service's\n * ForkJoinPool. Some warehouses share a cross-dock, and their tasks wait for each other.\n */\npublic class PickLists {\n\n    private final ForkJoinPool pool;\n\n    public PickLists(ForkJoinPool pool) {\n        this.pool = pool;\n    }\n\n    /** Builds every warehouse's pick list and returns them in the order of the tasks. */\n    public <T> List<T> buildAll(List<? extends ForkJoinTask<T>> warehouseTasks) {\n        // TODO: Six warehouses take six times as long as one, and partner warehouses that share a\n        //       cross-dock never finish. Build every list on this service's pool, all of them at\n        //       the same time, and return them in the order of the tasks. A warehouse that fails\n        //       fails the whole run with its own exception.\n        throw new IllegalStateException(\"TODO: buildAll\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/main/java/practice/Batch.java",
-    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/test/java/practice/BatchTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/main/java/practice/PickLists.java",
+    "test_path": "practice/06-multithreading-and-concurrency/25-fork-join/prose/unit-02/practice-2/src/test/java/practice/PickListsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BatchTest#returnsEachTasksResult",
+        "id": "practice.PickListsTest#returnsEveryListInTheOrderOfTheTasks",
         "kind": "main",
-        "says": "Each task's result comes back, in the order of the list."
+        "says": "every warehouse's list comes back, in the order of the tasks"
       },
       {
-        "id": "practice.BatchTest#submitsEveryTaskBeforeJoiningAny",
-        "kind": "edge",
-        "says": "All tasks are submitted before the first join, so they can run at the same time."
+        "id": "practice.PickListsTest#noWarehousesNoLists",
+        "kind": "main",
+        "says": "no tasks give an empty list"
       },
       {
-        "id": "practice.BatchTest#runsEveryTaskInTheGivenPool",
+        "id": "practice.PickListsTest#partnersThatWaitForEachOtherBothFinish",
         "kind": "edge",
-        "says": "Every task runs in the pool that was passed in, not in the common pool."
+        "says": "two warehouse tasks that each wait for the other to start both finish, because they run at the same time"
       },
       {
-        "id": "practice.BatchTest#equalResultsAreKept",
+        "id": "practice.PickListsTest#everyListIsBuiltOnTheServicesPool",
         "kind": "edge",
-        "says": "Two tasks with equal results give two entries: one result per task, nothing merged."
+        "says": "every task runs on the pool the service gave, even though the caller is not one of its threads"
       },
       {
-        "id": "practice.BatchTest#resultsFollowTheListNotCompletion",
+        "id": "practice.PickListsTest#aFailedWarehouseFailsTheRunWithItsOwnException",
         "kind": "edge",
-        "says": "When the second task finishes first, the results are still in list order."
+        "says": "a warehouse task that throws makes the run throw that same exception type, not a wrapper"
       }
     ],
     "report": {
@@ -158,10 +129,12 @@
     },
     "origin": {
       "path": "25-fork-join/README_6.6.1.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Failure Reaches the Caller Through invoke() or join(), and execute() Keeps It in the Task"
     },
     "concepts": [
-      "submit(task) returns a ForkJoinTask future at once, so several tasks can be submitted before any is joined."
+      "fork() called from a thread that is no pool's worker schedules the task in the common pool, not in a pool you created.",
+      "invoke() waits for one task, so tasks handed over one invoke at a time never run together; submitting all before joining any runs them together.",
+      "invoke() and join() rethrow a task's unchecked exception as its own type, get() wraps it in an ExecutionException, and after execute() the exception stays in the task."
     ]
   }
 }

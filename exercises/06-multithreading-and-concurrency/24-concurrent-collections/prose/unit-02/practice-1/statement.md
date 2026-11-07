@@ -1,21 +1,15 @@
-A `Collections.synchronizedList` wrapper locks **every single call** on the
-wrapper object, but the page's first pitfall is that **iteration is many
-calls**: the iterator is not protected, and another thread's `add` in the
-middle of a for-each loop can throw `ConcurrentModificationException`. The
-page's fix names the lock the wrapper itself uses.
+The public API sells calls in packs. Billing tops a client up through `grant`, and every request
+thread calls `tryUse` before it serves a call. In last month's traffic spike two things went
+wrong: clients who bought a pack at the same moment as an automatic renewal got only one of the
+two, and clients with a single call left were served two or three calls for it.
 
-Write two methods for a list made by `Collections.synchronizedList(...)` that
-other threads may change at any time:
+The quotas already live in a `ConcurrentHashMap`. Finish the two `TODO`s in
+`src/main/java/practice/Quotas.java`:
 
-- `Wrapped.mapAll(syncList, f)` returns a **new** list holding `f` applied to
-  each element, in order. No other thread may change the list while you walk
-  it, and a change another thread makes during the walk must not break it.
-- `Wrapped.snapshot(syncList)` returns a **new** list with the list's current
-  elements, which later changes to `syncList` do not affect. Take it under the same lock: the tests cannot catch a copy made
-  mid-change, so that part is good practice rather than graded.
+- `grant(client, calls)`: add the calls to what the client has left;
+- `tryUse(client)`: take one call if there is one, and say whether it did.
 
-| syncList | call | answer |
-|---|---|---|
-| `[a, b, c]` | `mapAll(syncList, String::toUpperCase)` | `[A, B, C]` |
-| `[a, b, c]`, another thread calls `add("d")` while `f` runs on `a` | `mapAll(syncList, String::toUpperCase)` | `[A, B, C]`; afterwards the list is `[a, b, c, d]` |
-| `[a, b, c]` | `s = snapshot(syncList)`, then `syncList.add("d")` | `s` is still `[a, b, c]` |
+When you're done, every top-up counts however many arrive together, a client's last call is
+served once, and the quota never goes below zero. About eight lines in total.
+
+The tests make two calls interleave the same way on every run, through the map the class is given.

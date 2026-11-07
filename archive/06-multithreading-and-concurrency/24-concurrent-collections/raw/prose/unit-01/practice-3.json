@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Store a null value in a ConcurrentHashMap",
+  "title": "Deliver deploy events to subscribers that change while they listen",
   "blocks": [
     {
       "type": "heading",
@@ -19,57 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`ConcurrentHashMap` refuses `null` keys **and** `null` values: `put(\"key\", null)` throws `NullPointerException`. The page explains why: in a concurrent map, `get` returning `null` must mean \"absent\", because a `containsKey` check made afterwards could already be stale. Its fix is to store a sentinel instead of `null`, and the page uses the empty string for that."
+      "text": "The deploy notifier tells billing, search, the audit trail and a few others that a new version went out. They subscribe at startup and hardly ever after, while deploy events arrive all day from several threads. Two new subscribers change the list from inside a delivery: a one-shot reminder unsubscribes itself after its first deploy, and the canary watcher subscribes the full-rollout watcher once the canary passes."
     },
     {
       "type": "para",
-      "text": "Write `NullableMap`, a thread-safe string map built on the given `ConcurrentHashMap<String, Object>` that **does** accept a `null` value:"
+      "text": "Finish the two `TODO` methods in `src/main/java/practice/DeployNotifier.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`put(String key, String value)` stores `value`, which may be `null`. A `null` key is refused with `NullPointerException`.",
-        "`get(String key)` returns the stored value, or `null` when the value is `null` or the key is absent.",
-        "`containsKey(String key)` says whether the key was stored, even with a `null` value."
+        "`newSubscribers()`: the list that holds the subscribers;",
+        "`deploy(event)`: delivers the event to every subscriber that was subscribed when the call began, in the order they subscribed, and returns how many it delivered to."
       ]
     },
     {
       "type": "para",
-      "text": "The tests use one thread, so they read the map's answers, not its thread safety; build on the `ConcurrentHashMap` anyway, as the page does. Pick your sentinel with care: every `String` a caller stores, the empty string included, must read back as itself."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`put(\"host\", \"db1\")`, `get(\"host\")`",
-          "`\"db1\"`"
-        ],
-        [
-          "`get(\"port\")`, `containsKey(\"port\")`",
-          "`null`, `false`"
-        ],
-        [
-          "`put(\"proxy\", null)`, `get(\"proxy\")`, `containsKey(\"proxy\")`",
-          "`null`, `true`"
-        ],
-        [
-          "`put(\"suffix\", \"\")`, `get(\"suffix\")`",
-          "`\"\"`"
-        ],
-        [
-          "`put(\"word\", \"null\")`, `get(\"word\")`",
-          "`\"null\"`"
-        ],
-        [
-          "`put(null, \"x\")`",
-          "throws `NullPointerException`"
-        ]
-      ]
+      "text": "A subscriber added during a delivery hears from the next deploy on; one removed during a delivery still hears the deploy in progress. About five lines in total. The tests use one thread."
     },
     {
       "type": "heading",
@@ -84,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class NullableMap {\n\n    /** A private object no caller can store, so it can only mean \"null\". */\n    private static final Object NULL = new Object();\n\n    private final ConcurrentHashMap<String, Object> map = new ConcurrentHashMap<>();\n\n    /** Stores value (which may be null) under a non-null key. */\n    public void put(String key, String value) {\n        map.put(key, value == null ? NULL : value);\n    }\n\n    /** The stored value, or null when it is null or the key is absent. */\n    public String get(String key) {\n        Object v = map.get(key);\n        return v == NULL ? null : (String) v;\n    }\n\n    /** Whether key was stored, even with a null value. */\n    public boolean containsKey(String key) {\n        return map.containsKey(key);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * Tells interested parts of the system that a deploy happened. Parts subscribe at startup and\n * rarely after; deploy events are delivered from several threads. A subscriber may subscribe or\n * unsubscribe itself or others while an event is being delivered.\n */\npublic class DeployNotifier {\n\n    private final List<Consumer<String>> subscribers = newSubscribers();\n\n    /** Subscribes a listener; returns false, and changes nothing, if it is already subscribed. */\n    public synchronized boolean subscribe(Consumer<String> subscriber) {\n        if (subscribers.contains(subscriber)) return false;\n        return subscribers.add(subscriber);\n    }\n\n    /** Unsubscribes a listener; returns whether it was subscribed. */\n    public boolean unsubscribe(Consumer<String> subscriber) {\n        return subscribers.remove(subscriber);\n    }\n\n    /**\n     * Delivers the event to every subscriber that was subscribed when this call began, in the\n     * order they subscribed, and returns how many it delivered to.\n     */\n    public int deploy(String event) {\n        int delivered = 0;\n        for (Consumer<String> s : subscribers) {\n            s.accept(event);\n            delivered++;\n        }\n        return delivered;\n    }\n\n    /** The list that holds the subscribers. */\n    List<Consumer<String>> newSubscribers() {\n        return new CopyOnWriteArrayList<>();\n    }\n}\n"
         }
       ]
     },
@@ -96,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class NullableMap {\n\n    private final ConcurrentHashMap<String, Object> map = new ConcurrentHashMap<>();\n\n    /** Stores value (which may be null) under a non-null key. */\n    public void put(String key, String value) {\n        throw new UnsupportedOperationException(\"write put\");\n    }\n\n    /** The stored value, or null when it is null or the key is absent. */\n    public String get(String key) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    /** Whether key was stored, even with a null value. */\n    public boolean containsKey(String key) {\n        throw new UnsupportedOperationException(\"write containsKey\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * Tells interested parts of the system that a deploy happened. Parts subscribe at startup and\n * rarely after; deploy events are delivered from several threads. A subscriber may subscribe or\n * unsubscribe itself or others while an event is being delivered.\n */\npublic class DeployNotifier {\n\n    private final List<Consumer<String>> subscribers = newSubscribers();\n\n    /** Subscribes a listener; returns false, and changes nothing, if it is already subscribed. */\n    public synchronized boolean subscribe(Consumer<String> subscriber) {\n        if (subscribers.contains(subscriber)) return false;\n        return subscribers.add(subscriber);\n    }\n\n    /** Unsubscribes a listener; returns whether it was subscribed. */\n    public boolean unsubscribe(Consumer<String> subscriber) {\n        return subscribers.remove(subscriber);\n    }\n\n    /**\n     * Delivers the event to every subscriber that was subscribed when this call began, in the\n     * order they subscribed, and returns how many it delivered to.\n     */\n    public int deploy(String event) {\n        // TODO: Deliver the event as described above. Subscribers run inside this call and may\n        //       subscribe or unsubscribe anyone, themselves included, while it runs.\n        throw new IllegalStateException(\"TODO: deploy\");\n    }\n\n    /** The list that holds the subscribers. */\n    List<Consumer<String>> newSubscribers() {\n        // TODO: Subscribers change a few times a day; events are delivered all day long, from\n        //       several threads at once. Return the list to keep them in.\n        throw new IllegalStateException(\"TODO: newSubscribers\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -106,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -115,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2db098154d0b0a3b2c08052bfc5915750db12f249b4bccc13cc9b170ca6a0f78",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class NullableMap {\n\n    private final ConcurrentHashMap<String, Object> map = new ConcurrentHashMap<>();\n\n    /** Stores value (which may be null) under a non-null key. */\n    public void put(String key, String value) {\n        throw new UnsupportedOperationException(\"write put\");\n    }\n\n    /** The stored value, or null when it is null or the key is absent. */\n    public String get(String key) {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    /** Whether key was stored, even with a null value. */\n    public boolean containsKey(String key) {\n        throw new UnsupportedOperationException(\"write containsKey\");\n    }\n}\n",
+  "content_sha256": "f602afcdc40154c0e7585a4b3fb6759657c384f3df6009e467d8d9cde33df9a2",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * Tells interested parts of the system that a deploy happened. Parts subscribe at startup and\n * rarely after; deploy events are delivered from several threads. A subscriber may subscribe or\n * unsubscribe itself or others while an event is being delivered.\n */\npublic class DeployNotifier {\n\n    private final List<Consumer<String>> subscribers = newSubscribers();\n\n    /** Subscribes a listener; returns false, and changes nothing, if it is already subscribed. */\n    public synchronized boolean subscribe(Consumer<String> subscriber) {\n        if (subscribers.contains(subscriber)) return false;\n        return subscribers.add(subscriber);\n    }\n\n    /** Unsubscribes a listener; returns whether it was subscribed. */\n    public boolean unsubscribe(Consumer<String> subscriber) {\n        return subscribers.remove(subscriber);\n    }\n\n    /**\n     * Delivers the event to every subscriber that was subscribed when this call began, in the\n     * order they subscribed, and returns how many it delivered to.\n     */\n    public int deploy(String event) {\n        // TODO: Deliver the event as described above. Subscribers run inside this call and may\n        //       subscribe or unsubscribe anyone, themselves included, while it runs.\n        throw new IllegalStateException(\"TODO: deploy\");\n    }\n\n    /** The list that holds the subscribers. */\n    List<Consumer<String>> newSubscribers() {\n        // TODO: Subscribers change a few times a day; events are delivered all day long, from\n        //       several threads at once. Return the list to keep them in.\n        throw new IllegalStateException(\"TODO: newSubscribers\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-3/src/main/java/practice/NullableMap.java",
-    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-3/src/test/java/practice/NullableMapTest.java",
+    "main_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-3/src/main/java/practice/DeployNotifier.java",
+    "test_path": "practice/06-multithreading-and-concurrency/24-concurrent-collections/prose/unit-01/practice-3/src/test/java/practice/DeployNotifierTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -140,29 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NullableMapTest#storesAndReadsValues",
+        "id": "practice.DeployNotifierTest#everySubscriberHearsEveryDeployInOrder",
         "kind": "main",
-        "says": "A stored value reads back, and a key never stored is absent and reads as null."
+        "says": "every subscriber hears every deploy, in the order they subscribed, and deploy reports how many heard it"
       },
       {
-        "id": "practice.NullableMapTest#keepsANullValue",
-        "kind": "edge",
-        "says": "A key stored with a null value is present, and its value reads as null."
+        "id": "practice.DeployNotifierTest#anUnsubscribedListenerHearsNoLaterDeploys",
+        "kind": "main",
+        "says": "a subscriber unsubscribed between two deploys hears only the first"
       },
       {
-        "id": "practice.NullableMapTest#emptyStringIsARealValue",
+        "id": "practice.DeployNotifierTest#aOneShotListenerThatUnsubscribesItselfDoesNotDisturbTheOthers",
         "kind": "edge",
-        "says": "An empty string, or the text \"null\", is an ordinary value: it reads back as itself, never as null."
+        "says": "a subscriber that unsubscribes itself while it handles a deploy neither breaks the delivery nor makes another subscriber miss it"
       },
       {
-        "id": "practice.NullableMapTest#refusesANullKey",
+        "id": "practice.DeployNotifierTest#aListenerSubscribedDuringADeployHearsFromTheNextOne",
         "kind": "edge",
-        "says": "A null key is refused with NullPointerException, as ConcurrentHashMap refuses it."
+        "says": "a subscriber added while a deploy is delivered hears from the next deploy on, not the one in progress"
       },
       {
-        "id": "practice.NullableMapTest#noStoredStringDoublesAsTheSentinel",
+        "id": "practice.DeployNotifierTest#aListenerUnsubscribedByAnotherDuringADeployStillHearsThatDeploy",
         "kind": "edge",
-        "says": "A stored \"\\u0000\" or \"0\" reads back as itself: no String a caller can store is mistaken for the null marker."
+        "says": "a subscriber that was subscribed when a deploy began hears it, even if another subscriber unsubscribes it during the delivery"
       }
     ],
     "report": {
@@ -171,10 +137,10 @@
     },
     "origin": {
       "path": "24-concurrent-collections/README_6.5.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "CopyOnWriteArrayList Copies Its Array on Every Write, So Readers Iterate a Snapshot"
     },
     "concepts": [
-      "ConcurrentHashMap refuses null keys and values so that get returning null always means absent, and a null value must be stored as a sentinel."
+      "A CopyOnWriteArrayList iterator works over the array as it was when iteration began: it never throws ConcurrentModificationException, and changes made during the loop show from the next iteration."
     ]
   }
 }

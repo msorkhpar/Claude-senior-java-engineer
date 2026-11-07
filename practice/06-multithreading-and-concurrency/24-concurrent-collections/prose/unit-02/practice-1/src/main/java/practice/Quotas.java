@@ -1,0 +1,41 @@
+package practice;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+/**
+ * Call quotas of the public API, per client key. Billing tops a client up with grant(...), and
+ * every request thread calls tryUse(...) before it serves a call. Many threads do both at once.
+ */
+public class Quotas {
+
+    private final ConcurrentMap<String, Integer> remaining;
+
+    public Quotas() {
+        this(new ConcurrentHashMap<>());
+    }
+
+    /** Keeps the quotas in the given map, which the admin endpoints share. */
+    public Quotas(ConcurrentMap<String, Integer> remaining) {
+        this.remaining = remaining;
+    }
+
+    /** Calls the client may still make; 0 for a client that was never granted any. */
+    public int remaining(String client) {
+        return remaining.getOrDefault(client, 0);
+    }
+
+    /** Adds calls to the client's quota. */
+    public void grant(String client, int calls) {
+        // TODO: Add calls to what the client has left. Two top-ups for one client can arrive at
+        //       the same moment, and both must count.
+        throw new IllegalStateException("TODO: grant");
+    }
+
+    /** Takes one call from the client's quota: true if it did, false (taking nothing) if none was left. */
+    public boolean tryUse(String client) {
+        // TODO: Take one call if the client has any left. When two requests arrive for a client's
+        //       last call, exactly one of them gets it, and the quota never goes below zero.
+        throw new IllegalStateException("TODO: tryUse");
+    }
+}
