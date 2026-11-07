@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Pass-by-value of a reference: change the object, not the variable",
+  "title": "Export a discussion of any depth",
   "blocks": [
     {
       "type": "heading",
@@ -19,39 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Java is always pass-by-value. For an object the value passed is the **reference**, so a method and its caller point at the same heap object: the method can change that object, but **reassigning the parameter does not reach the caller**, it only changes the method's own copy of the reference."
+      "text": "The community site exports a discussion for the moderation team: every comment in the order the site shows them, and how deep the longest chain of replies goes. Last week a spam bot answered its own replies 180,000 times, and the export of that one discussion killed the export worker with a `StackOverflowError`. The first suggestion in the team channel was to start the whole service with `-Xss64m`."
     },
     {
       "type": "para",
-      "text": "Write two methods on `Names`:"
+      "text": "`Comment` and `summary(...)` are done. Finish the two `TODO`s in `src/main/java/practice/Discussion.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`trimAll(names)` trims every name **in the caller's list** (it returns nothing, so the change must happen in the list itself).",
-        "`trimmedCopy(names)` returns a new list of the trimmed names; **the copy leaves the caller's list unchanged**."
+        "`deepest(...)`: the number of levels in the longest chain of replies, the root being level 1;",
+        "`inOrder(...)`: every comment's id in display order. A comment comes first, then the whole thread under its oldest reply, then the thread under its next reply, and so on."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "caller's list afterwards",
-        "returns"
-      ],
-      "rows": [
-        [
-          "`trimAll([\"  ada \", \"bob\"])`",
-          "`[ada, bob]`",
-          ""
-        ],
-        [
-          "`trimmedCopy([\"  ada \", \"bob\"])`",
-          "`[  ada , bob]`",
-          "`[ada, bob]`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, any discussion exports on the worker's ordinary threads, the bot's included, with no change to the service's stack size. About fifteen lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run each export on a thread with a 1 MB stack."
     },
     {
       "type": "heading",
@@ -66,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class Names {\n\n    private Names() {\n    }\n\n    /** Trims every name in the given list itself. */\n    public static void trimAll(List<String> names) {\n        names.replaceAll(String::trim);\n    }\n\n    /** A new list of the trimmed names; the given list is not changed. */\n    public static List<String> trimmedCopy(List<String> names) {\n        List<String> copy = new ArrayList<>(names.size());\n        for (String name : names) {\n            copy.add(name.trim());\n        }\n        return copy;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Exports a discussion for the moderation team: every comment in the order the site shows them,\n * and how deep the longest chain of replies goes. Exports run on the worker's ordinary threads.\n */\npublic class Discussion {\n\n    /** One comment and the replies to it, oldest reply first. */\n    public static final class Comment {\n        private final String id;\n        private final List<Comment> replies = new ArrayList<>(1);\n\n        public Comment(String id) {\n            this.id = id;\n        }\n\n        /** Adds a reply to this comment and returns it. */\n        public Comment reply(String replyId) {\n            Comment reply = new Comment(replyId);\n            replies.add(reply);\n            return reply;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public List<Comment> replies() {\n            return Collections.unmodifiableList(replies);\n        }\n\n        @Override\n        public String toString() {\n            return id;\n        }\n    }\n\n    /** One line for the moderation report. */\n    public static String summary(Comment root) {\n        return inOrder(root).size() + \" comments, \" + deepest(root) + \" levels\";\n    }\n\n    /** How many levels the longest chain of replies has, counting the root as level 1. */\n    static int deepest(Comment root) {\n        int levels = 0;\n        List<Comment> level = List.of(root);\n        while (!level.isEmpty()) {\n            levels++;\n            List<Comment> next = new ArrayList<>();\n            for (Comment c : level) next.addAll(c.replies);\n            level = next;\n        }\n        return levels;\n    }\n\n    /**\n     * Every comment's id in the order the site shows them: a comment, then the whole thread under\n     * its oldest reply, then the thread under its next reply, and so on.\n     */\n    static List<String> inOrder(Comment root) {\n        List<String> ids = new ArrayList<>();\n        Deque<Comment> toVisit = new ArrayDeque<>();\n        toVisit.push(root);\n        while (!toVisit.isEmpty()) {\n            Comment c = toVisit.pop();\n            ids.add(c.id);\n            for (int i = c.replies.size() - 1; i >= 0; i--) toVisit.push(c.replies.get(i));\n        }\n        return ids;\n    }\n}\n"
         }
       ]
     },
@@ -78,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Names {\n\n    private Names() {\n    }\n\n    /** Trims every name in the given list itself. */\n    public static void trimAll(List<String> names) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** A new list of the trimmed names; the given list is not changed. */\n    public static List<String> trimmedCopy(List<String> names) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Exports a discussion for the moderation team: every comment in the order the site shows them,\n * and how deep the longest chain of replies goes. Exports run on the worker's ordinary threads.\n */\npublic class Discussion {\n\n    /** One comment and the replies to it, oldest reply first. */\n    public static final class Comment {\n        private final String id;\n        private final List<Comment> replies = new ArrayList<>(1);\n\n        public Comment(String id) {\n            this.id = id;\n        }\n\n        /** Adds a reply to this comment and returns it. */\n        public Comment reply(String replyId) {\n            Comment reply = new Comment(replyId);\n            replies.add(reply);\n            return reply;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public List<Comment> replies() {\n            return Collections.unmodifiableList(replies);\n        }\n\n        @Override\n        public String toString() {\n            return id;\n        }\n    }\n\n    /** One line for the moderation report. */\n    public static String summary(Comment root) {\n        return inOrder(root).size() + \" comments, \" + deepest(root) + \" levels\";\n    }\n\n    /** How many levels the longest chain of replies has, counting the root as level 1. */\n    static int deepest(Comment root) {\n        // TODO: Count the levels of the longest chain of replies. Some discussions are a few\n        //       comments; one was 180,000 replies, each answering the one before, and the\n        //       export must handle both on the worker's ordinary threads.\n        throw new IllegalStateException(\"TODO: deepest\");\n    }\n\n    /**\n     * Every comment's id in the order the site shows them: a comment, then the whole thread under\n     * its oldest reply, then the thread under its next reply, and so on.\n     */\n    static List<String> inOrder(Comment root) {\n        // TODO: List the ids in the order the site shows them (see above), for discussions of\n        //       any depth, on the worker's ordinary threads.\n        throw new IllegalStateException(\"TODO: inOrder\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -86,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -97,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b053a57cbeddf4937555d6fb1c99d0ec7899c664ac36ffe18485c9db1610c225",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Names {\n\n    private Names() {\n    }\n\n    /** Trims every name in the given list itself. */\n    public static void trimAll(List<String> names) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** A new list of the trimmed names; the given list is not changed. */\n    public static List<String> trimmedCopy(List<String> names) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "5adb1f2662ad71b166a6b28e98c678d1c59041575b7ac2f172a46010aa7e6cc2",
+  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Exports a discussion for the moderation team: every comment in the order the site shows them,\n * and how deep the longest chain of replies goes. Exports run on the worker's ordinary threads.\n */\npublic class Discussion {\n\n    /** One comment and the replies to it, oldest reply first. */\n    public static final class Comment {\n        private final String id;\n        private final List<Comment> replies = new ArrayList<>(1);\n\n        public Comment(String id) {\n            this.id = id;\n        }\n\n        /** Adds a reply to this comment and returns it. */\n        public Comment reply(String replyId) {\n            Comment reply = new Comment(replyId);\n            replies.add(reply);\n            return reply;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public List<Comment> replies() {\n            return Collections.unmodifiableList(replies);\n        }\n\n        @Override\n        public String toString() {\n            return id;\n        }\n    }\n\n    /** One line for the moderation report. */\n    public static String summary(Comment root) {\n        return inOrder(root).size() + \" comments, \" + deepest(root) + \" levels\";\n    }\n\n    /** How many levels the longest chain of replies has, counting the root as level 1. */\n    static int deepest(Comment root) {\n        // TODO: Count the levels of the longest chain of replies. Some discussions are a few\n        //       comments; one was 180,000 replies, each answering the one before, and the\n        //       export must handle both on the worker's ordinary threads.\n        throw new IllegalStateException(\"TODO: deepest\");\n    }\n\n    /**\n     * Every comment's id in the order the site shows them: a comment, then the whole thread under\n     * its oldest reply, then the thread under its next reply, and so on.\n     */\n    static List<String> inOrder(Comment root) {\n        // TODO: List the ids in the order the site shows them (see above), for discussions of\n        //       any depth, on the worker's ordinary threads.\n        throw new IllegalStateException(\"TODO: inOrder\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-1/src/main/java/practice/Names.java",
-    "test_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-1/src/test/java/practice/NamesTest.java",
+    "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-1/src/main/java/practice/Discussion.java",
+    "test_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-01/practice-1/src/test/java/practice/DiscussionTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -122,19 +110,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NamesTest#trimmedCopyTrimsEveryName",
+        "id": "practice.DiscussionTest#summarisesAShortDiscussion",
         "kind": "main",
-        "says": "trimmedCopy([\"  ada \", \"bob\", \" cy\"]) returns [ada, bob, cy]."
+        "says": "a short branching discussion is counted, listed with its root first, and summarised"
       },
       {
-        "id": "practice.NamesTest#trimAllChangesTheCallersList",
-        "kind": "edge",
-        "says": "After trimAll(list) the caller's own list holds the trimmed names: the method changed the object both references point to."
+        "id": "practice.DiscussionTest#aCommentWithNoRepliesIsOneLevel",
+        "kind": "main",
+        "says": "a comment with no replies is one level and lists only itself"
       },
       {
-        "id": "practice.NamesTest#trimmedCopyLeavesTheCallersListAlone",
+        "id": "practice.DiscussionTest#measuresAChainOfRepliesAQuarterMillionDeep",
         "kind": "edge",
-        "says": "After trimmedCopy(list) the caller's list still holds the untrimmed names, and the result is a different list, even when no name needed trimming."
+        "says": "the depth of a chain of 250,000 replies is measured on a thread with a 1 MB stack"
+      },
+      {
+        "id": "practice.DiscussionTest#listsAChainOfRepliesAQuarterMillionDeep",
+        "kind": "edge",
+        "says": "a chain of 250,000 replies is listed on a thread with a 1 MB stack"
+      },
+      {
+        "id": "practice.DiscussionTest#listsRepliesOldestFirstEachFollowedByItsOwnThread",
+        "kind": "edge",
+        "says": "replies are listed oldest first, each followed by the whole thread under it"
       }
     ],
     "report": {
@@ -143,10 +141,11 @@
     },
     "origin": {
       "path": "40-memory-management/README_10.2.1.md",
-      "section": "Interview Q&A Section"
+      "section": "-Xss Sets How Many Frames Fit, So Recursion as Deep as the Data Fails on Large Input"
     },
     "concepts": [
-      "Java passes the value of a reference, so a method can change the caller's object but reassigning its parameter never changes the caller's variable."
+      "-Xss decides how many frames fit, and the depth changes with frame size and JIT compilation, so a recursion as deep as its input overflows on some input while a loop or an explicit stack on the heap doesn't; a bigger -Xss only moves the limit.",
+      "Java has no tail-call elimination: a recursive call in the last position still pushes a frame."
     ]
   }
 }

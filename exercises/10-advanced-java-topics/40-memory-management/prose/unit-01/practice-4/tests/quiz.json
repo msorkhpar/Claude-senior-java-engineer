@@ -7,66 +7,180 @@
   "variant": "prose",
   "unit": 1,
   "ordinal": 4,
-  "title": "Stack allocation and reference strength",
+  "title": "Check yourself: heap, stack and Metaspace",
   "exercise": {
     "provenance": "generated",
     "trust": "advisory",
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-escape-analysis",
-        "stem": "A method creates a small Point that never leaves the method, and the method becomes hot. What can HotSpot's C2 compiler do with that allocation?",
+        "id": "q-virtual-xml",
+        "stem": "An XML import recurses once per nesting level. On platform threads with -Xss1m it failed with StackOverflowError on a document nested 40,000 levels deep. The team moves the import onto virtual threads, whose frames are copied to the heap when they unmount with the same JVM options. What happens with the same document?",
         "options": [
           {
             "id": "a",
-            "text": "Place the whole Point object in the method's stack frame instead of the heap.",
+            "text": "It succeeds, since a virtual thread's stack can keep growing as long as the heap has room",
             "correct": false,
-            "says": "HotSpot does not allocate whole objects on the stack; the page says so explicitly."
+            "says": "-Xss caps the virtual thread's depth; the heap's size doesn't raise it"
           },
           {
             "id": "b",
-            "text": "Remove the allocation and keep the Point's fields as plain local values.",
-            "correct": true,
-            "says": "That is scalar replacement: escape analysis proves the object does not escape, so its fields become locals in registers or stack slots and no heap allocation happens."
+            "text": "It succeeds, since -Xss sizes only platform threads and a virtual thread's stack grows on the heap",
+            "correct": false,
+            "says": "-Xss caps a virtual thread's depth too: on the page it went 9,818 frames deep against 9,835 for a platform thread"
           },
           {
             "id": "c",
-            "text": "Nothing, since every object must be allocated on the heap and collected later.",
+            "text": "It fails at about the same depth, since -Xss also caps how deep a virtual thread's stack can grow",
+            "correct": true,
+            "says": "a virtual thread's frames live on the heap while it is unmounted, but its depth is capped by -Xss like a platform thread's (9,818 vs 9,835 frames on the page)"
+          },
+          {
+            "id": "d",
+            "text": "It fails at a smaller depth, since a virtual thread's stack stays at a few kilobytes while it runs",
             "correct": false,
-            "says": "Escape analysis is the exception the page names: a non-escaping allocation can be eliminated entirely."
+            "says": "a virtual thread's stack grows as it calls deeper, up to the -Xss cap; the page's virtual thread went as deep as the platform thread"
           }
         ],
         "origin": {
           "path": "40-memory-management/README_10.2.1.md",
-          "section": "Key Points to Remember"
+          "section": "-Xss Sets How Many Frames Fit, So Recursion as Deep as the Data Fails on Large Input"
         }
       },
       {
-        "id": "q-reference-strength",
-        "stem": "A cache should keep its entries until the heap is nearly full, and give them up then. Which reference should hold each entry?",
+        "id": "q-csv-buffer",
+        "stem": "A report service fails with OutOfMemoryError: Java heap space. The stack trace ends in CsvWriter.grow, which copies an 8 MB buffer into a 16 MB one. CsvWriter is created per report; the service keeps user sessions in a static map. A teammate makes CsvWriter start with a 16 MB buffer so that it never grows; the error stops for a week, then returns. What best explains that?",
         "options": [
           {
             "id": "a",
-            "text": "A WeakReference, cleared by the collector once no strong reference remains.",
+            "text": "CsvWriter still holds most of the heap, and a week of reports later its 16 MB buffer was too small again",
             "correct": false,
-            "says": "A weak reference is cleared by the first GC cycle that finds the object only weakly reachable, even when memory is plentiful."
+            "says": "the trace names the allocation that failed, not what holds the memory; CsvWriter's buffers are garbage once a report is done"
           },
           {
             "id": "b",
-            "text": "A PhantomReference, enqueued by the collector once the entry has been finalized.",
+            "text": "The session map holds most of the heap, and a week later its expired sessions were still too new for the collector to clear",
             "correct": false,
-            "says": "A phantom reference's get() always returns null, so a cache could never read its entry back; it is for post-mortem cleanup."
+            "says": "the collector frees what nothing reachable refers to, whatever its age; the map still refers to every session"
           },
           {
             "id": "c",
-            "text": "A SoftReference, cleared by the collector when it comes under memory pressure.",
+            "text": "CsvWriter still holds most of the heap, and a week of reports later its unflushed buffers had piled up again",
+            "correct": false,
+            "says": "a CsvWriter and its buffer are garbage once its report is done; the trace names the allocation that failed, not what holds the memory"
+          },
+          {
+            "id": "d",
+            "text": "The session map holds most of the heap, and a week of sessions later another allocation was the one that failed",
             "correct": true,
-            "says": "Soft references are cleared only under memory pressure, and all of them before an OutOfMemoryError, which is exactly a memory-sensitive cache's need."
+            "says": "the error is thrown by whichever allocation fails; the sessions stay reachable and keep growing, so another allocation fails next"
           }
         ],
         "origin": {
           "path": "40-memory-management/README_10.2.1.md",
-          "section": "Interview Q&A Section"
+          "section": "OutOfMemoryError Is Thrown by Whichever Allocation Fails, Not by the Code That Filled the Heap"
+        }
+      },
+      {
+        "id": "q-cache-36g",
+        "stem": "A cache service runs with -Xmx30g. To make room for 20% more entries, it is restarted with -Xmx36g. How many entries fit now, compared with before?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Fewer than 20% more, since every object header grows from 12 to 16 bytes above 32 GB",
+            "correct": false,
+            "says": "the header stays 12 bytes with compressed oops off: an object with one int is 16 bytes either way on the page"
+          },
+          {
+            "id": "b",
+            "text": "Fewer than 20% more, since every reference in the heap now takes 8 bytes instead of 4",
+            "correct": true,
+            "says": "from -Xmx32g up the JVM turns compressed oops off, so every reference field and array slot doubles"
+          },
+          {
+            "id": "c",
+            "text": "About 20% more, since the extra 6 GB holds entries of the same size as before",
+            "correct": false,
+            "says": "the entries get bigger, because their references go from 4 to 8 bytes"
+          },
+          {
+            "id": "d",
+            "text": "About 20% more, since compressed oops stay on while the machine has enough memory",
+            "correct": false,
+            "says": "compressed oops depend on the heap size, not the machine's memory: -Xmx32g turns them off"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.1.md",
+          "section": "An Object Costs a Header Plus Its Fields, Rounded Up to 8 Bytes; a Reference Costs 4 Bytes Below 32 GB"
+        }
+      },
+      {
+        "id": "q-window-metrics",
+        "stem": "A pricing method creates a Window record from two longs, calls window.contains(ts) and returns the boolean. The warmed-up service's allocation profile shows no Window objects. A later change adds one line, metrics.observe(window), where metrics is an interface with several implementations in use, so that call site isn't inlined. What does the profile show after the change?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No Window objects, since a call that isn't inlined can't keep a reference to the record it receives",
+            "correct": false,
+            "says": "code the compiler can't see might store the reference, so the analysis must treat the record as escaping"
+          },
+          {
+            "id": "b",
+            "text": "A Window per call, since a method with a call that isn't inlined is no longer compiled by C2",
+            "correct": false,
+            "says": "the method is still compiled; only objects that reach code the analysis can't see escape, as the page shows with the constructor kept out of inlining"
+          },
+          {
+            "id": "c",
+            "text": "A Window per call, since the record is passed to code that isn't inlined into the method",
+            "correct": true,
+            "says": "escape analysis sees only inlined code, so an argument to a call that isn't inlined counts as escaping, and the allocation comes back"
+          },
+          {
+            "id": "d",
+            "text": "No Window objects, since the record is passed to observe() as its two fields rather than as an object",
+            "correct": false,
+            "says": "a call the compiler can't see into receives a real reference, so the record must exist on the heap"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.1.md",
+          "section": "Escape Analysis Can Remove an Allocation, but Only in Compiled Code and Only While the Object Stays Local"
+        }
+      },
+      {
+        "id": "q-rule-classes",
+        "stem": "A rules engine compiles each rule into a hidden class and caches the classes in a map whose key includes the request id. It runs with -Xmx4g, and after two days it fails with OutOfMemoryError: Metaspace. Operations restarts it with -Xmx8g. What happens next?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It runs about twice as long, since the map's classes are stored in the heap, which the restart doubles",
+            "correct": false,
+            "says": "class metadata lives in Metaspace, native memory outside the heap; the page's run failed with 3 MB of a 1 GB heap in use"
+          },
+          {
+            "id": "b",
+            "text": "It fails again after about two days, since its hidden classes stay loaded until the JVM exits, mapped or not",
+            "correct": false,
+            "says": "hidden classes are unloaded once nothing reaches them; on the page 299,159 of 300,000 dropped classes were"
+          },
+          {
+            "id": "c",
+            "text": "It runs about twice as long, since Metaspace is sized from the heap, so the map's classes get twice the room",
+            "correct": false,
+            "says": "Metaspace is limited by MaxMetaspaceSize, not by -Xmx"
+          },
+          {
+            "id": "d",
+            "text": "It fails again after about two days, since the map keeps its classes reachable and Metaspace is outside the heap",
+            "correct": true,
+            "says": "class metadata is in Metaspace, which -Xmx doesn't bound, and the map keeps every class reachable so none is unloaded"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.1.md",
+          "section": "Classes Live in Metaspace, Outside -Xmx"
         }
       }
     ]

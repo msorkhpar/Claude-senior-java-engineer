@@ -1,24 +1,20 @@
-`getDeclaredMethod(name, types...)` wants the **exact** parameter types.
-Autoboxing does not apply to lookup: a method `add(int, int)` is not found
-with `Integer.class, Integer.class`. With overloads the types pick the
-method. `getDeclaredMethod` searches only the class itself, and
-`getMethod` finds public methods only.
+The warehouse's ops console lets an operator type a command, such as `reserve SKU-7731 12`, and
+runs the public method of that name on a handler object. The console colours its reply by
+status, and the on-call rota is paged for every 500. Operators complain that a typo in a quantity
+pages someone, while a quantity typed as a word gets an answer that blames the command.
 
-Write `MethodFinder`:
+`call(...)` already finds the method. Finish the `TODO` in
+`src/main/java/practice/Dispatcher.java`:
 
-- `find(type, name, params...)`: the method with exactly these parameter
-  types, declared on `type` or **any superclass** at **any access level**, or
-  `Optional.empty()`.
-- `overloads(type, name)`: `"name(Type,Type)"` (simple type names, no
-  spaces) for every method `type` itself declares with that name, **private
-  ones too**, sorted.
+- `run(method, args)`: call the method on the handler and turn what happened into a `Reply`.
 
-With `Base { private String secret(); }` and
-`MathOps extends Base { public int add(int,int); public double add(double,double); private long add(long,long); ... }`:
+The statuses the console expects:
 
-| call | result |
+| What happened | Reply |
 |---|---|
-| `find(MathOps.class, "add", int.class, int.class)` | the `int` version |
-| `find(MathOps.class, "add", Integer.class, Integer.class)` | empty |
-| `find(MathOps.class, "secret")` | `Base.secret` |
-| `overloads(MathOps.class, "add")` | `[add(double,double), add(int,int), add(long,long)]` |
+| the command returned | 200, `String.valueOf` of the result |
+| the command threw `IllegalArgumentException` | 422, the command's message |
+| the arguments don't fit the command's parameters | 400, starting with `bad arguments` |
+| the command threw anything else | 500, the simple class name of what it threw |
+
+About ten lines in total.

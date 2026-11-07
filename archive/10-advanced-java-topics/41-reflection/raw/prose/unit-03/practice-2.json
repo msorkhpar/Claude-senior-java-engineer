@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A reflective shape factory",
+  "title": "Start the connectors that can start",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,22 @@
     },
     {
       "type": "para",
-      "text": "A reflective factory maps names to classes and creates instances on demand, so a new shape needs a registration, not a new `switch` branch. Two habits make it robust: **validate at registration** (find the no-arg constructor then, and keep it) rather than when the first `create` fails, and compare names ignoring case **with `Locale.ROOT`**: `toLowerCase()` uses the default locale, and in Turkish `\"CIRCLE\".toLowerCase()` is `\"cırcle\"`."
+      "text": "The order service starts six integration connectors when it boots, and each connector's constructor opens its own connection. Last Tuesday the customs partner's API was down for an hour, and every restart in that hour failed: one connector that couldn't reach its partner kept the other five from starting. The week before, a connector with a plain bug in its constructor was skipped silently, and nobody noticed for two days."
     },
     {
       "type": "para",
-      "text": "Write `ShapeFactory` for the nested interface `ShapeFactory.Shape` (given):"
+      "text": "`ConnectorFactory.createAll` already starts connectors and skips the ones that fail with a `ConnectorException`. Finish the `TODO` in `src/main/java/practice/ConnectorFactory.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`register(name, type)`: remembers `type` under `name`, ignoring case. A `type` with **no no-arg constructor** is refused at once with `IllegalArgumentException`.",
-        "`create(name)`: a **new** instance of the class registered under `name` (any case). An unknown name is `IllegalArgumentException`."
+        "`create(type)`: a new connector made with the class's no-argument constructor."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "result"
-      ],
-      "rows": [
-        [
-          "`register(\"circle\", Circle.class)`, `create(\"circle\").area()`",
-          "`4π`"
-        ],
-        [
-          "`register(\"square\", Square.class)`, `create(\"Square\").area()`",
-          "`16.0`"
-        ],
-        [
-          "`register(\"CIRCLE\", Circle.class)` in a Turkish default locale, `create(\"circle\")`",
-          "a circle"
-        ],
-        [
-          "`register(\"sized\", Sized.class)`, `Sized` has only `Sized(double)`",
-          "`IllegalArgumentException`"
-        ],
-        [
-          "`create(\"hexagon\")`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a connector whose constructor fails with a checked exception is skipped and the others still start, the `ConnectorException` carries the constructor's own exception as its cause, and an unchecked exception or an `Error` from a constructor reaches the caller exactly as it was thrown. About ten lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.util.HashMap;\nimport java.util.Locale;\nimport java.util.Map;\n\npublic final class ShapeFactory {\n\n    /** A shape the factory creates. */\n    public interface Shape {\n        double area();\n    }\n\n    private final Map<String, Constructor<? extends Shape>> registry = new HashMap<>();\n\n    /** Registers type under name, ignoring case; refuses a type without a no-arg constructor. */\n    public void register(String name, Class<? extends Shape> type) {\n        try {\n            Constructor<? extends Shape> constructor = type.getDeclaredConstructor();\n            constructor.setAccessible(true);\n            registry.put(key(name), constructor);\n        } catch (NoSuchMethodException e) {\n            throw new IllegalArgumentException(type.getName() + \" has no no-arg constructor\", e);\n        }\n    }\n\n    /** A new instance of the class registered under name, in any case. */\n    public Shape create(String name) {\n        Constructor<? extends Shape> constructor = registry.get(key(name));\n        if (constructor == null) {\n            throw new IllegalArgumentException(\"Unknown shape: \" + name);\n        }\n        try {\n            return constructor.newInstance();\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot create \" + name, e);\n        }\n    }\n\n    private static String key(String name) {\n        return name.toLowerCase(Locale.ROOT);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.InvocationTargetException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Starts the integration connectors (warehouse, billing, shipping, ...) when the order service\n * boots. Each connector's constructor opens its connection, and may fail when the other side is\n * down.\n */\npublic class ConnectorFactory {\n\n    /** What every connector class implements. */\n    public interface Connector {\n        String name();\n    }\n\n    /** A connector that could not be started. */\n    public static class ConnectorException extends Exception {\n        public ConnectorException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final List<String> skipped = new ArrayList<>();\n\n    /** Starts every connector it can, skipping the ones that can't be started. */\n    public List<Connector> createAll(List<Class<? extends Connector>> types) {\n        List<Connector> started = new ArrayList<>();\n        for (Class<? extends Connector> type : types) {\n            try {\n                started.add(create(type));\n            } catch (ConnectorException e) {\n                skipped.add(type.getSimpleName() + \": \" + e.getCause());\n            }\n        }\n        return started;\n    }\n\n    /** One line per connector that createAll skipped, with the reason. */\n    public List<String> skipped() {\n        return List.copyOf(skipped);\n    }\n\n    public Connector create(Class<? extends Connector> type) throws ConnectorException {\n        try {\n            return type.getDeclaredConstructor().newInstance();\n        } catch (InvocationTargetException e) {\n            Throwable cause = e.getCause();\n            if (cause instanceof RuntimeException unchecked) throw unchecked;\n            if (cause instanceof Error error) throw error;\n            throw new ConnectorException(type.getSimpleName() + \" could not start\", cause);\n        } catch (ReflectiveOperationException e) {\n            throw new ConnectorException(\"cannot create \" + type.getName(), e);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class ShapeFactory {\n\n    /** A shape the factory creates. */\n    public interface Shape {\n        double area();\n    }\n\n    /** Registers type under name, ignoring case; refuses a type without a no-arg constructor. */\n    public void register(String name, Class<? extends Shape> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** A new instance of the class registered under name, in any case. */\n    public Shape create(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Starts the integration connectors (warehouse, billing, shipping, ...) when the order service\n * boots. Each connector's constructor opens its connection, and may fail when the other side is\n * down.\n */\npublic class ConnectorFactory {\n\n    /** What every connector class implements. */\n    public interface Connector {\n        String name();\n    }\n\n    /** A connector that could not be started. */\n    public static class ConnectorException extends Exception {\n        public ConnectorException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final List<String> skipped = new ArrayList<>();\n\n    /** Starts every connector it can, skipping the ones that can't be started. */\n    public List<Connector> createAll(List<Class<? extends Connector>> types) {\n        List<Connector> started = new ArrayList<>();\n        for (Class<? extends Connector> type : types) {\n            try {\n                started.add(create(type));\n            } catch (ConnectorException e) {\n                skipped.add(type.getSimpleName() + \": \" + e.getCause());\n            }\n        }\n        return started;\n    }\n\n    /** One line per connector that createAll skipped, with the reason. */\n    public List<String> skipped() {\n        return List.copyOf(skipped);\n    }\n\n    /**\n     * A new connector of {@code type}, made with its no-argument constructor.\n     */\n    public Connector create(Class<? extends Connector> type) throws ConnectorException {\n        // TODO: A connector whose constructor fails because the other side is unreachable\n        //       (any checked exception) is reported as a ConnectorException that carries the\n        //       constructor's own exception as its cause, so createAll can skip it and log why.\n        //       A bug in a constructor (an unchecked exception or an Error) is not \"unreachable\":\n        //       it reaches the caller as it was thrown. A class that can't be instantiated at all\n        //       is a ConnectorException too.\n        throw new IllegalStateException(\"TODO: create\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,9 +69,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3a6101c3a95d80480b64b3bee985b24f4b8f149f9025bc59c1596acd11bd6ebc",
-  "starting_code": "package practice;\n\npublic final class ShapeFactory {\n\n    /** A shape the factory creates. */\n    public interface Shape {\n        double area();\n    }\n\n    /** Registers type under name, ignoring case; refuses a type without a no-arg constructor. */\n    public void register(String name, Class<? extends Shape> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** A new instance of the class registered under name, in any case. */\n    public Shape create(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "79834a17b547db6a11961d5a5e7b21b629e31ee29db038861b971093ce0011f2",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Starts the integration connectors (warehouse, billing, shipping, ...) when the order service\n * boots. Each connector's constructor opens its connection, and may fail when the other side is\n * down.\n */\npublic class ConnectorFactory {\n\n    /** What every connector class implements. */\n    public interface Connector {\n        String name();\n    }\n\n    /** A connector that could not be started. */\n    public static class ConnectorException extends Exception {\n        public ConnectorException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final List<String> skipped = new ArrayList<>();\n\n    /** Starts every connector it can, skipping the ones that can't be started. */\n    public List<Connector> createAll(List<Class<? extends Connector>> types) {\n        List<Connector> started = new ArrayList<>();\n        for (Class<? extends Connector> type : types) {\n            try {\n                started.add(create(type));\n            } catch (ConnectorException e) {\n                skipped.add(type.getSimpleName() + \": \" + e.getCause());\n            }\n        }\n        return started;\n    }\n\n    /** One line per connector that createAll skipped, with the reason. */\n    public List<String> skipped() {\n        return List.copyOf(skipped);\n    }\n\n    /**\n     * A new connector of {@code type}, made with its no-argument constructor.\n     */\n    public Connector create(Class<? extends Connector> type) throws ConnectorException {\n        // TODO: A connector whose constructor fails because the other side is unreachable\n        //       (any checked exception) is reported as a ConnectorException that carries the\n        //       constructor's own exception as its cause, so createAll can skip it and log why.\n        //       A bug in a constructor (an unchecked exception or an Error) is not \"unreachable\":\n        //       it reaches the caller as it was thrown. A class that can't be instantiated at all\n        //       is a ConnectorException too.\n        throw new IllegalStateException(\"TODO: create\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-2/src/main/java/practice/ShapeFactory.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-2/src/test/java/practice/ShapeFactoryTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-2/src/main/java/practice/ConnectorFactory.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-03/practice-2/src/test/java/practice/ConnectorFactoryTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,19 +105,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ShapeFactoryTest#createsRegisteredShapes",
+        "id": "practice.ConnectorFactoryTest#startsEveryConnectorWhoseConstructorSucceeds",
         "kind": "main",
-        "says": "After registering circle and square, create(\"circle\") and create(\"Square\") give new shapes with the right areas, and an unknown name is IllegalArgumentException."
+        "says": "every connector whose constructor succeeds is started, in order, and nothing is skipped"
       },
       {
-        "id": "practice.ShapeFactoryTest#namesIgnoreCaseInAnyLocale",
-        "kind": "edge",
-        "says": "With the default locale set to Turkish, a shape registered as CIRCLE is created as circle."
+        "id": "practice.ConnectorFactoryTest#aClassWithoutANoArgumentConstructorIsAConnectorException",
+        "kind": "main",
+        "says": "a class without a no-argument constructor is reported as a ConnectorException"
       },
       {
-        "id": "practice.ShapeFactoryTest#aClassWithoutANoArgConstructorIsRefusedAtRegistration",
+        "id": "practice.ConnectorFactoryTest#anUnreachableConnectorIsSkippedAndTheOthersStillStart",
         "kind": "edge",
-        "says": "Registering a shape class that has no no-arg constructor fails at once with IllegalArgumentException."
+        "says": "a constructor that throws a checked exception makes create throw ConnectorException, so createAll skips that connector and starts the rest"
+      },
+      {
+        "id": "practice.ConnectorFactoryTest#theFailureCarriesTheConstructorsOwnException",
+        "kind": "edge",
+        "says": "the ConnectorException's cause is the exception the constructor threw, not the reflective wrapper around it"
+      },
+      {
+        "id": "practice.ConnectorFactoryTest#aBugInAConstructorReachesTheCallerAsThrown",
+        "kind": "edge",
+        "says": "an unchecked exception or an Error from a constructor reaches the caller as it was thrown, not as a ConnectorException"
       }
     ],
     "report": {
@@ -152,11 +136,11 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.3.md",
-      "section": "Interview Q&A Section"
+      "section": "Class.newInstance Lets the Constructor's Checked Exception Escape Undeclared"
     },
     "concepts": [
-      "A reflective factory maps keys to classes and creates instances on demand, open to new types without new code.",
-      "Configuration is validated at startup or registration rather than when the first creation fails, and the found constructor is kept."
+      "Class.newInstance rethrows the constructor's exception as it is, so a checked exception escapes a catch of ReflectiveOperationException and the caller can't even catch it by type.",
+      "Constructor.newInstance wraps whatever the constructor throws in InvocationTargetException, whose cause is the constructor's own exception."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Declared fields, public fields, every field",
+  "title": "Export records to CSV with stable columns and every section",
   "blocks": [
     {
       "type": "heading",
@@ -19,69 +19,24 @@
     },
     {
       "type": "para",
-      "text": "`getFields()` and `getDeclaredFields()` differ in two ways, visibility and inheritance:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "method",
-        "access levels",
-        "inherited?"
-      ],
-      "rows": [
-        [
-          "`getDeclaredFields()`",
-          "all, private too",
-          "no"
-        ],
-        [
-          "`getFields()`",
-          "public only",
-          "yes, from superclasses **and interfaces**"
-        ]
-      ]
+      "text": "The finance team pastes the monthly CSV exports into spreadsheets that read columns by position. `CsvExport` turns a list of records into CSV, and for a sealed family of records, such as every kind of delivery, it writes one `## TypeName` section per record type, empty ones included, so every month's file has the same shape."
     },
     {
       "type": "para",
-      "text": "Neither gives every field, private inherited ones included: for that you walk up with `getSuperclass()`."
-    },
-    {
-      "type": "para",
-      "text": "Write `FieldFinder`. Each method returns field **names**:"
+      "text": "The writing is done. Finish the three `TODO` methods in `src/main/java/practice/CsvExport.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`ownFields(type)`: the fields `type` itself declares, **every access level**, sorted.",
-        "`publicFields(type)`: every public field, **inherited ones too**, including the **constants of interfaces** `type` implements, sorted.",
-        "`allFields(type)`: every field of `type` and of **each superclass up to the top**, any access level. `type`'s own names first (sorted), then its parent's (sorted), and so on."
+        "`columns(...)`: the column names of a record type;",
+        "`valueOf(...)`: one record's value in one column;",
+        "`recordTypes(...)`: every record type of a sealed family, which may contain sealed interfaces of its own."
       ]
     },
     {
       "type": "para",
-      "text": "With `Parent { public publicField; private privateField; }` and `Child extends Parent implements Tagged { public childPublic; private childPrivate; }`, where `Tagged` declares `String TAG`:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`ownFields(Child)`",
-          "`[childPrivate, childPublic]`"
-        ],
-        [
-          "`publicFields(Child)`",
-          "`[TAG, childPublic, publicField]`"
-        ],
-        [
-          "`allFields(Child)`",
-          "`[childPrivate, childPublic, privateField, publicField]`"
-        ]
-      ]
+      "text": "When you're done, a record exports exactly its own values, under columns in the order the record declares them, on any JVM, and a family export has one section per record type of the family and no others. About ten lines in total."
     },
     {
       "type": "heading",
@@ -96,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.List;\n\npublic final class FieldFinder {\n\n    private FieldFinder() {\n    }\n\n    /** The names of the fields this type declares itself, any access level, sorted. */\n    public static List<String> ownFields(Class<?> type) {\n        return names(type.getDeclaredFields());\n    }\n\n    /** The names of every public field, inherited ones included, sorted. */\n    public static List<String> publicFields(Class<?> type) {\n        return names(type.getFields());\n    }\n\n    /** The names of every field of this type and its superclasses: own first, each class sorted. */\n    public static List<String> allFields(Class<?> type) {\n        List<String> all = new ArrayList<>();\n        Class<?> current = type;\n        while (current != null) {\n            all.addAll(names(current.getDeclaredFields()));\n            current = current.getSuperclass();\n        }\n        return all;\n    }\n\n    private static List<String> names(Field[] fields) {\n        return Arrays.stream(fields).map(Field::getName).sorted().toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.RecordComponent;\nimport java.util.ArrayList;\nimport java.util.Arrays;\nimport java.util.Comparator;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.stream.Collectors;\n\n/**\n * Exports records to CSV for the finance team's spreadsheets. A plain export has one header line\n * and one line per record. A family export takes the sealed interface the records implement and\n * writes one section per record type of that family, empty sections included, so every month's\n * file has the same sections.\n */\npublic class CsvExport {\n\n    /** One header line, then one line per record. All records are of the same type. */\n    public static String export(Class<? extends Record> type, List<? extends Record> rows) {\n        StringBuilder out = new StringBuilder(String.join(\",\", columns(type))).append('\\n');\n        for (Record r : rows) out.append(line(r)).append('\\n');\n        return out.toString();\n    }\n\n    /** One \"## TypeName\" section per record type of the sealed family, sorted by type name. */\n    public static String exportFamily(Class<?> sealedRoot, List<? extends Record> rows) {\n        List<Class<? extends Record>> types = new ArrayList<>(recordTypes(sealedRoot));\n        types.sort(Comparator.comparing(Class::getSimpleName));\n        StringBuilder out = new StringBuilder();\n        for (Class<? extends Record> type : types) {\n            out.append(\"## \").append(type.getSimpleName()).append('\\n');\n            out.append(export(type, rows.stream().filter(type::isInstance).toList()));\n        }\n        return out.toString();\n    }\n\n    private static String line(Record r) {\n        return values(r).stream().map(String::valueOf).collect(Collectors.joining(\",\"));\n    }\n\n    /** The column names of a record type. */\n    static List<String> columns(Class<? extends Record> type) {\n        return Arrays.stream(type.getRecordComponents()).map(RecordComponent::getName).toList();\n    }\n\n    /** One record's values, in the order of columns(...) for its type. */\n    static List<Object> values(Record r) {\n        List<Object> values = new ArrayList<>();\n        try {\n            for (String column : columns(r.getClass())) {\n                values.add(valueOf(r, column));\n            }\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(e);\n        }\n        return values;\n    }\n\n    /** The value of one column of one record. */\n    static Object valueOf(Record r, String column) throws ReflectiveOperationException {\n        return r.getClass().getMethod(column).invoke(r);\n    }\n\n    /** Every record type a value of the sealed family can have. */\n    static Set<Class<? extends Record>> recordTypes(Class<?> sealedRoot) {\n        Set<Class<? extends Record>> found = new HashSet<>();\n        for (Class<?> sub : sealedRoot.getPermittedSubclasses()) {\n            if (sub.isRecord()) found.add(sub.asSubclass(Record.class));\n            else if (sub.isSealed()) found.addAll(recordTypes(sub));\n        }\n        return found;\n    }\n}\n"
         }
       ]
     },
@@ -108,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class FieldFinder {\n\n    private FieldFinder() {\n    }\n\n    /** The names of the fields this type declares itself, any access level, sorted. */\n    public static List<String> ownFields(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The names of every public field, inherited ones included, sorted. */\n    public static List<String> publicFields(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The names of every field of this type and its superclasses: own first, each class sorted. */\n    public static List<String> allFields(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.stream.Collectors;\n\n/**\n * Exports records to CSV for the finance team's spreadsheets. A plain export has one header line\n * and one line per record. A family export takes the sealed interface the records implement and\n * writes one section per record type of that family, empty sections included, so every month's\n * file has the same sections.\n */\npublic class CsvExport {\n\n    /** One header line, then one line per record. All records are of the same type. */\n    public static String export(Class<? extends Record> type, List<? extends Record> rows) {\n        StringBuilder out = new StringBuilder(String.join(\",\", columns(type))).append('\\n');\n        for (Record r : rows) out.append(line(r)).append('\\n');\n        return out.toString();\n    }\n\n    /** One \"## TypeName\" section per record type of the sealed family, sorted by type name. */\n    public static String exportFamily(Class<?> sealedRoot, List<? extends Record> rows) {\n        List<Class<? extends Record>> types = new ArrayList<>(recordTypes(sealedRoot));\n        types.sort(Comparator.comparing(Class::getSimpleName));\n        StringBuilder out = new StringBuilder();\n        for (Class<? extends Record> type : types) {\n            out.append(\"## \").append(type.getSimpleName()).append('\\n');\n            out.append(export(type, rows.stream().filter(type::isInstance).toList()));\n        }\n        return out.toString();\n    }\n\n    private static String line(Record r) {\n        return values(r).stream().map(String::valueOf).collect(Collectors.joining(\",\"));\n    }\n\n    /** The column names of a record type. */\n    static List<String> columns(Class<? extends Record> type) {\n        // TODO: One column per value the record type holds, nothing else, in the same order\n        //       on every JVM: the order the record's author declared them in.\n        throw new IllegalStateException(\"TODO: columns\");\n    }\n\n    /** One record's values, in the order of columns(...) for its type. */\n    static List<Object> values(Record r) {\n        List<Object> values = new ArrayList<>();\n        try {\n            for (String column : columns(r.getClass())) {\n                values.add(valueOf(r, column));\n            }\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(e);\n        }\n        return values;\n    }\n\n    /** The value of one column of one record. */\n    static Object valueOf(Record r, String column) throws ReflectiveOperationException {\n        // TODO: The record's value in this column.\n        throw new IllegalStateException(\"TODO: valueOf\");\n    }\n\n    /** Every record type a value of the sealed family can have. */\n    static Set<Class<? extends Record>> recordTypes(Class<?> sealedRoot) {\n        // TODO: The family may nest: a case can itself be a sealed interface with cases of its\n        //       own. Return the record types only.\n        throw new IllegalStateException(\"TODO: recordTypes\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -116,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 2,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -127,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0acd6e3e64330bd2343b243116dcad8f4b9b3ad97dcaa6bce893a3fdda9c8987",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class FieldFinder {\n\n    private FieldFinder() {\n    }\n\n    /** The names of the fields this type declares itself, any access level, sorted. */\n    public static List<String> ownFields(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The names of every public field, inherited ones included, sorted. */\n    public static List<String> publicFields(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The names of every field of this type and its superclasses: own first, each class sorted. */\n    public static List<String> allFields(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "12ed0f1d2a7f3a7fbcaef99fa7095904875d52c3790bd46523197f00b28c080d",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Comparator;\nimport java.util.List;\nimport java.util.Set;\nimport java.util.stream.Collectors;\n\n/**\n * Exports records to CSV for the finance team's spreadsheets. A plain export has one header line\n * and one line per record. A family export takes the sealed interface the records implement and\n * writes one section per record type of that family, empty sections included, so every month's\n * file has the same sections.\n */\npublic class CsvExport {\n\n    /** One header line, then one line per record. All records are of the same type. */\n    public static String export(Class<? extends Record> type, List<? extends Record> rows) {\n        StringBuilder out = new StringBuilder(String.join(\",\", columns(type))).append('\\n');\n        for (Record r : rows) out.append(line(r)).append('\\n');\n        return out.toString();\n    }\n\n    /** One \"## TypeName\" section per record type of the sealed family, sorted by type name. */\n    public static String exportFamily(Class<?> sealedRoot, List<? extends Record> rows) {\n        List<Class<? extends Record>> types = new ArrayList<>(recordTypes(sealedRoot));\n        types.sort(Comparator.comparing(Class::getSimpleName));\n        StringBuilder out = new StringBuilder();\n        for (Class<? extends Record> type : types) {\n            out.append(\"## \").append(type.getSimpleName()).append('\\n');\n            out.append(export(type, rows.stream().filter(type::isInstance).toList()));\n        }\n        return out.toString();\n    }\n\n    private static String line(Record r) {\n        return values(r).stream().map(String::valueOf).collect(Collectors.joining(\",\"));\n    }\n\n    /** The column names of a record type. */\n    static List<String> columns(Class<? extends Record> type) {\n        // TODO: One column per value the record type holds, nothing else, in the same order\n        //       on every JVM: the order the record's author declared them in.\n        throw new IllegalStateException(\"TODO: columns\");\n    }\n\n    /** One record's values, in the order of columns(...) for its type. */\n    static List<Object> values(Record r) {\n        List<Object> values = new ArrayList<>();\n        try {\n            for (String column : columns(r.getClass())) {\n                values.add(valueOf(r, column));\n            }\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(e);\n        }\n        return values;\n    }\n\n    /** The value of one column of one record. */\n    static Object valueOf(Record r, String column) throws ReflectiveOperationException {\n        // TODO: The record's value in this column.\n        throw new IllegalStateException(\"TODO: valueOf\");\n    }\n\n    /** Every record type a value of the sealed family can have. */\n    static Set<Class<? extends Record>> recordTypes(Class<?> sealedRoot) {\n        // TODO: The family may nest: a case can itself be a sealed interface with cases of its\n        //       own. Return the record types only.\n        throw new IllegalStateException(\"TODO: recordTypes\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-2/src/main/java/practice/FieldFinder.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-2/src/test/java/practice/FieldFinderTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-2/src/main/java/practice/CsvExport.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-2/src/test/java/practice/CsvExportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -152,29 +107,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FieldFinderTest#listsTheFieldsOfASimpleClass",
+        "id": "practice.CsvExportTest#eachValueSitsUnderItsOwnColumn",
         "kind": "main",
-        "says": "For a class with two public fields and no parent fields, all three lists are [x, y]."
+        "says": "each of a record's values is exported under the column of the same name"
       },
       {
-        "id": "practice.FieldFinderTest#ownFieldsIncludePrivateOnes",
-        "kind": "edge",
-        "says": "ownFields(Child) is [childPrivate, childPublic]: every access level, nothing inherited."
+        "id": "practice.CsvExportTest#aFamilyExportHasOneSectionPerRecordTypeEvenWhenItIsEmpty",
+        "kind": "main",
+        "says": "a family export has a section for every record type of a sealed interface, including types with no rows"
       },
       {
-        "id": "practice.FieldFinderTest#publicFieldsIncludeInheritedOnes",
+        "id": "practice.CsvExportTest#theColumnsAreTheRecordsValuesAndNothingElse",
         "kind": "edge",
-        "says": "publicFields(GrandChild) holds the public fields of Child and Parent, though GrandChild declares none."
+        "says": "the columns are the record's components, with no column for toString or hashCode"
       },
       {
-        "id": "practice.FieldFinderTest#publicFieldsIncludeInterfaceConstants",
+        "id": "practice.CsvExportTest#theColumnsFollowTheOrderTheRecordDeclaresThem",
         "kind": "edge",
-        "says": "publicFields(Child) holds the TAG constant of the interface Child implements."
+        "says": "the header lists the columns in the order of the record header, not sorted"
       },
       {
-        "id": "practice.FieldFinderTest#allFieldsWalkEverySuperclass",
+        "id": "practice.CsvExportTest#theCasesOfANestedSealedInterfaceAreIncluded",
         "kind": "edge",
-        "says": "allFields(GrandChild) holds GrandChild's, Child's and Parent's fields, private ones too, in that order."
+        "says": "record types under a sealed sub-interface are part of the family"
+      },
+      {
+        "id": "practice.CsvExportTest#aNestedSealedInterfaceIsNotACaseOfItsOwn",
+        "kind": "edge",
+        "says": "a sealed sub-interface is not itself a record type of the family"
       }
     ],
     "report": {
@@ -183,10 +143,11 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Read a Record Through Its Components and a Sealed Type Through Its Permitted Subclasses"
     },
     "concepts": [
-      "getDeclaredFields() lists a class's own fields of every access level, while getFields() lists public fields including inherited ones."
+      "getPermittedSubclasses() lists only direct subtypes, in no specified order, and returns null for a type that is not sealed, so nested sealed families need a recursive walk.",
+      "getRecordComponents() returns exactly a record's components in header order, while a method scan also finds toString and hashCode."
     ]
   }
 }

@@ -1,18 +1,13 @@
-Binary search is the page's O(log n) example: compare the target with the
-middle element and **keep only the half that can still hold it**, so a million
-elements take about 20 probes. Two edge cases from the page: a range of **one
-element must still be checked**, and `(left + right) / 2` **overflows** on huge
-ranges, so the middle is `left + (right - left) / 2`.
+At month end the warehouse reconciles what it shipped against what finance billed. The step
+that finds the unbilled lines took a few seconds when the business was small; now each month is
+several times larger than the last, and the step's run time grows much faster than the month.
 
-Write `BinarySearch.indexOf(values, target)`. `values` is a sorted
-`BinarySearch.SortedInts` (given): `size()` and `get(i)`. Return the index of
-`target`, or `-1` if it is absent. The tests count every `get` call.
+`Reconciler` already prints the report line. Finish `unbilled(...)` in
+`src/main/java/practice/Reconciler.java`: it returns the shipped items that are not among the
+billed ones, in shipping order, with repeats, and changes neither input. Items are compared with
+`equals()` and `hashCode()`; they are not `Comparable`.
 
-| values | target | result |
-|---|---|---|
-| `[1, 3, 5, 7, 9]` | 7 | 3 |
-| `[1, 3, 5, 7, 9]` | 4 | -1 |
-| `[1, 3, 5, 7, 9]` | 9 | 4 |
-| `[7]` | 7 | 0 |
-| `[]` | 7 | -1 |
-| 1,000,000 values | any | at most 20 `get` calls |
+When you're done, doubling both inputs roughly doubles the work this method does. About five
+lines in total.
+
+The tests use items that count the `equals()` and `hashCode()` calls made on them.

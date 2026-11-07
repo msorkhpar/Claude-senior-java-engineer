@@ -1,19 +1,16 @@
-The page's leak pattern 3: a stack backed by an array that pops with
-`return elements[--size]` still holds a reference to the popped element in the
-array. The object is unreachable for the program but **reachable for the garbage
-collector**, so it is never freed. The fix: **pop clears the slot it frees**.
+The building gateway keeps the last day of readings from every sensor in memory: one reading
+every 500 ms, a time in epoch milliseconds and a `double` value, 172,800 readings per sensor per
+day. The plan is 40,000 sensors on one gateway. The prototype stored each sensor's day in about
+36 bytes per reading, which doesn't fit, and its dashboard query, "when was this sensor above the
+limit?", slowed the gateway down with garbage collections every few seconds.
 
-Write `ArrayStack<E>`, backed by an `Object[]` field (the tests look inside it):
+`capacity()` and `size()` are done. Finish the `TODO`s in `src/main/java/practice/ReadingLog.java`:
+the storage and the constructor, `append(...)`, `timeAt(...)`, `valueAt(...)` and
+`timesAbove(...)`.
 
-- `new ArrayStack<>(capacity)`; `push(e)`; **the array grows when it is full**.
-- `pop()` removes and returns the top element; `peek()` returns it without
-  removing it; **an empty stack refuses pop and peek** with
-  `java.util.EmptyStackException`.
-- `size()`.
+When you're done, a full day of readings allocates at most 17 bytes per reading, and one query
+allocates at most 8 bytes per reading in the log plus 8 bytes per time it returns. About fifteen
+lines in total.
 
-| calls | result |
-|---|---|
-| push a, b, c; pop; pop | `c`, `b`; `size()` is 1; `peek()` is `a` |
-| after those pops | array slots 1 and 2 are `null` |
-| capacity 2, push 100 values | all 100 pop back, last first |
-| `pop()` on an empty stack | `EmptyStackException` |
+The tests read the thread's allocation counter
+(`com.sun.management.ThreadMXBean.getCurrentThreadAllocatedBytes`) around the calls they measure.

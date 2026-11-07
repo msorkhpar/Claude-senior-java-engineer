@@ -1,22 +1,15 @@
-To reach a private field: find it with **`getDeclaredField`** (`getField` sees
-public fields only), call **`setAccessible(true)`**, then `get` or `set`. For a
-static field pass `null` as the instance. `getDeclaredField` does not look in
-superclasses, so an inherited field needs a **walk up the hierarchy**.
+The shipping service has a debug endpoint that prints whatever object a request handler holds, for
+support engineers chasing a bad order. It writes the service's own objects field by field, private
+and inherited fields included, which is what support needs. Since the service moved to Java 21,
+the endpoint answers 500 for most orders: the objects hold JDK collections, charsets and other
+library objects, and the service runs without any `--add-opens`.
 
-Write `FieldAccess`:
+`Snapshot.render(...)` already writes text, numbers and enum constants as they are, sorts the fields
+and recurses. Finish the `TODO` in `src/main/java/practice/Snapshot.java`:
 
-- `read(target, name)`: the value of the field `name` of `target`, declared
-  on its class or **any superclass**, at any access level. Primitives come
-  back boxed.
-- `write(target, name, value)`: sets that field.
-- `readStatic(type, name)`: the value of a static field of `type`.
-- A field that exists on no class of the hierarchy is a
-  **`NoSuchFieldException`**.
+- `openFields(type)`: the instance fields of `type` and of all its superclasses, each made readable,
+  or empty when the object should be written through its own `toString()` instead.
 
-| call | result |
-|---|---|
-| `read(point, "x")` with `x = 3` | `3` |
-| `read(account, "owner")`, `owner` private | `"ann"` |
-| `write(account, "balance", 2500)` | the private balance is `2500` |
-| `read(savings, "owner")`, `owner` declared on the parent | `"bo"` |
-| `read(point, "z")` | `NoSuchFieldException` |
+When you're done, an object of the service's own classes is still written field by field, and
+any object whose fields can't all be read is written whole through its `toString()`, without an
+exception and without leaving fields out. About eight lines in total.

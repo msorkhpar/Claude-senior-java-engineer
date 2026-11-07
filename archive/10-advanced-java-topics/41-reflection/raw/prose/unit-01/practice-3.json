@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Walk a class hierarchy",
+  "title": "Bind configuration lists with the right element type",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Java has no single call for a full hierarchy. `getSuperclass()` gives one parent, and returns **`null` for `Object`, interfaces, primitives and `void`**. `getInterfaces()` gives only the interfaces a type **declares directly**: interfaces reached through a superclass or through a super-interface are not in it."
+      "text": "The gateway reads its configuration into plain settings objects: a line such as `listenPorts=8443,9443` fills the list field `listenPorts`. A release that bound a fresh `GatewaySettings` started fine and then failed on the first connection with a `ClassCastException` in code that reads `int port = settings.listenPorts.get(0)`."
     },
     {
       "type": "para",
-      "text": "Write `Hierarchy`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`superclasses(type)`: `type`, then its parent, then that parent's parent, until `getSuperclass()` returns `null`.",
-        "`allInterfaces(type)`: every interface `type` has, those declared on **any superclass** and every **super-interface** of those, each once. The order is not graded."
-      ]
+      "text": "`SettingsBinder` already finds the field, clears the list and converts each item. Finish `elementType(...)` in `src/main/java/practice/SettingsBinder.java`: the type every item of that field's list must have."
     },
     {
       "type": "para",
-      "text": "With `Shape implements Drawable`, `Scalable extends Resizable` and `Circle extends Shape implements Scalable`:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`superclasses(Circle.class)`",
-          "`[Circle, Shape, Object]`"
-        ],
-        [
-          "`allInterfaces(Circle.class)`",
-          "`{Scalable, Resizable, Drawable}`"
-        ],
-        [
-          "`superclasses(Scalable.class)`",
-          "`[Scalable]`"
-        ],
-        [
-          "`superclasses(int.class)`",
-          "`[int]`"
-        ]
-      ]
+      "text": "Settings classes declare their lists as `List<Something>`, or as a named class of their own such as `class PortList extends ArrayList<Integer>`, and a list may be empty before binding. When you're done, every item ends up as the declared element type in all of these cases. About four lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashSet;\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Hierarchy {\n\n    private Hierarchy() {\n    }\n\n    /** The type and every superclass above it, nearest first. */\n    public static List<Class<?>> superclasses(Class<?> type) {\n        List<Class<?>> chain = new ArrayList<>();\n        Class<?> current = type;\n        while (current != null) {\n            chain.add(current);\n            current = current.getSuperclass();\n        }\n        return chain;\n    }\n\n    /** Every interface of the type: from its superclasses and super-interfaces too. */\n    public static Set<Class<?>> allInterfaces(Class<?> type) {\n        Set<Class<?>> found = new LinkedHashSet<>();\n        collect(type, found);\n        return found;\n    }\n\n    private static void collect(Class<?> type, Set<Class<?>> found) {\n        if (type == null) {\n            return;\n        }\n        for (Class<?> each : type.getInterfaces()) {\n            found.add(each);\n            collect(each, found);\n        }\n        collect(type.getSuperclass(), found);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.ParameterizedType;\nimport java.lang.reflect.Type;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Binds configuration values such as {@code ports=8080,8081} into the list fields of a settings\n * object. Each key names a field whose type is a list; the comma-separated items replace the\n * list's contents, each one converted to the list's element type.\n */\npublic class SettingsBinder {\n\n    public static void bind(Object settings, Map<String, String> values) {\n        for (Map.Entry<String, String> e : values.entrySet()) {\n            try {\n                Field field = settings.getClass().getDeclaredField(e.getKey());\n                field.setAccessible(true);\n                Class<?> element = elementType(settings, field);\n                @SuppressWarnings(\"unchecked\")\n                List<Object> list = (List<Object>) field.get(settings);\n                list.clear();\n                for (String item : e.getValue().split(\",\")) list.add(convert(item.trim(), element));\n            } catch (ReflectiveOperationException ex) {\n                throw new IllegalArgumentException(\"cannot bind \" + e.getKey(), ex);\n            }\n        }\n    }\n\n    static Object convert(String item, Class<?> type) {\n        if (type == String.class) return item;\n        if (type == Integer.class) return Integer.valueOf(item);\n        if (type == Long.class) return Long.valueOf(item);\n        if (type == Boolean.class) return Boolean.valueOf(item);\n        throw new IllegalArgumentException(\"no converter for \" + type);\n    }\n\n    /** The element type of the list held by this field of the settings object. */\n    static Class<?> elementType(Object settings, Field field) throws ReflectiveOperationException {\n        Type declared = field.getGenericType();\n        if (declared instanceof Class<?> c) declared = c.getGenericSuperclass();\n        return (Class<?>) ((ParameterizedType) declared).getActualTypeArguments()[0];\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Hierarchy {\n\n    private Hierarchy() {\n    }\n\n    /** The type and every superclass above it, nearest first. */\n    public static List<Class<?>> superclasses(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Every interface of the type: from its superclasses and super-interfaces too. */\n    public static Set<Class<?>> allInterfaces(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.ParameterizedType;\nimport java.lang.reflect.Type;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Binds configuration values such as {@code ports=8080,8081} into the list fields of a settings\n * object. Each key names a field whose type is a list; the comma-separated items replace the\n * list's contents, each one converted to the list's element type.\n */\npublic class SettingsBinder {\n\n    public static void bind(Object settings, Map<String, String> values) {\n        for (Map.Entry<String, String> e : values.entrySet()) {\n            try {\n                Field field = settings.getClass().getDeclaredField(e.getKey());\n                field.setAccessible(true);\n                Class<?> element = elementType(settings, field);\n                @SuppressWarnings(\"unchecked\")\n                List<Object> list = (List<Object>) field.get(settings);\n                list.clear();\n                for (String item : e.getValue().split(\",\")) list.add(convert(item.trim(), element));\n            } catch (ReflectiveOperationException ex) {\n                throw new IllegalArgumentException(\"cannot bind \" + e.getKey(), ex);\n            }\n        }\n    }\n\n    static Object convert(String item, Class<?> type) {\n        if (type == String.class) return item;\n        if (type == Integer.class) return Integer.valueOf(item);\n        if (type == Long.class) return Long.valueOf(item);\n        if (type == Boolean.class) return Boolean.valueOf(item);\n        throw new IllegalArgumentException(\"no converter for \" + type);\n    }\n\n    /** The element type of the list held by this field of the settings object. */\n    static Class<?> elementType(Object settings, Field field) throws ReflectiveOperationException {\n        // TODO: The type the items of this field's list must have. A settings class may declare\n        //       a field as List<Something>, or as its own class that extends a list of something.\n        throw new IllegalStateException(\"TODO: elementType\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "00c8cde40b032d8e21110c24195ede5f99df6001c06dbd75810add8bdeb13ff9",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Set;\n\npublic final class Hierarchy {\n\n    private Hierarchy() {\n    }\n\n    /** The type and every superclass above it, nearest first. */\n    public static List<Class<?>> superclasses(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Every interface of the type: from its superclasses and super-interfaces too. */\n    public static Set<Class<?>> allInterfaces(Class<?> type) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "23ebfbfef6c57ae6d9fba5fe56c92f9502ea46cc8d4927a91f275502db2a1350",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.ParameterizedType;\nimport java.lang.reflect.Type;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Binds configuration values such as {@code ports=8080,8081} into the list fields of a settings\n * object. Each key names a field whose type is a list; the comma-separated items replace the\n * list's contents, each one converted to the list's element type.\n */\npublic class SettingsBinder {\n\n    public static void bind(Object settings, Map<String, String> values) {\n        for (Map.Entry<String, String> e : values.entrySet()) {\n            try {\n                Field field = settings.getClass().getDeclaredField(e.getKey());\n                field.setAccessible(true);\n                Class<?> element = elementType(settings, field);\n                @SuppressWarnings(\"unchecked\")\n                List<Object> list = (List<Object>) field.get(settings);\n                list.clear();\n                for (String item : e.getValue().split(\",\")) list.add(convert(item.trim(), element));\n            } catch (ReflectiveOperationException ex) {\n                throw new IllegalArgumentException(\"cannot bind \" + e.getKey(), ex);\n            }\n        }\n    }\n\n    static Object convert(String item, Class<?> type) {\n        if (type == String.class) return item;\n        if (type == Integer.class) return Integer.valueOf(item);\n        if (type == Long.class) return Long.valueOf(item);\n        if (type == Boolean.class) return Boolean.valueOf(item);\n        throw new IllegalArgumentException(\"no converter for \" + type);\n    }\n\n    /** The element type of the list held by this field of the settings object. */\n    static Class<?> elementType(Object settings, Field field) throws ReflectiveOperationException {\n        // TODO: The type the items of this field's list must have. A settings class may declare\n        //       a field as List<Something>, or as its own class that extends a list of something.\n        throw new IllegalStateException(\"TODO: elementType\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-3/src/main/java/practice/Hierarchy.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-3/src/test/java/practice/HierarchyTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-3/src/main/java/practice/SettingsBinder.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-01/practice-3/src/test/java/practice/SettingsBinderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HierarchyTest#walksASimpleClass",
+        "id": "practice.SettingsBinderTest#textItemsAreBoundIntoAListOfStrings",
         "kind": "main",
-        "says": "superclasses(Circle) is [Circle, Shape, Object]; for a class implementing one interface directly, allInterfaces is that interface."
+        "says": "items bound into a List<String> field are the trimmed strings"
       },
       {
-        "id": "practice.HierarchyTest#interfacesOfASuperclassAreIncluded",
-        "kind": "edge",
-        "says": "A class whose parent implements Drawable has Drawable among its interfaces."
+        "id": "practice.SettingsBinderTest#numbersReplaceTheDefaultsOfAListOfLongs",
+        "kind": "main",
+        "says": "items bound into a List<Long> field that holds defaults replace them as Longs"
       },
       {
-        "id": "practice.HierarchyTest#superInterfacesAreIncluded",
+        "id": "practice.SettingsBinderTest#numbersAreBoundIntoAnEmptyListOfIntegers",
         "kind": "edge",
-        "says": "A class implementing Scalable, which extends Resizable, has both; Circle has all three."
+        "says": "items bound into an empty List<Integer> field become Integers, though the list holds nothing to inspect"
       },
       {
-        "id": "practice.HierarchyTest#anInterfaceOrPrimitiveHasNoSuperclass",
+        "id": "practice.SettingsBinderTest#numbersAreBoundIntoAFieldWhoseClassExtendsAListOfIntegers",
         "kind": "edge",
-        "says": "superclasses of an interface, of int and of Object is the type alone."
+        "says": "items bound into a field declared as a class extending ArrayList<Integer> become Integers"
       }
     ],
     "report": {
@@ -157,11 +124,11 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.1.md",
-      "section": "Interview Q&A Section"
+      "section": "Type Arguments Survive in Declarations, Not in Objects"
     },
     "concepts": [
-      "The full hierarchy is walked with getSuperclass() until it returns null, which it does for Object, interfaces, primitives and void.",
-      "getInterfaces() returns only directly declared interfaces, so all interfaces need a recursive walk over superclasses and super-interfaces."
+      "A class that extends a parameterized type keeps the type argument in its superclass signature, which getGenericSuperclass() reads back.",
+      "Type arguments are kept in the generic signatures of fields, methods and classes and read with getGenericType() and its relatives, so a binder learns a list's element type from the declaration."
     ]
   }
 }

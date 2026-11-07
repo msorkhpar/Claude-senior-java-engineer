@@ -1,19 +1,15 @@
-In a **binary search tree** every node's left subtree holds smaller values and
-its right subtree larger ones. The page walks one tree in four orders:
-in-order (left, root, right) gives the values sorted, pre-order puts the root
-first, post-order puts it last, and **level order** goes breadth-first, one
-level at a time, with a queue.
+A carrier charges by weight tier: each tier starts at a weight in grams and covers every parcel up
+to the start of the next one. `ShippingFees` holds the table, and two methods are missing.
+Finance found parcels charged a tier too low, and the rate-change report has been leaving out
+tiers.
 
-Write `SearchTree<T extends Comparable<T>>`:
+Finish the two `TODO`s in `src/main/java/practice/ShippingFees.java`:
 
-- `insert(value)` places a value; **a value already in the tree is ignored**;
-  `null` is refused with `NullPointerException`.
-- `inOrder()`, `preOrder()`, `postOrder()`, `levelOrder()` return new lists.
-- `height()` is the number of edges on the longest root-to-leaf path: one
-  node has height 0 and **an empty tree has height -1**.
+- `feeFor(grams)`: the fee of the tier the parcel falls into; a parcel lighter than every tier
+  is refused with `IllegalArgumentException`;
+- `tierStartsBetween(fromGrams, toGrams)`: the tier starts from `fromGrams` to `toGrams`, both
+  included, lightest first.
 
-| inserted | in-order | pre-order | post-order | level order | height |
-|---|---|---|---|---|---|
-| 5, 3, 7, 1, 4 | `[1, 3, 4, 5, 7]` | `[5, 3, 1, 4, 7]` | `[1, 4, 3, 7, 5]` | `[5, 3, 7, 1, 4]` | 2 |
-| 5, 3, 5, 3, 7 | `[3, 5, 7]` | | | | 1 |
-| nothing | `[]` | `[]` | `[]` | `[]` | -1 |
+When you're done, every weight, including one exactly at a tier's start, is charged its own tier,
+and the report lists every tier start in the range, including one at either end. About four lines
+in total.

@@ -18,357 +18,401 @@
       "text": "10.2.1. Heap and Stack Memory Management"
     },
     {
+      "type": "para",
+      "text": "The nightly import service failed three times in one month, each time with a different error. The first was a `StackOverflowError` in a parser, on one customer's file. The second was `OutOfMemoryError: Java heap space` in the PDF renderer. The third was `OutOfMemoryError: Metaspace`, with most of the heap free. Each time the first fix was a bigger `-Xmx`, which helped only with the second, and only for a few weeks."
+    },
+    {
+      "type": "para",
+      "text": "Each error names a different memory area with its own limit: the thread's stack (`-Xss`), the heap (`-Xmx`) and Metaspace (`-XX:MaxMetaspaceSize`). Every output below is from Java 21 (Temurin 21.0.12) on Linux x64."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Frame Holds a Call's Locals; Every Object the Call Creates Lives on the Heap"
+    },
+    {
+      "type": "para",
+      "text": "Each call pushes a **frame** onto its thread's stack, holding the call's parameters and local variables, and pops it on return. A local holds a primitive value or a reference. The object a reference points to lives on the **heap**, which every thread shares (unit 5.1.2 shows what that sharing means for threads)."
+    },
+    {
+      "type": "para",
+      "text": "This program counts the frames that fit before `StackOverflowError`, for three recursive methods:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void oneInt(int n) {\n    depth++;\n    oneInt(n + 1);\n}\n\nstatic long tenLongs(long a) {\n    depth++;\n    long b = a + 1, c = b + 1, d = c + 1, e = d + 1, f = e + 1,\n         g = f + 1, h = g + 1, i = h + 1, j = i + 1;\n    return tenLongs(j) + a + b + c + d + e + f + g + h + i + j;   // all ten live across the call\n}\n\nstatic int bigArray(int n) {\n    depth++;\n    byte[] buffer = new byte[10_000];                // 10 KB per frame, on the heap\n    return bigArray(n + 1) + buffer.length;\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each runs on a new thread with the default 1 MB stack, under `-Xint` so that every frame is a fixed-size interpreter frame:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "run 1  one int:   9,833   ten longs:   3,806   10 KB array:   9,077"
+    },
+    {
+      "type": "para",
+      "text": "An interpreter frame has a slot for every local the method declares, so ten `long` locals make each frame bigger and fewer fit. The method with the array went 9,077 frames deep: about 90 MB of arrays on a 1 MB stack, because each frame held only a reference and the arrays were on the heap. A large buffer doesn't need a larger `-Xss`, and returning from the method doesn't free it. The array becomes garbage for the collector (unit 10.2.2) once nothing refers to it."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "-Xss Sets How Many Frames Fit, So Recursion as Deep as the Data Fails on Large Input"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## -Xint -Xss256k\nrun 1  one int:   1,641   ten longs:     635   10 KB array:   1,515\n## -Xint -Xss4m\nrun 1  one int:  42,601   ten longs:  16,491   10 KB array:  39,324"
     },
     {
       "type": "para",
-      "text": "Understanding how Java manages memory is fundamental to writing efficient, bug-free applications and a frequent topic in senior engineering interviews. Java's runtime memory is divided into several areas, but the two most important for developers to understand are the **stack** and the **heap**."
+      "text": "Going from 256 KB to 1 MB added 8,192 frames of `oneInt`, about 96 bytes each. The 256 KB stack held only 1,641 of them because about 96 KB of every stack is kept free for the JVM: four guard pages (`StackRedPages`, `StackYellowPages`, `StackReservedPages`) and a 20-page shadow zone (`StackShadowPages`), 4 KB each on this build."
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of your desk (the stack) and a warehouse (the heap). When you start working on a task, you place your current papers on your desk in a neat pile -- each new sub-task goes on top, and when it's done you remove it (Last-In, First-Out). But large items like filing cabinets and equipment are stored in the warehouse. You keep a label (reference) on your desk that tells you where in the warehouse to find the item. Multiple desks (threads) can each have their own pile of papers, but they all share the same warehouse."
+      "text": "With the JIT on, the depth changes between runs, here three runs one after another in the same JVM:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## default (JIT on)\nrun 1  one int:  17,449   ten longs:   5,362   10 KB array:  19,260\nrun 2  one int:  59,002   ten longs:   6,556   10 KB array:  19,668"
+    },
+    {
+      "type": "para",
+      "text": "A compiled frame is smaller than an interpreted one, and the JIT compiles the method while the recursion is running, so the stack fills with a mix of both. A recursion that is safe at a depth of 5,000 in a test may not be in production."
+    },
+    {
+      "type": "para",
+      "text": "That matters when the depth comes from the data. A linked chain summed by recursion takes one frame per node:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Node(int value, Node next) {}\n\nstatic long sumRecursive(Node n) {\n    return n == null ? 0 : n.value() + sumRecursive(n.next());\n}\n\nstatic long sumLoop(Node n) {\n    long sum = 0;\n    for (; n != null; n = n.next()) sum += n.value();\n    return sum;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## default -Xss\n    1,000 nodes   recursive: 1000               loop: 1000\n  100,000 nodes   recursive: StackOverflowError loop: 100000\n1,000,000 nodes   recursive: StackOverflowError loop: 1000000\n## -Xss16m\n    1,000 nodes   recursive: 1000               loop: 1000\n  100,000 nodes   recursive: 100000             loop: 100000\n1,000,000 nodes   recursive: StackOverflowError loop: 1000000"
+    },
+    {
+      "type": "para",
+      "text": "A 16 MB stack moved the limit and didn't remove it. It also applies to every thread in the process, because `-Xss` is the default for all of them: each reserves 16 MB of address space, and a runaway recursion in any of them gets 16 times deeper before it fails. The loop uses one frame whatever the length. For a tree, the loop keeps the nodes still to visit in an `ArrayDeque` on the heap, which holds as many as memory allows. Java has no tail-call elimination: a recursive call in the last position still pushes a frame."
+    },
+    {
+      "type": "para",
+      "text": "`Thread.Builder.OfPlatform.stackSize` gives one thread a bigger stack. A virtual thread is still capped:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "int byDefault = on(Thread.ofPlatform());                       // the -Xss default\nint sixteenMb = on(Thread.ofPlatform().stackSize(16 << 20));   // 16 MB for this thread only\nint virtual = on(Thread.ofVirtual());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## -Xint\nplatform, -Xss default:   9,835\nplatform, stackSize 16 MB: 173,675\nvirtual:                  9,818\n## -Xint -Xss256k\nplatform, -Xss default:   1,643\nplatform, stackSize 16 MB: 173,675\nvirtual:                  1,626"
+    },
+    {
+      "type": "para",
+      "text": "A virtual thread's frames are copied to the heap when it unmounts, so they cost only what is in use, but `-Xss` still caps how deep it can go. The `Thread` javadoc warns that on some platforms the stack size argument has no effect."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Stack Memory"
+      "level": 2,
+      "text": "OutOfMemoryError Is Thrown by Whichever Allocation Fails, Not by the Code That Filled the Heap"
     },
     {
       "type": "para",
-      "text": "The **stack** is a region of memory used for method execution. Every time a method is called, the JVM creates a new **stack frame** that contains:"
+      "text": "The PDF renderer from the opening has two allocations per request: a 256 KB report cached in a list that nothing evicts, and a 4 MB render buffer that is garbage once `render()` returns. It runs with `-Xmx64m`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final List<byte[]> reportCache = new ArrayList<>();   // filled, never evicted\n\nstatic void cacheReport() {\n    reportCache.add(new byte[256 * 1024]);\n}\n\nstatic int render() {\n    byte[] buffer = new byte[4 * 1024 * 1024];                // freed when render() returns\n    return buffer.length;\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "request 176, 176 reports cached (44 MB)\njava.lang.OutOfMemoryError: Java heap space\n\tat HeapFull.render(HeapFull.java:13)\n\tat HeapFull.main(HeapFull.java:23)"
+    },
+    {
+      "type": "para",
+      "text": "The stack trace names `render()`, which holds nothing after it returns. The cache, reachable from a static field, holds 44 MB that no collection can free. The other 20 MB weren't enough for one 4 MB array: G1, the default collector here, needs free regions in a row for an array that large, and keeps part of the heap for new objects. When the buffer didn't fit even after a full collection, the JVM threw the error at the `new` that asked. A smaller buffer in `render()` would move the failure to the next allocation, and a bigger heap moves it to a later request:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "request 370, 370 reports cached (92 MB)\nrequest 754, 754 reports cached (188 MB)"
+    },
+    {
+      "type": "para",
+      "text": "Those are `-Xmx128m` and `-Xmx256m`: twice the heap, twice the requests, because the cache grows with every request. A heap dump (`-XX:+HeapDumpOnOutOfMemoryError`) shows what holds the memory."
+    },
+    {
+      "type": "para",
+      "text": "The collector frees only objects that nothing reachable refers to. A collection that is empty to its callers can still refer to everything it held. Here an array-backed queue takes forty 1 MB uploads and hands all forty out. Its `take()` returns the oldest item and moves past its array slot; the second version also sets that slot to `null`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "take() leaves the slot: queue empty, heap in use after GC: 41 MB\ntake() clears the slot: queue empty, heap in use after GC: 1 MB"
+    },
+    {
+      "type": "para",
+      "text": "The first still refers to every upload, from slots it will never read again."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Object Costs a Header Plus Its Fields, Rounded Up to 8 Bytes; a Reference Costs 4 Bytes Below 32 GB"
+    },
+    {
+      "type": "para",
+      "text": "Object sizes aren't in the language specification, but they can be measured. This program stores 100,000 objects of each kind in an array, so that none can be optimised away, and reads the thread's allocation counter (`com.sun.management.ThreadMXBean.getCurrentThreadAllocatedBytes`, which its javadoc calls an approximation) before and after:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static long perObject(IntFunction<Object> make) {\n    Object[] keep = new Object[N];                           // allocated before we start counting\n    long before = THREADS.getCurrentThreadAllocatedBytes();\n    for (int i = 0; i < N; i++) keep[i] = make.apply(i);     // stored, so nothing is optimised away\n    long after = THREADS.getCurrentThreadAllocatedBytes();\n    return Math.round((after - before) / (double) N);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "compressed oops: true\nnew Object()                        16 bytes\nclass with one int                  16 bytes\nclass with one long                 24 bytes\nclass with one reference            16 bytes\nLong.valueOf(1_000_000 + i)         24 bytes\nrecord Reading(long, double)        32 bytes\nnew byte[0]                         16 bytes\nnew byte[1]                         24 bytes\nnew long[1]                         24 bytes\nnew Object[1]                       24 bytes\nString of 3 Latin-1 chars + byte[]  48 bytes\na million longs: long[] 8.0 bytes each, ArrayList<Long> 28.0 bytes each"
+    },
+    {
+      "type": "para",
+      "text": "Every object starts with a 12-byte header (an 8-byte mark word and a 4-byte class pointer, compressed by default whether or not references are), and its size is rounded up to a multiple of 8. An `int` fits in the 4 bytes left after the header; a `long` must start at an 8-byte boundary, so a `Long` takes 24 bytes for 8 bytes of value. An array adds a 4-byte length to the header. A list of a million `Long`s costs 4 bytes per reference in the list's array plus 24 per `Long`: 28 bytes per number, 3.5 times a `long[]`."
+    },
+    {
+      "type": "para",
+      "text": "A reference is 4 bytes because of **compressed oops**: the JVM stores a heap address shifted right by 3 bits, which reaches 32 GB. The same program with `-XX:-UseCompressedOops`, trimmed to the rows that changed:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "compressed oops: false\nclass with one reference            24 bytes\nString of 3 Latin-1 chars + byte[]  56 bytes\na million longs: long[] 8.0 bytes each, ArrayList<Long> 32.0 bytes each"
+    },
+    {
+      "type": "para",
+      "text": "A heap that the shifted address can't reach turns them off:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "-Xmx31g:      bool UseCompressedOops                        = true                           {product lp64_product} {ergonomic}\n-Xmx32g:      bool UseCompressedOops                        = false                          {product lp64_product} {default}"
+    },
+    {
+      "type": "para",
+      "text": "At `-Xmx32g` every reference field and object-array slot doubles, so a heap full of collections can hold less data than at `-Xmx31g`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Escape Analysis Can Remove an Allocation, but Only in Compiled Code and Only While the Object Stays Local"
+    },
+    {
+      "type": "para",
+      "text": "Here two methods create the same `Point` ten million times per round; one keeps it local, the other also stores it in a static field:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Point(int x, int y) {}\n\nstatic Point last;                                     // a field outlives the call\n\nstatic int staysLocal(int x, int y) {\n    Point p = new Point(x, y);\n    return p.x() * p.x() + p.y() * p.y();\n}\n\nstatic int escapes(int x, int y) {\n    Point p = new Point(x, y);\n    last = p;                                          // now reachable after the call returns\n    return p.x() * p.x() + p.y() * p.y();\n}"
+    },
+    {
+      "type": "para",
+      "text": "The allocation counter per round, by default and with `-XX:-DoEscapeAnalysis`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## default\nround 1   stays local:       496 KB   escapes:   234,375 KB\nround 2   stays local:         0 KB   escapes:   234,375 KB\n## -XX:-DoEscapeAnalysis\nround 2   stays local:   234,375 KB   escapes:   234,375 KB"
+    },
+    {
+      "type": "para",
+      "text": "234,375 KB is ten million 24-byte `Point`s. Once C2, the optimising JIT compiler, compiled the loop with `staysLocal` inlined, it saw that no reference to the `Point` outlived the call and removed the allocation. The 496 KB of round 1 were allocated while the loop still ran in the interpreter and in C1, which doesn't do this analysis. The stored `Point` escapes and is allocated every time."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**No stack allocation.** HotSpot doesn't put the `Point` on the stack instead. Oracle's documentation of the server compiler's escape analysis says it eliminates scalar-replaceable allocations and does not replace a heap allocation with a stack allocation."
+        }
+      ]
+    },
+    {
+      "type": "para",
+      "text": "The analysis sees only what C2 has inlined. With the record's constructor excluded from inlining (`-XX:CompileCommand=dontinline,Escape$Point::<init>`), the `Point` is passed to a call the compiler can't see into, and counts as escaping:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## -XX:CompileCommand=dontinline,Escape$Point::<init>\nround 2   stays local:   234,375 KB   escapes:   234,375 KB"
+    },
+    {
+      "type": "para",
+      "text": "`-XX:+PrintCompilation` shows `staysLocal` compiled at tier 4, by C2, in that run as well: the method is still compiled, and the allocation stays in the compiled code. Unit 4.1.3 shows the same effect on boxing, through a lambda call site that stops being inlined. A refactoring that stores the object, or adds a call the JIT doesn't inline, brings the allocation back without a change in behaviour that a test would see. The numbers are from one machine."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Classes Live in Metaspace, Outside -Xmx"
+    },
+    {
+      "type": "para",
+      "text": "The JVM keeps a loaded class's metadata (its methods, bytecode and constant pool) in **Metaspace**, native memory outside the heap. `-Xmx` doesn't bound it; `-XX:MaxMetaspaceSize` does, and by default it is unlimited. Code that generates classes at run time fills it. This program defines hidden classes from the same bytes in a loop (`MethodHandles.Lookup.defineHiddenClass`), with Metaspace capped at 32 MB and a 1 GB heap. With `keep` it holds every generated class in a list; with `drop` it doesn't:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Class<?> c = lookup.defineHiddenClass(bytes, true).lookupClass();\ndefined++;\nif (keep) generated.add(c);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "keep: java.lang.OutOfMemoryError: Metaspace after 16,056 classes; heap in use 3 MB of 1024 MB max\ndrop: defined 300,000 classes, 299,159 unloaded"
+    },
+    {
+      "type": "para",
+      "text": "The JVM ran out of memory with the heap almost empty, so a bigger `-Xmx` would have changed nothing. A class is unloaded only when nothing can reach it any more: a hidden class through its `Class` object, an ordinary class through its class loader. A cache of generated classes keyed by something that changes on every request (a template's text with an id in it, or a new class loader per script) is the `keep` case. Without a `MaxMetaspaceSize` the same leak grows the process's native memory, which no heap setting limits, until the compressed class space (`-XX:CompressedClassSpaceSize`, 1 GB by default) runs out with `OutOfMemoryError: Compressed class space`. With that space capped at 8 MB and no Metaspace limit, the `keep` run failed that way after 16,123 classes."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Local primitive variables (`int`, `double`, `boolean`, etc.)",
-        "References (pointers) to objects on the heap",
-        "Method parameters",
-        "The return address (where to continue after the method returns)"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Stack memory is thread-private -- each thread has its own stack. Stack allocation and deallocation are extremely fast because they follow LIFO (Last-In, First-Out) order. When a method returns, its entire frame is popped off the stack instantly."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Heap Memory"
-    },
-    {
-      "type": "para",
-      "text": "The **heap** is the shared memory area where all Java objects and arrays are allocated. When you write `new Object()`, the JVM allocates space on the heap. Key characteristics:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Shared across all threads",
-        "Managed by the garbage collector",
-        "Divided into generations (Young, Old) for GC efficiency by generational collectors such as G1 (the default)",
-        "Allocation itself is usually fast (HotSpot bumps a pointer in a thread-local allocation buffer, TLAB), but heap objects must later be found and reclaimed by the GC, which stack frames never need"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "String Pool"
-    },
-    {
-      "type": "para",
-      "text": "The String pool (or intern pool) is a special area within the heap where the JVM stores unique string literals. When you write `\"hello\"` in code, the JVM checks the pool first and reuses existing instances, saving memory."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Memory Allocation and Deallocation"
-    },
-    {
-      "type": "para",
-      "text": "Java does not have manual memory management (no `malloc`/`free`). Object deallocation is handled entirely by the garbage collector. However, developers control when objects become **eligible** for collection by managing references."
-    },
-    {
-      "type": "para",
-      "text": "**Reference types** play a critical role:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Strong reference** (default): Object is never collected while reachable",
-        "**Soft reference** (`SoftReference<T>`): Collected only under memory pressure",
-        "**Weak reference** (`WeakReference<T>`): Cleared by the first GC cycle that examines the object and finds it only weakly reachable (a young-only collection does not examine old-generation objects)",
-        "**Phantom reference** (`PhantomReference<T>`): Used for post-mortem cleanup"
+        "**A frame holds a call's locals; objects live on the heap.** A big local array costs the stack one reference and stays on the heap until nothing refers to it.",
+        "**`-Xss` sets how many frames fit.** The depth changes with frame size and with JIT compilation, so recursion as deep as the input fails on some input; a loop or an explicit `ArrayDeque` doesn't. A virtual thread is capped by `-Xss` too.",
+        "**`OutOfMemoryError` is thrown by the allocation that failed.** The trace names that allocation, a bigger heap moves the failure, and a collection that keeps references in slots it no longer uses holds everything.",
+        "**An object is a 12-byte header plus fields, padded to 8.** A `Long` is 24 bytes, a list of `Long`s 28 bytes per number; from `-Xmx32g` up every reference doubles.",
+        "**Escape analysis removes an allocation only in compiled code for an object that stays local.** A field store or a call the JIT doesn't inline brings it back.",
+        "**Classes live in Metaspace, outside `-Xmx`.** Generated classes kept reachable exhaust it with the heap nearly empty."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Stack is per-thread, heap is shared** -- each thread has its own stack but all threads share the heap.",
-        "**Primitives on the stack, objects on the heap** -- primitive local variables live on the stack; objects are always allocated on the heap (with JIT escape analysis as an exception: HotSpot can eliminate a non-escaping allocation entirely by scalar replacement).",
-        "**References are on the stack, referents on the heap** -- a local variable like `String s = \"hello\"` puts the reference `s` on the stack and the String object on the heap.",
-        "**Stack memory is automatically reclaimed** when a method returns -- no GC needed.",
-        "**StackOverflowError** occurs when the call stack exceeds its size limit (deep recursion).",
-        "**OutOfMemoryError** occurs when the heap is exhausted and GC cannot free enough memory.",
-        "**Escape analysis** (JIT optimization) lets HotSpot's C2 compiler eliminate the allocation of an object that doesn't escape the method (scalar replacement: its fields become local values in registers or stack slots). HotSpot does not allocate whole objects on the stack.",
-        "**String pool** is part of the heap and stores deduplicated string literals.",
-        "**Pass-by-value** in Java means the reference value (pointer) is copied, not the object itself.",
-        "**Nullifying references** makes objects eligible for GC but doesn't guarantee immediate collection."
+      "type": "para",
+      "text": "**Where things live, and what fails (HotSpot, Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Area",
+        "Holds",
+        "Size set by",
+        "When it runs out"
+      ],
+      "rows": [
+        [
+          "Thread stack",
+          "one frame per active call: parameters, locals, partial results",
+          "`-Xss` (default 1 MB on Linux x64), `Thread.Builder.OfPlatform.stackSize`",
+          "`StackOverflowError` in that thread"
+        ],
+        [
+          "Heap",
+          "every object and array",
+          "`-Xmx` (default a quarter of physical memory)",
+          "`OutOfMemoryError: Java heap space`"
+        ],
+        [
+          "Metaspace",
+          "class metadata",
+          "`-XX:MaxMetaspaceSize` (default unlimited)",
+          "`OutOfMemoryError: Metaspace`"
+        ],
+        [
+          "Compressed class space (part of Metaspace)",
+          "class structures",
+          "`-XX:CompressedClassSpaceSize` (default 1 GB)",
+          "`OutOfMemoryError: Compressed class space`"
+        ]
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
+      "type": "para",
+      "text": "**Flags used on this page:**"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Virtual Threads (Project Loom)**: Virtual threads have much smaller stack sizes (~few KB vs ~1MB for platform threads), enabling millions of concurrent threads. The JVM can dynamically grow/shrink virtual thread stacks.",
-        "**Escape Analysis improvements**: Modern JVMs (including Java 21) have improved escape analysis, enabling more aggressive scalar replacement (allocating object fields directly on the stack).",
-        "**Compact Object Headers (Project Lilliput)**: Not part of Java 21. Work to reduce the object header from 12 bytes (16 without compressed class pointers) to 8 bytes; it became an experimental option in JDK 24 (JEP 450).",
-        "**Generational ZGC (JEP 439)**: Java 21 introduces generational mode for ZGC (opt-in with `-XX:+UseZGC -XX:+ZGenerational`), improving young-generation collection efficiency.",
-        "**Record classes**: Records have the same object layout as an equivalent final class with final fields; they save source code, not heap space.",
-        "**Sealed classes**: Tell the compiler the complete set of subclasses (enabling exhaustive `switch`); they do not change object layout."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Flag",
+        "Effect"
+      ],
+      "rows": [
         [
-          "**StackOverflowError from unbounded recursion**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: No base case or base case never reached\npublic int broken(int n) {\n    return broken(n - 1); // never terminates for positive n without base case\n}\n\n// Fix: Always have a proper base case\npublic long factorial(int n) {\n    if (n < 0) throw new IllegalArgumentException(\"Negative input\");\n    if (n <= 1) return 1;\n    return n * factorial(n - 1);\n}"
-          }
+          "`-Xint`",
+          "interpret only, no JIT"
         ],
         [
-          "**Memory leaks through unintentional object retention**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Static collection holds references forever\nprivate static final List<Object> cache = new ArrayList<>();\npublic void process(Object data) {\n    cache.add(data); // objects never become eligible for GC\n}\n\n// Fix: Use bounded caches, weak references, or explicit cleanup\nprivate static final Map<Object, String> cache = new WeakHashMap<>();"
-          }
+          "`-XX:-DoEscapeAnalysis`",
+          "turns off C2's escape analysis"
         ],
         [
-          "**Forgetting to close resources**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Resource not closed on exception\nInputStream is = new FileInputStream(\"file.txt\");\nis.read(); // if this throws, is is never closed\n\n// Fix: Use try-with-resources\ntry (InputStream is = new FileInputStream(\"file.txt\")) {\n    is.read();\n} // automatically closed"
-          }
+          "`-XX:-UseCompressedOops`",
+          "8-byte references; also the default from `-Xmx32g` up"
         ],
         [
-          "**Confusion between pass-by-value and pass-by-reference**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Expecting reassignment to affect the caller\npublic void reassign(List<String> list) {\n    list = new ArrayList<>(); // only changes local reference, not caller's\n}\n\n// The caller's reference still points to the original list\n// Fix: Modify the object through the reference instead\npublic void modify(List<String> list) {\n    list.add(\"item\"); // modifies the actual heap object\n}"
-          }
-        ],
-        [
-          "**Leaky stack implementations that retain obsolete references**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Popped elements still referenced in the array\npublic Object pop() {\n    return elements[--size]; // elements[size] still holds a reference!\n}\n\n// Fix: Null out the reference\npublic Object pop() {\n    Object result = elements[--size];\n    elements[size] = null; // help GC\n    return result;\n}"
-          }
+          "`-XX:+HeapDumpOnOutOfMemoryError`",
+          "writes a heap dump when the first `OutOfMemoryError` is thrown"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Prefer local variables over instance variables** when possible -- they are stack-allocated and cheaper.",
-        "**Use try-with-resources** for all `AutoCloseable` resources to prevent leaks.",
-        "**Avoid excessive object creation in hot paths** -- consider object pooling for expensive-to-create objects.",
-        "**Use primitive types instead of wrappers** to avoid heap allocation and autoboxing overhead.",
-        "**Set references to null** in long-lived data structures when elements are logically removed (like the stack example).",
-        "**Use `WeakHashMap`** or `SoftReference` for caches that should not prevent GC.",
-        "**Size collections appropriately** (`new ArrayList<>(expectedSize)`) to avoid repeated resizing and copying.",
-        "**Convert deep recursion to iteration** when stack depth is a concern.",
-        "**Monitor memory usage** with JMX (`MemoryMXBean`) or tools like VisualVM, JFR, and async-profiler.",
-        "**Tune JVM stack size** with `-Xss` only when necessary; the default (1MB on Linux/Windows x64, 2MB on Linux AArch64) is sufficient for most applications."
+        "A JSON library parses nested arrays recursively. What nesting depth does it survive on your service's request threads, and what should the service do with a request nested deeper?",
+        "Your service holds 50 million `HashMap<Long, Long>` entries. Estimate the bytes per entry from the sizes on this page, then measure it the way `Sizes` does. What would a primitive-keyed structure save?",
+        "A template engine compiles each template to a class. How would you find out, on a running service, whether it unloads them?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Zero-length arrays**: `new int[0]` is a valid heap allocation that returns an empty array. This is useful as a return value instead of null.",
-        "**String pool edge cases**: `new String(\"hello\")` creates a new heap object even though `\"hello\"` exists in the pool. Use `.intern()` to ensure pool usage.",
-        "**Integer cache**: `Integer.valueOf(127) == Integer.valueOf(127)` is `true` (cached), but `Integer.valueOf(128) == Integer.valueOf(128)` is `false` (new heap objects).",
-        "**Empty collections**: `Collections.emptyList()` returns a shared singleton -- no heap allocation per call.",
-        "**Stack overflow with virtual threads**: Virtual threads have dynamically growing stacks, but they can grow only up to the JVM's configured platform thread stack size (`-Xss`), so the StackOverflowError threshold is about the same as for a platform thread.",
-        "**Null references**: A null reference occupies stack space but points to no heap object. Dereferencing it throws `NullPointerException`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why HotSpot Removes Allocations Instead of Putting Objects on the Stack"
     },
     {
       "type": "para",
-      "text": "Interviewers frequently test:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Ability to diagram stack and heap** for a given code snippet (whiteboard question)",
-        "**Understanding pass-by-value semantics** in Java (one of the most commonly confused topics)",
-        "**Knowledge of when objects become eligible for GC** -- tracing reference chains",
-        "**Memory leak identification** in code samples",
-        "**Difference between StackOverflowError and OutOfMemoryError**",
-        "**Escape analysis** awareness (shows deep JVM knowledge)",
-        "**Reference types** (strong, soft, weak, phantom) and when to use each"
-      ]
+      "text": "An object's lifetime in Java isn't tied to the method that created it: any reference can be stored in a field, returned, or handed to another thread, and the language has no way to say \"this object dies with the frame\". A JVM that put objects on the stack would have to prove for each one that no reference outlives the frame. HotSpot asks for more: that no reference leaves the code C2 has compiled together. When it can prove that, it drops the object and works with the values of its fields; when it can't, as with the constructor kept out of inlining, the object goes on the heap even though it never outlives the frame."
     },
     {
       "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Does Java pass objects by reference?\" (No -- it passes references by value)",
-        "\"Where are String literals stored?\" (In the string pool, which is part of the heap since Java 7)",
-        "\"Can an object be allocated on the stack?\" (Not as a whole object in HotSpot; escape analysis lets the JIT replace a non-escaping object by its fields (scalar replacement), so no heap allocation happens)",
-        "\"What happens to method local variables when the method returns?\" (Stack frame is popped, locals are gone)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Explain the difference between stack and heap memory in Java. When is each used?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Stack and heap serve different purposes in Java's memory model:\n\nStack Memory:\n- Per-thread: each thread has its own stack\n- Stores: method frames (local primitives, references, parameters, return addresses)\n- Allocation: LIFO order, extremely fast (just move a pointer)\n- Deallocation: automatic when method returns (frame is popped)\n- Size: typically 1MB per thread on 64-bit platforms (configurable via -Xss)\n- Error: StackOverflowError when exhausted\n\nHeap Memory:\n- Shared: all threads access the same heap\n- Stores: all objects and arrays (anything created with 'new')\n- Allocation: usually a fast pointer bump in a thread-local buffer (TLAB), but reclaimed later by the GC\n- Deallocation: handled by the garbage collector asynchronously\n- Size: configurable via -Xms (initial) and -Xmx (maximum)\n- Error: OutOfMemoryError when exhausted\n\nKey insight: A local variable `Object obj = new Object()` puts the reference 'obj'\non the stack and the actual Object on the heap. When the method returns, the stack\nreference is gone, making the heap object eligible for GC if no other references exist."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstration of stack vs heap allocation\npublic class StackVsHeap {\n    public void demonstrate() {\n        int x = 42;                    // x is on the stack (primitive)\n        String s = \"hello\";            // s (reference) on stack, String on heap (pool)\n        List<String> list = new ArrayList<>();  // list ref on stack, ArrayList on heap\n\n        // When this method returns:\n        // - x, s, list references are all popped from the stack\n        // - The ArrayList becomes eligible for GC if not referenced elsewhere\n        // - The String \"hello\" stays in the string pool\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What is escape analysis and how does it affect memory allocation?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Escape analysis is a JIT compiler optimization that determines whether an object\nallocated inside a method escapes that method's scope. If the object does NOT escape,\nthe JVM can apply several optimizations:\n\n1. Scalar Replacement: Instead of allocating the object on the heap, the JVM breaks\n   it into its individual fields and stores them as local variables on the stack.\n   This eliminates heap allocation and GC overhead entirely.\n\n2. Lock Elision: If a synchronized object doesn't escape, the JVM can remove the\n   synchronization since no other thread can access it.\n\n3. Stack Allocation: In some cases, the object may be allocated on the stack frame\n   directly (though HotSpot primarily uses scalar replacement).\n\nAn object \"escapes\" if:\n- It is returned from the method\n- It is assigned to a field of another object\n- It is passed to another method that might store it\n- It is stored in a static field\n\nEscape analysis is performed by the C2 JIT compiler after methods are identified as\n\"hot\" (frequently called). It is NOT performed during interpretation."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Example: non-escaping object (candidate for scalar replacement)\npublic int computeDistance(int x1, int y1, int x2, int y2) {\n    // This Point object does not escape the method\n    // The JIT may replace it with two stack variables (dx, dy)\n    record Point(int x, int y) {}\n    Point p1 = new Point(x1, y1);\n    Point p2 = new Point(x2, y2);\n    int dx = p2.x() - p1.x();\n    int dy = p2.y() - p1.y();\n    return dx * dx + dy * dy;\n}\n\n// Example: escaping object (must be heap-allocated)\npublic List<String> createList() {\n    List<String> list = new ArrayList<>();  // escapes via return\n    list.add(\"item\");\n    return list;  // the list escapes this method\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What are the four types of references in Java and when would you use each?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Java provides four reference types with different GC behavior:\n\n1. Strong Reference (default):\n   - Created with: Object obj = new Object();\n   - GC behavior: Never collected while reachable\n   - Use case: Normal object references in application code\n\n2. Soft Reference (java.lang.ref.SoftReference):\n   - Created with: SoftReference<Object> ref = new SoftReference<>(obj);\n   - GC behavior: Collected only when JVM is running low on memory\n   - Use case: Memory-sensitive caches (image caches, computed results)\n   - The JVM guarantees soft refs are cleared before throwing OutOfMemoryError\n\n3. Weak Reference (java.lang.ref.WeakReference):\n   - Created with: WeakReference<Object> ref = new WeakReference<>(obj);\n   - GC behavior: Cleared by the first GC cycle that finds the object only weakly reachable\n   - Use case: Canonicalizing mappings (WeakHashMap), listener registries\n   - Does not prevent GC even if memory is plentiful\n\n4. Phantom Reference (java.lang.ref.PhantomReference):\n   - Created with: PhantomReference<Object> ref = new PhantomReference<>(obj, queue);\n   - GC behavior: Enqueued after the referent is finalized; get() always returns null\n   - Use case: Post-mortem cleanup, tracking object finalization, native resource cleanup\n   - More reliable than finalize() for cleanup actions\n\nThe hierarchy of \"strength\": Strong > Soft > Weak > Phantom"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Practical example: soft reference cache\npublic class ImageCache {\n    private final Map<String, SoftReference<byte[]>> cache = new ConcurrentHashMap<>();\n\n    public void cacheImage(String path, byte[] imageData) {\n        cache.put(path, new SoftReference<>(imageData));\n    }\n\n    public byte[] getImage(String path) {\n        SoftReference<byte[]> ref = cache.get(path);\n        if (ref == null) return null;\n        byte[] data = ref.get();\n        if (data == null) {\n            cache.remove(path); // soft ref was cleared by GC\n        }\n        return data; // may be null if GC collected it\n    }\n}\n\n// Practical example: weak reference for listener management\npublic class EventBus {\n    private final List<WeakReference<Runnable>> listeners = new CopyOnWriteArrayList<>();\n\n    public void register(Runnable listener) {\n        listeners.add(new WeakReference<>(listener));\n    }\n\n    public void fire() {\n        listeners.removeIf(ref -> ref.get() == null); // cleanup dead refs\n        listeners.forEach(ref -> {\n            Runnable listener = ref.get();\n            if (listener != null) listener.run();\n        });\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does Java's pass-by-value work with objects? Show with code.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Java is ALWAYS pass-by-value. There is no pass-by-reference in Java.\n\nHowever, for objects, the \"value\" that is passed is the reference (pointer) to the object,\nnot the object itself. This means:\n\n1. You CAN modify the object's state through the reference (because both the caller\n   and the method have references pointing to the same heap object).\n\n2. You CANNOT change what the caller's reference points to (because reassigning the\n   parameter only changes the local copy of the reference).\n\nThis is often confused with pass-by-reference, but the distinction is critical:\n- Pass-by-reference would allow the called method to make the caller's variable\n  point to a different object.\n- Pass-by-value of a reference only gives the method a copy of the pointer.\n\nCommon interview trap: \"Java passes objects by reference\" -- this is FALSE.\nJava passes the value of the reference. The caller's reference variable cannot be\nreassigned by the callee."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class PassByValueDemo {\n    \n    public static void modifyList(List<String> list) {\n        list.add(\"modified\");  // modifies the heap object -- visible to caller\n    }\n\n    public static void reassignList(List<String> list) {\n        list = new ArrayList<>();  // only changes the LOCAL copy of the reference\n        list.add(\"new list\");      // this goes into the new list, not the caller's\n    }\n\n    public static void main(String[] args) {\n        List<String> myList = new ArrayList<>(List.of(\"original\"));\n\n        modifyList(myList);\n        System.out.println(myList); // [original, modified] -- state was changed\n\n        reassignList(myList);\n        System.out.println(myList); // [original, modified] -- reassignment had no effect\n\n        // Primitive example:\n        int x = 10;\n        increment(x);\n        System.out.println(x); // 10 -- unchanged, because primitives are copied\n    }\n\n    public static void increment(int val) {\n        val++; // only changes the local copy\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is a memory leak in Java? Give three common patterns and their fixes.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: A memory leak in Java occurs when objects are no longer needed by the application\nbut are still reachable from GC roots, preventing garbage collection. Unlike C/C++\nwhere you forget to call free(), Java memory leaks happen because references are\nunintentionally kept alive.\n\nCommon patterns:\n\n1. Unintentional object retention in collections:\n   - Problem: Adding objects to a static or long-lived collection without removing them\n   - Example: A static List that grows indefinitely\n   - Fix: Use bounded collections, eviction policies, or weak references\n\n2. Unclosed resources:\n   - Problem: Streams, connections, or handles that are not closed\n   - Example: Opening a FileInputStream without closing it\n   - Fix: Always use try-with-resources for AutoCloseable objects\n\n3. Listener/callback registration without deregistration:\n   - Problem: Registering event listeners that are never removed\n   - Example: GUI components registering observers but not unregistering on disposal\n   - Fix: Always pair addListener with removeListener, or use WeakReference\n\nAdditional patterns:\n- Inner class instances holding references to outer class (especially in Android)\n- ThreadLocal variables not cleaned up after use\n- Custom data structures (like Stack) not nulling out removed elements\n- String.substring() in older Java versions (pre-Java 7u6) retaining the original char[]"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Pattern 1: Collection-based leak and fix\npublic class CollectionLeak {\n    // LEAK: objects added but never removed\n    private static final List<byte[]> leakyCache = new ArrayList<>();\n    \n    public void leakyMethod() {\n        leakyCache.add(new byte[1024 * 1024]); // 1MB added, never freed\n    }\n\n    // FIX: Use a bounded cache with eviction\n    private static final Map<String, byte[]> boundedCache = new LinkedHashMap<>() {\n        @Override\n        protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {\n            return size() > 100; // evict oldest when exceeding 100 entries\n        }\n    };\n}\n\n// Pattern 2: Resource leak and fix\npublic class ResourceLeak {\n    // LEAK: exception causes resource to never close\n    public void leakyRead(String path) throws IOException {\n        InputStream is = new FileInputStream(path);\n        is.read(); // if this throws, 'is' is never closed\n    }\n\n    // FIX: try-with-resources\n    public void fixedRead(String path) throws IOException {\n        try (InputStream is = new FileInputStream(path)) {\n            is.read(); // 'is' is closed even on exception\n        }\n    }\n}\n\n// Pattern 3: Obsolete reference in custom data structure\npublic class FixedStack<E> {\n    private Object[] elements;\n    private int size = 0;\n\n    public E pop() {\n        if (size == 0) throw new EmptyStackException();\n        E result = (E) elements[--size];\n        elements[size] = null;  // CRITICAL: eliminate obsolete reference\n        return result;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: Explain the difference between StackOverflowError and OutOfMemoryError.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Both are subclasses of VirtualMachineError (which extends Error), but they indicate\nvery different memory exhaustion scenarios:\n\nStackOverflowError:\n- Cause: The call stack for a thread exceeds its maximum size\n- Typical trigger: Unbounded or very deep recursion\n- Scope: Per-thread (each thread has its own stack)\n- Stack size: Configurable with -Xss (default 1MB on Linux/Windows x64)\n- Prevention: Use iterative algorithms, limit recursion depth, increase -Xss\n- Recovery: Generally recoverable by catching the error (the stack unwinds)\n\nOutOfMemoryError:\n- Cause: The JVM cannot allocate more memory for objects\n- Subtypes:\n  * \"Java heap space\" -- heap is full\n  * \"Metaspace\" -- class metadata area full\n  * \"GC overhead limit exceeded\" -- GC spending >98% time recovering <2% memory\n    (in JDK 21 only the Parallel collector throws this; G1 and Serial report \"Java heap space\")\n  * \"unable to create native thread: possibly out of memory or process/resource\n    limits reached\" -- the OS refused a new thread (thread limit or memory)\n- Scope: JVM-wide (heap is shared)\n- Heap size: Configurable with -Xms/-Xmx\n- Prevention: Fix memory leaks, increase heap, optimize object usage\n- Recovery: Very difficult to recover from; usually requires process restart\n\nKey difference: StackOverflowError is about call depth (vertical growth).\nOutOfMemoryError is about total object count/size (horizontal growth)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// StackOverflowError example\npublic class StackOverflowDemo {\n    // This will throw StackOverflowError\n    public static int infiniteRecursion(int n) {\n        return infiniteRecursion(n + 1); // no base case!\n    }\n\n    // Fix: add proper base case or convert to iteration\n    public static long factorialIterative(int n) {\n        long result = 1;\n        for (int i = 2; i <= n; i++) {\n            result *= i;\n        }\n        return result;\n    }\n}\n\n// OutOfMemoryError example\npublic class OutOfMemoryDemo {\n    // This will throw OutOfMemoryError: Java heap space\n    public static void exhaustHeap() {\n        List<byte[]> list = new ArrayList<>();\n        while (true) {\n            list.add(new byte[1024 * 1024]); // 1MB per iteration, never freed\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: How do virtual threads (Project Loom) change stack memory management?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: Virtual threads, introduced as a preview in Java 19 and finalized in Java 21,\nfundamentally change how stack memory is managed:\n\nTraditional Platform Threads:\n- Each thread gets a fixed-size stack (default ~1MB)\n- The stack's address range is reserved upfront; the OS commits pages as the\n  stack actually grows\n- 10,000 threads = ~10GB of reserved address space for stacks (much less is\n  actually committed)\n- This limits scalability for I/O-heavy applications\n\nVirtual Threads:\n- Stacks start very small (a few KB) and grow/shrink dynamically\n- Stacks are stored on the heap (as continuation objects)\n- When a virtual thread blocks on I/O, its stack is \"parked\" (unmounted)\n  and the carrier thread can run another virtual thread\n- Memory is only used for the actual stack depth, not a pre-allocated block\n- Millions of virtual threads can coexist with modest memory\n\nImplications:\n1. Stack memory is no longer a limiting factor for thread count\n2. There is no per-thread stack reservation to size, but -Xss still caps how deep\n   a virtual thread's stack can grow (JEP 444)\n3. StackOverflowError can still occur, at about the same depth as on a platform thread\n4. Stack frames are stored on the heap, making them subject to GC\n5. Pinning: synchronized blocks can prevent virtual thread unmounting,\n   causing a carrier thread to be blocked\n\nFor interview: This shows how Java's memory model is evolving to support\nmodern concurrency patterns while maintaining backward compatibility."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating virtual threads and their memory efficiency\npublic class VirtualThreadMemory {\n    public static void main(String[] args) throws Exception {\n        // Creating 100,000 virtual threads uses minimal stack memory\n        // compared to 100,000 platform threads\n        List<Thread> threads = new ArrayList<>();\n        for (int i = 0; i < 100_000; i++) {\n            Thread vt = Thread.ofVirtual().start(() -> {\n                try {\n                    Thread.sleep(1000); // blocked, stack is parked\n                } catch (InterruptedException e) {\n                    Thread.currentThread().interrupt();\n                }\n            });\n            threads.add(vt);\n        }\n\n        // Wait for all to complete\n        for (Thread t : threads) {\n            t.join();\n        }\n\n        // Compare: this would likely cause OutOfMemoryError with platform threads\n        // Thread.ofPlatform().start(() -> { ... }) x 100,000\n    }\n}"
+      "text": "The cost is that allocation stops being visible in the source. The same method can cost 234 MB per ten million calls or nothing, depending on an inlining decision the JIT makes at run time and may make differently after a refactoring, so allocation has to be measured, with a counter like the one on this page or with a profiler."
     },
     {
       "type": "heading",
@@ -388,17 +432,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 17,
-    "code": 14,
-    "tables": 0,
-    "lists": 11,
+    "headings": 12,
+    "paras": 34,
+    "code": 21,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "2d5a6a5895dbe79e9221844f7edad72ef04b5287544456edfa93ffdaa4f76497"
+  "content_sha256": "7cd466078ebdafcd3c427d0cf4fa94f79b3945aad708f6ba31b9c4e560593d88"
 }

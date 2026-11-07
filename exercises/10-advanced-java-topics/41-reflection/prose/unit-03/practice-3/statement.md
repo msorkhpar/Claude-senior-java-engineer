@@ -1,29 +1,16 @@
-`Proxy.newProxyInstance(loader, interfaces, handler)` creates an object that
-implements the interfaces and sends **every** call to
-`handler.invoke(proxy, method, args)`. Three traps:
+The shop's checkout applies price rules named in its config, such as
+`practice.Seasonal#winterSale`: a class and one of its public methods that takes a price in
+cents and returns the new price in cents. The checkout binds every rule once when it starts and
+then applies it to every basket, so the binding is where a wrong entry should be caught. Last
+month an entry named a method that returns an `int`, and it was accepted: baskets went through
+with prices cut to whole euros until someone noticed.
 
-- For a method with no parameters, **`args` is `null`**, not an empty array.
-- `method.invoke(target, args)` wraps the target's exception in
-  `InvocationTargetException`. Rethrowing that checked exception from the
-  handler makes the proxy throw `UndeclaredThrowableException`: **rethrow the
-  cause**.
-- **`equals`, `hashCode` and `toString` reach the handler too**. Forwarding
-  `equals` to the target makes `proxy.equals(proxy)` false.
+`PriceRules.bind` already creates the rule's object and wraps the call. Finish the two `TODO`s in
+`src/main/java/practice/PriceRules.java` with `java.lang.invoke` method handles:
 
-Write `Tracing.trace(iface, target, log)`. It returns a proxy of `iface` that
-calls `target` and adds to `log`:
+- `lookup(type, methodName)`: the handle for the rule method;
+- the call in `call(handle, target, cents)`.
 
-- before the call: `name(arg1, arg2)` (arguments by `String.valueOf`, joined
-  by `", "`; `name()` for none);
-- after it: `name -> result`, or `name !! ExceptionSimpleName` when the
-  target throws, and then the caller gets **the target's own exception**.
-- `equals`, `hashCode` and `toString` are answered by the handler and **not
-  logged**: `equals` is true only for the proxy itself, `hashCode` is
-  `System.identityHashCode(proxy)`, `toString` is `"Traced(" + target + ")"`.
-
-| call on the proxy | returns | log gains |
-|---|---|---|
-| `greet("World")` | `"Hello, World"` | `greet(World)`, `greet -> Hello, World` |
-| `size()` | `3` | `size()`, `size -> 3` |
-| `fail("bad")` | throws `IllegalArgumentException("bad")` | `fail(bad)`, `fail !! IllegalArgumentException` |
-| `equals(proxy)` | `true` | nothing |
+When you're done, a bound rule returns what its method returns for any price, and an entry whose
+method doesn't exist or doesn't take and return a price in cents is refused when it is bound,
+with an `IllegalArgumentException` that names the method. About seven lines in total.

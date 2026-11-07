@@ -1,16 +1,17 @@
-Java is always pass-by-value. For an object the value passed is the
-**reference**, so a method and its caller point at the same heap object: the
-method can change that object, but **reassigning the parameter does not reach
-the caller**, it only changes the method's own copy of the reference.
+The community site exports a discussion for the moderation team: every comment in the order the
+site shows them, and how deep the longest chain of replies goes. Last week a spam bot answered its
+own replies 180,000 times, and the export of that one discussion killed the export worker with a
+`StackOverflowError`. The first suggestion in the team channel was to start the whole service
+with `-Xss64m`.
 
-Write two methods on `Names`:
+`Comment` and `summary(...)` are done. Finish the two `TODO`s in
+`src/main/java/practice/Discussion.java`:
 
-- `trimAll(names)` trims every name **in the caller's list** (it returns
-  nothing, so the change must happen in the list itself).
-- `trimmedCopy(names)` returns a new list of the trimmed names; **the copy
-  leaves the caller's list unchanged**.
+- `deepest(...)`: the number of levels in the longest chain of replies, the root being level 1;
+- `inOrder(...)`: every comment's id in display order. A comment comes first, then the whole
+  thread under its oldest reply, then the thread under its next reply, and so on.
 
-| call | caller's list afterwards | returns |
-|---|---|---|
-| `trimAll(["  ada ", "bob"])` | `[ada, bob]` | |
-| `trimmedCopy(["  ada ", "bob"])` | `[  ada , bob]` | `[ada, bob]` |
+When you're done, any discussion exports on the worker's ordinary threads, the bot's included,
+with no change to the service's stack size. About fifteen lines in total.
+
+The tests run each export on a thread with a 1 MB stack.

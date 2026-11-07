@@ -18,397 +18,290 @@
       "text": "10.1.2. Big O Notation"
     },
     {
+      "type": "para",
+      "text": "A nightly job de-duplicates order ids before billing. In staging, with 10,000 orders, the step took about a tenth of a second. Production now sends 80,000 orders a night and the step takes over 8 seconds: eight times the data, about eighty times the time. The loop has one line in its body, `if (!seen.contains(id))`, and `seen` is an `ArrayList`."
+    },
+    {
+      "type": "para",
+      "text": "The table of complexity classes is easy to recite. In an interview or a code review, the harder skill is finding the order of growth of the code in front of you. Four rules, one per heading."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Count the Operations: Doubling n Shows the Order"
+    },
+    {
+      "type": "para",
+      "text": "Put a counter on the innermost step, run the code at n and at 2n, and divide. Three pieces of code over a shuffled list of distinct amounts: one pass for the largest amount, a check of every pair for a duplicate, and the JDK's own `List.sort` with a comparator that counts its calls."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static int max(List<Integer> amounts) {\n    int best = amounts.get(0);\n    for (int a : amounts) {\n        count++;\n        if (a > best) best = a;\n    }\n    return best;\n}\n\nstatic boolean hasDuplicate(List<Integer> amounts) {\n    for (int i = 0; i < amounts.size(); i++) {\n        for (int j = i + 1; j < amounts.size(); j++) {\n            count++;\n            if (amounts.get(i).equals(amounts.get(j))) return true;\n        }\n    }\n    return false;\n}\n\nstatic void sort(List<Integer> amounts) {\n    amounts.sort((a, b) -> { count++; return Integer.compare(a, b); });\n}"
+    },
+    {
+      "type": "para",
+      "text": "The `sorted input` column sorts the same list a second time, when it is already in order:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "      n          max         sort sorted input   hasDuplicate\n   1000         1000         8688          999         499500\n   2000         2000        19357         1999        1999000\n  x2 ->        x2.00        x2.23        x2.00          x4.00\n   4000         4000        42696         3999        7998000\n  x2 ->        x2.00        x2.21        x2.00          x4.00\n   8000         8000        93473         7999       31996000\n  x2 ->        x2.00        x2.19        x2.00          x4.00\n  16000        16000       202830        15999      127992000\n  x2 ->        x2.00        x2.17        x2.00          x4.00"
+    },
+    {
+      "type": "para",
+      "text": "The ratio at each doubling gives the order. ×2 is linear. ×4 is quadratic: `hasDuplicate` makes n(n−1)/2 comparisons. The sort's ×2.2 is n log n: doubling n doubles the n and adds one to log₂ n, so the ratio is 2 × (1 + 1/log₂ n), which is 2.2 at n = 1,000 and falls toward 2 as n grows."
+    },
+    {
+      "type": "para",
+      "text": "Big O keeps only that growth. The sort made 8,688 comparisons at n = 1,000, about 0.87 × n log₂ n; the 0.87 is a constant, and Big O drops it along with lower-order terms such as the −1 in n(n−1)/2, which matter less the larger n gets. What it keeps is enough to predict: at a million amounts `hasDuplicate` would make about 5 × 10¹¹ comparisons, `max` 10⁶."
+    },
+    {
+      "type": "para",
+      "text": "The count also depends on the input. On a list that was already sorted, `List.sort` made n − 1 comparisons: the javadoc's implementation note says its merge sort needs \"approximately n comparisons\" on nearly sorted input, and has \"the performance of a traditional mergesort\" on random input. \"What is the complexity of this sort?\" has two answers, and an interviewer asking it wants to hear on which input."
+    },
+    {
+      "type": "para",
+      "text": "Reading the order from the code's shape fails when the work sits inside a call: the sort is one line and O(n log n). The next section puts such a call inside a loop."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Call Inside a Loop Multiplies: List.contains in a Loop Is O(n²)"
     },
     {
       "type": "para",
-      "text": "Big O notation is a mathematical notation used to describe the upper bound of an algorithm's growth rate in terms of time or space as the input size increases. It abstracts away constants and lower-order terms to focus on the dominant factor that determines scalability."
+      "text": "The job from the start of this page, timed with an `ArrayList` and then a `HashSet` as `seen`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static List<String> unique(List<String> ids, Collection<String> seen) {\n    List<String> out = new ArrayList<>();\n    for (String id : ids) {\n        if (!seen.contains(id)) {          // ArrayList: a scan of everything seen so far\n            seen.add(id);\n            out.add(id);\n        }\n    }\n    return out;\n}"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Imagine you are sorting a deck of cards. If you have 10 cards, even a bad sorting method works quickly. But if you have 1,000,000 cards, the method matters enormously. Big O notation tells you HOW your algorithm's performance scales. An O(n) algorithm (like dealing cards one by one) scales linearly: 10x more cards = 10x more time. An O(n^2) algorithm (like repeatedly finding the smallest card) scales quadratically: 10x more cards = 100x more time. An O(log n) algorithm (like binary search on sorted cards) scales logarithmically: 10x more cards = only about 3.3 more steps (log2 10 ≈ 3.3)."
+      "text": "The two right-hand columns take a copy of the ids and call `removeAll(billed)`, where `billed` is half of them, once as a `List` and once as a `HashSet`. Each figure is the median of three timed runs after one untimed run, on one machine:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "     ids      List seen   HashSet seen   removeAll(List)   removeAll(Set)\n    5000        29.0 ms         1.9 ms           24.1 ms           0.5 ms\n   10000       106.3 ms         1.1 ms           87.0 ms           0.3 ms\n   20000       271.8 ms         3.4 ms          262.7 ms           0.7 ms\n   40000      1413.1 ms         3.5 ms         1578.0 ms           1.8 ms\n   80000      8014.2 ms         4.9 ms         9607.3 ms           2.6 ms"
+    },
+    {
+      "type": "para",
+      "text": "`ArrayList.contains` compares the argument with each element in turn until one is equal: O(n) per call, in a loop that runs n times, so up to n²/2 comparisons for distinct ids. That is a factor of four per doubling in comparisons; from 20,000 up, the time on this machine grew faster still. `HashSet.contains` computes the id's hash and compares it with the few entries in one bucket, so the work per id doesn't grow with the set. A second run gave the same shape (81 ms and 9.3 s for the list at 10,000 and 80,000)."
+    },
+    {
+      "type": "para",
+      "text": "`removeAll` hides the same loop. `ArrayList.removeAll(c)` calls `c.contains` once for each of its own elements, so its cost is n times the cost of `c.contains`, which is O(n) again when `c` is a list. `retainAll` and `stream().filter(other::contains)` have the same shape. The fix is the set, built once before the loop. Building it inside, as in `filter(id -> new HashSet<>(billed).contains(id))`, hashes every billed id on every turn, which is quadratic again. A hash set needs `equals` and `hashCode` that agree (units 2.4.2 and 4.4.3), and a `TreeSet` is the O(log n) choice when the elements are only `Comparable`."
+    },
+    {
+      "type": "para",
+      "text": "A test with a hundred orders passes in a millisecond either way, so the n² shows up only in production."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Time Complexity"
+      "level": 2,
+      "text": "Amortised O(1): ArrayList.add Copies Each Element a Few Times, Not n Times"
     },
     {
       "type": "para",
-      "text": "Time complexity measures how the number of operations grows with input size:"
+      "text": "An `ArrayList` keeps its elements in an array. When the array is full, `add` allocates a larger one and copies every element across, which is O(n) for that one call. The javadoc nonetheless says `add` \"runs in amortized constant time, that is, adding n elements requires O(n) time\"."
+    },
+    {
+      "type": "para",
+      "text": "To count the copies without reflection into `ArrayList`'s private fields, we watch allocation. The `Integer` values are created beforehand, so an `add` that allocates anything has allocated a new array, and it copied the `size()` elements that were in the list. The allocation counter is `com.sun.management.ThreadMXBean.getCurrentThreadAllocatedBytes()`, a HotSpot extension of the standard bean that unit 10.2.1 uses to measure object sizes:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "for (Integer v : values) {\n    int before = list.size();\n    long b0 = THREADS.getCurrentThreadAllocatedBytes();\n    list.add(v);\n    long bytes = THREADS.getCurrentThreadAllocatedBytes() - b0;\n    if (bytes > 0) {                                   // this add() allocated a new array\n        growths++;\n        copied += before;                              // ...and copied every element into it\n        biggestBytes = Math.max(biggestBytes, bytes);\n        biggestCopy = Math.max(biggestCopy, before);\n        if (growths <= 9) sizes.append(before).append(' ');\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "A million adds into `new ArrayList<>()` (twice, the second after warm-up, with identical numbers), then into `new ArrayList<>(n)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "grew when size was: 0 10 15 22 33 49 73 109 163 ...\nnew ArrayList<>()   growths=30, copied=2,430,972 (2.43 per add), largest single add: copied 810,325, allocated 4,861,968 bytes\nnew ArrayList<>()   growths=30, copied=2,430,972 (2.43 per add), largest single add: copied 810,325, allocated 4,861,968 bytes\nnew ArrayList<>(n)  growths=0, copied=0 (0.00 per add), largest single add: copied 0, allocated 0 bytes"
+    },
+    {
+      "type": "para",
+      "text": "The sizes at which it grew, 10, 15, 22, 33, 49, show the rule in JDK 21: the new capacity is the old one plus half of it. Each copy is half again as large as the one before, so all the copies before the last add up to about twice the last one. The total stays a small multiple of n, here 2.43 copies per add, and the average add is O(1)."
+    },
+    {
+      "type": "para",
+      "text": "Amortised O(1) does not make every add fast. One add copied 810,325 references into a 4.9 MB array, while the 999,970 adds without growth allocated nothing. The request that hits that add waits while every reference is copied. When n is known, `new ArrayList<>(n)` removes every copy, as the last line shows, and `ensureCapacity(n)` does the same for a list that already exists."
+    },
+    {
+      "type": "para",
+      "text": "The bound comes from growing in proportion to the size. A home-made growable `int[]` that counts the elements it copies at each growth, growing by half and by a fixed 1,000 slots (warmed round):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "cap + cap / 2          n=  250,000  copied=      720,285 (    2.9 per add)      0 ms\ncap + 1000             n=  250,000  copied=   31,127,500 (  124.5 per add)     10 ms\ncap + cap / 2          n=  500,000  copied=    1,080,430 (    2.2 per add)      1 ms\ncap + 1000             n=  500,000  copied=  124,755,000 (  249.5 per add)     45 ms\ncap + cap / 2          n=1,000,000  copied=    2,430,972 (    2.4 per add)      4 ms\ncap + 1000             n=1,000,000  copied=  499,510,000 (  499.5 per add)    248 ms"
+    },
+    {
+      "type": "para",
+      "text": "With a fixed step the copies per add double each time n doubles. That is O(n) per add and O(n²) in total, and a million adds copied half a billion elements."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "At Small n, Constants and the Cache Decide"
+    },
+    {
+      "type": "para",
+      "text": "Big O compares growth, and says nothing about which code is faster at the n you actually have. Two sorts of our own on random `int[]` arrays: insertion sort, O(n²), and a textbook top-down merge sort, O(n log n), that copies each half into a new array:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void insertionSort(int[] a) {\n    for (int i = 1; i < a.length; i++) {\n        int x = a[i], j = i - 1;\n        while (j >= 0 && a[j] > x) { a[j + 1] = a[j]; j--; }\n        a[j + 1] = x;\n    }\n}\n\nstatic void mergeSort(int[] a) {\n    if (a.length < 2) return;\n    int[] left = Arrays.copyOfRange(a, 0, a.length / 2);\n    int[] right = Arrays.copyOfRange(a, a.length / 2, a.length);\n    mergeSort(left);\n    mergeSort(right);\n    int i = 0, j = 0, k = 0;\n    while (i < left.length && j < right.length) a[k++] = left[i] <= right[j] ? left[i++] : right[j++];\n    while (i < left.length) a[k++] = left[i++];\n    while (j < right.length) a[k++] = right[j++];\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each figure is nanoseconds per sort: the median of five runs, after two warm-up runs, each run sorting copies of 1,000 random arrays about 20,000/n times over. Each sort is timed on its own, so the rows for n = 8 and 16 are mostly the cost of `System.nanoTime()`, about 20 ns a pair. The last column counts the comparisons for one of those arrays in a separate, untimed pass:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "     n   insertion sort       merge sort   compares (ins/merge)\n     8            26 ns           121 ns            19 / 16\n    16            43 ns           254 ns            68 / 44\n    32           304 ns           750 ns           310 / 117\n    64           699 ns          1937 ns           975 / 291\n   128          1854 ns          4249 ns          4087 / 728\n   256          5566 ns          9644 ns         17796 / 1716\n   512         18611 ns         21127 ns         68001 / 3936\n  1024         74165 ns         47414 ns        265932 / 8916"
+    },
+    {
+      "type": "para",
+      "text": "At 512 elements insertion sort made seventeen times the comparisons and still finished first. Its comparisons are cheap: it shifts values inside one array and allocates nothing. Merge sort makes two recursive calls and allocates two arrays on every call, 1,022 arrays for one sort of 512 elements. Those costs are the constants Big O drops, and up to 512 elements on this machine, in both runs, they outweighed the growth. At 1,024 merge sort was ahead."
+    },
+    {
+      "type": "para",
+      "text": "A membership test shows the opposite. A similar warmed loop, half of its queries absent, found a `HashSet<Integer>` lookup faster than a scan of an `int[]` at 32 elements (2.8 ns against 5.1 ns), the two about even at 8 to 16, and the set slightly ahead even at 4. The scan never clearly won."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**These timings are one machine.** They come from warmed loops, two runs of each program, and no benchmark harness: JMH isn't in this course's local build, so the JIT's choices and the machine's caches are uncontrolled. Trust the shape; measure the crossover on your own hardware with JMH before you design around it."
+        }
+      ]
+    },
+    {
+      "type": "para",
+      "text": "For a collection of fixed small size, such as six currency codes in a `List.of(...)`, Big O isn't the question. That list scans too: with a record whose `equals` counts its calls, `contains` of a missing code made six calls, and it makes six however much traffic arrives."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**Count the operations and double n.** ×2 is linear, about ×2.2 is n log n, ×4 is quadratic; the count also depends on the input, as a sort of sorted data shows.",
+        "**A call inside a loop multiplies.** `List.contains`, and `removeAll` or `retainAll` with a list argument, turn one loop into O(n²); a `HashSet` built once before the loop keeps it O(n).",
+        "**`ArrayList.add` is amortised O(1) because the capacity grows by half.** The total copying is a small multiple of n, but one add can copy the whole list; presize when n is known. A fixed growth step makes the total O(n²).",
+        "**At small n the constants decide.** Measure at the n you have; the algorithm of lower order wins once n is large."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**Costs the JDK 21 javadoc states:**"
     },
     {
       "type": "table",
       "headers": [
-        "Notation",
-        "Name",
-        "Example Operations"
+        "Operation",
+        "Cost stated"
       ],
       "rows": [
         [
-          "O(1)",
-          "Constant",
-          "Array access, HashMap get/put, stack push/pop"
+          "`ArrayList` `get`, `set`, `size`, `iterator`",
+          "constant time"
         ],
         [
-          "O(log n)",
-          "Logarithmic",
-          "Binary search, balanced BST operations"
+          "`ArrayList.add`",
+          "amortised constant time: n adds take O(n)"
         ],
         [
-          "O(n)",
-          "Linear",
-          "Linear search, traversing a list, single loop"
+          "`ArrayList` \"all of the other operations\" (such as `contains`, `indexOf`, `remove(Object)`)",
+          "linear time (\"roughly speaking\")"
         ],
         [
-          "O(n log n)",
-          "Linearithmic",
-          "Merge sort, TimSort, heap sort"
+          "`HashMap` `get`, `put`; `HashSet` `add`, `remove`, `contains`",
+          "constant time, \"assuming the hash function disperses the elements properly\""
         ],
         [
-          "O(n^2)",
-          "Quadratic",
-          "Bubble sort, nested loops, naive duplicate check"
+          "`TreeMap` `containsKey`, `get`, `put`, `remove`",
+          "guaranteed log(n)"
         ],
         [
-          "O(2^n)",
-          "Exponential",
-          "Recursive fibonacci (without memoization), power set"
+          "`PriorityQueue` `offer`, `poll`, `add`, `remove()`",
+          "O(log n); `contains`, `remove(Object)` linear; `peek`, `size` constant"
         ],
         [
-          "O(n!)",
-          "Factorial",
-          "Generating all permutations"
+          "`ArrayDeque`",
+          "most operations amortised constant; `contains`, `remove(Object)` and bulk operations linear"
+        ],
+        [
+          "`Arrays.sort(int[])` and the other primitive sorts",
+          "O(n log n) on all data sets"
+        ],
+        [
+          "`Arrays.sort(Object[])`, `List.sort`",
+          "implementation note: a traditional mergesort's performance on random input; approximately n comparisons on nearly sorted input"
+        ],
+        [
+          "`Collections.binarySearch`",
+          "log n on a random-access list; O(n) link traversals on a large non-random-access one"
         ]
       ]
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Space Complexity"
-    },
-    {
       "type": "para",
-      "text": "Space complexity measures how much additional memory an algorithm needs beyond the input:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "Notation",
-        "Example"
-      ],
-      "rows": [
-        [
-          "O(1)",
-          "In-place swap, iterative fibonacci"
-        ],
-        [
-          "O(log n)",
-          "Recursive binary search (call stack)"
-        ],
-        [
-          "O(n)",
-          "HashMap for frequency count, merge sort auxiliary array"
-        ],
-        [
-          "O(n^2)",
-          "2D matrix creation"
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Best, Average, and Worst Case"
-    },
-    {
-      "type": "para",
-      "text": "Most algorithms have different performance depending on the input:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Best case**: The input that causes the algorithm to run fastest (e.g., already sorted array for insertion sort: O(n)).",
-        "**Average case**: Expected performance over all possible inputs (e.g., quicksort: O(n log n)).",
-        "**Worst case**: The input that causes the algorithm to run slowest (e.g., already sorted array for naive quicksort: O(n^2))."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Big O typically describes the **worst case** unless stated otherwise. However, **amortized analysis** considers the average over a sequence of operations (e.g., ArrayList append is amortized O(1) despite occasional O(n) resizing)."
+      "text": "`ArrayList.removeAll(c)` and `retainAll(c)` call `c.contains` for each element, so their cost depends on `c`. What happens when many `HashMap` keys collide, and how `ArrayList` and `LinkedList` compare when measured, is in unit 10.1.1. The stack depth of recursion, the space side of a recursive algorithm, is in unit 10.2.1."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Big O describes an **upper bound** on growth rate, not exact execution time.",
-        "**Constants are dropped**: O(2n) = O(n), O(n/2) = O(n), O(1000) = O(1).",
-        "**Lower-order terms are dropped**: O(n^2 + n) = O(n^2), O(n + log n) = O(n).",
-        "**Best case is rarely useful** for analysis; worst case and average case matter more.",
-        "**Space complexity includes** the call stack for recursive algorithms.",
-        "**Amortized complexity** considers the average cost over a sequence of operations (e.g., dynamic array resizing).",
-        "O(log n) base is irrelevant (log base changes are constant factors): O(log_2 n) = O(log_10 n) = O(ln n).",
-        "In Java, `Arrays.sort()` for primitives uses dual-pivot quicksort, which since Java 14 falls back to heap sort when recursion gets too deep, so it is O(n log n) on all inputs (before Java 14 its worst case was O(n^2)). For objects, it uses TimSort (O(n log n) guaranteed).",
-        "HashMap operations are O(1) average; worst case O(log n) with Java 8+ treeification when the colliding keys are `Comparable`, O(n) otherwise.",
-        "When analyzing nested loops, multiply the complexities: an O(n) loop inside an O(m) loop is O(n * m)."
+        "Your service's endpoint takes 40 ms at 1,000 items and 160 ms at 2,000. Before opening the code, what do you expect at 8,000, and which two measurements would tell you whether the growth comes from your code or from the database?",
+        "A queue consumer appends to an `ArrayList` that is cleared after every flush. Is the amortised cost still O(1) per add if `clear()` keeps the capacity? Count the copies with the allocation counter from this unit and find out.",
+        "You need membership tests against a set that holds 5 to 50,000 elements depending on the customer. One structure or two? Decide what you would measure, and on which n."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**TimSort**: Java's default sort for objects (`Collections.sort()`, `Arrays.sort()` for objects) uses TimSort, which is O(n log n) worst case and O(n) best case for nearly sorted data. This is a hybrid merge sort/insertion sort.",
-        "**Parallel streams**: `parallelStream()` can improve throughput for CPU-bound O(n) operations on large datasets by distributing work across cores, but introduces overhead that can make small datasets slower.",
-        "**ConcurrentHashMap**: Thread-safe O(1) average operations without locking the entire map (since Java 8: lock-free reads, CAS to fill an empty bucket, and a lock on a bucket's first node for other updates; the segment-based locking was Java 7 and earlier).",
-        "**Virtual Threads**: For I/O-bound operations, virtual threads can be used to parallelize processing without the overhead of platform threads, effectively making I/O-bound O(n) work complete in O(n/k) wall-clock time where k is concurrency level.",
-        "**`Stream.toList()`** (Java 16+): More efficient than `.collect(Collectors.toList())` as it creates an unmodifiable list with potentially less copying."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Confusing time complexity with actual speed**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// O(n) is not always faster than O(n^2) for small n\n// An O(n^2) algorithm with small constant may beat O(n log n) for n < 50\n// Example: Insertion sort (O(n^2)) is faster than merge sort (O(n log n)) for small arrays\n// This is why Java's TimSort switches to insertion sort for small subarrays"
-          },
-          "**Solution**: Big O matters for large inputs. For small inputs, constants and cache behavior matter more."
-        ],
-        [
-          "**Ignoring space complexity**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Memoization trades space for time\n// O(2^n) time -> O(n) time with O(n) space\n// But if n is very large, you might run out of memory\nMap<Integer, Long> memo = new HashMap<>(); // O(n) space"
-          },
-          "**Solution**: Always analyze both time AND space complexity. Consider memory limits."
-        ],
-        [
-          "**Forgetting recursive call stack space**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// This recursive method uses O(n) space on the call stack\nint factorial(int n) {\n    if (n <= 1) return 1;\n    return n * factorial(n - 1); // Each call adds to the stack\n}\n// For n = 100000, this causes StackOverflowError"
-          },
-          "**Solution**: Convert deep recursion to iteration when possible, or increase stack size."
-        ],
-        [
-          "**Using the wrong data structure, leading to hidden O(n) operations**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: Checking if a List contains an element is O(n)\nList<Integer> list = new ArrayList<>();\n// ... add many elements\nif (list.contains(target)) { ... } // O(n) each time!\n\n// RIGHT: Use a HashSet for O(1) contains\nSet<Integer> set = new HashSet<>(list);\nif (set.contains(target)) { ... } // O(1) average"
-          },
-          "**Solution**: Know the complexity of each data structure's operations."
-        ],
-        [
-          "**Assuming HashMap is always O(1)**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// HashMap worst case is O(log n) per operation (Java 8+) if the colliding keys are Comparable,\n// and still O(n) if they are not. If all keys hash to the same bucket, performance degrades\n// This can be exploited in adversarial scenarios (HashDoS attacks)"
-          },
-          "**Solution**: Use good hash functions and be aware of worst-case scenarios."
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Trade space for time**: Precompute results, use lookup tables, memoization.",
-        "**Choose the right algorithm**: Use O(n log n) sorting over O(n^2) for large datasets.",
-        "**Avoid premature optimization**: Write correct code first, then profile to find bottlenecks.",
-        "**Use built-in library methods**: Java's `Arrays.sort()`, `Collections.sort()` are highly optimized.",
-        "**Reduce nested loops**: Look for ways to use HashMaps, sorting, or two-pointer techniques to reduce O(n^2) to O(n) or O(n log n).",
-        "**Consider amortized cost**: ArrayList's O(1) amortized append is fine even though individual appends may be O(n).",
-        "**Profile before choosing**: Use JMH (Java Microbenchmark Harness) for accurate benchmarks. Cache effects and JIT compilation can make real-world performance differ from theoretical analysis.",
-        "**Leverage Java's optimizations**: TimSort for nearly sorted data, dual-pivot quicksort for primitives, Red-Black trees in HashMap buckets.",
-        "**Use primitive streams** (`IntStream`, `LongStream`) to avoid autoboxing overhead in tight loops.",
-        "**Consider parallel processing** for CPU-bound O(n) or O(n log n) operations on large datasets."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Empty input**: An algorithm on an empty array/list should return immediately (O(1)).",
-        "**Single element**: Binary search on a 1-element array should still work. Sort of a 1-element array is a no-op.",
-        "**Already sorted input**: Insertion sort is O(n) best case. Naive quicksort (first element pivot) is O(n^2) worst case on sorted input.",
-        "**All identical elements**: Many sorting algorithms handle this specially. Quicksort with poor pivot selection can degrade to O(n^2).",
-        "**Integer overflow**: When computing `mid = (left + right) / 2`, use `mid = left + (right - left) / 2` to avoid overflow.",
-        "**Very large inputs**: O(n^2) algorithms become impractical for n > 10^5. O(n log n) handles up to ~10^7. O(n) handles up to ~10^8-10^9.",
-        "**Negative numbers**: Ensure algorithms handle negative values correctly (e.g., `Math.abs(Integer.MIN_VALUE)` overflows).",
-        "**Null inputs**: Always validate inputs at the beginning of methods. Return empty collections or throw explicit exceptions."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Javadoc Promises \"Amortized\" and Not a Growth Factor"
     },
     {
       "type": "para",
-      "text": "Interviewers commonly focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Analyzing complexity of given code**: \"What is the time complexity of this snippet?\" -- Look for nested loops, recursive calls, and hidden costs in library methods.",
-        "**Optimizing brute-force solutions**: Start with O(n^2) and optimize to O(n log n) or O(n) using appropriate data structures.",
-        "**Space-time trade-offs**: \"Can you solve this in O(n) time?\" often means using a HashMap for O(n) space.",
-        "**Comparing algorithms**: \"Why use merge sort over quicksort?\" (Merge sort is stable and has guaranteed O(n log n); quicksort is in-place but O(n^2) worst case.)",
-        "**Amortized analysis**: \"What is the time complexity of n ArrayList appends?\" (O(n) total, O(1) amortized per append.)"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Is O(n) always faster than O(n^2)?\" (No, for small n with different constants.)",
-        "\"What is the space complexity of a recursive DFS on a graph?\" (O(V) for the visited set + O(V) for the call stack = O(V).)",
-        "\"What is the time complexity of `Arrays.sort()` in Java?\" (O(n log n) for objects/TimSort; O(n log n) for primitives too since Java 14, where dual-pivot quicksort falls back to heap sort; O(n^2) worst for primitives before Java 14.)",
-        "\"How do you reduce O(n^2) to O(n) for the two-sum problem?\" (Use a HashSet/HashMap.)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What does Big O notation actually represent? Why do we drop constants and lower-order terms?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Big O notation describes the asymptotic upper bound of an algorithm's growth rate.\nIt answers: \"How does the running time/space grow as the input size approaches infinity?\"\n\nWe drop constants because:\n1. Constants depend on hardware, language, and implementation details that vary.\n   An O(n) algorithm on a supercomputer may be faster than an O(1) operation on a\n   slow embedded device.\n2. As n grows very large, constants become irrelevant compared to the growth rate.\n   O(1000n) is still fundamentally linear; O(0.001n^2) is still fundamentally quadratic.\n   At large enough n, the quadratic always overtakes the linear.\n\nWe drop lower-order terms because:\n1. For large n, the dominant term overwhelms all others.\n   In O(n^2 + 100n + 500), when n = 1,000,000, the n^2 term (10^12) dwarfs\n   100n (10^8) and 500.\n2. It simplifies analysis while preserving the essential scaling behavior.\n\nBig O gives us a language to quickly compare algorithms at scale:\n- O(n) vs O(n^2): For 10x more data, O(n) takes 10x longer; O(n^2) takes 100x longer.\n- This difference becomes critical in production systems handling millions of records."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Example: Two algorithms that find the max element\n// Both are O(n), but with different constants\n\n// Version 1: Single pass (1 comparison per element)\nint max1 = array[0];\nfor (int i = 1; i < array.length; i++) {\n    if (array[i] > max1) max1 = array[i]; // ~n comparisons\n}\n\n// Version 2: Unnecessary extra work (2 comparisons per element)\nint max2 = Integer.MIN_VALUE;\nfor (int i = 0; i < array.length; i++) {\n    if (array[i] > max2) max2 = array[i];\n    if (array[i] == max2) continue; // Unnecessary comparison\n    // ~2n comparisons\n}\n\n// Both are O(n), but Version 1 is ~2x faster in practice.\n// Big O tells us they SCALE the same; profiling tells us which is faster."
-    },
-    {
-      "type": "para",
-      "text": "**Q2: Explain the difference between O(1), O(log n), O(n), O(n log n), and O(n^2) with concrete Java examples.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Here are concrete examples for each complexity class:\n\nO(1) - Constant: The operation takes the same time regardless of input size.\n- HashMap.get(), HashMap.put() (average case)\n- ArrayList.get(index)\n- Checking if a number is even\n- Stack push/pop (ArrayDeque)\n\nO(log n) - Logarithmic: Each step halves the problem size.\n- Binary search on a sorted array\n- TreeMap.get(), TreeSet.contains()\n- Finding an element in a balanced BST\n- Computing power using fast exponentiation\n\nO(n) - Linear: Must examine every element once.\n- Linear search through an unsorted array\n- Finding the maximum element\n- Summing all elements\n- HashMap.containsValue() (not containsKey!)\n\nO(n log n) - Linearithmic: Typically \"sort then process\" or divide-and-conquer.\n- Arrays.sort() for objects (TimSort)\n- Merge sort, heap sort\n- \"Sort and then use binary search\" pattern\n\nO(n^2) - Quadratic: Nested iteration over all pairs.\n- Bubble sort, insertion sort (worst case), selection sort\n- Checking all pairs for duplicates (naive)\n- Nested loops: for each element, scan all other elements"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// O(1) - Constant time\nint[] arr = {1, 2, 3, 4, 5};\nint val = arr[2]; // Direct index access, always same speed\n\n// O(log n) - Logarithmic time\nint idx = Arrays.binarySearch(new int[]{1, 3, 5, 7, 9}, 7); // Halves search space each step\n\n// O(n) - Linear time\nint max = Arrays.stream(arr).max().orElseThrow(); // Must check every element\n\n// O(n log n) - Linearithmic time\nint[] sorted = arr.clone();\nArrays.sort(sorted); // int[]: dual-pivot quicksort, O(n log n)\n\n// O(n^2) - Quadratic time\n// Find all pairs that sum to a target (naive approach)\nfor (int i = 0; i < arr.length; i++) {\n    for (int j = i + 1; j < arr.length; j++) {\n        if (arr[i] + arr[j] == 6) {\n            // Found pair\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is amortized analysis? Explain with the ArrayList example.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Amortized analysis considers the average cost of an operation over a worst-case\nsequence of operations, rather than the worst case for a single operation.\n\nArrayList.add() example:\n- ArrayList is backed by an array with a fixed capacity.\n- When the array is full and you add an element, it creates a new array with 1.5x\n  the capacity and copies all existing elements. This single operation is O(n).\n- However, this expensive resize happens rarely. Most add() calls are O(1).\n\nAnalysis for n add operations:\n- Start with capacity 10, grow by 1.5x each time.\n- Resizes happen at: 10, 15, 22, 33, 49, 73, 109, ...\n- Total copies across all resizes: ~3n (geometric series)\n- Total cost for n additions: n (individual adds) + 3n (total copies) = O(4n) = O(n)\n- Amortized cost per add: O(n) / n = O(1)\n\nSo while a single add CAN be O(n), the amortized cost per operation is O(1).\nThis is why ArrayList is efficient despite occasional resizing.\n\nOther amortized O(1) examples:\n- StringBuilder.append(): Same dynamic array strategy\n- HashMap.put(): Rehashing is O(n), but happens rarely enough to be amortized O(1)\n- ArrayDeque operations: Circular buffer with occasional resizing"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating ArrayList resizing behavior\nList<Integer> list = new ArrayList<>(4); // Start with capacity 4\n\n// First 4 adds: O(1) each, no resizing\nlist.add(1); // size=1, capacity=4\nlist.add(2); // size=2, capacity=4\nlist.add(3); // size=3, capacity=4\nlist.add(4); // size=4, capacity=4\n\n// 5th add triggers resize: O(n) - copies 4 elements, capacity becomes 6\nlist.add(5); // size=5, capacity=6\n\n// Next add is O(1) again\nlist.add(6); // size=6, capacity=6\n\n// 7th add triggers resize: O(n) - copies 6 elements, capacity becomes 9\nlist.add(7); // size=7, capacity=9\n\n// Despite occasional O(n) resizes, adding n elements total is O(n)\n// Amortized cost per add = O(1)"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do you optimize a brute-force O(n^2) solution to O(n) using a HashMap?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The classic example is the \"Two Sum\" problem: given an array of integers and a\ntarget sum, find two numbers that add up to the target.\n\nBrute-force O(n^2): Check every pair of elements.\nOptimized O(n): Use a HashMap to store seen elements and check for complements.\n\nThe key insight: Instead of looking forward for each element (O(n) per element = O(n^2)),\nlook backward in a HashMap (O(1) per element = O(n) total).\n\nThis space-time trade-off is one of the most common interview optimization patterns:\n- Build a lookup structure (HashMap/HashSet) in O(n) space\n- Use it for O(1) lookups instead of O(n) scans\n\nSimilar optimizations:\n- Finding duplicates: O(n^2) nested loops -> O(n) with HashSet\n- Finding frequency of elements: O(n^2) counting -> O(n) with HashMap\n- Checking anagrams: O(n^2) comparison -> O(n) with character frequency map\n- Finding pairs with a given difference: O(n^2) -> O(n) with HashSet"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Brute-force O(n^2): Check all pairs\npublic int[] twoSumBruteForce(int[] nums, int target) {\n    for (int i = 0; i < nums.length; i++) {\n        for (int j = i + 1; j < nums.length; j++) {\n            if (nums[i] + nums[j] == target) {\n                return new int[]{i, j};\n            }\n        }\n    }\n    return new int[]{}; // Not found\n}\n\n// Optimized O(n): Use HashMap for O(1) lookups\npublic int[] twoSumOptimized(int[] nums, int target) {\n    Map<Integer, Integer> seen = new HashMap<>(); // O(n) space\n    for (int i = 0; i < nums.length; i++) {\n        int complement = target - nums[i];\n        if (seen.containsKey(complement)) {    // O(1) lookup\n            return new int[]{seen.get(complement), i};\n        }\n        seen.put(nums[i], i);                  // O(1) insert\n    }\n    return new int[]{}; // Not found\n}\n// Total: O(n) time, O(n) space"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the difference between best case, average case, and worst case? Give examples with QuickSort.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Different inputs can cause the same algorithm to perform very differently:\n\nQuickSort Analysis:\n- Best case O(n log n): Occurs when the pivot always divides the array into two equal\n  halves. Each level of recursion processes n elements, and there are log n levels.\n\n- Average case O(n log n): For random inputs, the pivot is expected to divide the array\n  reasonably well on average. Mathematical analysis shows the expected number of\n  comparisons is ~1.39 * n * log2(n).\n\n- Worst case O(n^2): Occurs when the pivot is always the smallest or largest element\n  (e.g., already sorted array with first-element pivot). Each partition removes only\n  one element, leading to n levels of recursion with O(n) work each.\n\nHow to mitigate QuickSort's worst case:\n1. Median-of-three pivot: Choose the median of the first, middle, and last elements.\n2. Random pivot: Choose a random element as pivot.\n3. Introsort: Switch to heapsort when recursion depth exceeds a threshold (used by\n   many C++ standard libraries, and by Java's primitive Arrays.sort() since Java 14).\n\nComparison with other sorts:\n- Insertion sort: Best O(n), Average O(n^2), Worst O(n^2)\n- Merge sort: Best O(n log n), Average O(n log n), Worst O(n log n) -- consistent!\n- TimSort: Best O(n), Average O(n log n), Worst O(n log n) -- best of both worlds\n\nThis is why Java uses:\n- TimSort for objects (stable, guaranteed O(n log n), great for nearly sorted data)\n- Dual-pivot QuickSort for primitives (faster in practice, stability not needed;\n  since Java 14 it falls back to heap sort, so it is O(n log n) worst case too)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// QuickSort with median-of-three pivot to avoid worst case\nvar analysis = new BigONotation.CaseAnalysis();\n\n// Best/Average case: random array, O(n log n)\nint[] random = {5, 2, 8, 1, 9, 3, 7, 4, 6};\nint[] sorted = analysis.quickSort(random); // [1, 2, 3, 4, 5, 6, 7, 8, 9]\n\n// Potential worst case input (already sorted) - mitigated by median-of-three\nint[] alreadySorted = {1, 2, 3, 4, 5, 6, 7, 8, 9};\nint[] result = analysis.quickSort(alreadySorted); // Still works efficiently\n\n// Insertion sort: best case O(n) on already sorted input\nint[] bestCase = {1, 2, 3, 4, 5};\nint[] insertSorted = analysis.insertionSort(bestCase); // Nearly O(n)\n\n// Insertion sort: worst case O(n^2) on reverse sorted input\nint[] worstCase = {5, 4, 3, 2, 1};\nint[] insertWorst = analysis.insertionSort(worstCase); // O(n^2) comparisons"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: Explain space complexity with examples of O(1), O(n), and O(n^2) algorithms.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Space complexity measures the additional memory an algorithm uses beyond the input.\nIt does NOT include the input itself (that's already allocated).\n\nO(1) Space - Constant:\n- The algorithm uses a fixed number of variables regardless of input size.\n- Examples: in-place swap, iterative fibonacci, finding max element.\n- Note: An in-place sorting algorithm (like heapsort) uses O(1) extra space.\n\nO(n) Space - Linear:\n- The algorithm's extra memory grows proportionally with input size.\n- Examples: creating a HashMap for frequency counting, merge sort's auxiliary array,\n  recursive DFS call stack on a path of length n.\n- Memoization: Fibonacci with memo uses O(n) space to avoid O(2^n) time.\n\nO(n^2) Space - Quadratic:\n- Typically seen when creating 2D data structures.\n- Examples: adjacency matrix for a graph, 2D DP table, n x n grid.\n\nImportant considerations:\n1. Recursive calls add to the call stack: each frame uses O(1) space, and the depth\n   determines total stack space. A recursive DFS on a tree uses O(h) where h is height.\n2. Tail call optimization does NOT exist in Java. Recursive algorithms always use\n   stack space proportional to recursion depth.\n3. In garbage-collected languages like Java, space complexity also considers GC pressure\n   from temporary objects."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// O(1) space: Iterative fibonacci - only 2 variables\nvar space = new BigONotation.SpaceComplexity();\nlong fib = space.fibonacciIterative(50); // Uses only prev1, prev2 variables\n\n// O(n) space: Frequency map\nMap<Character, Integer> freq = space.characterFrequency(\"hello world\");\n// Creates a map with at most n unique characters\n\n// O(n) space: Recursive fibonacci call stack\n// fibonacciRecursive(n) has recursion depth n, each frame on the stack\nlong fibRec = space.fibonacciRecursive(10); // O(n) stack frames\n\n// O(n) space: Memoization trades space for time\nlong fibMemo = space.fibonacciMemoized(50); // O(n) HashMap entries\n// But O(n) time instead of O(2^n)!\n\n// O(n^2) space: Creating a matrix\nint[][] matrix = space.createMatrix(100); // 100x100 = 10,000 entries"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: How does Java's `Arrays.sort()` work differently for primitives vs objects?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: Java uses two different sorting algorithms depending on the data type:\n\nFor primitive arrays (int[], long[], double[], etc.):\n- Algorithm: Dual-Pivot QuickSort (since Java 7); since Java 14 it also merges\n  pre-sorted runs and falls back to heap sort when recursion gets too deep\n- Time: O(n log n) on all inputs (the Java 21 javadoc says so); before Java 14 the\n  worst case was O(n^2)\n- Space: O(log n) for recursion, plus an O(n) buffer when it merges pre-sorted runs\n- Stability: NOT stable (equal elements may be reordered)\n- Why: Fastest in practice for primitives due to cache efficiency and\n  no object overhead. Stability is meaningless for equal primitive values.\n\nFor object arrays (Integer[], String[], etc.) and Collections.sort():\n- Algorithm: TimSort (since Java 7)\n- Time: O(n log n) worst case, O(n) best case (nearly sorted)\n- Space: O(n) for temporary merge array\n- Stability: STABLE (equal elements maintain their relative order)\n- Why: Stability is important for objects (you might sort by one field,\n  then by another). TimSort excels on real-world data that is often\n  partially sorted.\n\nTimSort details:\n- Hybrid of merge sort and insertion sort\n- Divides the array into \"runs\" (pre-sorted subsequences)\n- Uses insertion sort for small runs (typically < 32 elements)\n- Merges runs using a modified merge sort with galloping mode\n- Exploits existing order in the data, making it O(n) for sorted input\n\nFor parallel sorting: Arrays.parallelSort()\n- Uses a parallel merge sort for large arrays\n- Falls back to Arrays.sort() for small arrays (< 8192 elements)\n- Time: O(n log n / p) where p is number of processors\n- Space: O(n) for merge operations"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Primitive array: uses Dual-Pivot QuickSort\nint[] primitives = {5, 2, 8, 1, 9, 3};\nArrays.sort(primitives); // O(n log n), NOT stable\n\n// Object array: uses TimSort\nInteger[] objects = {5, 2, 8, 1, 9, 3};\nArrays.sort(objects); // O(n log n) worst case, STABLE\n\n// Collections.sort: also uses TimSort\nList<Integer> list = new ArrayList<>(List.of(5, 2, 8, 1, 9, 3));\nCollections.sort(list); // O(n log n), stable\n\n// Parallel sort for large arrays\nint[] large = new int[1_000_000];\nArrays.parallelSort(large); // Uses multiple threads\n\n// TimSort's best case: nearly sorted data is O(n)\nint[] nearlySorted = {1, 2, 3, 5, 4, 6, 7, 8, 10, 9};\nArrays.sort(nearlySorted); // Very fast due to existing runs"
+      "text": "`ArrayList`'s javadoc says the details of the growth policy \"are not specified beyond the fact that adding an element has constant amortized time cost\". JDK 21 grows by half, but code that depends on the factor depends on something the JDK never promised. Leaving it open costs predictability. You cannot compute from the specification which add will copy, or how much memory a list of n elements reserves. Presizing with `new ArrayList<>(n)` or `ensureCapacity` is the specified way to get both back. The growth factor itself trades memory for copying: growing by half leaves up to a third of the array unused after a growth, while doubling would leave up to half unused and copy less often."
     },
     {
       "type": "heading",
@@ -428,17 +321,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 15,
-    "code": 14,
-    "tables": 2,
-    "lists": 9,
+    "headings": 10,
+    "paras": 28,
+    "code": 9,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "5494deddcb3a761673c3d1d8dd125fcaa492524a7232105af124455b7f487b0f"
+  "content_sha256": "8708c2251784b35cfc9cc890b9bc64997c7892dbd7129bd4c6bc277d240aa2b1"
 }

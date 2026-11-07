@@ -1,23 +1,18 @@
-A plugin system reads a class name from configuration and creates it:
-`Class.forName(name)`, then `getDeclaredConstructor()`, `setAccessible(true)`
-and `newInstance()`. Configuration can be wrong, so **check the class before
-creating anything**: it must be a `Plugin`, and an **abstract class or an
-interface** cannot be instantiated at all.
+The reporting service reads its exporters from a config file: `html=...HtmlExporter`,
+`md=...MarkdownExporter`, one class name per format. Two incidents last quarter: a misspelt
+class name went live on a Friday and was found by the Monday morning report, and an exporter
+nobody had used for months failed its own template setup and took the whole service down at
+startup.
 
-Write `PluginLoader.load(className)` for the nested interface
-`PluginLoader.Plugin` (given):
+`ExporterRegistry` already creates exporters from a working config. Finish the `TODO` in
+`src/main/java/practice/ExporterRegistry.java`:
 
-- It returns a **new** instance of the named class, made with its no-arg
-  constructor, **at any access level**.
-- It throws **`IllegalArgumentException`** for a name no class has, for a
-  class that is **not a `Plugin`**, and for an **abstract** plugin class, in
-  each case **without running any constructor**.
-- Any other reflective failure becomes an `IllegalStateException`.
+- `resolve(key, className)`: what the registry keeps for one config entry, worked out when the
+  service starts.
 
-| class name | result |
-|---|---|
-| `DefaultPlugin` (implements `Plugin`) | a plugin; `execute()` is `"Default executed"` |
-| `HiddenPlugin` (private constructor) | a plugin |
-| `NotAPlugin` | `IllegalArgumentException`, no instance made |
-| `AbstractPlugin` (abstract, implements `Plugin`) | `IllegalArgumentException` |
-| `practice.NoSuchPlugin` | `IllegalArgumentException` |
+When you're done, a config entry the registry can't use stops it from being built, with a
+`ConfigException` that names the entry's key, and building the registry runs none of the
+exporters' own setup: each exporter's class is set up when its first instance is created. About
+seven lines in total.
+
+The tests use exporter classes nested in the test class, and pass you the class loader to use.

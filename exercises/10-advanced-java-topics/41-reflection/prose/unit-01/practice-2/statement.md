@@ -1,30 +1,15 @@
-`getFields()` and `getDeclaredFields()` differ in two ways, visibility and
-inheritance:
+The finance team pastes the monthly CSV exports into spreadsheets that read columns by position.
+`CsvExport` turns a list of records into CSV, and for a sealed family of records, such as every
+kind of delivery, it writes one `## TypeName` section per record type, empty ones included, so
+every month's file has the same shape.
 
-| method | access levels | inherited? |
-|---|---|---|
-| `getDeclaredFields()` | all, private too | no |
-| `getFields()` | public only | yes, from superclasses **and interfaces** |
+The writing is done. Finish the three `TODO` methods in `src/main/java/practice/CsvExport.java`:
 
-Neither gives every field, private inherited ones included: for that you walk
-up with `getSuperclass()`.
+- `columns(...)`: the column names of a record type;
+- `valueOf(...)`: one record's value in one column;
+- `recordTypes(...)`: every record type of a sealed family, which may contain sealed interfaces of
+  its own.
 
-Write `FieldFinder`. Each method returns field **names**:
-
-- `ownFields(type)`: the fields `type` itself declares, **every access
-  level**, sorted.
-- `publicFields(type)`: every public field, **inherited ones too**, including
-  the **constants of interfaces** `type` implements, sorted.
-- `allFields(type)`: every field of `type` and of **each superclass up to the
-  top**, any access level. `type`'s own names first (sorted), then its
-  parent's (sorted), and so on.
-
-With `Parent { public publicField; private privateField; }` and
-`Child extends Parent implements Tagged { public childPublic; private childPrivate; }`,
-where `Tagged` declares `String TAG`:
-
-| call | result |
-|---|---|
-| `ownFields(Child)` | `[childPrivate, childPublic]` |
-| `publicFields(Child)` | `[TAG, childPublic, publicField]` |
-| `allFields(Child)` | `[childPrivate, childPublic, privateField, publicField]` |
+When you're done, a record exports exactly its own values, under columns in the order the record
+declares them, on any JVM, and a family export has one section per record type of the family and
+no others. About ten lines in total.

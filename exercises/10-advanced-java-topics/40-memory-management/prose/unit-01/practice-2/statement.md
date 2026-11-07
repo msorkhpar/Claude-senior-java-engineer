@@ -1,23 +1,18 @@
-Every method call pushes a **stack frame**, and each thread's stack is small
-(about 1 MB by default). A recursion as deep as the data, one frame per node,
-throws `StackOverflowError` on long inputs; the page's fix is to **convert deep
-recursion to iteration**.
+The file service virus-scans every upload before storing it. Uploads wait in an `UploadQueue`
+that lives as long as the service; the scanner takes them one at a time, and an operator can
+discard everything still waiting. Each upload carries its whole body. After a busy morning the
+queue is empty, yet the heap stays near its limit, and the service later fails with
+`OutOfMemoryError: Java heap space` in the PDF thumbnailer. A heap dump taken after the morning
+shows the morning's upload bodies, all reachable from `UploadQueue.items`.
 
-`Chain.Node` (given) is a record `(int value, Node next)`; `null` ends a chain.
-Write:
+`put(...)`, `size()` and the growth of the array are done. Finish the two `TODO`s in
+`src/main/java/practice/UploadQueue.java`:
 
-- `sum(head)` and `length(head)`: **the chain is walked with a loop, not
-  recursion**, so a chain of a million nodes works; **`null` is an empty
-  chain** (sum 0, length 0).
-- `factorial(n)` from the page's pitfall: **a negative input is refused** with
-  `IllegalArgumentException`, and **overflow is refused, not wrapped**: a
-  result beyond `long` throws `ArithmeticException`.
+- `take()`: hand out the oldest waiting upload, or `null` when none is waiting;
+- `clear()`: discard every waiting upload.
 
-| call | result |
-|---|---|
-| `sum(3 -> 4 -> 5)`, `length(...)` | 12, 3 |
-| `sum` of 1,000,000 nodes of value 1 | 1000000 |
-| `sum(null)` | 0 |
-| `factorial(5)`, `factorial(0)` | 120, 1 |
-| `factorial(-1)` | `IllegalArgumentException` |
-| `factorial(21)` | `ArithmeticException` |
+When you're done, the queue keeps an upload in memory only while it is waiting, whether it left
+the queue by being scanned or by being discarded. About eight lines in total.
+
+The tests ask the garbage collector for a full collection and check, with weak references, which
+upload bodies are still in memory.
