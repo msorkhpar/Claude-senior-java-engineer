@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A notification manager that depends on an abstraction",
+  "title": "Let the payout rules run without the bank",
   "blocks": [
     {
       "type": "heading",
@@ -19,28 +19,28 @@
     },
     {
       "type": "para",
-      "text": "**High-level modules should not depend on low-level modules; both should depend on abstractions.** Without that, a `NotificationManager` creates an `EmailSender` itself, and switching to SMS means editing the manager. The page's fix:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface MessageSender {\n    void send(String recipient, String message);\n}\n\nclass NotificationManager {\n    private final MessageSender sender;\n    NotificationManager(MessageSender sender) {\n        this.sender = Objects.requireNonNull(sender);\n    }\n    void notifyUser(String user, String msg) {\n        sender.send(user, msg);\n    }\n}\n\nvar manager = new NotificationManager(new EmailSender());\n// Or swap to SMS without changing NotificationManager\nvar smsManager = new NotificationManager(new SmsSender());"
+      "text": "The claims service pays approved insurance claims through the bank's API and keeps an audit line for every decision. Nobody has tested the payout rules since the bank integration went in: the CI machines have no `BANK_URL`, and the last person who ran the tests on a machine that had one paid a test claim for real."
     },
     {
       "type": "para",
-      "text": "In `Notify`, write the two details and the manager:"
+      "text": "The team has settled the shape in `src/main/java/practice/Payouts.java`: `PayoutPolicy` receives a `Transfers` and an `AuditTrail` in its constructor, and the code that starts the service passes it a `BankTransfers` and the real audit trail. `Registry` is how older parts of the service find shared objects; it is being retired."
+    },
+    {
+      "type": "para",
+      "text": "Finish the constructor, `payOne` and `skip`, so that the tests can run the payout rules with a fake bank and a list for an audit trail:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`EmailSender` records each message as `\"EMAIL[<recipient>]: <message>\"` and `SmsSender` as `\"SMS[<recipient>]: <message>\"`, with the recipient and the message exactly as given (no trimming, no change of case), one entry per send, repeats included; `sentMessages()` lists them in order;",
-        "`NotificationManager(sender)` takes its sender through the constructor, rejects `null` there with `Objects.requireNonNull`, and `notifyUser(user, message)` sends through it."
+        "an approved claim with a positive amount is paid and recorded as `paid <claim id> <reference>`;",
+        "any other claim is recorded as `skipped <claim id>`;",
+        "a policy wired up with something missing is refused while the service is starting, not when the first claim comes in."
       ]
     },
     {
       "type": "para",
-      "text": "The manager must work, unchanged, with **any** `MessageSender`, including one written after it, such as a push sender or a test's fake."
+      "text": "About six lines in total."
     },
     {
       "type": "heading",
@@ -55,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.CopyOnWriteArrayList;\n\npublic final class Notify {\n\n    private Notify() {\n    }\n\n    /** The abstraction, owned by the high-level module. */\n    public interface MessageSender {\n        void send(String recipient, String message);\n    }\n\n    /** A low-level detail. */\n    public static final class EmailSender implements MessageSender {\n        private final List<String> sent = new CopyOnWriteArrayList<>();\n\n        public void send(String recipient, String message) {\n            sent.add(\"EMAIL[%s]: %s\".formatted(recipient, message));\n        }\n\n        public List<String> sentMessages() {\n            return List.copyOf(sent);\n        }\n    }\n\n    /** Another low-level detail. */\n    public static final class SmsSender implements MessageSender {\n        private final List<String> sent = new CopyOnWriteArrayList<>();\n\n        public void send(String recipient, String message) {\n            sent.add(\"SMS[%s]: %s\".formatted(recipient, message));\n        }\n\n        public List<String> sentMessages() {\n            return List.copyOf(sent);\n        }\n    }\n\n    /** The high-level module: depends on MessageSender only. */\n    public static final class NotificationManager {\n        private final MessageSender sender;\n\n        public NotificationManager(MessageSender sender) {\n            this.sender = Objects.requireNonNull(sender);\n        }\n\n        public void notifyUser(String user, String message) {\n            sender.send(user, message);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/** Pays approved insurance claims and keeps an audit line for every decision. */\npublic final class Payouts {\n\n    private Payouts() {\n    }\n\n    /** One claim, as the claims team approved or declined it. */\n    public record Claim(String id, String account, long cents, boolean approved) {\n    }\n\n    /** Moves money to an account and returns the bank's reference for the transfer. */\n    public interface Transfers {\n        String send(String account, long cents);\n    }\n\n    /** Keeps one line per payout decision, for the auditors. */\n    public interface AuditTrail {\n        void record(String line);\n    }\n\n    /** The production transfers: the bank's API, at an address taken from the environment. */\n    public static final class BankTransfers implements Transfers {\n        private final String url;\n\n        public BankTransfers() {\n            url = System.getenv(\"BANK_URL\");\n            if (url == null) throw new IllegalStateException(\"BANK_URL is not set\");\n        }\n\n        public String send(String account, long cents) {\n            throw new UnsupportedOperationException(\"would POST to \" + url);\n        }\n    }\n\n    /**\n     * How older parts of the service find shared objects: a global map filled in at start-up.\n     * Being retired; nothing new should look things up here.\n     */\n    public static final class Registry {\n        private static final Map<Class<?>, Object> services = new ConcurrentHashMap<>();\n\n        private Registry() {\n        }\n\n        public static <T> void put(Class<T> type, T service) {\n            services.put(type, service);\n        }\n\n        public static <T> T get(Class<T> type) {\n            Object found = services.get(type);\n            if (found == null) throw new IllegalStateException(\"nothing registered for \" + type.getSimpleName());\n            return type.cast(found);\n        }\n    }\n\n    /** The payout rules. */\n    public static final class PayoutPolicy {\n        private final Transfers transfers;\n        private final AuditTrail audit;\n\n        public PayoutPolicy(Transfers transfers, AuditTrail audit) {\n            this.transfers = Objects.requireNonNull(transfers, \"transfers\");\n            this.audit = Objects.requireNonNull(audit, \"audit\");\n        }\n\n        /** Pays every approved claim with a positive amount, and returns the bank references in order. */\n        public List<String> pay(List<Claim> claims) {\n            List<String> references = new ArrayList<>();\n            for (Claim claim : claims) {\n                if (claim.approved() && claim.cents() > 0) {\n                    references.add(payOne(claim));\n                } else {\n                    skip(claim);\n                }\n            }\n            return references;\n        }\n\n        /** Pays one claim and records \"paid <claim id> <reference>\". Returns the reference. */\n        String payOne(Claim claim) {\n            String reference = transfers.send(claim.account(), claim.cents());\n            audit.record(\"paid \" + claim.id() + \" \" + reference);\n            return reference;\n        }\n\n        /** Records \"skipped <claim id>\" for a claim that is not paid. */\n        void skip(Claim claim) {\n            audit.record(\"skipped \" + claim.id());\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Notify {\n\n    private Notify() {\n    }\n\n    /** The abstraction, owned by the high-level module. */\n    public interface MessageSender {\n        void send(String recipient, String message);\n    }\n\n    /** A low-level detail. */\n    public static final class EmailSender implements MessageSender {\n\n        public void send(String recipient, String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        public List<String> sentMessages() {\n            throw new UnsupportedOperationException(\"write sentMessages\");\n        }\n    }\n\n    /** Another low-level detail. */\n    public static final class SmsSender implements MessageSender {\n\n        public void send(String recipient, String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        public List<String> sentMessages() {\n            throw new UnsupportedOperationException(\"write sentMessages\");\n        }\n    }\n\n    /** The high-level module. */\n    public static final class NotificationManager {\n\n        public NotificationManager(MessageSender sender) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public void notifyUser(String user, String message) {\n            throw new UnsupportedOperationException(\"write notifyUser\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/** Pays approved insurance claims and keeps an audit line for every decision. */\npublic final class Payouts {\n\n    private Payouts() {\n    }\n\n    /** One claim, as the claims team approved or declined it. */\n    public record Claim(String id, String account, long cents, boolean approved) {\n    }\n\n    /** Moves money to an account and returns the bank's reference for the transfer. */\n    public interface Transfers {\n        String send(String account, long cents);\n    }\n\n    /** Keeps one line per payout decision, for the auditors. */\n    public interface AuditTrail {\n        void record(String line);\n    }\n\n    /** The production transfers: the bank's API, at an address taken from the environment. */\n    public static final class BankTransfers implements Transfers {\n        private final String url;\n\n        public BankTransfers() {\n            url = System.getenv(\"BANK_URL\");\n            if (url == null) throw new IllegalStateException(\"BANK_URL is not set\");\n        }\n\n        public String send(String account, long cents) {\n            throw new UnsupportedOperationException(\"would POST to \" + url);\n        }\n    }\n\n    /**\n     * How older parts of the service find shared objects: a global map filled in at start-up.\n     * Being retired; nothing new should look things up here.\n     */\n    public static final class Registry {\n        private static final Map<Class<?>, Object> services = new ConcurrentHashMap<>();\n\n        private Registry() {\n        }\n\n        public static <T> void put(Class<T> type, T service) {\n            services.put(type, service);\n        }\n\n        public static <T> T get(Class<T> type) {\n            Object found = services.get(type);\n            if (found == null) throw new IllegalStateException(\"nothing registered for \" + type.getSimpleName());\n            return type.cast(found);\n        }\n    }\n\n    /** The payout rules. */\n    public static final class PayoutPolicy {\n        private final Transfers transfers;\n        private final AuditTrail audit;\n\n        public PayoutPolicy(Transfers transfers, AuditTrail audit) {\n            // TODO: Keep what the policy is given. It is built once, at start-up, by the code\n            //       that wires the service together, and by every test of the payout rules.\n            throw new IllegalStateException(\"TODO: PayoutPolicy(transfers, audit)\");\n        }\n\n        /** Pays every approved claim with a positive amount, and returns the bank references in order. */\n        public List<String> pay(List<Claim> claims) {\n            List<String> references = new ArrayList<>();\n            for (Claim claim : claims) {\n                if (claim.approved() && claim.cents() > 0) {\n                    references.add(payOne(claim));\n                } else {\n                    skip(claim);\n                }\n            }\n            return references;\n        }\n\n        /** Pays one claim and records \"paid <claim id> <reference>\". Returns the reference. */\n        String payOne(Claim claim) {\n            // TODO: Pay the claim and record it.\n            throw new IllegalStateException(\"TODO: payOne\");\n        }\n\n        /** Records \"skipped <claim id>\" for a claim that is not paid. */\n        void skip(Claim claim) {\n            // TODO: Record the claim as skipped.\n            throw new IllegalStateException(\"TODO: skip\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -75,8 +75,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -86,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "19dc930170cf7f87eec51275bc625630fd20a6ba171bec3e91ec11050e5ad34c",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Notify {\n\n    private Notify() {\n    }\n\n    /** The abstraction, owned by the high-level module. */\n    public interface MessageSender {\n        void send(String recipient, String message);\n    }\n\n    /** A low-level detail. */\n    public static final class EmailSender implements MessageSender {\n\n        public void send(String recipient, String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        public List<String> sentMessages() {\n            throw new UnsupportedOperationException(\"write sentMessages\");\n        }\n    }\n\n    /** Another low-level detail. */\n    public static final class SmsSender implements MessageSender {\n\n        public void send(String recipient, String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        public List<String> sentMessages() {\n            throw new UnsupportedOperationException(\"write sentMessages\");\n        }\n    }\n\n    /** The high-level module. */\n    public static final class NotificationManager {\n\n        public NotificationManager(MessageSender sender) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public void notifyUser(String user, String message) {\n            throw new UnsupportedOperationException(\"write notifyUser\");\n        }\n    }\n}\n",
+  "content_sha256": "dd0adfcd6620e59de99761f9be47376592d44c02408c35e88ca58560249be255",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/** Pays approved insurance claims and keeps an audit line for every decision. */\npublic final class Payouts {\n\n    private Payouts() {\n    }\n\n    /** One claim, as the claims team approved or declined it. */\n    public record Claim(String id, String account, long cents, boolean approved) {\n    }\n\n    /** Moves money to an account and returns the bank's reference for the transfer. */\n    public interface Transfers {\n        String send(String account, long cents);\n    }\n\n    /** Keeps one line per payout decision, for the auditors. */\n    public interface AuditTrail {\n        void record(String line);\n    }\n\n    /** The production transfers: the bank's API, at an address taken from the environment. */\n    public static final class BankTransfers implements Transfers {\n        private final String url;\n\n        public BankTransfers() {\n            url = System.getenv(\"BANK_URL\");\n            if (url == null) throw new IllegalStateException(\"BANK_URL is not set\");\n        }\n\n        public String send(String account, long cents) {\n            throw new UnsupportedOperationException(\"would POST to \" + url);\n        }\n    }\n\n    /**\n     * How older parts of the service find shared objects: a global map filled in at start-up.\n     * Being retired; nothing new should look things up here.\n     */\n    public static final class Registry {\n        private static final Map<Class<?>, Object> services = new ConcurrentHashMap<>();\n\n        private Registry() {\n        }\n\n        public static <T> void put(Class<T> type, T service) {\n            services.put(type, service);\n        }\n\n        public static <T> T get(Class<T> type) {\n            Object found = services.get(type);\n            if (found == null) throw new IllegalStateException(\"nothing registered for \" + type.getSimpleName());\n            return type.cast(found);\n        }\n    }\n\n    /** The payout rules. */\n    public static final class PayoutPolicy {\n        private final Transfers transfers;\n        private final AuditTrail audit;\n\n        public PayoutPolicy(Transfers transfers, AuditTrail audit) {\n            // TODO: Keep what the policy is given. It is built once, at start-up, by the code\n            //       that wires the service together, and by every test of the payout rules.\n            throw new IllegalStateException(\"TODO: PayoutPolicy(transfers, audit)\");\n        }\n\n        /** Pays every approved claim with a positive amount, and returns the bank references in order. */\n        public List<String> pay(List<Claim> claims) {\n            List<String> references = new ArrayList<>();\n            for (Claim claim : claims) {\n                if (claim.approved() && claim.cents() > 0) {\n                    references.add(payOne(claim));\n                } else {\n                    skip(claim);\n                }\n            }\n            return references;\n        }\n\n        /** Pays one claim and records \"paid <claim id> <reference>\". Returns the reference. */\n        String payOne(Claim claim) {\n            // TODO: Pay the claim and record it.\n            throw new IllegalStateException(\"TODO: payOne\");\n        }\n\n        /** Records \"skipped <claim id>\" for a claim that is not paid. */\n        void skip(Claim claim) {\n            // TODO: Record the claim as skipped.\n            throw new IllegalStateException(\"TODO: skip\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-1/src/main/java/practice/Notify.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-1/src/test/java/practice/NotifyTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-1/src/main/java/practice/Payouts.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-05/practice-1/src/test/java/practice/PayoutsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -111,24 +111,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NotifyTest#theManagerSendsThroughEmail",
+        "id": "practice.PayoutsTest#paysApprovedClaimsAndRecordsEachPayment",
         "kind": "main",
-        "says": "Two notifications through an EmailSender read EMAIL[alice]: hi and EMAIL[bob]: your order shipped."
+        "says": "approved claims are paid through the transfers the policy was given, in order, and each payment is recorded with its reference"
       },
       {
-        "id": "practice.NotifyTest#anSmsSenderSwapsInWithNoChange",
+        "id": "practice.PayoutsTest#aDeclinedClaimIsRecordedInTheTrailItWasGiven",
         "kind": "edge",
-        "says": "Given an SmsSender, the same manager sends SMS[carol]: code 4711."
+        "says": "a declined or zero claim is not paid and is recorded in the audit trail the policy was given, not one looked up elsewhere"
       },
       {
-        "id": "practice.NotifyTest#aSenderWrittenLaterReceivesEveryMessage",
+        "id": "practice.PayoutsTest#aPolicyWithoutTransfersIsRefusedWhenItIsBuilt",
         "kind": "edge",
-        "says": "A sender written as a lambda after the manager receives every notification."
+        "says": "building the policy with no transfers fails right there with NullPointerException, instead of falling back to the production bank"
       },
       {
-        "id": "practice.NotifyTest#aNullSenderIsRejectedAtConstruction",
+        "id": "practice.PayoutsTest#aPolicyWithoutAnAuditTrailIsRefusedWhenItIsBuilt",
         "kind": "edge",
-        "says": "new NotificationManager(null) throws NullPointerException at once."
+        "says": "building the policy with no audit trail fails right there with NullPointerException, not at the first payout"
       }
     ],
     "report": {
@@ -137,12 +137,11 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.5.md",
-      "section": "8.1.5.1. Definition and Purpose of DIP"
+      "section": "A Constructor Parameter Turns a Forgotten Dependency Into a Compile Error"
     },
     "concepts": [
-      "Dependencies are passed through the constructor and a null one is rejected there with Objects.requireNonNull.",
-      "Behind an abstraction, one detail replaces another, such as email for SMS, with no change to the high-level module.",
-      "High-level modules do not depend on low-level modules: both depend on an abstraction, so NotificationManager depends on MessageSender, not on EmailSender."
+      "A dependency taken through the constructor is a compile error when the wiring forgets it, and requireNonNull refuses a null at construction; a service locator lookup fails only at the first request that needs it.",
+      "A policy that constructs its own detail can't be built, and so can't be tested, without that detail; taking an interface through the constructor lets a test pass a fake."
     ]
   }
 }

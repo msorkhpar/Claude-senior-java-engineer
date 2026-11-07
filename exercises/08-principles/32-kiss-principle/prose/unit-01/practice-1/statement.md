@@ -1,24 +1,15 @@
-The page's first pitfall is an email check built as a rule framework:
+Checkout converts card payments in foreign currencies to euros at the treasury service's rates.
+Last month the US dollar moved sharply one afternoon, and finance found dollar payments converted
+at the morning's rate for more than an hour. The old rate class has been deleted, and its
+replacement is half written.
 
-```java
-// VIOLATION: Over-engineered email validation
-interface ValidationRule { boolean validate(String input); }
-class NotNullRule implements ValidationRule { ... }
-class NotEmptyRule implements ValidationRule { ... }
-class ContainsAtRule implements ValidationRule { ... }
-// ... 5 more classes for a simple email check
-```
+Two rules come from the treasury team:
 
-The KISS fix is one method. Write `isValidEmail(String email)` in `Emails`. It looks only at
-the **first** `@` of the address, as the page's fix does with `indexOf('@')`, and returns
-`true` exactly when that `@` has at least one character before it and at least one after
-it. What those characters are does not matter: spaces or another `@` are allowed.
+- a payment is never converted at a rate fetched more than ten minutes before it (`MAX_AGE`);
+- the treasury accepts at most one call per ten minutes from this service, and one call to
+  `allRates()` returns every currency it quotes.
 
-- `isValidEmail("user@example.com")` is `true`;
-- `isValidEmail("userexample.com")` is `false`: there is no `@`;
-- `isValidEmail("@example.com")` is `false`: nothing comes before the `@`;
-- `isValidEmail("user@")` is `false`: nothing comes after it;
-- `isValidEmail("a@b@c")`, `isValidEmail("a@@")` and `isValidEmail("a b@c d")` are `true`:
-  the first `@` has a character on each side;
-- `isValidEmail("@a@")` is `false`: nothing comes before its first `@`;
-- `isValidEmail(null)` and `isValidEmail("")` are `false`, and never throw.
+Finish `rate(...)` in `src/main/java/practice/ExchangeRates.java` so that both hold, with as little
+machinery as they allow. Take the time from the `clock` you are given, never from the system
+clock: the tests move it by hand. The class has one caller thread. About eight lines in total,
+fields included.

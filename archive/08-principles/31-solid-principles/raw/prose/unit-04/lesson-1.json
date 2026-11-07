@@ -18,304 +18,287 @@
       "text": "8.1.4. Interface Segregation Principle (ISP)"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The nightly expiry sweep for the EU region failed at 02:00 with `UnsupportedOperationException: replica is read-only`. A config change had pointed it at the read replica instead of the primary. The change passed review and compiled: the replica implements the same `ListingStore` interface as the primary, so the compiler had no reason to object."
     },
     {
       "type": "para",
-      "text": "The Interface Segregation Principle states that **clients should not be forced to depend on methods they do not use**. Instead of one large \"fat\" interface, create multiple smaller, focused interfaces so that implementing classes only need to know about the methods they actually need."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a Swiss Army knife vs. specialized tools. A surgeon does not need a corkscrew, scissors, and a saw when all they need is a scalpel. Giving them a Swiss Army knife forces them to carry (depend on) tools they will never use. ISP says: give each professional exactly the tools (interface methods) they need -- a scalpel interface for the surgeon, a saw interface for the carpenter."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.4.1. Definition and Purpose of ISP"
-    },
-    {
-      "type": "para",
-      "text": "Robert C. Martin introduced ISP to combat \"fat interfaces\" -- interfaces that accumulate methods for multiple different clients. When a fat interface changes, all implementing classes must be updated, even if the change is irrelevant to most of them."
-    },
-    {
-      "type": "para",
-      "text": "The purpose:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Reduce the impact of changes by limiting what each client depends on",
-        "Improve cohesion of interfaces",
-        "Make implementations simpler and more focused",
-        "Enable better mocking and testing"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.4.2. Applying ISP in Concurrent Programming"
-    },
-    {
-      "type": "para",
-      "text": "In concurrent systems, ISP is particularly valuable:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "A `TaskSubmitter` client only needs `submit()` -- it should not depend on `shutdown()` or `getActiveCount()`",
-        "A `LifecycleManager` only needs `shutdown()` and `awaitTermination()`",
-        "A `Monitor` only needs `getActiveCount()` and `getCompletedCount()`"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Each client depends only on its relevant interface, reducing coupling and making testing easier."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.4.3. Designing Fine-grained Interfaces for Concurrency"
-    },
-    {
-      "type": "para",
-      "text": "Fine-grained interfaces for concurrent systems:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Readable<K, V>` -- read operations only",
-        "`Writable<K, V>` -- write operations only",
-        "`Listable<K>` -- enumeration operations only"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "A read-only client depends only on `Readable` and never sees write methods."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.4.4. ISP and Minimizing Dependencies in Concurrent Systems"
-    },
-    {
-      "type": "para",
-      "text": "Minimizing dependencies reduces:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The surface area for thread-safety bugs",
-        "The number of methods that need synchronization",
-        "The coupling between components that may run on different threads"
-      ]
+      "text": "The Interface Segregation Principle says a client should not depend on methods it doesn't use. Imports are left out of the examples, and every output is from Java 21."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A Fat Interface Compiles Calls Its Implementations Can Only Refuse"
+    },
+    {
+      "type": "para",
+      "text": "One interface serves `SearchPage`, which only reads, and `ExpirySweeper`, which reads and deletes. `PrimaryStore` implements all four methods on a `HashMap`. `ReplicaStore` can't write, so it refuses:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Listing(String id, boolean expired) {}\n\ninterface ListingStore {\n    Optional<Listing> find(String id);\n    List<String> ids();\n    void save(Listing listing);\n    void delete(String id);\n}\n\nfinal class ReplicaStore implements ListingStore {\n    private final Map<String, Listing> copy;\n    ReplicaStore(Map<String, Listing> snapshot) { copy = Map.copyOf(snapshot); }\n    public Optional<Listing> find(String id) { return Optional.ofNullable(copy.get(id)); }\n    public List<String> ids() { return List.copyOf(copy.keySet()); }\n    public void save(Listing listing) { throw new UnsupportedOperationException(\"replica is read-only\"); }\n    public void delete(String id) { throw new UnsupportedOperationException(\"replica is read-only\"); }\n}\n\nfinal class ExpirySweeper {\n    private final ListingStore store;\n    ExpirySweeper(ListingStore store) { this.store = store; }\n\n    int sweep() {\n        int removed = 0;\n        for (String id : store.ids()) {\n            if (store.find(id).map(Listing::expired).orElse(false)) {\n                store.delete(id);\n                removed++;\n            }\n        }\n        return removed;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The job picks its store by region, from configuration; `primary` and `replica` are the two stores:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static ListingStore storeFor(String region) {\n    return region.endsWith(\"-replica\") ? replica : primary;\n}\n// ...\nSystem.out.println(\"eu-primary: removed \" + new ExpirySweeper(storeFor(\"eu-primary\")).sweep());\nSystem.out.println(\"eu-replica: removed \" + new ExpirySweeper(storeFor(\"eu-replica\")).sweep());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "eu-primary: removed 1\nException in thread \"main\" java.lang.UnsupportedOperationException: replica is read-only\n\tat ReplicaStore.delete(Fat.java:30)\n\tat ExpirySweeper.sweep(Fat.java:41)\n\tat Fat.main(Fat.java:63)"
+    },
+    {
+      "type": "para",
+      "text": "The compiler checks that `ReplicaStore` has a `delete`, not what it does, so the mistake surfaced at the first expired listing, at 02:00. Whether a refusing implementation is also a broken subtype is the question of unit 8.1.3; here the interface made the stub necessary."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Role Interfaces Turn the Refusal into a Compile Error"
+    },
+    {
+      "type": "para",
+      "text": "Split the interface by what its clients do with it. Reading is one role, writing another, and a client that needs both names a type that extends both:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface ListingReader {\n    Optional<Listing> find(String id);\n    List<String> ids();\n}\n\ninterface ListingWriter {\n    void save(Listing listing);\n    void delete(String id);\n}\n\ninterface ListingStore extends ListingReader, ListingWriter {}\n\nfinal class ReplicaStore implements ListingReader {\n    private final Map<String, Listing> copy;\n    ReplicaStore(Map<String, Listing> snapshot) { copy = Map.copyOf(snapshot); }\n    public Optional<Listing> find(String id) { return Optional.ofNullable(copy.get(id)); }\n    public List<String> ids() { return List.copyOf(copy.keySet()); }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`PrimaryStore implements ListingStore`, `SearchPage` takes a `ListingReader`, and the sweeper still takes a `ListingStore`. The same wiring mistake:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "System.out.println(\"sweep on replica: removed \" + new ExpirySweeper(replica).sweep());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Roles.java:66: error: incompatible types: ReplicaStore cannot be converted to ListingStore\n        System.out.println(\"sweep on replica: removed \" + new ExpirySweeper(replica).sweep());\n                                                                            ^\nNote: Some messages have been simplified; recompile with -Xdiags:verbose to get full output\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "`ReplicaStore` has no `delete`, so it can't be passed to a client that deletes. Without that line, the search page runs on the replica and the sweeper on the primary:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "search on replica: bike-17\nsweep on primary: removed 1"
+    },
+    {
+      "type": "para",
+      "text": "Configuration code gets the same check: a `readerFor(region)` method declared to return `ListingReader` can serve the replica regions, and javac rejects its result as the sweeper's argument."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Split by Client, Not by Method"
+    },
+    {
+      "type": "para",
+      "text": "A role is the set of methods one kind of client uses together. Split further, and the clients pay instead. With one interface per method, the sweeper needs an intersection type and three fields that all hold the same object:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface ListingFinder { Optional<Listing> find(String id); }\ninterface ListingIds { List<String> ids(); }\ninterface ListingRemover { void delete(String id); }\n\nfinal class ExpirySweeper {\n    private final ListingFinder finder;\n    private final ListingIds index;\n    private final ListingRemover remover;\n\n    <S extends ListingFinder & ListingIds & ListingRemover> ExpirySweeper(S store) {\n        this.finder = store;\n        this.index = store;\n        this.remover = store;\n    }\n    // sweep() as before, through the three fields\n}"
+    },
+    {
+      "type": "para",
+      "text": "No implementation can refuse anything here either, so this split buys nothing over two roles."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Method Added to a Fat Interface Breaks Classes That Never Call It"
+    },
+    {
+      "type": "para",
+      "text": "Back in the fat version from the first section, the nightly export needs every listing, so someone adds one method to `ListingStore` and implements it in `PrimaryStore`. The search page's unit test has a fake, which already stubs `save` and `delete`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface ListingStore {\n    Optional<Listing> find(String id);\n    List<String> ids();\n    void save(Listing listing);\n    void delete(String id);\n    Stream<Listing> exportAll();                     // new: the nightly export needs it\n}\n\n/** The test fake for SearchPage, in src/test. */\nfinal class FakeStore implements ListingStore {\n    public Optional<Listing> find(String id) { return Optional.of(new Listing(id, false)); }\n    public List<String> ids() { return List.of(); }\n    public void save(Listing listing) { }\n    public void delete(String id) { }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "FatGrows.java:27: error: ReplicaStore is not abstract and does not override abstract method exportAll() in ListingStore\nfinal class ReplicaStore implements ListingStore {\n      ^\nFatGrows.java:59: error: FakeStore is not abstract and does not override abstract method exportAll() in ListingStore\nfinal class FakeStore implements ListingStore {\n      ^\n2 errors"
+    },
+    {
+      "type": "para",
+      "text": "Neither the replica nor the search page exports anything, yet the replica gets a third stub and the search page's fake a fourth empty method."
+    },
+    {
+      "type": "para",
+      "text": "With roles, the export is a new role, `interface ListingExporter { Stream<Listing> exportAll(); }`, implemented only by `PrimaryStore`. That version compiles with the replica, `SearchPage` and its two-method `ListingReader` fake unchanged."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Default Method Keeps Implementations Compiling, and Runs Code That Never Saw Their Locks"
+    },
+    {
+      "type": "para",
+      "text": "Java 8 added `removeIf` to `Collection` as a default method that iterates with `iterator()` and removes through it, so ordinary implementations kept compiling. That is the partial fix for growing an interface: old implementations compile, and they inherit code written without them in mind. This bag was written years earlier, with a lock on every method:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** Written in 2006: every method locks the bag; callers lock it around iteration. */\nfinal class LockedBag<E> extends AbstractCollection<E> {\n    private final List<E> items = new ArrayList<>();\n    @Override public synchronized boolean add(E e) { return items.add(e); }\n    @Override public synchronized boolean remove(Object o) { return items.remove(o); }\n    @Override public synchronized int size() { return items.size(); }\n    @Override public Iterator<E> iterator() { return items.iterator(); }   // caller holds the lock\n}"
+    },
+    {
+      "type": "para",
+      "text": "A caller in 2015 runs `bag.removeIf(...)` on `[a, b, c]`, removing `b`. While the predicate looks at `a`, a second thread calls `bag.add(\"d\")` and is given 200 ms to finish. `LockedBag2` is the same class with one more method:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "    @Override public synchronized boolean removeIf(Predicate<? super E> filter) { return items.removeIf(filter); }"
+    },
+    {
+      "type": "para",
+      "text": "The third row is the JDK's `Collections.synchronizedCollection`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "LockedBag               other thread's add ran during removeIf: true; removeIf threw java.util.ConcurrentModificationException\nLockedBag2              other thread's add ran during removeIf: false; bag = [a, c, d]\nsynchronizedCollection  other thread's add ran during removeIf: false; bag = [a, c, d]"
+    },
+    {
+      "type": "para",
+      "text": "The inherited `removeIf` iterated without the bag's lock, so the add landed in the middle. The `ConcurrentModificationException` is the lucky outcome: the fail-fast check is best effort (unit 6.5.3), and a missed one can leave the list silently wrong. The JDK's synchronized wrapper overrides `removeIf` and `forEach` to run them under its lock; its source marks them \"Override default methods in Collection\". A default that throws `UnsupportedOperationException` instead, as `SequencedCollection.addFirst` does, keeps everything compiling and moves the failure back to run time, as in the first section."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Collection Is Fat on Purpose, and Java 21's SequencedCollection Repeats It"
+    },
+    {
+      "type": "para",
+      "text": "The JDK's collection interfaces carry every mutator, and the `Collection` javadoc calls them \"optional operations\": an implementation may refuse them. There is no read-only `List` type to ask for, so a method that only reads a list still receives `add`, `set` and `sort`; unit 8.1.3 shows such a method sorting its argument and failing on `List.of`."
+    },
+    {
+      "type": "para",
+      "text": "Java 21 added `SequencedCollection`, a role for collections with an order. It puts `getFirst` and `getLast` beside `addFirst`, `addLast`, `removeFirst` and `removeLast`, and its defaults for `addFirst` and `addLast` throw. A read-only playlist that takes on the role, and four calls on it (`attempt` runs a call and prints the exception it throws):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** A read-only playlist that opts in to Java 21's ordered-collection interface. */\nfinal class Playlist extends AbstractCollection<String> implements SequencedCollection<String> {\n    private final List<String> tracks;\n    Playlist(List<String> tracks) { this.tracks = List.copyOf(tracks); }\n    @Override public Iterator<String> iterator() { return tracks.iterator(); }\n    @Override public int size() { return tracks.size(); }\n    @Override public Playlist reversed() { return new Playlist(tracks.reversed()); }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "SequencedCollection<String> playlist = new Playlist(List.of(\"intro\", \"verse\", \"outro\"));\nSystem.out.println(\"getFirst: \" + playlist.getFirst() + \", getLast: \" + playlist.getLast());\nattempt(\"addFirst(\\\"jingle\\\")\", () -> playlist.addFirst(\"jingle\"));\nattempt(\"removeLast()\", () -> playlist.removeLast());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "getFirst: intro, getLast: outro\naddFirst(\"jingle\"): java.lang.UnsupportedOperationException\nremoveLast(): java.lang.UnsupportedOperationException"
+    },
+    {
+      "type": "para",
+      "text": "javac accepted all four calls. The playlist can serve only the reads, and the role offers no type that holds just those, so a client that needs the first and last track still depends on four mutators, and the playlist refuses them at run time, as the replica did in the first section. In your own interfaces, give the reads a role of their own."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "ISP is the interface-level equivalent of SRP -- one responsibility per interface",
-        "\"Fat interfaces\" force implementations to provide stub methods or throw `UnsupportedOperationException` (an LSP smell)",
-        "Java's default methods can partially mitigate fat interfaces but don't solve the fundamental coupling problem",
-        "In concurrent code, ISP reduces the synchronization surface area",
-        "Compose multiple small interfaces using `implements A, B, C` syntax",
-        "ISP enables the Adapter pattern: wrap a fat interface with a thin one"
+        "**A fat interface compiles calls its implementations can only refuse.** A stub that throws turns a wiring mistake into a production failure half-way through a job.",
+        "**Role interfaces turn the refusal into a compile error.** Split by the methods one client uses together; one interface per method makes clients carry intersection types.",
+        "**A method added to a fat interface breaks classes that never call it**, test fakes included. A new role breaks nobody.",
+        "**A default method keeps implementations compiling and runs code that never saw their invariants**, such as a lock. Override it where the class has rules the default can't know.",
+        "**`Collection` is fat on purpose, and Java 21's `SequencedCollection` repeats it.** A read-only implementation compiles calls to `addFirst` and refuses them at run time."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Functional interfaces**: The ultimate ISP -- one method per interface (`Predicate`, `Function`, `Consumer`)",
-        "**Sealed interfaces**: Can be combined with ISP to define focused sealed hierarchies",
-        "**Default methods**: Allow adding methods to interfaces without breaking implementations, but should not be used to create fat interfaces",
-        "**Records**: Can implement multiple focused interfaces, providing clean ISP-compliant data carriers"
-      ]
+      "type": "para",
+      "text": "**JDK default methods (Java 21):**"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Method or factory",
+        "What it does"
+      ],
+      "rows": [
         [
-          "**The \"God interface\"**: One interface with 20+ methods that covers reading, writing, deleting, searching, backing up, and restoring.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: clients forced to depend on methods they don't use\ninterface DataStore {\n    String read(String key);\n    void write(String key, String value);\n    void delete(String key);\n    void backup(String destination);\n    void restore(String source);\n    List<String> search(String query);\n    void compact();\n    Map<String, String> exportAll();\n}"
-          },
-          "**Fix**: Split into `Readable`, `Writable`, `Searchable`, `Exportable`, etc."
+          "`Collection.removeIf` (default)",
+          "iterates with `iterator()`, removes with `Iterator.remove()`; takes no lock"
         ],
         [
-          "**UnsupportedOperationException in implementations**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class ReadOnlyStore implements DataStore {\n    public void write(String k, String v) {\n        throw new UnsupportedOperationException(); // ISP violation signal!\n    }\n}"
-          },
-          "**Fix**: The read-only store should only implement `Readable`, not the full `DataStore`."
+          "`Collections.synchronizedCollection(c).removeIf`",
+          "overrides the default and holds the wrapper's lock"
         ],
-        "**\"Just in case\" interface methods**: Adding methods to an interface because \"someone might need them later.\" **Fix**: Follow YAGNI (You Ain't Gonna Need It). Add methods when there is a concrete client that needs them."
+        [
+          "`SequencedCollection.getFirst`, `getLast` (default)",
+          "read through `iterator()` and `reversed().iterator()`"
+        ],
+        [
+          "`SequencedCollection.addFirst`, `addLast` (default)",
+          "always throw `UnsupportedOperationException`"
+        ],
+        [
+          "`SequencedCollection.removeFirst`, `removeLast` (default)",
+          "remove through the iterator, so a read-only iterator makes them throw"
+        ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Start with the smallest possible interface -- one or two methods",
-        "Combine interfaces using `implements A, B` when a class legitimately needs multiple capabilities",
-        "Use the `@FunctionalInterface` annotation for single-method interfaces",
-        "In concurrent systems, separate read/write/lifecycle/monitoring interfaces",
-        "When refactoring a fat interface, identify client clusters (groups of clients that use the same subset of methods) and create one interface per cluster",
-        "Test implementations against the specific interface they implement, not the composed type"
+        "A `PaymentGateway` interface has `charge`, `refund`, `cancel` and `settle`, and a mock in 40 tests. Group its clients by the methods they call. How many roles do you get, and which test fakes shrink?",
+        "You maintain a library interface with 200 implementations outside your company and need one more method. Compare a default method, a new sub-interface, and a new role. What does each cost the implementers you can't see?",
+        "Sketch the split you would have given `SequencedCollection`. Which JDK classes would implement each part, and which client of yours would take each one?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null keys and values**: Each interface should define its own null-handling contract",
-        "**Empty stores**: `Listable.listKeys()` should return an empty list, not null",
-        "**Null data maps in constructors**: Handle gracefully with `Map.of()` default",
-        "**Concurrent modification**: `ReadWriteStore` uses `ConcurrentHashMap` for thread safety; `ReadOnlyStore` wraps an immutable copy",
-        "**Shutdown race conditions**: The `ManagedExecutor` uses `AtomicBoolean` to prevent task submission after shutdown"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Three Ways to Grow an Interface"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Identifying fat interfaces and explaining why they are problematic",
-        "Refactoring a monolithic interface into segregated interfaces",
-        "Understanding the relationship between ISP and the Adapter pattern",
-        "Discussing ISP in the context of the Java Collections framework"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Is `java.util.List` a violation of ISP?\" (Arguable -- it has both read and write methods, but the \"optional operations\" pattern partially addresses this)",
-        "\"How do you balance ISP with having too many tiny interfaces?\"",
-        "\"When does Java's `default` method mechanism help or hurt ISP?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Interface Segregation Principle and why is it important?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The Interface Segregation Principle states that clients should not be forced \nto depend on methods they do not use. Instead of one large interface, create \nmultiple smaller, focused interfaces.\n\nWhy it is important:\n1. Reduces coupling: Clients only depend on methods they actually call\n2. Simplifies implementations: Classes only implement relevant methods\n3. Improves testability: Smaller interfaces are easier to mock\n4. Reduces change impact: Adding a method to one interface doesn't affect \n   clients of other interfaces\n5. Prevents UnsupportedOperationException: Classes don't need stub methods\n\nISP is the interface-level equivalent of SRP. Just as SRP says a class should \nhave one reason to change, ISP says an interface should serve one client role."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// FAT interface -- violates ISP\ninterface Worker {\n    void code();\n    void test();\n    void deploy();\n    void manageSprint();\n    void reviewCode();\n    void conductInterview();\n}\n\n// ISP-compliant: segregated interfaces\ninterface Developer {\n    void code();\n    void test();\n}\n\ninterface DevOps {\n    void deploy();\n}\n\ninterface ScrumMaster {\n    void manageSprint();\n}\n\n// A senior developer implements what they actually do\nclass SeniorDeveloper implements Developer, DevOps {\n    public void code() { /* ... */ }\n    public void test() { /* ... */ }\n    public void deploy() { /* ... */ }\n}\n\n// A junior developer only codes and tests\nclass JuniorDeveloper implements Developer {\n    public void code() { /* ... */ }\n    public void test() { /* ... */ }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does ISP apply to concurrent systems?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: In concurrent systems, ISP is particularly valuable because:\n\n1. Thread-safety surface reduction: A client that only submits tasks doesn't \n   need to see shutdown() or monitoring methods. This means fewer methods \n   need thread-safety analysis in that client's context.\n\n2. Lock contention isolation: Read-only clients can use lock-free paths \n   when they depend only on a Readable interface, while write clients \n   synchronize separately.\n\n3. Lifecycle management separation: The component that submits tasks should \n   not be responsible for shutting down the executor. ISP naturally separates \n   these concerns.\n\n4. Testing isolation: You can test task submission without setting up monitoring. \n   You can test monitoring without submitting tasks. Each test focuses on one \n   interface.\n\n5. Dependency injection clarity: It's clear from a constructor what a class \n   actually needs: does it need TaskSubmitter or LifecycleManageable or both?"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Segregated interfaces for a concurrent executor\ninterface TaskSubmitter<T> {\n    Future<T> submit(Callable<T> task);\n}\n\ninterface LifecycleManageable {\n    void shutdown();\n    boolean isShutdown();\n    boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException;\n}\n\ninterface Monitorable {\n    int getActiveCount();\n    long getCompletedCount();\n}\n\n// Full implementation composes all three\nclass ManagedExecutor implements TaskSubmitter<Object>, LifecycleManageable, Monitorable {\n    // ... implements all methods\n}\n\n// Client A: only needs to submit tasks\nclass TaskClient {\n    private final TaskSubmitter<Object> submitter; // minimal dependency\n    TaskClient(TaskSubmitter<Object> submitter) { this.submitter = submitter; }\n    void run() { submitter.submit(() -> \"work\"); }\n}\n\n// Client B: only needs lifecycle management\nclass LifecycleManager {\n    private final LifecycleManageable manageable; // minimal dependency\n    void gracefulShutdown() { manageable.shutdown(); }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How do you refactor a fat interface into segregated interfaces?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Step-by-step refactoring process:\n\n1. Identify client clusters: Group clients by which methods they call.\n   - Client A calls read(), exists(), listKeys()\n   - Client B calls write(), delete()\n   - Client C calls backup(), restore()\n\n2. Create one interface per cluster:\n   - Readable: read(), exists()\n   - Writable: write(), delete()\n   - Listable: listKeys(), size()\n   - Backupable: backup(), restore()\n\n3. Update implementations to implement the relevant interfaces:\n   - ReadWriteStore implements Readable, Writable, Listable\n   - ReadOnlyStore implements Readable, Listable\n\n4. Update client code to depend on the specific interface:\n   - Read-only service takes Readable<String, String>\n   - Admin service takes Readable + Writable + Listable\n\n5. Run tests to verify nothing broke.\n\nThe key insight: start from the CLIENTS, not the implementation. The interfaces \nshould be shaped by what clients need, not by what the implementation offers."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Before: fat interface\ninterface DataStore {\n    String read(String key);\n    void write(String key, String value);\n    void delete(String key);\n    List<String> listKeys();\n    int size();\n}\n\n// After: segregated\ninterface Readable<K, V> {\n    V read(K key);\n    boolean exists(K key);\n}\n\ninterface Writable<K, V> {\n    void write(K key, V value);\n    void delete(K key);\n}\n\ninterface Listable<K> {\n    List<K> listKeys();\n    int size();\n    boolean isEmpty();\n}\n\n// Implementation composes what it needs\nclass ReadWriteStore implements Readable<String, String>,\n                                Writable<String, String>,\n                                Listable<String> {\n    private final ConcurrentHashMap<String, String> data = new ConcurrentHashMap<>();\n    // ... implement all methods\n}\n\n// Read-only implementation -- no write stubs needed!\nclass ReadOnlyStore implements Readable<String, String>, Listable<String> {\n    private final Map<String, String> data;\n    // ... implement only read and list methods\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What is the relationship between ISP and the Java Collections framework?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The Java Collections framework has a complicated relationship with ISP:\n\nPartial ISP compliance:\n- Collection, List, Set, Map are separate interfaces (good ISP)\n- Iterable is segregated from Collection (good ISP)\n- Iterator is a focused interface with just hasNext(), next(), remove()\n\nISP violations:\n- List includes both read methods (get, indexOf) and write methods (add, set, \n  remove) in one interface\n- This forces Collections.unmodifiableList() to throw UnsupportedOperationException \n  on write methods\n- Map similarly combines read and write operations\n\nModern improvements:\n- List.of(), Set.of(), Map.of() create unmodifiable collections, but they still \n  implement the full List/Set/Map interface\n- SequencedCollection, SequencedSet and SequencedMap (Java 21) are new interfaces \n  retrofitted into the hierarchy -- and they again mix read methods (getFirst) \n  with write methods (addFirst, removeFirst) that unmodifiable collections reject\n\nIf Java were redesigned today, you might see:\n- ReadableList, WritableList, MutableList\n- ReadableMap, WritableMap, MutableMap\nBut backward compatibility prevents this change."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Java Collections ISP tension\nList<String> unmodifiable = List.of(\"a\", \"b\", \"c\");\n// unmodifiable.add(\"d\");  // Throws UnsupportedOperationException\n\n// If Java had ISP-compliant collections:\ninterface ReadableList<E> {\n    E get(int index);\n    int size();\n    boolean contains(Object o);\n}\n\ninterface WritableList<E> extends ReadableList<E> {\n    void add(E e);\n    void remove(int index);\n    E set(int index, E e);\n}\n\n// Read-only clients would only see ReadableList\nvoid printAll(ReadableList<String> list) {\n    for (int i = 0; i < list.size(); i++) {\n        System.out.println(list.get(i));\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How do you balance ISP with avoiding too many small interfaces?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: The balance comes from focusing on CLIENT NEEDS, not theoretical purity:\n\nSigns of too many interfaces:\n1. Most classes implement 5+ interfaces with 1 method each\n2. Interfaces are so granular that no client uses just one\n3. Interface names become meaningless (IDoOneThing, IDoAnotherThing)\n4. Navigation in the IDE becomes difficult\n5. New developers are overwhelmed by the number of types\n\nSigns of too few interfaces:\n1. Implementations throw UnsupportedOperationException\n2. Clients depend on methods they never call\n3. Mock setup in tests is complex because of unused methods\n4. Interface changes affect unrelated code\n\nPractical guidelines:\n1. Start with 2-3 method interfaces -- the \"role\" level\n2. Group methods by client usage, not by implementation similarity\n3. If two methods are ALWAYS used together, they belong in one interface\n4. If a method is used by a DIFFERENT set of clients, it belongs in a separate interface\n5. Refactor when you see pain, not preemptively\n6. Java functional interfaces (@FunctionalInterface) are the natural minimum granularity"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Too granular -- over-segregation\ninterface Readable { String read(String key); }\ninterface Existable { boolean exists(String key); }\ninterface Sizable { int size(); }\ninterface Emptyable { boolean isEmpty(); }\n\n// Better: group by role\ninterface Readable<K, V> {\n    V read(K key);\n    boolean exists(K key);  // Almost always needed alongside read\n}\n\ninterface Listable<K> {\n    List<K> listKeys();\n    int size();        // Natural companion to listing\n    boolean isEmpty();  // Derived from size, always useful with listing\n}\n\n// Each interface represents a meaningful client role, not just one method"
+      "text": "An interface gains a method in one of three ways, and each has a different cost. An abstract method breaks every implementation at compile time, which is honest and expensive when the implementations belong to other teams. A default method breaks none of them at compile time, and each one inherits behaviour its author never reviewed. A new role interface breaks nobody and changes nothing, but only the clients that ask for it get the method. Java 8 chose defaults for `Collection`; Java 21 chose a new role, `SequencedCollection`, then filled it with defaults that throw, so the cost moved back to run time. Why the collection interfaces have optional operations at all is the design note of unit 8.1.3."
     },
     {
       "type": "heading",
@@ -335,17 +318,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 16,
-    "code": 10,
-    "tables": 0,
-    "lists": 12,
+    "headings": 12,
+    "paras": 23,
+    "code": 16,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "e3f1c35be236d6848376a0703c27e2778cc00265f47880b7ef63158b097a4a25"
+  "content_sha256": "fcb8b4a6b3072c22c79f20f9c9509c2d8516d1a912e417cad3a88395d82838f8"
 }

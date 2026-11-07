@@ -18,303 +18,354 @@
       "text": "8.1.5. Dependency Inversion Principle (DIP)"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The refund rule is three lines: refund a purchase made within 30 days, and tell the customer. Its unit test fails on every CI run with `IllegalStateException: SMTP_HOST is not set`. On a laptop where the variable is set, the same test sends a real email. Nothing is wrong with the rule: the policy builds its own mailer."
     },
     {
       "type": "para",
-      "text": "The Dependency Inversion Principle states that **high-level modules should not depend on low-level modules; both should depend on abstractions. Abstractions should not depend on details; details should depend on abstractions.**"
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of an electrical outlet and a plug. The outlet (high-level infrastructure) does not know whether a lamp, a phone charger, or a toaster is plugged in. The appliance (low-level detail) does not know whether the power comes from solar, wind, or coal. Both conform to the same standard: the plug/socket interface (abstraction). You can swap the power source or the appliance independently."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.5.1. Definition and Purpose of DIP"
-    },
-    {
-      "type": "para",
-      "text": "Robert C. Martin defines DIP with two rules:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**High-level modules should not depend on low-level modules.** Both should depend on abstractions.",
-        "**Abstractions should not depend on details.** Details should depend on abstractions."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Without DIP, a `NotificationManager` (high-level) directly creates an `EmailSender` (low-level). Changing to SMS requires modifying the manager. With DIP, both depend on a `MessageSender` abstraction."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.5.2. Applying DIP in Concurrent Programming"
-    },
-    {
-      "type": "para",
-      "text": "In concurrent systems, DIP allows swapping execution strategies:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "A `JobScheduler` depends on an `ExecutionStrategy` abstraction",
-        "`FixedPoolStrategy` uses a fixed thread pool",
-        "`VirtualThreadStrategy` uses Java 21 virtual threads",
-        "The scheduler doesn't know or care which thread model is used"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.5.3. Decoupling Modules Using Abstractions"
-    },
-    {
-      "type": "para",
-      "text": "Abstractions (interfaces) sit between modules:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`DataRepository` abstracts persistence (in-memory, database, file system)",
-        "`Logger` abstracts logging (console, file, remote)",
-        "`MessageSender` abstracts notification delivery (email, SMS, push)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.5.4. DIP and Testability of Concurrent Code"
-    },
-    {
-      "type": "para",
-      "text": "DIP makes concurrent code testable by allowing injection of controlled implementations:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "In tests, inject `InMemoryRepository` instead of a real database",
-        "In tests, inject `InMemoryLogger` instead of a file-based logger",
-        "No need for Testcontainers or WireMock for unit tests of business logic"
-      ]
+      "text": "The Dependency Inversion Principle says the policy declares the interface it needs, in its own terms, and the mail code implements it."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A Policy That Builds Its Own Mailer Can't Run Without a Mail Server"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** The production detail: talks to a mail server named in the environment. */\nfinal class SmtpMailer {\n    private final String host;\n\n    SmtpMailer() {\n        host = System.getenv(\"SMTP_HOST\");\n        if (host == null) throw new IllegalStateException(\"SMTP_HOST is not set\");\n    }\n\n    void send(String to, String subject) {\n        System.out.println(\"  SMTP \" + host + \": \" + subject + \" -> \" + to);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** The policy: refunds within 30 days of purchase, and tells the customer. */\nfinal class RefundPolicy {\n    private final SmtpMailer mailer = new SmtpMailer();\n\n    boolean refund(String customer, int daysSincePurchase) {\n        if (daysSincePurchase > 30) return false;\n        mailer.send(customer, \"Your refund is approved\");\n        return true;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The test of the rule checks a refusal on day 31 and an approval on day 30. On CI, and then with `SMTP_HOST=mail.example.com`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "test failed: java.lang.IllegalStateException: SMTP_HOST is not set"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "day 31 refused: true\n  SMTP mail.example.com: Your refund is approved -> jane@example.com\nday 30 approved: true"
+    },
+    {
+      "type": "para",
+      "text": "The day-31 check never sends anything and fails anyway: the field initializer runs in the constructor, before any rule. A class that calls `new` on its detail can't be built without that detail, so every test of the class needs a mail server and sends real mail."
+    },
+    {
+      "type": "para",
+      "text": "The fix gives the policy an interface and takes the implementation as a constructor parameter:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** What the refund policy needs from the outside world, in its own words. */\npublic interface RefundNotifier {\n    void refundApproved(String customer);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Objects;\n\nfinal class RefundPolicy {\n    private final RefundNotifier notifier;\n\n    RefundPolicy(RefundNotifier notifier) {\n        this.notifier = Objects.requireNonNull(notifier, \"notifier\");\n    }\n\n    boolean refund(String customer, int daysSincePurchase) {\n        if (daysSincePurchase > 30) return false;\n        notifier.refundApproved(customer);\n        return true;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The test passes `told::add`, the `add` method of a list named `told`, as a fake that remembers whom it told. It runs without `SMTP_HOST`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "day 31 refused: true\nday 30 approved: true\ntold: [jane@example.com]"
+    },
+    {
+      "type": "para",
+      "text": "The current time is a dependency of the same kind; unit 7.3.2 passes a `Clock` the same way."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Interface Belongs to the Policy, So the Policy Compiles Without the Mail Code"
+    },
+    {
+      "type": "para",
+      "text": "A constructor parameter of an interface type is dependency injection. It is not yet inversion. Here the mail team published the interface, in their own package and their own terms:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package smtp;\n\npublic interface MailTransport {\n    void send(Envelope envelope);\n\n    record Envelope(String from, String to, String subject) {}\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package billing;\n\nimport smtp.MailTransport;\n\npublic final class RefundPolicy {\n    private final MailTransport mail;\n\n    public RefundPolicy(MailTransport mail) {\n        this.mail = mail;\n    }\n\n    public boolean refund(String customer, int daysSincePurchase) {\n        if (daysSincePurchase > 30) return false;\n        mail.send(new MailTransport.Envelope(\"refunds@example.com\", customer, \"Your refund is approved\"));\n        return true;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The billing and mail code build as separate jars. Compiling billing on its own:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "$ javac -Xmaxerrs 1 -d ../out/policy billing/*.java\nbilling/RefundPolicy.java:3: error: package smtp does not exist\nimport smtp.MailTransport;\n           ^\n1 error\nonly showing the first 1 errors, of 4 total; use -Xmaxerrs if you would like to see more"
+    },
+    {
+      "type": "para",
+      "text": "The interface lives in `smtp`, so billing still imports the mail code. Billing can't be built, tested or released without the smtp jar, and a push or SMS channel added later has to fill in a `from` address and a subject to fit an envelope."
+    },
+    {
+      "type": "para",
+      "text": "Move the interface to `billing`, named for what the policy needs (the `RefundNotifier` above), and make `smtp.SmtpNotifier implements billing.RefundNotifier`. Now billing compiles alone, and the mail code is the side that needs the other on its class path:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "$ javac -Xmaxerrs 1 -d ../out/policy billing/*.java\n$ javac -Xmaxerrs 1 -d ../out/mail smtp/*.java\nsmtp/SmtpNotifier.java:3: error: package billing does not exist\nimport billing.RefundNotifier;\n              ^\n1 error\nonly showing the first 1 errors, of 2 total; use -Xmaxerrs if you would like to see more\n$ javac -Xmaxerrs 1 -cp ../out/policy -d ../out/mail smtp/*.java\n$"
+    },
+    {
+      "type": "para",
+      "text": "That reversal is the inversion: the detail depends on the policy's abstraction, and the policy depends on nothing below it."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Constructor Parameter Turns a Forgotten Dependency Into a Compile Error"
+    },
+    {
+      "type": "para",
+      "text": "A service locator also keeps `new SmtpMailer()` out of the policy: a global map from type to implementation, filled in at start-up."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "final class RefundPolicy {\n    boolean refund(String customer, int daysSincePurchase) {\n        if (daysSincePurchase > 30) return false;\n        Services.get(RefundNotifier.class).refundApproved(customer);\n        return true;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The registration line in `main` was lost in a merge. The code compiles, the service starts, and the smoke test of a late refund passes:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "started\nday 45: false\nException in thread \"main\" java.lang.IllegalStateException: no RefundNotifier registered\n\tat Services.get(Services.java:14)\n\tat RefundPolicy.refund(RefundPolicy.java:4)\n\tat Main.main(Main.java:7)"
+    },
+    {
+      "type": "para",
+      "text": "The exception comes at the first approved refund. Nothing in `RefundPolicy`'s constructor or method signatures says it needs a notifier; only its body does. With the constructor version from the first section, the same lost line is a build failure:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Main.java:3: error: constructor RefundPolicy in class RefundPolicy cannot be applied to given types;\n        RefundPolicy policy = new RefundPolicy();\n                              ^\n  required: RefundNotifier\n  found:    no arguments\n  reason: actual and formal argument lists differ in length\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "The wiring is plain code in `main`, `new RefundPolicy(new SmtpNotifier())`, and needs no framework. A container such as Spring does the same wiring by reflection at start-up; there a missing dependency fails when the container starts, before any request but not at compile time. The compiler can't see a `null` argument, which is what `requireNonNull` in the constructor is for. A constructor that replaces `null` with `new SmtpNotifier()` as a default brings back the problem of the first section."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Fake Checks the Outcome; a Mock Checks the Calls"
+    },
+    {
+      "type": "para",
+      "text": "The policy now also refuses a second refund of the same order, through a `RefundLog` it owns: its constructor takes `(notifier, log)` and `refund` takes the order id first. It called `log.contains(orderId)`, then `log.add(orderId)`. Two requests for the same order could both pass `contains` before either added (the check-then-act race of unit 6.2.1), so the two calls became one, which is safe when `add` is atomic, as in a concurrent set. `contains` stays for the support screen:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** Which orders have been refunded. add() returns false if the order was already there. */\npublic interface RefundLog {\n    boolean contains(String orderId);\n\n    boolean add(String orderId);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "        if (!log.add(orderId)) return false;           // one step: no window between check and add"
+    },
+    {
+      "type": "para",
+      "text": "Two tests guard the rule. One uses a Mockito mock and verifies the calls; the other uses a fake, a working in-memory `RefundLog`, and checks what happened:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "    static void mockTest() {\n        RefundLog log = mock(RefundLog.class);\n        when(log.contains(\"B-77\")).thenReturn(false);\n        when(log.add(\"B-77\")).thenReturn(true);\n        RefundPolicy policy = new RefundPolicy(customer -> { }, log);\n\n        policy.refund(\"B-77\", \"jane@example.com\", 3);\n\n        verify(log).contains(\"B-77\");\n        verify(log).add(\"B-77\");\n    }\n\n    static void fakeTest() {\n        Set<String> refunded = ConcurrentHashMap.newKeySet();\n        RefundLog log = new RefundLog() {\n            public boolean contains(String orderId) { return refunded.contains(orderId); }\n            public boolean add(String orderId) { return refunded.add(orderId); }\n        };\n        List<String> told = new ArrayList<>();\n        RefundPolicy policy = new RefundPolicy(told::add, log);\n\n        boolean first = policy.refund(\"B-77\", \"jane@example.com\", 3);\n        boolean second = policy.refund(\"B-77\", \"jane@example.com\", 4);\n\n        if (!first || second || told.size() != 1)\n            throw new AssertionError(\"first=\" + first + \" second=\" + second + \" told=\" + told);\n    }"
+    },
+    {
+      "type": "para",
+      "text": "Before and after the change:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "== v1\nmock test: passed\nfake test: passed\n== v2\nmock test: FAILED WantedButNotInvoked\n    Wanted but not invoked:\n    refundLog.contains(\"B-77\");\n    However, there was exactly 1 interaction with this mock:\n    refundLog.add(\"B-77\");\nfake test: passed"
+    },
+    {
+      "type": "para",
+      "text": "The mock test pinned the old call sequence, so the race fix failed the build although every refund decision stayed the same. The fake test only knows that the second refund of B-77 is refused, which is the rule. A two-method fake is cheap because the policy owns a small interface; a fake of `java.sql.Connection` would be a project of its own. When the call is the outcome, as with the notifier, check the call: the `told` list records it."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "ServiceLoader Picks the Implementation From the Class Path"
+    },
+    {
+      "type": "para",
+      "text": "The composition root, the `main` that builds the objects and wires them, can choose the implementation without naming it. `java.util.ServiceLoader` reads, from every jar or directory on the class path, a file `META-INF/services/<interface name>` that lists implementation classes, one per line. The mail jar holds its class and that file:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "-- jars/mail.jar\nMETA-INF/MANIFEST.MF\nsmtp/SmtpNotifier.class\nMETA-INF/services/billing.RefundNotifier"
+    },
+    {
+      "type": "para",
+      "text": "`META-INF/services/billing.RefundNotifier` contains the line `smtp.SmtpNotifier`. The application asks for any `RefundNotifier`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ServiceLoader<RefundNotifier> loader = ServiceLoader.load(RefundNotifier.class);\n// ...\n            case \"first\" -> loader.findFirst()\n                    .orElseThrow(() -> new IllegalStateException(\"no RefundNotifier on the class path\"));"
+    },
+    {
+      "type": "para",
+      "text": "Run with no mail jar, with a mail jar built without the services file, and with the full one:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "$ java -cp jars/policy.jar:out/app Main first\nException in thread \"main\" java.lang.IllegalStateException: no RefundNotifier on the class path\n$ java -cp jars/policy.jar:jars/mail-no-services.jar:out/app Main first\nException in thread \"main\" java.lang.IllegalStateException: no RefundNotifier on the class path\n$ java -cp jars/policy.jar:jars/mail.jar:out/app Main first\nusing smtp.SmtpNotifier"
+    },
+    {
+      "type": "para",
+      "text": "In the second run `smtp.SmtpNotifier` is on the class path and still not found: on the class path, `ServiceLoader` doesn't scan classes, it reads the file. A build that leaves resources out of the jar ships an application that finds no notifier. Neither `billing` nor the application names `smtp`."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Iterating the Loader Builds Every Provider Before the One You Want"
+    },
+    {
+      "type": "para",
+      "text": "A second channel ships as `push.jar`. Its constructor needs a `PUSH_KEY` that this installation doesn't have, and the configuration asks for `smtp.SmtpNotifier`. `Main` has three modes: `first` calls `findFirst()`, `loop` compares each instance's class, and `stream` (the `default` branch) compares each `ServiceLoader.Provider`'s type:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "            case \"loop\" -> {\n                for (RefundNotifier candidate : loader) {\n                    if (candidate.getClass().getName().equals(args[1])) yield candidate;\n                }\n                throw new IllegalStateException(\"no \" + args[1]);\n            }\n            default -> loader.stream()\n                    .filter(provider -> provider.type().getName().equals(args[1]))\n                    .findFirst()\n                    .orElseThrow(() -> new IllegalStateException(\"no \" + args[1]))\n                    .get();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "$ java -cp jars/policy.jar:jars/push.jar:jars/mail.jar:out/app Main first\nException in thread \"main\" java.util.ServiceConfigurationError: billing.RefundNotifier: Provider push.PushNotifier could not be instantiated\nCaused by: java.lang.IllegalStateException: PUSH_KEY is not set\n$ java -cp jars/policy.jar:jars/push.jar:jars/mail.jar:out/app Main loop smtp.SmtpNotifier\nException in thread \"main\" java.util.ServiceConfigurationError: billing.RefundNotifier: Provider push.PushNotifier could not be instantiated\nCaused by: java.lang.IllegalStateException: PUSH_KEY is not set\n$ java -cp jars/policy.jar:jars/push.jar:jars/mail.jar:out/app Main stream smtp.SmtpNotifier\nusing smtp.SmtpNotifier\n$ java -cp jars/policy.jar:jars/mail.jar:jars/push.jar:out/app Main loop smtp.SmtpNotifier\nusing smtp.SmtpNotifier"
+    },
+    {
+      "type": "para",
+      "text": "The iterator constructs each provider as it reaches it, so the push channel that nobody asked for failed the lookup. The last run is the loop again with the jars in the other order, and it works: the result depended on class path order. `Provider.type()` returns the class without building it, and only `get()` calls the constructor, so the stream builds just the chosen channel."
+    },
+    {
+      "type": "para",
+      "text": "`ServiceLoader.load(type)` looks through the current thread's context class loader. Code that keeps plug-ins in a class loader of its own passes it: `ServiceLoader.load(type, loader)`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "DIP is the foundation for Dependency Injection (DI) frameworks like Spring",
-        "The \"inversion\" is in the direction of dependency: instead of high-level depending on low-level, both depend on an abstraction owned by the high-level module",
-        "Constructor injection is the most common way to apply DIP in Java",
-        "DIP enables the Strategy pattern naturally",
-        "In concurrent code, DIP allows swapping between platform threads and virtual threads",
-        "DIP dramatically improves testability by enabling mock/stub/fake injection"
+        "**A policy that calls `new` on its detail can't run without it.** Its tests need the mail server, and on a machine that has one they send real mail.",
+        "**The policy owns the interface, in its own terms.** Injecting an interface that the detail publishes still leaves billing unable to compile without the mail jar.",
+        "**A constructor parameter makes a forgotten dependency a compile error.** A service locator hides it until the first request that needs it.",
+        "**A fake checks the outcome, a mock the calls.** A test that verifies calls can fail a refactor that changes no decision.",
+        "**`ServiceLoader` finds implementations through `META-INF/services`.** Without the file the class is never found; iterating builds each provider it passes, and `Provider.type()` builds none."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Virtual threads**: A new `ExecutionStrategy` implementation using `Executors.newVirtualThreadPerTaskExecutor()` can be swapped in without changing the scheduler",
-        "**Sealed interfaces**: Can define bounded abstraction hierarchies where each implementation is a known detail",
-        "**Records**: Ideal for the immutable values passed across an abstraction (for example a `Job` or `Message` record); a stateful implementation such as `InMemoryRepository` stays a class",
-        "**Pattern matching**: Works with DIP abstractions to handle different implementation types cleanly"
-      ]
+      "type": "para",
+      "text": "**`ServiceLoader` with providers on the class path (Java 21):**"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Situation",
+        "What happens"
+      ],
+      "rows": [
         [
-          "**Direct instantiation of dependencies**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: high-level directly creates low-level\nclass OrderService {\n    private final MySqlDatabase db = new MySqlDatabase();\n    private final SmtpEmailer emailer = new SmtpEmailer();\n}"
-          },
-          "**Fix**: Inject abstractions through the constructor."
+          "provider class in a jar without its `META-INF/services` file",
+          "not found"
         ],
         [
-          "**Abstractions that leak implementation details**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: abstraction reveals it's SQL-based\ninterface Repository {\n    ResultSet executeSql(String query); // Leaks SQL detail!\n}"
-          },
-          "**Fix**: Define abstractions in terms of the domain, not the implementation."
+          "file lists a class that doesn't exist (`smtp.SmtpNotifer`)",
+          "`ServiceConfigurationError: ... Provider smtp.SmtpNotifer not found`"
         ],
         [
-          "**Service Locator anti-pattern**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: hidden dependency via service locator\nclass OrderService {\n    void process() {\n        var db = ServiceLocator.get(Database.class); // Hidden dependency!\n    }\n}"
-          },
-          "**Fix**: Use constructor injection so dependencies are explicit and visible."
+          "provider without a public no-argument constructor",
+          "`ServiceConfigurationError: ... Unable to get public no-arg constructor`, from `stream()` too"
+        ],
+        [
+          "provider constructor throws",
+          "`ServiceConfigurationError: ... could not be instantiated`, from `findFirst()`, the iterator and `Provider.get()`"
+        ],
+        [
+          "order of providers",
+          "the order in which the class loader finds the files, then the order of the lines in each"
+        ],
+        [
+          "`#` in the file",
+          "starts a comment; blank lines and surrounding spaces are ignored"
+        ],
+        [
+          "`ServiceLoader.load(type)`",
+          "uses `Thread.currentThread().getContextClassLoader()`"
+        ],
+        [
+          "one `ServiceLoader` used from several threads",
+          "not safe, per its javadoc"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Own the abstraction in the high-level module's package -- the interface belongs to the consumer, not the provider",
-        "Use constructor injection for all dependencies -- makes dependencies explicit and immutable",
-        "Validate non-null dependencies in constructors with `Objects.requireNonNull`",
-        "Create in-memory implementations for testing -- faster and more reliable than mocks",
-        "Define abstractions at the boundary between modules/layers",
-        "In concurrent code, abstract the execution model (thread pool, virtual threads) behind an interface"
+        "The billing team wants to ship `RefundNotifier` in a jar of its own so that two policies can share it. Who owns that jar, and what happens to it when one policy needs a new method?",
+        "A module's test suite uses Mockito for every collaborator. Pick one interface it mocks and write the fake. Which tests get shorter, and which can no longer be written?",
+        "`ServiceLoader` finds two `RefundNotifier`s in production. Design how the composition root chooses, and what it does when the configured one is missing."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null dependencies**: Reject with `NullPointerException` in constructors",
-        "**Blank inputs**: Validate at the service level, not the abstraction level",
-        "**Multiple implementations**: Use factory methods or DI frameworks to select the right implementation at runtime",
-        "**Circular dependencies**: DIP helps break cycles -- if A depends on B and B depends on A, introduce an abstraction between them",
-        "**Shutdown ordering**: When composing concurrent components, the high-level orchestrator must manage shutdown order"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: ServiceLoader Is a Service Locator"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Explaining why DIP is not the same as Dependency Injection (DI)",
-        "Refactoring tightly coupled code to use DIP",
-        "Discussing how DIP improves testability",
-        "Understanding the relationship between DIP and frameworks like Spring"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What is the difference between DIP, DI, and IoC?\"",
-        "\"Who owns the abstraction -- the producer or the consumer?\"",
-        "\"Can you apply DIP without a DI framework?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Dependency Inversion Principle and how does it differ from Dependency Injection?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: DIP and DI are related but distinct concepts:\n\nDependency Inversion Principle (DIP):\n- A design PRINCIPLE stating that high-level and low-level modules should both \n  depend on abstractions\n- It's about the DIRECTION of dependencies in your architecture\n- It says nothing about how dependencies are provided\n\nDependency Injection (DI):\n- A TECHNIQUE for providing dependencies to a class from the outside\n- Constructor injection, setter injection, method injection\n- Can be done manually or via frameworks (Spring, Guice, Dagger)\n\nInversion of Control (IoC):\n- A broader PATTERN where the framework calls your code (not the other way around)\n- DI is one form of IoC\n- Event-driven programming is another form of IoC\n\nYou can apply DIP without DI (e.g., using factory methods). You can use DI \nwithout DIP (injecting concrete classes). They work best together."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// DIP without DI framework (manual injection)\ninterface MessageSender {\n    void send(String recipient, String message);\n}\n\nclass EmailSender implements MessageSender {\n    public void send(String recipient, String message) {\n        // Send email\n    }\n}\n\nclass SmsSender implements MessageSender {\n    public void send(String recipient, String message) {\n        // Send SMS\n    }\n}\n\n// High-level module depends on abstraction (DIP)\nclass NotificationManager {\n    private final MessageSender sender;\n\n    // Dependency injected via constructor (DI technique)\n    NotificationManager(MessageSender sender) {\n        this.sender = Objects.requireNonNull(sender);\n    }\n\n    void notifyUser(String user, String msg) {\n        sender.send(user, msg);\n    }\n}\n\n// Manual wiring -- no framework needed\nvar manager = new NotificationManager(new EmailSender());\n// Or swap to SMS without changing NotificationManager\nvar smsManager = new NotificationManager(new SmsSender());"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does DIP improve testability, especially for concurrent code?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: DIP improves testability by allowing injection of controlled implementations:\n\nWithout DIP:\n- Business logic directly uses a thread pool, database, and email server\n- Tests require real infrastructure or complex mocking\n- Concurrent tests are flaky because they depend on thread timing\n\nWith DIP:\n- Inject InMemoryRepository instead of a real database\n- Inject InMemoryLogger instead of a file logger\n- Inject a single-threaded executor for deterministic testing\n- Each test controls its own dependencies completely\n\nConcrete benefits for concurrent code:\n1. Test business logic without threads (inject synchronous strategy)\n2. Test concurrency separately with simple tasks\n3. No Testcontainers needed for unit tests\n4. No flaky tests due to network/timing issues\n5. Fast test execution -- in-memory is orders of magnitude faster"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Abstraction\ninterface DataRepository {\n    void save(String key, String value);\n    Optional<String> findByKey(String key);\n}\n\n// In-memory implementation for testing\nclass InMemoryRepository implements DataRepository {\n    private final ConcurrentHashMap<String, String> store = new ConcurrentHashMap<>();\n    public void save(String key, String value) { store.put(key, value); }\n    public Optional<String> findByKey(String key) { return Optional.ofNullable(store.get(key)); }\n}\n\n// Business service depends on abstraction\nclass BusinessService {\n    private final DataRepository repository;\n    private final Logger logger;\n\n    BusinessService(DataRepository repository, Logger logger) {\n        this.repository = Objects.requireNonNull(repository);\n        this.logger = Objects.requireNonNull(logger);\n    }\n\n    void processData(String key, String value) {\n        repository.save(key, value);\n        logger.log(\"Processed: \" + key);\n    }\n}\n\n// Test: clean, fast, deterministic\n@Test\nvoid testProcessData() {\n    var repo = new InMemoryRepository();\n    var logger = new InMemoryLogger();\n    var service = new BusinessService(repo, logger);\n\n    service.processData(\"k1\", \"v1\");\n\n    assertThat(repo.findByKey(\"k1\")).contains(\"v1\");\n    assertThat(logger.getLogEntries()).contains(\"Processed: k1\");\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does DIP apply to switching between platform threads and virtual threads?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: DIP makes thread model switching transparent to business logic:\n\n1. Define an ExecutionStrategy abstraction\n2. Implement FixedPoolStrategy (platform threads) and VirtualThreadStrategy\n3. The JobScheduler depends only on ExecutionStrategy\n4. At startup, choose the strategy based on configuration or environment\n\nBenefits:\n- Business logic doesn't create or configure a particular ExecutorService\n- Switching from platform to virtual threads is a one-line configuration change\n- Testing can use a single-threaded strategy for determinism\n- Performance tuning doesn't require changing business code\n\nModern frameworks apply the same idea to their thread models:\n- Spring WebFlux abstracts the event loop\n- Spring Boot 3.2+ runs request handling on virtual threads when\n  spring.threads.virtual.enabled=true is set\n- Quarkus moves a method to a virtual thread with @RunOnVirtualThread\n- Vert.x uses an event loop abstraction"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Abstraction for execution strategy\ninterface ExecutionStrategy {\n    <T> Future<T> execute(Callable<T> task);\n    void shutdown();\n}\n\n// Platform thread implementation\nclass FixedPoolStrategy implements ExecutionStrategy {\n    private final ExecutorService executor;\n    FixedPoolStrategy(int poolSize) { executor = Executors.newFixedThreadPool(poolSize); }\n    public <T> Future<T> execute(Callable<T> task) { return executor.submit(task); }\n    public void shutdown() { executor.shutdown(); }\n}\n\n// Virtual thread implementation -- same interface\nclass VirtualThreadStrategy implements ExecutionStrategy {\n    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();\n    public <T> Future<T> execute(Callable<T> task) { return executor.submit(task); }\n    public void shutdown() { executor.shutdown(); }\n}\n\n// High-level module -- doesn't know about thread models\nclass JobScheduler {\n    private final ExecutionStrategy strategy;\n    JobScheduler(ExecutionStrategy strategy) {\n        this.strategy = Objects.requireNonNull(strategy);\n    }\n    <T> Future<T> scheduleJob(Callable<T> job) {\n        return strategy.execute(job);\n    }\n}\n\n// Switch thread model without touching JobScheduler\nvar scheduler = new JobScheduler(new VirtualThreadStrategy()); // or FixedPoolStrategy"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: Who should own the abstraction -- the producer or the consumer?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The CONSUMER (high-level module) should own the abstraction. This is the \n\"inversion\" in Dependency Inversion:\n\nTraditional dependency direction:\n  NotificationManager -> EmailSender\n  (high-level depends on low-level)\n\nInverted dependency direction:\n  NotificationManager -> MessageSender (interface, owned by high-level)\n  EmailSender -> MessageSender (low-level depends on high-level's abstraction)\n\nWhy the consumer owns it:\n1. The abstraction is shaped by the consumer's NEEDS, not the producer's capabilities\n2. The consumer defines what it requires; implementations adapt to meet it\n3. The consumer can change the abstraction if its needs change\n4. Multiple producers can implement the same consumer-defined abstraction\n\nPackage structure reflecting ownership:\n  com.myapp.notification/\n    MessageSender.java          (abstraction -- owned by high-level)\n    NotificationManager.java    (high-level consumer)\n  com.myapp.notification.email/\n    EmailSender.java            (low-level producer, depends on abstraction above)\n  com.myapp.notification.sms/\n    SmsSender.java              (another low-level producer)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Package: com.myapp.scheduling (high-level owns the abstraction)\npackage com.myapp.scheduling;\n\npublic interface ExecutionStrategy {\n    <T> Future<T> execute(Callable<T> task);\n    void shutdown();\n}\n\npublic class JobScheduler {\n    private final ExecutionStrategy strategy;\n    public JobScheduler(ExecutionStrategy strategy) { /* ... */ }\n}\n\n// Package: com.myapp.scheduling.threadpool (low-level implements it)\npackage com.myapp.scheduling.threadpool;\n\nimport com.myapp.scheduling.ExecutionStrategy;\n\npublic class FixedPoolStrategy implements ExecutionStrategy {\n    // Low-level depends on high-level's abstraction\n}\n\n// Package: com.myapp.scheduling.virtual (another low-level implementation)\npackage com.myapp.scheduling.virtual;\n\nimport com.myapp.scheduling.ExecutionStrategy;\n\npublic class VirtualThreadStrategy implements ExecutionStrategy {\n    // Another low-level depending on the same high-level abstraction\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What are common anti-patterns that violate DIP?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Common DIP anti-patterns:\n\n1. new keyword in business logic:\n   Creating concrete dependencies inline (new MySqlDatabase()) instead of \n   accepting an abstraction via constructor.\n\n2. Static access (singletons and static utility classes):\n   UserService.getInstance() or DatabaseUtils.query() -- hidden dependencies \n   that cannot be swapped or mocked.\n\n3. Service Locator pattern:\n   var db = ServiceLocator.get(Database.class) -- dependencies are resolved \n   at runtime from a global registry, making them invisible in the API.\n\n4. Framework coupling:\n   Business logic importing Spring annotations or Hibernate classes directly. \n   The domain layer should be framework-agnostic.\n\n5. Concrete return types from factory methods:\n   returning ArrayList<String> instead of List<String> -- ties callers to \n   the implementation.\n\n6. God configuration class:\n   One class that wires everything together with hardcoded new statements. \n   Use a DI container or at least factory methods.\n\nPrevention: code review checklist item -- \"Does this class create its own \ndependencies, or are they injected?\""
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Anti-pattern 1: new in business logic\nclass OrderService {\n    // BAD: hardcoded dependency\n    private final MySqlDatabase db = new MySqlDatabase(\"jdbc:mysql://...\");\n\n    void processOrder(Order o) { db.insert(o); }\n}\n\n// Fix: inject abstraction\nclass OrderService {\n    private final OrderRepository repository;\n\n    OrderService(OrderRepository repository) {\n        this.repository = Objects.requireNonNull(repository);\n    }\n\n    void processOrder(Order o) { repository.save(o); }\n}\n\n// Anti-pattern 2: static utility\nclass OrderService {\n    void processOrder(Order o) {\n        DatabaseUtils.save(o);     // Hidden, untestable dependency\n        EmailUtils.sendReceipt(o); // Another hidden dependency\n    }\n}\n\n// Fix: inject via abstractions\nclass OrderService {\n    private final OrderRepository repo;\n    private final ReceiptSender sender;\n\n    OrderService(OrderRepository repo, ReceiptSender sender) {\n        this.repo = Objects.requireNonNull(repo);\n        this.sender = Objects.requireNonNull(sender);\n    }\n\n    void processOrder(Order o) {\n        repo.save(o);\n        sender.sendReceipt(o);\n    }\n}"
+      "text": "`ServiceLoader.load(RefundNotifier.class)` is a global lookup by type, the thing the third section warned about. It is safe in one place: the composition root, the `main` that builds the objects and passes each one its dependencies through constructors. There, a missing provider fails at start-up, before any request, and the policies still declare everything they need in their constructors. Called from inside a policy, it would hide the dependency again, and a test would need a services file on its class path to run the rule. The JDK finds JDBC drivers and `java.nio.file` file-system providers through `ServiceLoader`, and `DriverManager` shows the cost of leaving the lookup open: it is a global registry that any code can call with a URL, and a missing driver shows up as `SQLException: No suitable driver found for <url>` at that call."
     },
     {
       "type": "heading",
@@ -334,17 +385,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 14,
-    "code": 10,
-    "tables": 0,
-    "lists": 12,
+    "headings": 12,
+    "paras": 29,
+    "code": 23,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 2,
     "disclosures": 0
   },
-  "content_sha256": "6dfabd7a51daa289c9e24f6057d8d366841ba9df624768c1aab0e13c2af5c77f"
+  "content_sha256": "97d9d4beb8528492da5cd0ad818bd46eccc49fd1b722c0196d29bbdb8a450a29"
 }

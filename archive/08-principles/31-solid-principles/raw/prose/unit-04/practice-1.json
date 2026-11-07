@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Split a fat data store into roles",
+  "title": "Keep the repricing job away from frozen price books",
   "blocks": [
     {
       "type": "heading",
@@ -19,28 +19,24 @@
     },
     {
       "type": "para",
-      "text": "The page's fat interface forces every store to offer every operation, so a read-only store ends up with write methods that can only throw:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class ReadOnlyStore implements DataStore {\n    public void write(String k, String v) {\n        throw new UnsupportedOperationException(); // ISP violation signal!\n    }\n}"
+      "text": "The shop keeps one live price book and freezes a copy at every month-end, so that finance can replay that month's orders at that month's prices. In `PriceBooks`, a `FrozenPriceBook` is a `PriceBook` like the live one, and its `setPrice` throws."
     },
     {
       "type": "para",
-      "text": "**Clients should not be forced to depend on methods they do not use.** In `Stores`, the fine-grained interfaces are given: `Readable` (`read`, `exists`), `Writable` (`write`, `delete`) and `Listable` (`listKeys`, `size`, `isEmpty`). Write the two stores:"
+      "text": "Last month-end the repricing job was started against the frozen March book instead of the live one. The wiring compiled and passed review, and the job failed at run time on the first price it tried to change. Finish `src/main/java/practice/PriceBooks.java` so that:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`ReadWriteStore` implements all three, on a `ConcurrentHashMap`;",
-        "`ReadOnlyStore(Map)` implements **only the roles it can honour**, `Readable` and `Listable`, so it has no write method at all. The starter's `ReadOnlyStore` still implements `Writable` and refuses its methods: take that role away."
+        "`FrozenPriceBook.of(source)` freezes the prices the source answers at that moment; repricing the source later doesn't reach the frozen book;",
+        "handing a frozen book to `Repricer` is a compile error, not a run-time one;",
+        "finance's `Checkout` can still be built on a frozen book."
       ]
     },
     {
       "type": "para",
-      "text": "`read` of a missing key is `null`, and `listKeys()` lists the keys in sorted order in both stores, whatever order the underlying map keeps them in. As the page's edge cases say, a read-only store wraps **its own immutable copy** of the map it was given, whatever kind of map that is, so later changes to that map do not reach it (the tests see that; whether your copy is itself immutable, rather than a private map nobody writes, they cannot see), and a `null` map gives an empty store whose `listKeys()` is an empty list, not `null`."
+      "text": "Leave `Repricer` and the three interfaces as they are. About eight lines in total."
     },
     {
       "type": "heading",
@@ -55,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic final class Stores {\n\n    private Stores() {\n    }\n\n    public interface Readable<K, V> {\n        V read(K key);\n\n        boolean exists(K key);\n    }\n\n    public interface Writable<K, V> {\n        void write(K key, V value);\n\n        void delete(K key);\n    }\n\n    public interface Listable<K> {\n        List<K> listKeys();\n\n        int size();\n\n        boolean isEmpty();\n    }\n\n    public static final class ReadWriteStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n        private final Map<String, String> data = new ConcurrentHashMap<>();\n\n        public String read(String key) {\n            return data.get(key);\n        }\n\n        public boolean exists(String key) {\n            return data.containsKey(key);\n        }\n\n        public void write(String key, String value) {\n            data.put(key, value);\n        }\n\n        public void delete(String key) {\n            data.remove(key);\n        }\n\n        public List<String> listKeys() {\n            return data.keySet().stream().sorted().toList();\n        }\n\n        public int size() {\n            return data.size();\n        }\n\n        public boolean isEmpty() {\n            return data.isEmpty();\n        }\n    }\n\n    public static final class ReadOnlyStore implements Readable<String, String>, Listable<String> {\n        private final Map<String, String> data;\n\n        public ReadOnlyStore(Map<String, String> data) {\n            this.data = data == null ? Map.of() : Map.copyOf(data);\n        }\n\n        public String read(String key) {\n            return data.get(key);\n        }\n\n        public boolean exists(String key) {\n            return data.containsKey(key);\n        }\n\n        public List<String> listKeys() {\n            return data.keySet().stream().sorted().toList();\n        }\n\n        public int size() {\n            return data.size();\n        }\n\n        public boolean isEmpty() {\n            return data.isEmpty();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\n/** The shop's price books: the live one, and frozen month-end copies that finance replays orders against. */\npublic final class PriceBooks {\n\n    private PriceBooks() {\n    }\n\n    /** Answers prices, in cents. */\n    public interface PriceLookup {\n        long priceOf(String sku);\n\n        Set<String> skus();\n    }\n\n    /** Changes prices. */\n    public interface PriceEditor {\n        void setPrice(String sku, long cents);\n    }\n\n    /** A book that can be read and changed. */\n    public interface PriceBook extends PriceLookup, PriceEditor {\n    }\n\n    /** The prices the shop charges today. */\n    public static final class LivePriceBook implements PriceBook {\n        private final Map<String, Long> prices = new HashMap<>();\n\n        @Override\n        public synchronized long priceOf(String sku) {\n            Long cents = prices.get(sku);\n            if (cents == null) throw new NoSuchElementException(\"no price for \" + sku);\n            return cents;\n        }\n\n        @Override\n        public synchronized Set<String> skus() {\n            return Set.copyOf(prices.keySet());\n        }\n\n        @Override\n        public synchronized void setPrice(String sku, long cents) {\n            prices.put(sku, cents);\n        }\n    }\n\n    /** The prices as they stood when the book was frozen. They never change afterwards. */\n    public static final class FrozenPriceBook implements PriceLookup {\n        private final Map<String, Long> prices;\n\n        private FrozenPriceBook(Map<String, Long> prices) {\n            this.prices = prices;\n        }\n\n        /** Freezes the prices the source answers right now. */\n        public static FrozenPriceBook of(PriceLookup source) {\n            Map<String, Long> copy = new HashMap<>();\n            for (String sku : source.skus()) copy.put(sku, source.priceOf(sku));\n            return new FrozenPriceBook(Map.copyOf(copy));\n        }\n\n        @Override\n        public long priceOf(String sku) {\n            Long cents = prices.get(sku);\n            if (cents == null) throw new NoSuchElementException(\"no price for \" + sku);\n            return cents;\n        }\n\n        @Override\n        public Set<String> skus() {\n            return prices.keySet();\n        }\n    }\n\n    /** Totals a basket of sku -> quantity. Finance also runs it on frozen books to replay old orders. */\n    public static final class Checkout {\n        private final PriceLookup prices;\n\n        public Checkout(PriceLookup prices) {\n            this.prices = prices;\n        }\n\n        public long total(Map<String, Integer> basket) {\n            long cents = 0;\n            for (Map.Entry<String, Integer> line : basket.entrySet()) {\n                cents += prices.priceOf(line.getKey()) * line.getValue();\n            }\n            return cents;\n        }\n    }\n\n    /** The month-end job: takes a percentage off every price. */\n    public static final class Repricer {\n        private final PriceBook book;\n\n        public Repricer(PriceBook book) {\n            this.book = book;\n        }\n\n        public void discount(int percent) {\n            for (String sku : book.skus()) {\n                book.setPrice(sku, book.priceOf(sku) * (100 - percent) / 100);\n            }\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class Stores {\n\n    private Stores() {\n    }\n\n    public interface Readable<K, V> {\n        V read(K key);\n\n        boolean exists(K key);\n    }\n\n    public interface Writable<K, V> {\n        void write(K key, V value);\n\n        void delete(K key);\n    }\n\n    public interface Listable<K> {\n        List<K> listKeys();\n\n        int size();\n\n        boolean isEmpty();\n    }\n\n    public static final class ReadWriteStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"write delete\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n\n    /** Before the split: it implements Writable, whose methods it can only refuse. */\n    public static final class ReadOnlyStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public ReadOnlyStore(Map<String, String> data) {\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\n/** The shop's price books: the live one, and frozen month-end copies that finance replays orders against. */\npublic final class PriceBooks {\n\n    private PriceBooks() {\n    }\n\n    /** Answers prices, in cents. */\n    public interface PriceLookup {\n        long priceOf(String sku);\n\n        Set<String> skus();\n    }\n\n    /** Changes prices. */\n    public interface PriceEditor {\n        void setPrice(String sku, long cents);\n    }\n\n    /** A book that can be read and changed. */\n    public interface PriceBook extends PriceLookup, PriceEditor {\n    }\n\n    /** The prices the shop charges today. */\n    public static final class LivePriceBook implements PriceBook {\n        private final Map<String, Long> prices = new HashMap<>();\n\n        @Override\n        public synchronized long priceOf(String sku) {\n            Long cents = prices.get(sku);\n            if (cents == null) throw new NoSuchElementException(\"no price for \" + sku);\n            return cents;\n        }\n\n        @Override\n        public synchronized Set<String> skus() {\n            return Set.copyOf(prices.keySet());\n        }\n\n        @Override\n        public synchronized void setPrice(String sku, long cents) {\n            prices.put(sku, cents);\n        }\n    }\n\n    /**\n     * The prices as they stood when the book was frozen. They never change afterwards.\n     *\n     * TODO: Last month-end, the repricing job was started against a frozen book by mistake. It\n     *       compiled, it passed review, and it failed at run time on the first price it tried to\n     *       change. Make that mistake one the compiler catches, while finance's Checkout keeps\n     *       running on frozen books. (This class, and Checkout below.)\n     */\n    public static final class FrozenPriceBook implements PriceBook {\n        private final Map<String, Long> prices;\n\n        private FrozenPriceBook(Map<String, Long> prices) {\n            this.prices = prices;\n        }\n\n        /** Freezes the prices the source answers right now. */\n        public static FrozenPriceBook of(PriceLookup source) {\n            // TODO: Take the prices the source answers now. Repricing the source afterwards must\n            //       not change what this book answers.\n            throw new IllegalStateException(\"TODO: of\");\n        }\n\n        @Override\n        public long priceOf(String sku) {\n            Long cents = prices.get(sku);\n            if (cents == null) throw new NoSuchElementException(\"no price for \" + sku);\n            return cents;\n        }\n\n        @Override\n        public Set<String> skus() {\n            return prices.keySet();\n        }\n\n        @Override\n        public void setPrice(String sku, long cents) {\n            throw new UnsupportedOperationException(\"a frozen price book can't change\");\n        }\n    }\n\n    /** Totals a basket of sku -> quantity. Finance also runs it on frozen books to replay old orders. */\n    public static final class Checkout {\n        private final PriceBook prices;\n\n        public Checkout(PriceBook prices) {\n            this.prices = prices;\n        }\n\n        public long total(Map<String, Integer> basket) {\n            long cents = 0;\n            for (Map.Entry<String, Integer> line : basket.entrySet()) {\n                cents += prices.priceOf(line.getKey()) * line.getValue();\n            }\n            return cents;\n        }\n    }\n\n    /** The month-end job: takes a percentage off every price. */\n    public static final class Repricer {\n        private final PriceBook book;\n\n        public Repricer(PriceBook book) {\n            this.book = book;\n        }\n\n        public void discount(int percent) {\n            for (String sku : book.skus()) {\n                book.setPrice(sku, book.priceOf(sku) * (100 - percent) / 100);\n            }\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -76,7 +72,7 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -86,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a9653903a9b421aa47b75e50dfc5072335c4904eb7b6546579a9af41a3ff402c",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\npublic final class Stores {\n\n    private Stores() {\n    }\n\n    public interface Readable<K, V> {\n        V read(K key);\n\n        boolean exists(K key);\n    }\n\n    public interface Writable<K, V> {\n        void write(K key, V value);\n\n        void delete(K key);\n    }\n\n    public interface Listable<K> {\n        List<K> listKeys();\n\n        int size();\n\n        boolean isEmpty();\n    }\n\n    public static final class ReadWriteStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"write write\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"write delete\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n\n    /** Before the split: it implements Writable, whose methods it can only refuse. */\n    public static final class ReadOnlyStore\n            implements Readable<String, String>, Writable<String, String>, Listable<String> {\n\n        public ReadOnlyStore(Map<String, String> data) {\n        }\n\n        public void write(String key, String value) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public void delete(String key) {\n            throw new UnsupportedOperationException(\"read-only\");\n        }\n\n        public String read(String key) {\n            throw new UnsupportedOperationException(\"write read\");\n        }\n\n        public boolean exists(String key) {\n            throw new UnsupportedOperationException(\"write exists\");\n        }\n\n        public List<String> listKeys() {\n            throw new UnsupportedOperationException(\"write listKeys\");\n        }\n\n        public int size() {\n            throw new UnsupportedOperationException(\"write size\");\n        }\n\n        public boolean isEmpty() {\n            throw new UnsupportedOperationException(\"write isEmpty\");\n        }\n    }\n}\n",
+  "content_sha256": "a7c6c6791b7f65cf9a1db6c44911f11d4e6f28c7eebc773c6d9c1695a22674b4",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\n/** The shop's price books: the live one, and frozen month-end copies that finance replays orders against. */\npublic final class PriceBooks {\n\n    private PriceBooks() {\n    }\n\n    /** Answers prices, in cents. */\n    public interface PriceLookup {\n        long priceOf(String sku);\n\n        Set<String> skus();\n    }\n\n    /** Changes prices. */\n    public interface PriceEditor {\n        void setPrice(String sku, long cents);\n    }\n\n    /** A book that can be read and changed. */\n    public interface PriceBook extends PriceLookup, PriceEditor {\n    }\n\n    /** The prices the shop charges today. */\n    public static final class LivePriceBook implements PriceBook {\n        private final Map<String, Long> prices = new HashMap<>();\n\n        @Override\n        public synchronized long priceOf(String sku) {\n            Long cents = prices.get(sku);\n            if (cents == null) throw new NoSuchElementException(\"no price for \" + sku);\n            return cents;\n        }\n\n        @Override\n        public synchronized Set<String> skus() {\n            return Set.copyOf(prices.keySet());\n        }\n\n        @Override\n        public synchronized void setPrice(String sku, long cents) {\n            prices.put(sku, cents);\n        }\n    }\n\n    /**\n     * The prices as they stood when the book was frozen. They never change afterwards.\n     *\n     * TODO: Last month-end, the repricing job was started against a frozen book by mistake. It\n     *       compiled, it passed review, and it failed at run time on the first price it tried to\n     *       change. Make that mistake one the compiler catches, while finance's Checkout keeps\n     *       running on frozen books. (This class, and Checkout below.)\n     */\n    public static final class FrozenPriceBook implements PriceBook {\n        private final Map<String, Long> prices;\n\n        private FrozenPriceBook(Map<String, Long> prices) {\n            this.prices = prices;\n        }\n\n        /** Freezes the prices the source answers right now. */\n        public static FrozenPriceBook of(PriceLookup source) {\n            // TODO: Take the prices the source answers now. Repricing the source afterwards must\n            //       not change what this book answers.\n            throw new IllegalStateException(\"TODO: of\");\n        }\n\n        @Override\n        public long priceOf(String sku) {\n            Long cents = prices.get(sku);\n            if (cents == null) throw new NoSuchElementException(\"no price for \" + sku);\n            return cents;\n        }\n\n        @Override\n        public Set<String> skus() {\n            return prices.keySet();\n        }\n\n        @Override\n        public void setPrice(String sku, long cents) {\n            throw new UnsupportedOperationException(\"a frozen price book can't change\");\n        }\n    }\n\n    /** Totals a basket of sku -> quantity. Finance also runs it on frozen books to replay old orders. */\n    public static final class Checkout {\n        private final PriceBook prices;\n\n        public Checkout(PriceBook prices) {\n            this.prices = prices;\n        }\n\n        public long total(Map<String, Integer> basket) {\n            long cents = 0;\n            for (Map.Entry<String, Integer> line : basket.entrySet()) {\n                cents += prices.priceOf(line.getKey()) * line.getValue();\n            }\n            return cents;\n        }\n    }\n\n    /** The month-end job: takes a percentage off every price. */\n    public static final class Repricer {\n        private final PriceBook book;\n\n        public Repricer(PriceBook book) {\n            this.book = book;\n        }\n\n        public void discount(int percent) {\n            for (String sku : book.skus()) {\n                book.setPrice(sku, book.priceOf(sku) * (100 - percent) / 100);\n            }\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/src/main/java/practice/Stores.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/src/test/java/practice/StoresTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/src/main/java/practice/PriceBooks.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-1/src/test/java/practice/PriceBooksTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -111,24 +107,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.StoresTest#bothStoresReadAndList",
+        "id": "practice.PriceBooksTest#aFrozenBookAnswersWhatItsSourceAnsweredWhenFrozen",
         "kind": "main",
-        "says": "Both stores read, check and list their keys; the read-write store also writes and deletes."
+        "says": "a frozen book answers the prices and skus its source answered when it was frozen, even when the source can only be read"
       },
       {
-        "id": "practice.StoresTest#aReadOnlyStoreOffersNoWriteMethods",
-        "kind": "edge",
-        "says": "ReadOnlyStore is not a Writable, while ReadWriteStore is."
+        "id": "practice.PriceBooksTest#repricingTheLiveBookAfterwardsLeavesTheFrozenBookAlone",
+        "kind": "main",
+        "says": "repricing the live book after freezing it changes the live prices and leaves the frozen ones as they were"
       },
       {
-        "id": "practice.StoresTest#aReadOnlyStoreKeepsItsOwnCopy",
+        "id": "practice.PriceBooksTest#nothingThatChangesPricesCanBeHandedAFrozenBook",
         "kind": "edge",
-        "says": "Changing the map after building a read-only store does not change what the store reads or lists."
+        "says": "a frozen book has no price-changing role at all, so the repricer's constructor can't be given one"
       },
       {
-        "id": "practice.StoresTest#aNullMapIsAnEmptyStore",
+        "id": "practice.PriceBooksTest#checkoutReplaysABasketAgainstAFrozenBook",
         "kind": "edge",
-        "says": "A read-only store built from null is empty and lists no keys."
+        "says": "checkout depends only on looking prices up, so it totals a basket from a frozen book"
       }
     ],
     "report": {
@@ -137,13 +133,12 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Role Interfaces Turn the Refusal into a Compile Error"
     },
     "concepts": [
-      "Clients should not be forced to depend on methods they do not use, so one fat interface becomes several focused ones.",
-      "Read, write and listing operations sit in separate interfaces, so a read-only store implements only the ones it can honour.",
-      "A read-only store wraps its own immutable copy of the data, and a null map gives an empty store whose key list is empty, not null.",
-      "An implementation that throws UnsupportedOperationException for an interface method is the signal that it implements an interface too fat for it."
+      "A client that only reads takes the reading role, so it runs on implementations that can't write.",
+      "Splitting the interface into roles lets the read-only implementation drop its writer methods, so handing it to a client that writes no longer compiles.",
+      "An implementation that throws UnsupportedOperationException from a method of a fat interface compiles, and the wiring mistake that calls it fails only at run time."
     ]
   }
 }

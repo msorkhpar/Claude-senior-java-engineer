@@ -1,26 +1,14 @@
-The page's fat interface forces every store to offer every operation, so a read-only
-store ends up with write methods that can only throw:
+The shop keeps one live price book and freezes a copy at every month-end, so that finance can
+replay that month's orders at that month's prices. In `PriceBooks`, a `FrozenPriceBook` is a
+`PriceBook` like the live one, and its `setPrice` throws.
 
-```java
-class ReadOnlyStore implements DataStore {
-    public void write(String k, String v) {
-        throw new UnsupportedOperationException(); // ISP violation signal!
-    }
-}
-```
+Last month-end the repricing job was started against the frozen March book instead of the live
+one. The wiring compiled and passed review, and the job failed at run time on the first price it
+tried to change. Finish `src/main/java/practice/PriceBooks.java` so that:
 
-**Clients should not be forced to depend on methods they do not use.** In `Stores`, the
-fine-grained interfaces are given: `Readable` (`read`, `exists`), `Writable` (`write`,
-`delete`) and `Listable` (`listKeys`, `size`, `isEmpty`). Write the two stores:
+- `FrozenPriceBook.of(source)` freezes the prices the source answers at that moment; repricing
+  the source later doesn't reach the frozen book;
+- handing a frozen book to `Repricer` is a compile error, not a run-time one;
+- finance's `Checkout` can still be built on a frozen book.
 
-- `ReadWriteStore` implements all three, on a `ConcurrentHashMap`;
-- `ReadOnlyStore(Map)` implements **only the roles it can honour**, `Readable` and
-  `Listable`, so it has no write method at all. The starter's `ReadOnlyStore` still
-  implements `Writable` and refuses its methods: take that role away.
-
-`read` of a missing key is `null`, and `listKeys()` lists the keys in sorted order in both
-stores, whatever order the underlying map keeps them in. As the page's edge cases say, a
-read-only store wraps **its own immutable copy** of the map it was given, whatever kind of
-map that is, so later changes to that map do not reach it (the tests see that; whether your copy is
-itself immutable, rather than a private map nobody writes, they cannot see), and a `null` map gives an empty store
-whose `listKeys()` is an empty list, not `null`.
+Leave `Repricer` and the three interfaces as they are. About eight lines in total.

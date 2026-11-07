@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Clients that depend on one role each",
+  "title": "Add batches to the audit trail without breaking its users",
   "blocks": [
     {
       "type": "heading",
@@ -19,29 +19,27 @@
     },
     {
       "type": "para",
-      "text": "A client that only submits tasks should not see `shutdown()` or the monitoring methods; a component that manages the lifecycle should not see `submit()`. The page segregates a concurrent executor into **roles**, and one class implements them all:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class ManagedExecutor implements TaskSubmitter<Object>, LifecycleManageable, Monitorable {\n    // ... implements all methods\n}"
+      "text": "Version 2 of the company's audit library adds `appendAll(batch)` to the `AuditTrail` interface. Twelve teams implement `AuditTrail` in their own code, written against version 1: an in-memory trail for tests, one that writes to a file, one that forwards to a message queue. None of them will change their classes for this release."
     },
     {
       "type": "para",
-      "text": "In `Roles` the three role interfaces are given. Write:"
+      "text": "The payments service records each transfer as a batch, the debit and then the credit, on its `LockedTrail`. A compliance report reads `entries()` on its own thread, and an auditor once flagged a debit with no credit in a report."
+    },
+    {
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/AuditTrails.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`ManagedExecutor(poolSize)`, on a fixed thread pool: `submit` runs a task on one of the pool's threads, never on the caller's, and counts it in `getCompletedCount()` only once it has finished (a task that throws has finished too), not when it is submitted; `shutdown()` shuts the pool down, so its threads end; `isShutdown()` says whether it was shut down. As the page's edge case says, a task submitted **after shutdown is refused** with `IllegalStateException`, guarded by an `AtomicBoolean`;",
-        "`TaskClient`, which only submits: `runTask(task)` submits it and returns its future;",
-        "`LifecycleManager`, which only manages the lifecycle: `gracefulShutdown()` and `isRunning()`."
+        "`AuditTrail.appendAll`, which every team's trail gets without changing a line;",
+        "`LockedTrail.appendAll`."
       ]
     },
     {
       "type": "para",
-      "text": "The starter's two clients take a whole `ManagedExecutor`. **Each client's one constructor must take only the role interface it uses**, so it can be handed anything that plays that role."
+      "text": "Keep `append` and `entries` as they are. About four lines in total."
     },
     {
       "type": "heading",
@@ -56,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.Future;\nimport java.util.concurrent.atomic.AtomicBoolean;\nimport java.util.concurrent.atomic.AtomicLong;\n\npublic final class Roles {\n\n    private Roles() {\n    }\n\n    public interface TaskSubmitter<T> {\n        Future<T> submit(Callable<T> task);\n    }\n\n    public interface LifecycleManageable {\n        void shutdown();\n\n        boolean isShutdown();\n    }\n\n    public interface Monitorable {\n        long getCompletedCount();\n    }\n\n    /** One class plays every role. */\n    public static final class ManagedExecutor implements TaskSubmitter<Object>, LifecycleManageable, Monitorable {\n        private final ExecutorService pool;\n        private final AtomicBoolean shutdown = new AtomicBoolean(false);\n        private final AtomicLong completed = new AtomicLong();\n\n        public ManagedExecutor(int poolSize) {\n            this.pool = Executors.newFixedThreadPool(poolSize);\n        }\n\n        public Future<Object> submit(Callable<Object> task) {\n            if (shutdown.get()) {\n                throw new IllegalStateException(\"the executor is shut down\");\n            }\n            return pool.submit(() -> {\n                try {\n                    return task.call();\n                } finally {\n                    completed.incrementAndGet();\n                }\n            });\n        }\n\n        public void shutdown() {\n            shutdown.set(true);\n            pool.shutdown();\n        }\n\n        public boolean isShutdown() {\n            return shutdown.get();\n        }\n\n        public long getCompletedCount() {\n            return completed.get();\n        }\n    }\n\n    /** Only submits tasks, so it depends only on the submitter role. */\n    public static final class TaskClient {\n        private final TaskSubmitter<Object> submitter;\n\n        public TaskClient(TaskSubmitter<Object> submitter) {\n            this.submitter = Objects.requireNonNull(submitter);\n        }\n\n        public Future<Object> runTask(Callable<Object> task) {\n            return submitter.submit(task);\n        }\n    }\n\n    /** Only manages the lifecycle, so it depends only on the lifecycle role. */\n    public static final class LifecycleManager {\n        private final LifecycleManageable manageable;\n\n        public LifecycleManager(LifecycleManageable manageable) {\n            this.manageable = Objects.requireNonNull(manageable);\n        }\n\n        public void gracefulShutdown() {\n            manageable.shutdown();\n        }\n\n        public boolean isRunning() {\n            return !manageable.isShutdown();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The audit library. Other teams implement AuditTrail too; their code is not in this file. */\npublic final class AuditTrails {\n\n    private AuditTrails() {\n    }\n\n    /** Where a service records what happened, one entry per line. */\n    public interface AuditTrail {\n        void append(String entry);\n\n        /** Everything recorded so far, in order, as a copy. */\n        List<String> entries();\n\n        /** New in version 2: records a batch of entries, in order. */\n        default void appendAll(List<String> batch) {\n            for (String entry : batch) append(entry);\n        }\n    }\n\n    /**\n     * The trail the payments service shares between its request threads and the compliance\n     * report thread. Every method holds the trail's own lock.\n     */\n    public static final class LockedTrail implements AuditTrail {\n        private final List<String> entries = new ArrayList<>();\n\n        @Override\n        public synchronized void append(String entry) {\n            entries.add(entry);\n        }\n\n        @Override\n        public synchronized List<String> entries() {\n            return List.copyOf(entries);\n        }\n\n        @Override\n        public synchronized void appendAll(List<String> batch) {\n            for (String entry : batch) entries.add(entry);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -68,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Future;\n\npublic final class Roles {\n\n    private Roles() {\n    }\n\n    public interface TaskSubmitter<T> {\n        Future<T> submit(Callable<T> task);\n    }\n\n    public interface LifecycleManageable {\n        void shutdown();\n\n        boolean isShutdown();\n    }\n\n    public interface Monitorable {\n        long getCompletedCount();\n    }\n\n    /** One class plays every role. */\n    public static final class ManagedExecutor implements TaskSubmitter<Object>, LifecycleManageable, Monitorable {\n\n        public ManagedExecutor(int poolSize) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public Future<Object> submit(Callable<Object> task) {\n            throw new UnsupportedOperationException(\"write submit\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n\n        public boolean isShutdown() {\n            throw new UnsupportedOperationException(\"write isShutdown\");\n        }\n\n        public long getCompletedCount() {\n            throw new UnsupportedOperationException(\"write getCompletedCount\");\n        }\n    }\n\n    /** Only submits tasks. Choose the one role it depends on. */\n    public static final class TaskClient {\n\n        public TaskClient(ManagedExecutor executor) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public Future<Object> runTask(Callable<Object> task) {\n            throw new UnsupportedOperationException(\"write runTask\");\n        }\n    }\n\n    /** Only manages the lifecycle. Choose the one role it depends on. */\n    public static final class LifecycleManager {\n\n        public LifecycleManager(ManagedExecutor executor) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public void gracefulShutdown() {\n            throw new UnsupportedOperationException(\"write gracefulShutdown\");\n        }\n\n        public boolean isRunning() {\n            throw new UnsupportedOperationException(\"write isRunning\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The audit library. Other teams implement AuditTrail too; their code is not in this file. */\npublic final class AuditTrails {\n\n    private AuditTrails() {\n    }\n\n    /** Where a service records what happened, one entry per line. */\n    public interface AuditTrail {\n        void append(String entry);\n\n        /** Everything recorded so far, in order, as a copy. */\n        List<String> entries();\n\n        /** New in version 2: records a batch of entries, in order. */\n        default void appendAll(List<String> batch) {\n            // TODO: Twelve teams implement AuditTrail, written before this method existed. Their\n            //       classes must keep compiling, and must record a batch correctly, unchanged.\n            throw new IllegalStateException(\"TODO: AuditTrail.appendAll\");\n        }\n    }\n\n    /**\n     * The trail the payments service shares between its request threads and the compliance\n     * report thread. Every method holds the trail's own lock.\n     */\n    public static final class LockedTrail implements AuditTrail {\n        private final List<String> entries = new ArrayList<>();\n\n        @Override\n        public synchronized void append(String entry) {\n            entries.add(entry);\n        }\n\n        @Override\n        public synchronized List<String> entries() {\n            return List.copyOf(entries);\n        }\n\n        @Override\n        public void appendAll(List<String> batch) {\n            // TODO: A payment writes its debit and its credit as one batch. The compliance report,\n            //       reading entries() on its own thread, must never see one without the other.\n            throw new IllegalStateException(\"TODO: LockedTrail.appendAll\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -76,8 +74,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -87,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a1f420ee58156d97bf900a185db4c2ec7633683baaa42cec40e63f9139c5d8be",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Future;\n\npublic final class Roles {\n\n    private Roles() {\n    }\n\n    public interface TaskSubmitter<T> {\n        Future<T> submit(Callable<T> task);\n    }\n\n    public interface LifecycleManageable {\n        void shutdown();\n\n        boolean isShutdown();\n    }\n\n    public interface Monitorable {\n        long getCompletedCount();\n    }\n\n    /** One class plays every role. */\n    public static final class ManagedExecutor implements TaskSubmitter<Object>, LifecycleManageable, Monitorable {\n\n        public ManagedExecutor(int poolSize) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public Future<Object> submit(Callable<Object> task) {\n            throw new UnsupportedOperationException(\"write submit\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n\n        public boolean isShutdown() {\n            throw new UnsupportedOperationException(\"write isShutdown\");\n        }\n\n        public long getCompletedCount() {\n            throw new UnsupportedOperationException(\"write getCompletedCount\");\n        }\n    }\n\n    /** Only submits tasks. Choose the one role it depends on. */\n    public static final class TaskClient {\n\n        public TaskClient(ManagedExecutor executor) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public Future<Object> runTask(Callable<Object> task) {\n            throw new UnsupportedOperationException(\"write runTask\");\n        }\n    }\n\n    /** Only manages the lifecycle. Choose the one role it depends on. */\n    public static final class LifecycleManager {\n\n        public LifecycleManager(ManagedExecutor executor) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public void gracefulShutdown() {\n            throw new UnsupportedOperationException(\"write gracefulShutdown\");\n        }\n\n        public boolean isRunning() {\n            throw new UnsupportedOperationException(\"write isRunning\");\n        }\n    }\n}\n",
+  "content_sha256": "ddf92268b74288b905ba90e0495edc36e61b5507e790d4179167ee5cfb149f7f",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The audit library. Other teams implement AuditTrail too; their code is not in this file. */\npublic final class AuditTrails {\n\n    private AuditTrails() {\n    }\n\n    /** Where a service records what happened, one entry per line. */\n    public interface AuditTrail {\n        void append(String entry);\n\n        /** Everything recorded so far, in order, as a copy. */\n        List<String> entries();\n\n        /** New in version 2: records a batch of entries, in order. */\n        default void appendAll(List<String> batch) {\n            // TODO: Twelve teams implement AuditTrail, written before this method existed. Their\n            //       classes must keep compiling, and must record a batch correctly, unchanged.\n            throw new IllegalStateException(\"TODO: AuditTrail.appendAll\");\n        }\n    }\n\n    /**\n     * The trail the payments service shares between its request threads and the compliance\n     * report thread. Every method holds the trail's own lock.\n     */\n    public static final class LockedTrail implements AuditTrail {\n        private final List<String> entries = new ArrayList<>();\n\n        @Override\n        public synchronized void append(String entry) {\n            entries.add(entry);\n        }\n\n        @Override\n        public synchronized List<String> entries() {\n            return List.copyOf(entries);\n        }\n\n        @Override\n        public void appendAll(List<String> batch) {\n            // TODO: A payment writes its debit and its credit as one batch. The compliance report,\n            //       reading entries() on its own thread, must never see one without the other.\n            throw new IllegalStateException(\"TODO: LockedTrail.appendAll\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-2/src/main/java/practice/Roles.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-2/src/test/java/practice/RolesTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-2/src/main/java/practice/AuditTrails.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-04/practice-2/src/test/java/practice/AuditTrailsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -112,24 +110,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RolesTest#aClientSubmitsAndAManagerShutsDown",
+        "id": "practice.AuditTrailsTest#aBatchIsRecordedInOrderAfterEarlierEntries",
         "kind": "main",
-        "says": "A client runs two tasks, both are counted, and a manager shuts the executor down."
+        "says": "a batch recorded on the locked trail follows the earlier entries, in order"
       },
       {
-        "id": "practice.RolesTest#eachClientDependsOnlyOnItsRole",
+        "id": "practice.AuditTrailsTest#aTrailWrittenBeforeBatchesExistedRecordsThemThroughItsOwnAppend",
         "kind": "edge",
-        "says": "TaskClient's constructor takes a TaskSubmitter and LifecycleManager's takes a LifecycleManageable."
+        "says": "a trail written before batches existed takes a batch unchanged, through its own append"
       },
       {
-        "id": "practice.RolesTest#aTaskAfterShutdownIsRefused",
+        "id": "practice.AuditTrailsTest#theReportThreadNeverSeesHalfABatch",
         "kind": "edge",
-        "says": "A task submitted after shutdown is refused with IllegalStateException."
-      },
-      {
-        "id": "practice.RolesTest#aFailedTaskIsCountedToo",
-        "kind": "edge",
-        "says": "A task that throws has finished too: it is counted once its failure is in."
+        "says": "a report reading the locked trail while a batch is being recorded sees all of the batch or none of it"
       }
     ],
     "report": {
@@ -138,11 +131,11 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.4.md",
-      "section": "8.1.4.2. Applying ISP in Concurrent Programming"
+      "section": "A Default Method Keeps Implementations Compiling, and Runs Code That Never Saw Their Locks"
     },
     "concepts": [
-      "In a concurrent executor, a client that submits tasks depends only on a submitter role and a lifecycle manager only on a lifecycle role, while one class implements all the roles.",
-      "The managed executor refuses a task submitted after shutdown, guarded by an AtomicBoolean."
+      "An inherited default runs without the implementation's own rules, such as its lock, so a class with such rules overrides it.",
+      "A default method lets implementations written before it compile and work unchanged."
     ]
   }
 }

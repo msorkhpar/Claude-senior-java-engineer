@@ -1,36 +1,12 @@
-The page's violation checks an email address the same way in several places:
+A city sells residents' parking permits, one per car. Residents type their plate the way it is
+printed, so the same car arrives as `KL-482-T`, `kl 482 t` or `KL482T`: capitals or not, with
+spaces, dashes or neither, it is one car. Street cameras report plates as they read them, in the
+same variety.
 
-```java
-public boolean validateForRegistration(String email) {
-    return email != null && email.contains("@") && email.contains(".");
-}
-public boolean validateForPasswordReset(String email) {
-    return email != null && email.contains("@") && email.contains(".");
-}
-```
+Last month registration was fixed to treat those spellings as one car. Since then, two complaints
+have come in: a resident who holds a permit was fined by a camera, and a permit was moved onto a car
+that already held one, so it now has two.
 
-Every copy is the same piece of knowledge. When one copy is fixed and another is missed,
-the forms start to disagree: that is **shotgun surgery**, and DRY's answer is **one
-authoritative rule that every caller uses**.
-
-`AccountForms` has three forms: `register`, `resetPassword` and `changeEmail`. Complete it:
-
-- `isValidEmail(String email)` is the default rule: an address is valid when it is not
-  null, not blank, and contains both `"@"` and `"."`. It handles `null` itself and returns
-  `false`, so no caller has to check for `null` first;
-- each of the three forms answers with the class's one rule, the `emailRule` field, and
-  adds no check of its own: the rule alone decides. The no-argument constructor sets it to
-  `isValidEmail`, and the other constructor sets it to the rule it is given.
-
-Examples:
-
-- `new AccountForms().register("user@example.com")` is `true`, and so is
-  `register("first.last@localhost")`, which holds both characters;
-  `new AccountForms().changeEmail("userexample.com")` is `false`;
-- every form returns `false` for `null`, `""` and `"   "`, and none of them throws;
-- with `new AccountForms(e -> e != null && e.endsWith("@corp.example"))`, all three
-  forms accept `"ann@corp.example"` and all three reject `"ann@example.com"`: replacing
-  the rule in one place changes every form;
-- with a rule that accepts everything, `new AccountForms(e -> true)`, every form accepts
-  even `null` and `"  "`, and with `e -> e != null && e.startsWith("x")` every form
-  accepts `"xyz"`.
+Finish the `TODO` in `src/main/java/practice/Permits.java`, `plateKey(...)`, and change anything else
+in the file you need to. When you're done, registration, transfer and the camera's check agree on
+which car a plate is, however each was written, and on any server. About six lines in total.

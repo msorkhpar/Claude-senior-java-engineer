@@ -1,310 +1,242 @@
 # 8.3.1. Definition and Purpose of DRY Principle
 
-## Concept Explanation
+Users of a payments app send each other money by username. In March, `alice` and `Alice` received
+each other's payments. The fix makes sign-up refuse a name that differs from a taken one only in
+case, and its test passes. In May, support finds a third account, `ALICE`, with the fix still in
+place.
 
-The DRY (Don't Repeat Yourself) principle was introduced by Andy Hunt and Dave Thomas in their book *The Pragmatic Programmer* (1999). The principle states:
+DRY ("Don't Repeat Yourself") comes from *The Pragmatic Programmer* (Hunt and Thomas, 1999): "Every
+piece of knowledge must have a single, unambiguous, authoritative representation within a system."
+It is about knowledge, not text.
 
-> "Every piece of knowledge must have a single, unambiguous, authoritative representation within a system."
+## A Rule Kept in Two Places Gets Fixed in One of Them
 
-DRY is fundamentally about **knowledge duplication**, not code duplication. Two code fragments that look identical may represent different domain concepts and therefore are not true DRY violations. Conversely, two fragments that look different may encode the same business rule in two places -- which *is* a violation.
-
-**Real-world analogy**: Think of a company phone directory. If the receptionist maintains a printed list, the HR department maintains a spreadsheet, and the IT department maintains a database, any phone number change must be applied in three places. When one is missed, the data becomes inconsistent. DRY says there should be one authoritative source, and all other views derive from it.
-
-DRY applies to:
-- **Code** -- duplicated logic, copy-pasted methods
-- **Data** -- the same fact stored in multiple locations
-- **Knowledge** -- business rules, validation logic, constants, configuration
-
-## Key Points to Remember
-
-- DRY is about **knowledge**, not syntax. Identical-looking code serving different domains is not necessarily a violation.
-- The opposite of DRY is WET: "Write Everything Twice" or "We Enjoy Typing."
-- Violating DRY leads to **shotgun surgery** -- a single change requires edits in many places.
-- DRY encourages single-source-of-truth for constants, validation rules, and business logic.
-- Over-applying DRY (premature abstraction) can be worse than the duplication it eliminates.
-- The **Rule of Three** heuristic says: wait until you see three instances of duplication before abstracting.
-
-## Relevant Java 21 Features
-
-- **Records**: Immutable data carriers that eliminate boilerplate getters, equals, hashCode, and toString -- a form of DRY at the language level.
-- **Sealed classes**: Reduce duplication in type-checking logic by constraining permitted subtypes and enabling exhaustive pattern matching in switch.
-- **Pattern matching for switch (JEP 441)**: Eliminates repetitive instanceof-cast chains.
-- **Text blocks**: Reduce duplication of escape sequences and formatting in multi-line strings.
-- **Default methods in interfaces**: Allow shared behavior without duplicating it across implementors.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Confusing structural duplication with knowledge duplication**
-   ```java
-   // These LOOK the same but represent DIFFERENT domain rules
-   double calculateTax(double amount) { return amount * 0.10; }
-   double calculateCommission(double amount) { return amount * 0.10; }
-   // They may diverge independently -- merging them violates SRP
-   ```
-   **Solution**: Only extract when the duplication represents the same business rule.
-
-2. **Magic numbers repeated across files**
-   ```java
-   // In ServiceA.java
-   if (retries > 3) { throw new RuntimeException("Too many retries"); }
-   // In ServiceB.java
-   if (retries > 3) { throw new RuntimeException("Too many retries"); }
-   ```
-   **Solution**: Extract into a named constant: `public static final int MAX_RETRIES = 3;`
-
-3. **Copy-pasting validation logic**
-   ```java
-   // In RegisterController
-   if (email == null || !email.contains("@")) { throw ... }
-   // In ProfileController
-   if (email == null || !email.contains("@")) { throw ... }
-   ```
-   **Solution**: Centralize into a `ValidationUtils.isValidEmail(email)` method.
-
-4. **Premature abstraction**
-   ```java
-   // Don't create a "GenericProcessor<T,R,S,U>" after seeing two similar methods.
-   // Wait for the Rule of Three.
-   ```
-   **Solution**: Tolerate small duplication until the pattern is clear.
-
-## Best Practices and Optimization Techniques
-
-1. **Extract Method**: The most common DRY refactoring -- pull duplicated logic into a private method.
-2. **Template Method Pattern**: Define the skeleton of an algorithm and let subclasses fill in the details.
-3. **Higher-order functions**: Pass behavior as lambda expressions to eliminate structural duplication.
-4. **Constants and enums**: Replace magic numbers and strings with named constants.
-5. **Utility classes**: Centralize cross-cutting concerns (validation, formatting, logging).
-6. **Code generation**: For truly mechanical duplication (DTOs, mappers), use annotation processors or tools like MapStruct.
-
-## Edge Cases and Their Handling
-
-1. **Null inputs**: Shared validation methods should handle null gracefully rather than forcing callers to null-check.
-2. **Empty collections**: Reusable pipelines (filter-map-collect) naturally handle empty inputs.
-3. **Boundary values**: Centralized constants ensure boundary checks are consistent (e.g., `MAX_RETRIES` used everywhere).
-4. **Configuration drift**: When DRY is applied to configuration, ensure all consumers read from the same source.
-
-## Interview-specific Insights
-
-Interviewers focus on:
-- Whether you understand DRY as a *knowledge* principle, not just code deduplication
-- Your ability to identify when NOT to apply DRY (incidental vs. intentional duplication)
-- How you balance DRY with SRP and KISS
-- Real refactoring examples from your experience
-
-Tricky questions:
-- "Is it always good to eliminate duplicated code?" (No -- incidental duplication should be left alone.)
-- "What is the difference between DRY and code reuse?" (DRY is broader -- it covers data, knowledge, and process.)
-
-## Interview Q&A Section
-
-**Q1: What is the DRY principle and why is it important?**
-
-```text
-A1: DRY stands for "Don't Repeat Yourself." It states that every piece of knowledge
-should have a single, unambiguous, authoritative representation within a system.
-
-Importance:
-1. Reduces maintenance cost -- changing a rule requires editing only one place.
-2. Prevents inconsistencies -- eliminates the risk of updating one copy but missing another.
-3. Improves readability -- named abstractions communicate intent better than duplicated code.
-4. Enables easier testing -- one implementation means one set of tests.
-
-DRY applies to code, data, documentation, and configuration. It is about knowledge
-duplication, not syntactic similarity.
-```
+The account class after the March fix:
 
 ```java
-// VIOLATION: Same email validation in multiple places
-public class ViolationExample {
-    public boolean validateForRegistration(String email) {
-        return email != null && email.contains("@") && email.contains(".");
-    }
-    public boolean validateForPasswordReset(String email) {
-        return email != null && email.contains("@") && email.contains(".");
-    }
-}
+import java.util.HashMap;
+import java.util.Map;
 
-// DRY: Single source of truth
-public class DryExample {
-    private boolean isValidEmail(String email) {
-        return email != null && email.contains("@") && email.contains(".");
+/** Who owns which username. Users send each other money by username. */
+public class Accounts {
+    private final Map<String, String> owners = new HashMap<>();     // username -> account id
+
+    public void signUp(String username, String accountId) {
+        // the March fix: was owners.containsKey(username)
+        if (owners.keySet().stream().anyMatch(n -> n.equalsIgnoreCase(username)))
+            throw new IllegalArgumentException("username taken: " + username);
+        owners.put(username, accountId);
     }
-    public boolean validateForRegistration(String email) { return isValidEmail(email); }
-    public boolean validateForPasswordReset(String email) { return isValidEmail(email); }
+
+    public void rename(String accountId, String from, String to) {
+        if (owners.containsKey(to))
+            throw new IllegalArgumentException("username taken: " + to);
+        owners.remove(from);
+        owners.put(to, accountId);
+    }
+
+    public String ownerOf(String username) {
+        return owners.get(username);
+    }
 }
 ```
 
-**Q2: What is the difference between structural duplication and knowledge duplication?**
-
-```text
-A2: Structural duplication occurs when two code fragments look syntactically similar
-but represent DIFFERENT business concepts. Knowledge duplication occurs when the SAME
-business rule or fact is encoded in multiple places.
-
-Structural duplication example: A tax calculation and a commission calculation both
-multiply an amount by a rate. They look identical but represent different domain rules
-that may evolve independently. Merging them would create harmful coupling.
-
-Knowledge duplication example: An email validation regex appears in both the
-registration service and the password reset service. This IS the same business rule
-and should be extracted to a single place.
-
-The key question to ask: "If one changes, must the other change too?" If yes, it's
-knowledge duplication and violates DRY. If no, it's incidental and should be left alone.
-```
+Each check starts from a fresh `Accounts` where `alice` (acct-1) and `bob` (acct-2) have signed up;
+`attempt` runs an action on it and reports whether it was refused. The first check is March's test:
 
 ```java
-// Structural duplication (NOT a DRY violation -- keep separate)
-double calculateTax(double amount, double rate) { return amount * rate; }
-double calculateCommission(double amount, double rate) { return amount * rate; }
-
-// Knowledge duplication (IS a DRY violation -- extract)
-// Before:
-double shippingCostA(double weight) { return weight * 0.15; }
-double shippingCostB(double weight) { return weight * 0.15 + 5.0; }
-
-// After:
-static final double COST_PER_KG = 0.15;
-double shippingCostA(double weight) { return weight * COST_PER_KG; }
-double shippingCostB(double weight) { return weight * COST_PER_KG + 5.0; }
+check("sign up as Alice", "refused", attempt(a -> a.signUp("Alice", "acct-3")));
+check("bob renames to ALICE", "refused", attempt(a -> a.rename("acct-2", "bob", "ALICE")));
+check("pay Alice", "acct-1", seeded().ownerOf("Alice"));
 ```
 
-**Q3: How does the Template Method pattern help enforce DRY?**
+Before reading on: which of them fail?
 
 ```text
-A3: The Template Method pattern defines the skeleton of an algorithm in a base class
-and lets subclasses override specific steps without duplicating the overall structure.
-
-Benefits for DRY:
-1. The algorithm structure (filter -> transform -> collect) is defined once.
-2. Subclasses only specify what varies (the filter condition and transformation).
-3. If the overall pipeline needs to change (e.g., add logging), only the base class
-   changes.
-
-This is particularly useful when multiple data processing pipelines share the same
-structural pattern but differ in their specific operations.
+ok      sign up as Alice
+FAILED  bob renames to ALICE: expected refused, got accepted
+FAILED  pay Alice: expected acct-1, got null
 ```
 
+"Two usernames that differ only in case are the same name" is one piece of knowledge. Before March,
+`signUp` and `rename` each held a copy, the same `containsKey` check. The bug report named sign-up, so
+the fix and its test went there. `rename` still lets anyone take a look-alike name, and money sent
+to the name a user typed reaches whoever holds that spelling.
+
+## A Copy of a Rule Doesn't Have to Look Like One
+
+The third check failed although no line of `Accounts` mentions case. `owners.get(username)` asks the
+`HashMap`, which compares keys with `String.equals`. That is a third copy of the rule, and it says
+the opposite: names are the same only when every character is.
+
+Searching for `equalsIgnoreCase` finds only the fixed copy. After the fix, `signUp` and `rename`
+share no line, so a duplicate-code detector, which looks for code that looks alike, finds nothing
+either.
+The copies turn up when you ask which code decides whether two usernames are the same: here, every
+lookup in `owners`.
+
+## One Method Decides When Two Names Are the Same, and Every Path Calls It
+
+An `isTaken(name)` helper called from `rename` would fix the second check but not the third, because
+`ownerOf` would still decide with `String.equals`. The rule belongs where every path passes, the
+map's key:
+
 ```java
-public abstract class DataProcessor<T, R> {
-    // Template method -- defines the algorithm once
-    public final List<R> process(List<T> items) {
-        return items.stream()
-                .filter(this::isValid)
-                .map(this::transform)
-                .collect(Collectors.toList());
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+/** Who owns which username. Users send each other money by username. */
+public class Accounts {
+    private final Map<String, String> owners = new HashMap<>();     // key(username) -> account id
+
+    /** When two usernames are the same name. Nothing else in the class decides it. */
+    static String key(String username) {
+        return username.toLowerCase(Locale.ROOT);
     }
-    protected abstract boolean isValid(T item);
-    protected abstract R transform(T item);
-}
 
-// Concrete implementation -- only defines the varying parts
-public class StringUpperCaseProcessor extends DataProcessor<String, String> {
-    @Override protected boolean isValid(String item) { return item != null && !item.isBlank(); }
-    @Override protected String transform(String item) { return item.toUpperCase(Locale.ROOT); }
-}
-```
-
-**Q4: What is the Rule of Three and how does it relate to DRY?**
-
-```text
-A4: The Rule of Three is a heuristic that says you should not abstract duplication
-until you see it at least three times. The reasoning is:
-
-1. First time: Just write it.
-2. Second time: Note the similarity but tolerate it.
-3. Third time: Now you have enough evidence that it's a real pattern -- refactor.
-
-This prevents premature abstraction, which is worse than small-scale duplication.
-Premature abstraction creates:
-- Unnecessary indirection that hurts readability
-- Coupling between unrelated modules through a shared abstraction
-- Abstractions that don't fit future use cases
-
-The Rule of Three balances DRY with KISS (Keep It Simple, Stupid) and YAGNI
-(You Ain't Gonna Need It).
-```
-
-```java
-// First time -- order summary
-// (Locale.ROOT keeps "." as the decimal separator of a "$" amount on any machine)
-String formatOrderSummary(String id, String desc, double total) {
-    return String.format(Locale.ROOT, "[%s] %s - $%.2f", id, desc, total);
-}
-// Second time -- invoice summary (looks similar, keep separate for now)
-String formatInvoiceSummary(String num, String client, double amount) {
-    return String.format(Locale.ROOT, "[%s] %s - $%.2f", num, client, amount);
-}
-// Third time -- NOW extract!
-String formatSummary(String identifier, String description, double amount) {
-    return String.format(Locale.ROOT, "[%s] %s - $%.2f", identifier, description, amount);
-}
-```
-
-**Q5: How do higher-order functions help achieve DRY in Java?**
-
-```text
-A5: Higher-order functions accept or return functions, allowing you to parameterize
-behavior. Instead of writing multiple methods that differ only in their filter or
-transformation logic, you write ONE generic method and pass the varying behavior
-as lambda expressions.
-
-This eliminates the repeated stream().filter().map().collect() boilerplate that
-appears in many service methods. The pipeline structure is defined once, and callers
-supply only the parts that vary.
-
-In Java 21, this works seamlessly with functional interfaces (Predicate, Function,
-Consumer, Supplier) and method references.
-```
-
-```java
-public class FunctionalDry {
-    // One reusable pipeline -- no need to duplicate stream logic
-    public <T, R> List<R> filterAndTransform(
-            List<T> items, Predicate<T> filter, Function<T, R> transformer) {
-        return items.stream()
-                .filter(filter)
-                .map(transformer)
-                .collect(Collectors.toList());
+    public void signUp(String username, String accountId) {
+        if (owners.putIfAbsent(key(username), accountId) != null)
+            throw new IllegalArgumentException("username taken: " + username);
     }
-}
 
-// Usage -- different behaviors, same pipeline
-List<String> shortNames = dry.filterAndTransform(names, n -> n.length() < 5, String::toUpperCase);
-List<Integer> evenDoubled = dry.filterAndTransform(numbers, n -> n % 2 == 0, n -> n * 2);
-```
-
-**Q6: What are the consequences of violating DRY?**
-
-```text
-A6: Violating DRY leads to several problems:
-
-1. Shotgun surgery: A single business rule change requires edits in multiple files.
-2. Inconsistency bugs: One copy is updated but another is missed.
-3. Increased test surface: Each duplicate needs its own tests.
-4. Knowledge fragmentation: New developers can't find the "real" source of truth.
-5. Higher maintenance cost: More code to read, understand, and maintain.
-6. Regression risk: Fixing a bug in one copy but not the others.
-
-In concurrent systems, DRY violations are especially dangerous because duplicated
-synchronization logic can easily become inconsistent, leading to race conditions
-or deadlocks that are hard to reproduce and debug.
-```
-
-```java
-// VIOLATION: Bug fix applied to one copy but not the other
-class ServiceA {
-    void process(String data) {
-        if (data != null && !data.isEmpty()) { /* fixed: was data.isBlank() */ }
+    public void rename(String accountId, String from, String to) {
+        if (owners.putIfAbsent(key(to), accountId) != null)
+            throw new IllegalArgumentException("username taken: " + to);
+        owners.remove(key(from));
     }
-}
-class ServiceB {
-    void process(String data) {
-        if (data != null && !data.isBlank()) { /* BUG: still uses old check */ }
+
+    public String ownerOf(String username) {
+        return owners.get(key(username));
     }
 }
 ```
+
+The same three checks:
+
+```text
+ok      sign up as Alice
+ok      bob renames to ALICE
+ok      pay Alice
+```
+
+A method added later that reads `owners` with a raw name, skipping `key`, finds only names already
+in lower case, so the first check with a name like `Alice` exposes it. The next change to what counts as the same name, such as ignoring a trailing space, is one edit
+to `key`, and sign-up, rename and payment all get it. `Locale.ROOT` keeps the key the same on a
+server whose default locale is Turkish, where `"I".toLowerCase()` is a dotless `ı`.
+
+<!-- practice 1 -->
+
+## Identical Lines Are One Rule Only If One Must Change When the Other Does
+
+The app also allows one account per email address, in a `Contacts` class whose `key(email)` has the
+same body: `return email.toLowerCase(Locale.ROOT);`. Two methods with one body look like what DRY
+forbids, so a developer extracts `Identifiers.canonical(s)`, and both `key` methods
+become `return Identifiers.canonical(...);`.
+
+Months later, product asks for an email rule. Nearly all the app's users are on Gmail, which ignores
+dots before the `@`, and product decides to apply that to every address: `j.doe@example.com` and
+`jdoe@example.com` count as one mailbox, and the second registration is refused. There is one place to change:
+
+```java
+import java.util.Locale;
+
+/** Extracted from Accounts.key and Contacts.key, whose bodies were the same line. */
+final class Identifiers {
+    private Identifiers() {}
+
+    static String canonical(String s) {
+        String lower = s.toLowerCase(Locale.ROOT);
+        int at = lower.indexOf('@');                    // new: dots before the @ don't count
+        return lower.substring(0, at).replace(".", "") + lower.substring(at);
+    }
+}
+```
+
+```text
+ok      register J.Doe@Example.com when jdoe@example.com exists
+FAILED  sign up as alice: expected accepted, got java.lang.StringIndexOutOfBoundsException: Range [0, -1) out of bounds for length 5
+```
+
+The email test passes, and every username sign-up now throws. A developer who stops the exception with
+`if (at < 0) at = lower.length();` makes it quieter: `j.doe` and `jdoe` become one username, which no
+rule asked for.
+
+The two lines were equal by coincidence. Ask of any two copies: if one changes, must the other?
+For `signUp` and `rename` the answer is yes, every time, because a name one refuses the other must
+refuse. For a username and an email address it is no. Each `key` keeps its own body, and the email
+rule goes into `Contacts.key` alone:
+
+```java
+static String key(String email) {
+    String lower = email.toLowerCase(Locale.ROOT);
+    int at = lower.indexOf('@');
+    return lower.substring(0, at).replace(".", "") + lower.substring(at);
+}
+```
+
+```text
+ok      register J.Doe@Example.com when jdoe@example.com exists
+ok      sign up as alice
+```
+
+Unit 8.1.1 showed the same failure through two teams sharing a rounding helper, and unit 8.3.4
+follows a merged method that grows a parameter for each caller.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A rule kept in two places gets fixed in one of them.** The copies agree until the first fix,
+  which reaches the copy the bug report named.
+- **A copy of a rule doesn't have to look like one.** A map lookup by raw name decides equality as
+  surely as an `if` does, and neither text search nor a duplicate-code detector finds it.
+- **One method decides, and every path calls it.** Keying the data by that method's result makes a
+  new path that skips it fail on the first name not already in canonical form.
+- **Identical lines are one rule only if one must change when the other does.** Merging two rules
+  that agree today hands the next change to one of them to both.
+
+## Reference
+
+What the runs printed, with `alice` and `bob` signed up:
+
+| Shape | Rename `bob` to `ALICE` | Pay `Alice` |
+|---|---|---|
+| fix in `signUp` only | accepted | `null` |
+| one `key(username)` for every path | refused | acct-1 |
+
+With `jdoe@example.com` registered and no usernames taken:
+
+| Shape | Register `J.Doe@Example.com` | Sign up `alice` |
+|---|---|---|
+| `key` shared with email, email rule added | refused | throws |
+| separate `key` per kind of identifier | refused | accepted |
+
+| Expression (Java 21) | Value |
+|---|---|
+| `"I".toLowerCase()` under a Turkish default locale | `"ı"` |
+| `"I".toLowerCase(Locale.ROOT)` | `"i"` |
+| `"ı".equalsIgnoreCase("I")` | `true` |
+
+## Challenges
+
+1. With the expression table in mind: if the March fix had stayed in `signUp` and
+   `rename` had used `key`, which names would the two paths disagree on? Write the check that finds
+   one.
+2. The usernames are also unique in the database, through a `UNIQUE` index on the column. Which rule
+   does that index encode, and how would you keep it and `key` from drifting apart?
+3. Every entry in `owners` is stored under the result of `key`. What has to happen to the data when
+   the rule in `key` changes?
+
+## Design Note: Why the Knowledge Goes into the Data's Key
+
+A shared validation method leaves every caller free not to call it, and the next path someone
+writes is the one that doesn't. Keying the map by `key(username)` puts the rule where a lookup that
+skips it misses on the first mixed-case name. The cost is the third challenge: the rule's output is now stored, so changing the rule
+means migrating every stored key, and a team in a hurry will be tempted to add the change in a
+second place instead.
 
 ## Code Examples
 
