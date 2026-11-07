@@ -1,19 +1,13 @@
-A lambda cannot write to a local variable of its method, so
-`items.forEach(item -> count++)` does not compile. The tempting way around it
-is to keep the count somewhere the lambda *can* write. The page's better advice
-is to avoid the side effect and let a stream do the counting.
+The admin console opens a `ConfigSession` for every signed-in user, and each open session is
+told about every configuration change so its screens can refresh. The `ConfigWatcher` that
+tells them lives as long as the server. After a week of uptime the server spends seconds on
+every change, and a heap dump shows the watcher holding a listener for every session that was
+ever opened.
 
-Write `MatchCounter.countMatches(List<String> items, Predicate<String> condition)`,
-an instance method that returns how many items the condition accepts. The list
-may contain `null` items: they are never counted, and the condition is never
-called with `null`.
+Finish the two `TODO`s in `src/main/java/practice/ConfigSession.java`:
 
-| items | condition | answer |
-|---|---|---|
-| `["apple", "banana", "apricot", "cherry"]` | `s -> s.startsWith("a")` | `2` |
-| `[]` | any | `0` |
-| `["apple", null, "avocado"]` | `s -> s.startsWith("a")` | `2` |
+- `open()`: from now on, every changed key reaches this session's `onChange(...)`;
+- `close()`: from now on, this session hears nothing, and the watcher holds nothing of it.
 
-The same `MatchCounter` may be asked many times, even again from inside a
-condition while it is still counting; each answer must stand on its own.
-Duplicate items are counted each time they appear.
+Other sessions on the same watcher are open at the same time, and closing one must not affect
+them. You may add a field. About four lines in total.

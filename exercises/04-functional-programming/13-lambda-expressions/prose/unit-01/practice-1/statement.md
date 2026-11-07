@@ -1,20 +1,14 @@
-Before Java 8, sorting with a custom order meant writing an anonymous inner class
-that implements `Comparator<String>`. A lambda, or a method reference such as
-`String::compareTo`, passes the same behaviour in one line.
+The nightly export builds one task per tenant at 23:00 and hands the list to a scheduler, which
+runs the tasks whenever it has capacity: sometimes in order, sometimes last task first. Each
+export is stamped with its task number, and the morning report matches stamps against the plan.
+Last week the report showed tenants under the wrong numbers, and one tenant that was added to the
+admin screen at 23:05 got exported although it wasn't in the 23:00 plan.
 
-Write two methods in `NameSorter`, each taking a `List<String>` and returning a
-**new** sorted list that holds every name, duplicates included. "Alphabetical"
-means `String`'s natural order (`compareTo`), in which capitals sort before
-lower-case letters:
+`ExportPlan` already builds the list of tasks. Finish the `TODO` in
+`src/main/java/practice/ExportPlan.java`:
 
-1. `alphabetical(List<String> names)` orders the names alphabetically.
-2. `byLength(List<String> names)` orders them by length, shortest first; names of
-   the same length are ordered alphabetically.
+- `task(tenants, index)`: the task for the tenant at `index`, numbered `index + 1`.
 
-| call | answer |
-|---|---|
-| `alphabetical(["Charlie", "Alice", "Bob"])` | `["Alice", "Bob", "Charlie"]` |
-| `byLength(["aaa", "b", "cc"])` | `["b", "cc", "aaa"]` |
-
-Think about what happens to the list the caller handed you, and about names
-that tie on length.
+When you're done, every task exports the tenant and the number it was planned with, whatever
+order the scheduler runs the tasks in and whatever the caller does to its list after `tasksFor`
+returns. About three lines in total.

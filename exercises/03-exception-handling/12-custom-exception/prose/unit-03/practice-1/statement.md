@@ -1,30 +1,15 @@
-The page's `BankAccount` follows the best practices: exception names that say
-what went wrong, context carried in fields, and checks that run before any
-state changes. Write it.
+An online shop's checkout books a shipment as its last step. The shipping module refuses some
+orders on purpose, and its team adds new kinds of refusal every few releases without telling the
+checkout team. Last month one of those new refusals reached the customer as "500 Internal Server
+Error". The month before, a `NullPointerException` inside the shipping code was shown to
+customers as "We can't ship this order right now", and nobody was paged for a week.
 
-1. Complete the checked `InsufficientFundsException(String message, double requestedAmount, double accountBalance)`
-   with `getRequestedAmount()` and `getAccountBalance()`.
-2. Write `BankAccount(String accountNumber, double initialBalance)`,
-   `getBalance()`, and:
-   - `deposit(double amount)`: an amount that is not positive (zero, negative,
-     or `NaN`) throws
-     `InvalidAmountException("Deposit amount must be positive")`;
-   - `withdraw(double amount)`: an amount that is not positive throws
-     `InvalidAmountException("Withdrawal amount must be positive")`; more than
-     the balance throws
-     `InsufficientFundsException("Insufficient funds for withdrawal", amount, balance)`.
+Finish `placeOrder` in `src/main/java/practice/Checkout.java`:
 
-| on an account opened with `1000.0` | result |
-|---|---|
-| `deposit(500.0)` | balance `1500.0` |
-| `withdraw(500.0)` | balance `500.0` |
-| `withdraw(1500.0)` | throws `InsufficientFundsException`, requested `1500.0`, balance `1000.0` |
-| `deposit(-100.0)` | throws `InvalidAmountException("Deposit amount must be positive")` |
+- a booked shipment answers with its tracking number;
+- a postcode the carrier doesn't serve gets `ADDRESS_ANSWER`;
+- every other refusal from the shipping module, today's and the ones added later, gets
+  `LATER_ANSWER`;
+- anything else that goes wrong reaches the shop's error handler unchanged.
 
-Opening balances are never negative, so the two checks of `withdraw` never
-both apply; their order is up to you. How the exception stores its numbers is
-up to you as long as the getters return them.
-
-A caller should be able to build a precise reply from the exception without
-parsing its message, and an account that refused an operation must be exactly
-as it was. Mind both ends of every range.
+About six lines in total. The tests bring a refusal of their own that the checkout has never seen.

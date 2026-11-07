@@ -1,443 +1,358 @@
 # 4.1.1. Introduction to Lambda Expressions
 
-## Concept Explanation
-
-Lambda expressions are one of the most significant features introduced in Java 8, marking Java's entry into functional
-programming. A lambda expression is essentially an anonymous function - a method without a name that can be passed
-around as if it were an object.
-
-Before lambda expressions, Java developers had to use verbose anonymous inner classes to pass behavior as a parameter.
-Lambda expressions provide a clear and concise way to represent a single-method interface (functional interface) using
-an expression.
-
-**Real-world analogy**: Think of a lambda expression like a recipe card you hand to someone. Instead of calling a
-professional chef (creating a named class), you simply write down the steps (the lambda) on a card and hand it over. The
-receiver can execute those steps whenever needed.
-
-## Key Points to Remember
-
-1. Lambda expressions enable treating functionality as a method argument (behavior parameterization).
-2. They can only be used with functional interfaces (interfaces with a single abstract method).
-3. Lambda expressions reduce boilerplate code significantly compared to anonymous inner classes.
-4. They enable a more functional programming style in Java.
-5. Lambda expressions can access effectively final variables from the enclosing scope (closure).
-6. The compiler infers the type of lambda parameters from the context (target typing).
-7. Lambda expressions don't have their own scope; they use the enclosing scope.
-
-## Relevant Java 21 Features
-
-While lambda expressions were introduced in Java 8, later versions add features that work well with them:
-
-- **`var` in lambda parameters** (Java 11): `(var s) -> ...` lets you add annotations to inferred parameters.
-- **Pattern matching integration**: Lambda expressions work seamlessly with pattern matching features.
-- **Virtual threads**: Lambda expressions are commonly used with virtual threads for concurrent programming.
-- **Sequenced collections**: Lambda expressions integrate well with the new sequenced collections API.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Modifying non-final variables**: Lambda expressions can only access effectively final variables from the enclosing
-   scope.
-   ```java
-   int count = 0;
-   list.forEach(item -> count++); // Compilation error!
-   ```
-   **Solution**: Use wrapper objects like AtomicInteger or redesign to avoid mutation.
-
-2. **Overusing lambdas**: Not every anonymous class should become a lambda. If the logic is complex, a named method is
-   more readable.
-
-3. **Ignoring exceptions**: Lambda expressions can't throw checked exceptions directly if the functional interface
-   doesn't declare them.
-   ```java
-   list.forEach(item -> {
-       Thread.sleep(100); // Compilation error!
-   });
-   ```
-   **Solution**: Wrap checked exceptions in runtime exceptions or use a functional interface that declares the
-   exception.
-
-4. **Confusing `this` reference**: In lambda expressions, `this` refers to the enclosing class, not the lambda itself (
-   unlike anonymous classes).
-
-## Best Practices and Optimization Techniques
-
-1. **Keep lambdas short**: If a lambda exceeds 3-5 lines, consider extracting it to a method and using a method
-   reference instead.
-
-2. **Use method references when possible**: They are more readable than equivalent lambdas.
-   ```java
-   list.forEach(System.out::println); // Better than: list.forEach(s -> System.out.println(s))
-   ```
-
-3. **Avoid side effects**: Lambda expressions should ideally be pure functions without side effects for better
-   maintainability and parallelization.
-
-4. **Type explicitly when it improves readability**: While type inference is powerful, explicit types can sometimes make
-   code clearer.
-   ```java
-   (String s, Integer i) -> s.length() + i // Explicit types for clarity
-   ```
-
-5. **Consider performance**: Lambda expressions have minimal overhead, but repeated lambda creation in tight loops might
-   have performance implications.
-
-## Edge Cases and Their Handling
-
-1. **Null handling**: Always consider null inputs in lambda expressions.
-   ```java
-   list.stream()
-       .filter(Objects::nonNull)
-       .forEach(System.out::println);
-   ```
-
-2. **Empty collections**: Ensure lambdas handle empty collections gracefully.
-
-3. **Exception handling**: Use try-catch blocks within lambdas or create exception-handling wrapper functions.
-
-4. **Recursive lambdas**: While possible, recursive lambdas require careful design and are often better implemented as
-   regular methods.
-
-## Interview-specific Insights
-
-Interviewers often focus on:
-
-- Understanding the difference between lambda expressions and anonymous inner classes
-- Knowledge of functional interfaces and their relationship with lambdas
-- Ability to refactor anonymous inner classes to lambda expressions
-- Understanding of variable capture and effectively final concept
-- Performance implications and best practices
-- Integration with Stream API and modern Java features
-
-Common tricky questions:
-
-- "Why can't a lambda modify local variables from the enclosing scope?"
-- "What's the difference between `this` in a lambda vs. an anonymous inner class?"
-- "Can you explain target typing in the context of lambda expressions?"
-
-## Interview Q&A Section
-
-**Q1: What problem do lambda expressions solve in Java?**
-
-```text
-A1: Lambda expressions solve several problems in Java:
-
-1. **Verbosity of anonymous inner classes**: Before Java 8, passing behavior as a parameter required creating verbose anonymous inner classes. Lambda expressions reduce this boilerplate significantly.
-
-2. **Readability**: Lambda expressions make code more concise and readable by focusing on what the code does rather than how it's structured.
-
-3. **Functional programming**: They enable a functional programming style in Java, making it easier to write code that treats functions as first-class citizens.
-
-4. **Better abstractions**: They allow better abstractions for common patterns like filtering, mapping, and reducing data.
-
-5. **Parallel processing**: Lambda expressions work seamlessly with the Stream API, making it easier to write parallel processing code.
-
-Example comparison:
-// Before Java 8 (anonymous inner class)
-List<String> names = Arrays.asList("Alice", "Bob", "Charlie");
-Collections.sort(names, new Comparator<String>() {
-    @Override
-    public int compare(String s1, String s2) {
-        return s1.compareTo(s2);
-    }
-});
-
-// With lambda expression
-Collections.sort(names, (s1, s2) -> s1.compareTo(s2));
-
-// Or even better with method reference
-Collections.sort(names, String::compareTo);
-```
-
-**Q2: How are lambda expressions different from anonymous inner classes?**
-
-```text
-A2: While lambda expressions can replace anonymous inner classes in some cases, they have important differences:
-
-1. **Scope**: Lambda expressions don't create a new scope. They use the enclosing scope. Anonymous inner classes have their own scope.
-   - In a lambda, 'this' refers to the enclosing class
-   - In an anonymous inner class, 'this' refers to the anonymous class itself
-
-2. **Compilation**: Lambda expressions are compiled using the invokedynamic instruction (introduced in Java 7); the implementing class is generated at run time. Each anonymous inner class declaration produces its own .class file at compile time (one per declaration, not per instance).
-
-3. **Usage**: Lambda expressions can only be used with functional interfaces (single abstract method). Anonymous inner classes can implement interfaces with any number of methods.
-
-4. **Variable capture**: Both can access only final or effectively final local variables from the enclosing scope. Unlike an anonymous class, a lambda cannot declare a local variable or parameter that shadows one from the enclosing method (that is a compile error).
-
-5. **Performance**: Lambda expressions generally have better performance characteristics due to how they're implemented by the JVM.
-```
-
-**Q3: Can you explain what "effectively final" means in the context of lambda expressions?**
+A trading dashboard's heap grows a few megabytes an hour. The heap dump shows 10,000 listeners
+attached to the price feed, one for every quote widget ever opened, although each widget's
+`close()` unsubscribes with exactly the text it subscribed with:
 
 ```java
-// Example demonstrating effectively final
-public void demonstrateEffectivelyFinal() {
-    int multiplier = 3; // Effectively final (not modified after initialization)
-
-    List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5);
-    numbers.forEach(n -> System.out.println(n * multiplier)); // Works fine
-
-    // multiplier = 5; // If we uncomment this, the lambda above won't compile
-}
-
-// What doesn't work
-public void demonstrateNonFinal() {
-    int count = 0;
-    List<String> items = Arrays.asList("a", "b", "c");
-
-    // This won't compile because count is modified
-    // items.forEach(item -> count++);
-
-    // Solution 1: Use AtomicInteger
-    AtomicInteger counter = new AtomicInteger(0);
-    items.forEach(item -> counter.incrementAndGet()); // Works
-
-    // Solution 2: Use streams
-    long finalCount = items.stream().count(); // Better approach
-}
+void open() { feed.subscribe(q -> onPrice(q)); }
+void close() { feed.unsubscribe(q -> onPrice(q)); }
 ```
 
-```text
-A3 (continued): "Effectively final" means a variable that isn't explicitly declared as final but whose value doesn't change after initialization. Lambda expressions can only access local variables from the enclosing scope if they are final or effectively final.
+The answer follows from what a lambda is: an object, of a type its
+context picks, compiled into a method of the enclosing class, holding copies of what it captured.
+Every output below is from Java 21.
 
-Why this restriction?
-1. **Capture by value**: The lambda receives a copy of the local variable's value, so a later change to the variable could never be seen by the lambda; forbidding changes removes that confusion.
-2. **Thread safety**: Lambda expressions might be executed in other threads, after the method that created them has returned; local variables live on that method's stack, and sharing them mutably would cause race conditions.
-3. **Semantic clarity**: It makes the code's intent clearer and prevents confusing bugs.
-```
+## A Lambda Is an Object of Whatever Interface Its Context Expects
 
-**Q4: What is a functional interface and how does it relate to lambda expressions?**
-
-```text
-A4: A functional interface is an interface that contains exactly one abstract method (SAM - Single Abstract Method). It may contain default methods, static methods, and methods inherited from Object class, but only one abstract method.
-
-Relationship with lambda expressions:
-- Lambda expressions can only be used to instantiate functional interfaces
-- The lambda expression provides the implementation of the abstract method
-- The compiler uses the functional interface's method signature to infer the lambda's parameter types and return type
-
-The @FunctionalInterface annotation:
-- Optional but recommended
-- Causes a compilation error if the interface doesn't meet the functional interface criteria
-- Documents the intent clearly
-```
+A lambda has no type of its own. The same text becomes an instance of whichever functional
+interface the place it appears in asks for, its **target type**. Here `Greeting` is a
+one-method interface of our own, `String text()`:
 
 ```java
-// Example of functional interface
-@FunctionalInterface
-interface Calculator {
-    int calculate(int a, int b); // Single abstract method
-
-    // Can have default methods
-    default int square(int n) {
-        return n * n;
-    }
-
-    // Can have static methods
-    static int add(int a, int b) {
-        return a + b;
-    }
+Supplier<String> s = () -> "ready";
+Callable<String> c = () -> "ready";
+Greeting g = () -> "ready";
+for (Object o : new Object[] {s, c, g}) {
+    System.out.println(Arrays.toString(o.getClass().getInterfaces()));
 }
+System.out.println(c instanceof Supplier);
+```
 
-// Using lambda expression with this functional interface
-public class FunctionalInterfaceExample {
+```text
+[interface java.util.function.Supplier]
+[interface java.util.concurrent.Callable]
+[interface Target$Greeting]
+false
+```
+
+The `Callable` is not a `Supplier`,
+although its body is the same. A cast, `(Supplier<String>) c`, compiles, since one interface type
+may be cast to another, and throws `ClassCastException` when it runs. Where nothing
+names an interface, there is no lambda:
+
+```java
+var f = () -> "ready";
+Object o = () -> "ready";
+```
+
+```text
+NoTarget.java:3: error: cannot infer type for local variable f
+        var f = () -> "ready";
+            ^
+  (lambda expression needs an explicit target-type)
+NoTarget.java:4: error: incompatible types: Object is not a functional interface
+        Object o = () -> "ready";
+                   ^
+```
+
+The interface's single abstract method also gives the lambda its parameter types and return
+type. Which contexts supply a target, and what to do when two overloads both could, is unit
+4.1.2; the interfaces themselves are unit 4.1.3.
+
+## The Compiler Turns a Lambda Into a Private Method and an invokedynamic Call
+
+A lambda is often described as a shorter anonymous class. `Jobs` holds one of each:
+
+```java
+public class Jobs {
     public static void main(String[] args) {
-        // Lambda expression implementing Calculator
-        Calculator addition = (a, b) -> a + b;
-        Calculator multiplication = (a, b) -> a * b;
-        Calculator subtraction = (a, b) -> a - b;
-
-        System.out.println("5 + 3 = " + addition.calculate(5, 3));  // 8
-        System.out.println("5 * 3 = " + multiplication.calculate(5, 3));  // 15
-        System.out.println("5 - 3 = " + subtraction.calculate(5, 3));  // 2
-
-        // Using default method
-        System.out.println("Square of 5 = " + addition.square(5));  // 25
-
-        // Using static method
-        System.out.println("Static add: " + Calculator.add(10, 20));  // 30
-    }
-}
-```
-
-**Q5: Can you explain the concept of "closure" in lambda expressions?**
-
-```text
-A5: A closure is a lambda expression that captures variables from its surrounding scope. In Java, lambda expressions can capture local variables and instance variables from the enclosing scope.
-
-Key characteristics of closures in Java:
-1. Lambda expressions can access variables from the enclosing scope
-2. These variables must be final or effectively final
-3. Instance variables can be accessed and modified (they're part of the object's state)
-4. The lambda "closes over" these variables, capturing their values
-
-This is different from some other languages where closures can capture and modify local variables. Java's approach prioritizes thread safety and predictability.
-```
-
-```java
-// Example demonstrating closures
-public class ClosureExample {
-    private int instanceVar = 10;
-
-    public void demonstrateClosure() {
-        int localVar = 5;  // Effectively final
-
-        // Lambda capturing both instance and local variables
-        Runnable task = () -> {
-            System.out.println("Instance var: " + instanceVar);
-            System.out.println("Local var: " + localVar);
-
-            // Can modify instance variable
-            instanceVar++;
-
-            // Cannot modify local variable
-            // localVar++; // Compilation error!
-        };
-
-        task.run();
-    }
-
-    // Example with Stream API
-    public List<String> filterStrings(List<String> strings, int minLength) {
-        // minLength is captured by the lambda (closure)
-        return strings.stream()
-                .filter(s -> s.length() >= minLength)  // Closure over minLength
-                .collect(Collectors.toList());
-    }
-
-    public static void main(String[] args) {
-        ClosureExample example = new ClosureExample();
-        example.demonstrateClosure();
-
-        List<String> words = Arrays.asList("hi", "hello", "hey", "goodbye");
-        List<String> longWords = example.filterStrings(words, 5);
-        System.out.println("Long words: " + longWords);  // [hello, goodbye]
-    }
-}
-```
-
-**Q6: What are the performance implications of using lambda expressions?**
-
-```text
-A6: Lambda expressions are generally very efficient in Java:
-
-Advantages:
-1. **invokedynamic**: Lambda expressions use the invokedynamic bytecode instruction, which allows the JVM to optimize their execution over time.
-2. **No extra class files**: Unlike anonymous inner classes, lambda expressions don't generate separate .class files at compile time (the implementing class is spun at run time).
-3. **Lazy evaluation**: When used with streams, lambda expressions enable lazy evaluation and optimization.
-4. **JIT optimization**: The JIT compiler can inline lambda expressions effectively.
-
-Potential concerns:
-1. **Object creation**: Each lambda expression evaluation can create an object (though the JVM often optimizes this).
-2. **Capturing variables**: Capturing variables from the enclosing scope has a small overhead.
-3. **Stateless vs stateful**: Stateless lambdas (no captured variables) are more efficient than stateful ones.
-
-Best practices for performance:
-1. Prefer method references over lambdas when they read better; the performance is the same in practice.
-2. Avoid creating lambdas in tight loops if they capture many variables.
-3. Use parallel streams judiciously - the overhead of parallelization isn't always worth it for small collections.
-4. For very hot code paths, measure and profile to ensure lambda expressions don't become a bottleneck.
-
-In practice, the readability and maintainability benefits of lambda expressions far outweigh any minimal performance costs in most applications.
-```
-
-**Q7: How do you handle exceptions in lambda expressions?**
-
-```java
-// Problem: Checked exceptions in lambdas
-public class ExceptionHandlingInLambdas {
-
-    // This compiles, because NumberFormatException is unchecked, but it stops with an exception at run time on "abc".
-    // A lambda calling a method that throws a CHECKED exception (e.g. Files.readString throwing IOException) would not
-    // compile at all, because Consumer.accept declares no checked exceptions.
-    public void problematicExample() {
-        List<String> numbers = Arrays.asList("1", "2", "abc", "4");
-        // numbers.forEach(s -> System.out.println(Integer.parseInt(s)));
-    }
-
-    // Solution 1: Try-catch inside lambda
-    public void solution1_TryCatchInside() {
-        List<String> numbers = Arrays.asList("1", "2", "abc", "4");
-        numbers.forEach(s -> {
-            try {
-                System.out.println(Integer.parseInt(s));
-            } catch (NumberFormatException e) {
-                System.out.println("Invalid number: " + s);
-            }
-        });
-    }
-
-    // Solution 2: Create a wrapper functional interface
-    @FunctionalInterface
-    interface CheckedConsumer<T> {
-        void accept(T t) throws Exception;
-    }
-
-    public static <T> Consumer<T> wrapper(CheckedConsumer<T> consumer) {
-        return item -> {
-            try {
-                consumer.accept(item);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+        Runnable anonymous = new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("anonymous");
             }
         };
+        Runnable lambda = () -> System.out.println("lambda");
+        anonymous.run();
+        lambda.run();
+        System.out.println(anonymous.getClass().getName());
+        System.out.println(lambda.getClass().getName() + " hidden=" + lambda.getClass().isHidden());
     }
+}
+```
 
-    public void solution2_Wrapper() {
-        List<String> numbers = Arrays.asList("1", "2", "abc", "4");
-        numbers.forEach(wrapper(s -> {
-            System.out.println(Integer.parseInt(s));
-        }));
-    }
+```text
+$ ls *.class
+Jobs$1.class
+Jobs.class
+$ javap -p Jobs
+Compiled from "Jobs.java"
+public class Jobs {
+  public Jobs();
+  public static void main(java.lang.String[]);
+  private static void lambda$main$0();
+}
+$ javap -c -p Jobs   (excerpt)
+       0: new           #7                  // class Jobs$1
+       4: invokespecial #9                  // Method Jobs$1."<init>":()V
+       8: invokedynamic #10,  0             // InvokeDynamic #0:run:()Ljava/lang/Runnable;
+$ java Jobs
+anonymous
+lambda
+Jobs$1
+Jobs$$Lambda/0x00007192a8000c30 hidden=true
+```
 
-    // Solution 3: Use Stream API with better error handling
-    public void solution3_StreamAPI() {
-        List<String> numbers = Arrays.asList("1", "2", "abc", "4");
-        numbers.stream()
-                .map(s -> {
-                    try {
-                        return Optional.of(Integer.parseInt(s));
-                    } catch (NumberFormatException e) {
-                        return Optional.<Integer>empty();
-                    }
-                })
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .forEach(System.out::println);
-    }
+The anonymous class is `Jobs$1.class`, created with `new`; the lambda has no file. Its body became `lambda$main$0`, a private method of `Jobs`, and the place
+where it stood became an `invokedynamic`. The first time that instruction runs, the JVM calls its
+bootstrap method, `LambdaMetafactory.metafactory` (listed in `javap -v` under
+`BootstrapMethods`), which spins a hidden class implementing `Runnable` whose `run()` calls
+`lambda$main$0`. That class's name, `Jobs$$Lambda/0x…`, is what `toString()`, a heap dump or a
+profiler shows, and it is not stable between runs. Stack traces hide it and show `lambda$main$0`.
 
-    // Solution 4: Extract to a method
-    public void solution4_ExtractMethod() {
-        List<String> numbers = Arrays.asList("1", "2", "abc", "4");
-        numbers.forEach(this::printNumber);
-    }
+<!-- practice 4 -->
 
-    private void printNumber(String s) {
-        try {
-            System.out.println(Integer.parseInt(s));
-        } catch (NumberFormatException e) {
-            System.out.println("Invalid number: " + s);
+## A Lambda Copies the Locals It Uses, So They Must Be Effectively Final
+
+A retry job counts what it resent, and a report names its region:
+
+```java
+int resent = 0;
+failed.forEach(id -> resent++);
+
+String region = "eu-west";
+Runnable report = () -> System.out.println(region);
+region = "us-east";
+```
+
+```text
+Retries.java:7: error: local variables referenced from a lambda expression must be final or effectively final
+        failed.forEach(id -> resent++);
+                             ^
+Retries.java:10: error: local variables referenced from a lambda expression must be final or effectively final
+        Runnable report = () -> System.out.println(region);
+                                                   ^
+```
+
+The second error is on a line that only reads `region`: a second assignment anywhere, even after
+the lambda, makes the local not effectively final. This factory
+returns a lambda that outlives the call that made it:
+
+```java
+static Supplier<String> label(String region) {
+    return () -> "report for " + region;
+}
+// in main:
+Supplier<String> eu = label("eu-west");
+System.out.println(eu.get());
+System.out.println(Arrays.toString(eu.getClass().getDeclaredFields()));
+```
+
+```text
+report for eu-west
+[private final java.lang.String Snapshot$$Lambda/0x00007fba84000a08.arg$1]
+```
+
+When `eu.get()` runs, `label`'s stack frame is gone. The lambda object carries a copy of
+`region` in a final field and passes it to the private method (`javap -p` shows
+`lambda$label$0(java.lang.String)`). A copy can't follow later assignments, and the lambda may
+run on another thread. So Java refuses to capture a variable that is assigned again, rather than let
+the copy and the variable disagree. What is copied is the value: for a reference, the reference. The object it points to
+can still change, and the lambda sees the change.
+
+That is how the usual workaround works: a one-element array or an `AtomicInteger` is effectively
+final, and the lambda changes the object inside. It compiles, but under a parallel stream:
+
+```java
+int[] hits = {0};
+AtomicInteger atomic = new AtomicInteger();
+IntStream.range(0, 1_000_000).parallel().forEach(i -> hits[0]++);
+IntStream.range(0, 1_000_000).parallel().forEach(i -> atomic.incrementAndGet());
+long counted = IntStream.range(0, 1_000_000).parallel().count();
+// repeated three times, printing the three totals
+```
+
+```text
+run 1: int[] 100,074  AtomicInteger 1,000,000  count() 1,000,000
+run 2: int[] 142,131  AtomicInteger 1,000,000  count() 1,000,000
+run 3: int[] 109,115  AtomicInteger 1,000,000  count() 1,000,000
+```
+
+The array lost most of its updates, a different number each run, with no error. `hits[0]++` reads
+the element, adds one and writes it back, so two threads that read the same value write the same
+result. `forEach` returned only after every element was processed, as the `AtomicInteger` total
+shows. `AtomicInteger`
+is correct, but every thread fights over one memory location. Letting the stream compute the
+result (`count()`, `sum()`, a collector) needs no shared state at all. Unit 4.1.4 has more on
+side effects in lambdas.
+
+<!-- practice 1 -->
+
+## A Lambda Adds No Scope: `this` and Every Name Mean What They Mean Outside It
+
+An anonymous class is a class: its body is a new scope, with its own `this` and its own inherited
+members. A lambda's body is in the scope of the method around it. A `Widget` whose `toString()`
+returns `Widget[cpu-load]` hands out both:
+
+```java
+Runnable anonymous() {
+    return new Runnable() {
+        @Override
+        public void run() {
+            System.out.println("anonymous: this=" + this + ", toString()=" + toString());
         }
-    }
+    };
+}
+
+Runnable lambda() {
+    return () -> System.out.println("lambda:    this=" + this + ", toString()=" + toString());
 }
 ```
 
 ```text
-A7: Handling exceptions in lambda expressions can be challenging because:
-1. Lambda expressions used with standard functional interfaces (like Consumer, Predicate, Function) can't throw checked exceptions.
-2. The functional interface's method signature determines what exceptions can be thrown.
-
-The solutions above demonstrate different approaches:
-1. **Try-catch inside lambda**: Simple but can make lambdas verbose
-2. **Wrapper method**: Reusable approach for handling checked exceptions
-3. **Stream API with Optional**: Functional approach that handles errors gracefully
-4. **Extract to method**: Best for complex logic - improves readability
-
-Choose the approach based on:
-- Complexity of error handling logic
-- Whether you need to recover from errors or propagate them
-- Readability and maintainability requirements
-- Whether the exception is checked or unchecked
+anonymous: this=Widget$1@15db9742, toString()=Widget$1@15db9742
+lambda:    this=Widget[cpu-load], toString()=Widget[cpu-load]
 ```
+
+In the anonymous class, even the unqualified `toString()` found the anonymous object's own
+method, inherited from `Object`. In the lambda, both mean the widget, because the body is now `lambda$lambda$0`, an instance method of
+`Widget`. A lambda that uses `this` (or any field or instance method) captures the enclosing
+object, and reads its fields when it runs, not when it was made. In a `Gauge`:
+
+```java
+private String unit = "ms";
+Supplier<String> viaField() { return () -> "unit=" + unit; }
+Supplier<String> viaLocal() {
+    String copy = unit;
+    return () -> "unit=" + copy;
+}
+// after both are made, on the same Gauge g: g.unit = "s";
+```
+
+```text
+field: unit=s   local copy: unit=ms
+```
+
+No new scope also means a lambda can't reuse a name the method already has. An anonymous class's
+`apply(String id)` may shadow a local `id`; the lambda can't, as a parameter or a local:
+
+```java
+String id = "order-17";
+// an anonymous Function's apply(String id) compiles; these two don't:
+Function<String, String> lambda = id -> id.toUpperCase();
+Runnable block = () -> {
+    String id = "order-18";
+};
+```
+
+```text
+Shadow.java:12: error: variable id is already defined in method main(String[])
+        Function<String, String> lambda = id -> id.toUpperCase();
+                                          ^
+Shadow.java:14: error: variable id is already defined in method main(String[])
+            String id = "order-18";
+                   ^
+```
+
+<!-- practice 2 -->
+
+## A Lambda's Identity Is Not Promised: Keep the Instance You Need to Find Again
+
+Each time a lambda expression is evaluated, the runtime decides whether to make a new object.
+On HotSpot, a lambda that captures nothing comes back from the same site as the same object every
+time, and one that captures anything is allocated fresh:
+
+```java
+static Supplier<String> fixed() { return () -> "eu-west"; }
+static Supplier<String> of(String region) { return () -> region; }
+```
+
+```text
+non-capturing, same site: true
+capturing, same value:    false
+```
+
+The Java Language Specification (§15.27.4) allows a new object or an existing one, so code must
+not depend on either. Lambdas don't override `equals`, so `equals` is
+`==`, and two lambdas with the same text, or the same lambda evaluated twice with the same
+captured value, are not equal.
+
+Now the opening problem. `close()` evaluates a different lambda expression from `open()`: another
+class, so another object, which the feed's list has never seen, and `unsubscribe` removes
+nothing. Even one shared site wouldn't help, because `q -> onPrice(q)` captures `this` and is new
+each time. Keep the instance:
+
+```java
+private final Consumer<String> listener = q -> onPrice(q);
+void open() { feed.subscribe(listener); }
+void close() { feed.unsubscribe(listener); }
+```
+
+```text
+QuoteWidget: listeners after 10,000 open/close: 10000
+FixedWidget: listeners after 10,000 open/close: 0
+```
+
+Every leaked listener also holds its widget, through the captured `this`, so the heap keeps
+10,000 widgets too. For the same reason a lambda is no use as a map key (found only with the instance
+that was put in) and as a lock: a non-capturing lambda may be one object shared by every caller,
+and a capturing one is a different lock for each.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A lambda is an object of the interface its context expects.** With no target type there is
+  no lambda, and the same text gives unrelated types in different places.
+- **The compiler makes a private method and an `invokedynamic`, not a class file.** The class is
+  spun at run time by `LambdaMetafactory`, hidden, with an unstable name.
+- **Captured locals are copied, so they must be effectively final.** A mutable holder gets around
+  the rule and loses updates under concurrency.
+- **A lambda adds no scope.** `this` is the enclosing object, its fields are read when the lambda
+  runs, and a lambda can't shadow a local.
+- **Lambda identity is unspecified.** Keep the instance you subscribed; never compare lambdas,
+  key a map or lock on one.
+
+## Reference
+
+**Lambda and anonymous class (javac and HotSpot 21):**
+
+| | Lambda | Anonymous class |
+|---|---|---|
+| Implements | the functional interface of its target type | any interface or class, any number of methods |
+| Class file from javac | none; body in a private `lambda$<method>$<n>` method | `Outer$1.class` |
+| Class at run time | hidden class from `LambdaMetafactory`, name `Outer$$Lambda/0x…` | `Outer$1` |
+| `this`, unqualified methods | the enclosing instance and its members | the anonymous object and its inherited members |
+| Shadowing a local | compile error | allowed for its own parameters and locals |
+| New object per evaluation | unspecified (HotSpot: no if non-capturing, yes if capturing) | always (`new`) |
+
+**javac errors on this page:**
+
+| Code | Error |
+|---|---|
+| `var f = () -> ...` | `cannot infer type for local variable f (lambda expression needs an explicit target-type)` |
+| `Object o = () -> ...` | `incompatible types: Object is not a functional interface` |
+| a captured local assigned anywhere | `local variables referenced from a lambda expression must be final or effectively final` |
+| lambda parameter or local named like a local | `variable id is already defined in method ...` |
+
+## Challenges
+
+1. Write a class with one capturing and one non-capturing lambda inside a loop of a million
+   iterations, and measure allocation with `-Xlog:gc` or a profiler. Does escape analysis remove
+   the capturing lambda's allocation once the loop is compiled?
+2. A library's `removeListener` takes the listener to remove. Design the API so callers can't get
+   the opening problem wrong. What does returning a handle from `addListener` cost?
+3. A heap histogram from production shows 40,000 instances of `Orders$$Lambda/0x000071…`. How
+   do you find the line of source they came from?
+
+## Design Note: Why Java Captures Values, Not Variables
+
+JavaScript lets a closure assign to the variables around it, so those variables must live on the
+heap whenever a closure might capture them. Java keeps locals on the stack and copies what a
+lambda captures, which makes a lambda an object with final fields and nothing else. The price is
+paid by code that wants a shared counter: the `int[]` holder moves the variable to the heap by
+hand, and takes on the thread-safety problem the rule kept out.
 
 ## Code Examples
 

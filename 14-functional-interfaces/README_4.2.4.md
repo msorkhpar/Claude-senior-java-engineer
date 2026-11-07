@@ -1,584 +1,381 @@
 # 4.2.4. Predicate — Testing Values and Returning Boolean Results
 
-## Concept Explanation
+The seat-reservation service releases expired holds every night. Its for-each loop threw
+`ConcurrentModificationException` in staging, so it became `holds.removeIf(Hold::expired)`. A week
+later the job dies in production with `UnsupportedOperationException`, on a night when no hold had
+expired. The predicate was right both times.
 
-`Predicate<T>` is the functional interface for **boolean-valued tests**. It accepts a value of type `T` and returns
-`true` or `false`. A Predicate models a condition — a property or constraint that something either satisfies or does
-not.
-
-**Real-world analogy**: Think of a Predicate like an entry checkpoint at an event. Each person approaching the
-entrance is tested against a set of rules (age requirement, dress code, ticket possession). The checkpoint returns
-`true` (you may enter) or `false` (you may not). Multiple checkpoints can be combined: "has ticket AND is over 18 OR
-is on the VIP list". This is exactly how `and()`, `or()`, and `negate()` work.
-
-The interface definition:
+`Predicate<T>` is one method, `boolean test(T t)`. Composing predicates with `and`, `or` and
+`Predicate.not` is unit 4.1.3; here the subject is the methods that take one. The examples use
+these records:
 
 ```java
-@FunctionalInterface
-public interface Predicate<T> {
-    boolean test(T t);
+record Hold(String seat, int minutesLeft) {
+    boolean expired() { return minutesLeft <= 0; }
+    @Override public String toString() { return seat; }
+}
 
-    default Predicate<T> and(Predicate<? super T> other) { ... }      // logical AND (short-circuit)
-    default Predicate<T> or(Predicate<? super T> other) { ... }       // logical OR  (short-circuit)
-    default Predicate<T> negate() { ... }                             // logical NOT
-    static <T> Predicate<T> not(Predicate<? super T> target) { ... } // static NOT (Java 11+)
-    static <T> Predicate<T> isEqual(Object targetRef) { ... }        // null-safe equality
+enum Status { NEW, PAID, SHIPPED, CANCELLED }
+record Order(int id, String customer, Status status, int total) {
+    @Override public String toString() { return "#" + id; }
 }
 ```
 
-**Composition rules:**
-- `p1.and(p2)` — short-circuit AND: if `p1.test(t)` is `false`, `p2` is never called.
-- `p1.or(p2)` — short-circuit OR: if `p1.test(t)` is `true`, `p2` is never called.
-- `p.negate()` — logical NOT: flips the boolean result.
-- `Predicate.not(p)` (Java 11+) — static factory for negation; more readable with method references.
-- `Predicate.isEqual(value)` — tests `Objects.equals(t, value)`, safe for null targets.
+Every output is from Java 21.
 
-**BiPredicate<T, U>** accepts two arguments of types `T` and `U` and returns `boolean`. It has `and()`, `or()`, and
-`negate()` methods, but no `not()` or `isEqual()` static factories.
+## removeIf Is the Safe Way to Remove While Iterating, and an Immutable List Refuses It Even When Nothing Matches
 
-**Primitive specializations** (avoid boxing):
-- `IntPredicate` — `boolean test(int value)`
-- `LongPredicate` — `boolean test(long value)`
-- `DoublePredicate` — `boolean test(double value)`
-
-**Key use sites in the JDK:**
-- `Stream.filter(Predicate<T>)` — the primary use site: keep only elements matching the predicate
-- `Collection.removeIf(Predicate<E>)` — remove elements matching the predicate
-- `Optional.filter(Predicate<T>)` — keep the Optional's value only if it satisfies the predicate
-- `Files.find(path, depth, BiPredicate)` — file system traversal with attribute-based filtering
-
-## Key Points to Remember
-
-1. `Predicate<T>` has one abstract method: `boolean test(T t)` — it tests a condition on an input.
-2. `and()`, `or()`, and `negate()` are instance methods for composing predicates; all maintain short-circuit evaluation.
-3. `Predicate.not(p)` (Java 11+) is a static method — particularly useful for negating method references: `Predicate.not(String::isEmpty)`.
-4. `Predicate.isEqual(value)` uses `Objects.equals()` — it is null-safe on both the predicate argument and the target value.
-5. Short-circuit evaluation in `and()` and `or()` is important for null safety: put null-checks first in `and()` chains.
-6. `BiPredicate<T,U>` is used by `Files.find()` and other JDK methods that need to test two correlated values.
-7. Primitive specializations (`IntPredicate`, `LongPredicate`, `DoublePredicate`) have only `test()`, `and()`, `or()`, and `negate()` — no static factories.
-8. Predicates should be pure functions (no side effects); a Predicate that modifies state is a code smell.
-
-## Relevant Java 21 Features
-
-- **Java 8**: `Predicate<T>`, `BiPredicate<T,U>`, and primitive specializations introduced.
-- **Java 8**: `Stream.filter(Predicate)`, `Collection.removeIf(Predicate)`, and `Optional.filter(Predicate)` added.
-- **Java 11**: `Predicate.not(Predicate)` static factory method added — enables clean negation of method references like `Predicate.not(String::isBlank)`.
-- **Java 21**: Record patterns let a Predicate test record components directly — `p -> p instanceof PersonRecord(var n, var a) && a > 18`.
-- **Java 16+/21**: Pattern matching (`instanceof` since Java 16, `switch` since Java 21) can be used inside a Predicate to test complex type hierarchies. `Predicate<Shape> isLargeCircle = s -> s instanceof Circle c && c.radius() > 100`.
-- **Java 21**: Sequenced collections' `getFirst()`/`getLast()` can be used inside Predicate conditions.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Null input causing `NullPointerException` in a non-null-safe Predicate** — a Predicate that calls instance methods will throw NPE on null input if a null check is not the first condition.
-
-   ```java
-   // Broken: s.isEmpty() throws NPE when s is null
-   Predicate<String> notEmpty = s -> !s.isEmpty();
-   notEmpty.test(null); // NullPointerException!
-   ```
-
-   ```java
-   // Fix: put null check FIRST in the and() chain (short-circuit protects the second)
-   Predicate<String> notNull = s -> s != null;
-   Predicate<String> notEmpty = s -> !s.isEmpty();
-   Predicate<String> validInput = notNull.and(notEmpty);
-   validInput.test(null); // returns false, no NPE
-   ```
-
-2. **Using `negate()` method instead of the more readable `Predicate.not()` with method references** — `negate()` on an inline lambda is readable, but `Predicate.not()` on a method reference is far more expressive.
-
-   ```java
-   // Verbose: manually wrap in lambda then negate
-   Predicate<String> notBlank = ((Predicate<String>) String::isBlank).negate();
-   ```
-
-   ```java
-   // Clean (Java 11+): static Predicate.not() with method reference
-   Predicate<String> notBlank = Predicate.not(String::isBlank);
-
-   // Usage in stream filter
-   List<String> nonBlank = strings.stream()
-       .filter(Predicate.not(String::isBlank))
-       .collect(Collectors.toList());
-   ```
-
-3. **Side effects inside a Predicate** — Predicates that modify external state (increment a counter, write to a list) are impure. In parallel streams, this causes race conditions. Use `Consumer` for side effects.
-
-   ```java
-   // Broken: side effect in Predicate, NOT safe in parallel streams
-   List<String> seen = new ArrayList<>();
-   list.parallelStream()
-       .filter(s -> { seen.add(s); return !s.isEmpty(); }) // race condition!
-       .collect(toList());
-   ```
-
-   ```java
-   // Fix: keep Predicate pure, handle side effects separately
-   List<String> result = list.stream()
-       .filter(s -> !s.isEmpty()) // pure predicate
-       .collect(toList());
-   seen.addAll(result);           // side effect after the stream, on one thread
-   ```
-
-4. **Calling `and()` / `or()` with null** — passing null to `and()` or `or()` throws `NullPointerException` immediately, at composition time (both call `Objects.requireNonNull(other)`), not later when the predicate is tested.
-
-   ```java
-   Predicate<String> p = s -> true;
-   Predicate<String> bad = p.and(null); // NPE thrown right here
-   ```
-
-   ```java
-   // Fix: guard against null predicates
-   Predicate<String> safe = p.and(Objects.requireNonNull(other, "predicate must not be null"));
-   ```
-
-5. **Order of `and()` predicates for performance** — Put the cheapest and most selective predicate first to maximize short-circuiting benefits.
-
-   ```java
-   // Suboptimal: expensive check runs even when cheap check would have failed
-   Predicate<User> valid = expensiveDatabaseCheck.and(simpleNullCheck);
-   ```
-
-   ```java
-   // Optimal: cheap check first — short-circuits before expensive check
-   Predicate<User> valid = simpleNullCheck.and(expensiveDatabaseCheck);
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `Predicate.not()` (Java 11+) instead of manual lambda negation** for method references — it is more readable and works without an intermediate variable.
-
-2. **Order predicates in `and()` chains from cheapest to most expensive** to maximize short-circuit benefit.
-
-3. **Extract and name complex predicates** as constants or static fields — they become self-documenting and reusable.
-
-   ```java
-   private static final Predicate<String> NOT_BLANK = Predicate.not(String::isBlank);
-   private static final Predicate<String> VALID_EMAIL = email ->
-       email != null && email.contains("@") && email.contains(".");
-   ```
-
-4. **Use `Collection.removeIf(Predicate)` instead of iterator-based removal** — it is concise and avoids `ConcurrentModificationException` in the loop.
-
-   ```java
-   List<String> names = new ArrayList<>(List.of("Alice", "", "Bob", null, ""));
-   names.removeIf(s -> s == null || s.isBlank()); // in-place removal
-   // names = ["Alice", "Bob"]
-   ```
-
-5. **Use primitive specializations for numeric filtering** in performance-sensitive code — `IntPredicate` avoids boxing each element.
-
-6. **Compose predicates for validation** rather than writing nested if-statements — it is more expressive and each condition is independently testable.
-
-## Edge Cases and Their Handling
-
-1. **Empty stream with `filter(Predicate)`** — `filter` on an empty stream returns an empty stream; no NPE or exception.
-
-2. **`Predicate.isEqual(null)`** — returns a Predicate that tests if the input is `null` (uses `Objects.equals(null, t)`, which returns true only for null input). This is useful for null-element detection.
-
-   ```java
-   Predicate<String> isNull = Predicate.isEqual(null);
-   isNull.test(null);   // true
-   isNull.test("hello"); // false
-   ```
-
-3. **Combining `IntPredicate` with `and()` / `or()`** — primitive predicates support composition but do NOT have `not()` or `isEqual()` static factories. Use instance `negate()` instead.
-
-   ```java
-   IntPredicate positive = n -> n > 0;
-   IntPredicate even = n -> n % 2 == 0;
-   IntPredicate positiveAndEven = positive.and(even);
-   IntPredicate positiveOrEven = positive.or(even);
-   IntPredicate notPositive = positive.negate();
-   ```
-
-4. **`BiPredicate.negate()` with `Files.find()`** — `Files.find()` accepts a `BiPredicate<Path, BasicFileAttributes>`. Negating it with `negate()` effectively inverts the search criteria.
-
-5. **Predicate in a parallel stream with short-circuit terminal** — In `Stream.anyMatch(Predicate)`, once a match is found in any thread, the remaining threads are cancelled. The Predicate may be called from multiple threads concurrently — ensure it is stateless.
-
-6. **All-true and all-false sentinels:**
-
-   ```java
-   Predicate<Object> alwaysTrue  = x -> true;
-   Predicate<Object> alwaysFalse = x -> false;
-   // Equivalent:
-   Predicate<Object> alwaysTrue2  = Predicate.not(x -> false);
-   ```
-
-## Interview-specific Insights
-
-Interviewers focus on:
-
-- The three composition methods (`and`, `or`, `negate`) and their short-circuit behavior.
-- `Predicate.not()` (Java 11+) as the clean way to negate method references.
-- `Predicate.isEqual()` and its null-safety behavior.
-- Understanding that `and()` / `or()` short-circuit just like `&&` and `||`.
-- The null-safety ordering pattern: put null checks first in `and()` chains.
-- `Collection.removeIf(Predicate)` as the idiomatic way to conditionally remove elements.
-- Primitive specializations and why they exist.
-
-**Common tricky questions:**
-- "If `p1.test(t)` is `false` in `p1.and(p2)`, is `p2.test(t)` called?" (No — `and()` short-circuits just like `&&`.)
-- "What does `Predicate.isEqual(null)` return when tested with `null`?" (Returns `true` — it uses `Objects.equals(null, null)`.)
-- "Can you negate a method reference with `Predicate.not()`?" (Yes — `Predicate.not(String::isBlank)` works cleanly.)
-- "What is the difference between `Predicate.negate()` and `Predicate.not()`?" (`negate()` is an instance method; `not()` is a static factory. `not()` is preferred for method references because it avoids the explicit cast needed to call `negate()` on a method reference.)
-
-## Interview Q&A Section
-
-**Q1: How do `Predicate.and()`, `or()`, and `negate()` work, and do they short-circuit?**
-
-```text
-A1: All three Predicate composition methods maintain short-circuit semantics, mirroring
-Java's && and || operators:
-
-    p1.and(p2)  — if p1.test(t) is FALSE, p2 is never called (short-circuit AND)
-    p1.or(p2)   — if p1.test(t) is TRUE,  p2 is never called (short-circuit OR)
-    p.negate()  — always calls p.test(t) and inverts the boolean result
-
-Short-circuiting is critical for null safety: by placing a null-check predicate first in an
-and() chain, you ensure that method calls on the value only happen if it is non-null.
-
-Ordering also matters for performance: place the cheapest and most discriminating predicate
-first to short-circuit the expensive ones as often as possible.
-```
+Four holds, of which B1 and B2 have expired. Pause before the output: in the first list the
+expired holds are second and fourth, in the second they are last. What does each loop leave?
 
 ```java
-// Short-circuit and() for null safety
-Predicate<String> notNull = s -> s != null;
-Predicate<String> longEnough = s -> s.length() >= 5; // would NPE on null
-Predicate<String> startsWithA = s -> s.startsWith("A"); // would NPE on null
-
-// Safe: notNull is tested first; if null, the rest are skipped
-Predicate<String> valid = notNull.and(longEnough).and(startsWithA);
-
-System.out.println(valid.test(null));       // false (short-circuited at notNull)
-System.out.println(valid.test("Al"));       // false (short-circuited at longEnough)
-System.out.println(valid.test("Alice"));    // true (all three pass)
-System.out.println(valid.test("Robert"));   // false (startsWithA fails)
-
-// Short-circuit or()
-Predicate<Integer> isZero = n -> n == 0;
-Predicate<Integer> isNegative = n -> n < 0; // only called if isZero is false
-Predicate<Integer> nonPositive = isZero.or(isNegative);
-
-System.out.println(nonPositive.test(0));  // true  (isZero is true, isNegative not called)
-System.out.println(nonPositive.test(-5)); // true  (isZero false, isNegative true)
-System.out.println(nonPositive.test(3));  // false (both false)
-
-// negate()
-Predicate<String> isEmpty = String::isEmpty;
-Predicate<String> isNotEmpty = isEmpty.negate();
-System.out.println(isNotEmpty.test("hello")); // true
-System.out.println(isNotEmpty.test(""));      // false
-```
-
----
-
-**Q2: What is `Predicate.not()` and why was it added in Java 11?**
-
-```text
-A2: Predicate.not(Predicate target) is a static factory method that returns a Predicate
-representing the logical negation of the argument.
-
-It was added in Java 11 specifically to enable clean negation of method references.
-Before Java 11, to negate a method reference you had to:
-1. Assign it to an explicit typed variable, then call .negate()
-2. Or write a manual lambda
-
-Both workarounds are verbose. Predicate.not() solves this elegantly:
-
-    // Java 8-10 workaround (String.isBlank itself only exists since Java 11, so isEmpty here)
-    Predicate<String> notEmpty = ((Predicate<String>) String::isEmpty).negate();
-
-    // Java 11+
-    Predicate<String> notEmpty = Predicate.not(String::isEmpty);
-
-The most common use case is stream filtering: filter out elements that match a condition
-expressed as a method reference.
-```
-
-```java
-List<String> strings = Arrays.asList("hello", "", "  ", "world", null, "java");
-
-// Java 11+: Predicate.not with method references — clean and readable
-List<String> nonEmpty = strings.stream()
-    .filter(Objects::nonNull)                    // first remove nulls
-    .filter(Predicate.not(String::isEmpty))       // then remove empty strings
-    .filter(Predicate.not(String::isBlank))       // then remove blank strings
-    .collect(Collectors.toList());
-// ["hello", "world", "java"]
-
-// Contrast with the plain-lambda version (the style you would write before Java 11)
-List<String> nonEmpty8 = strings.stream()
-    .filter(s -> s != null)
-    .filter(s -> !s.isEmpty())
-    .filter(s -> !s.isBlank())
-    .collect(Collectors.toList());
-// Same result, but less idiomatic
-
-// Predicate.not works with any method reference that matches the signature
-Predicate<Integer> notNegative = Predicate.not(n -> n < 0);
-Predicate<List<?>> notEmptyList = Predicate.not(List::isEmpty);
-```
-
----
-
-**Q3: What is `Predicate.isEqual()` and when should you use it over `Objects::equals`?**
-
-```text
-A3: Predicate.isEqual(Object targetRef) returns a Predicate<T> that tests whether the
-input object is equal to targetRef, using Objects.equals(targetRef, t).
-
-Key properties:
-- Null-safe: Predicate.isEqual(null) tests whether the input IS null (returns true for null)
-- Predicate.isEqual("hello") tests whether the input is equal to "hello"
-- Both targetRef and the tested value can be null without NPE
-
-Compared to Objects::equals:
-- Predicate.isEqual("x") is a Predicate<Object> that tests equality with "x"
-- Objects::equals is a BiPredicate<Object,Object> — takes two args
-- They serve different purposes; isEqual is convenient for stream filtering against a constant
-
-Use Predicate.isEqual when you need a Predicate for a specific constant value in stream
-pipelines or optional filtering.
-```
-
-```java
-// Filter a list for a specific value
-List<String> names = List.of("Alice", "Bob", "Alice", "Charlie");
-
-// Using Predicate.isEqual
-Predicate<String> isAlice = Predicate.isEqual("Alice");
-long aliceCount = names.stream().filter(isAlice).count();  // 2
-
-// Null-safe: isEqual(null) tests for null
-List<String> withNulls = Arrays.asList("Alice", null, "Bob", null);
-Predicate<String> isNull = Predicate.isEqual(null);
-List<String> nulls = withNulls.stream().filter(isNull).collect(Collectors.toList());
-// [null, null]
-
-// Negated: find elements NOT equal to a target
-List<String> notAlice = names.stream()
-    .filter(Predicate.not(Predicate.isEqual("Alice")))
-    .collect(Collectors.toList());
-// ["Bob", "Charlie"]
-
-// Optional.filter with isEqual
-Optional<String> opt = Optional.of("hello");
-Optional<String> onlyHello = opt.filter(Predicate.isEqual("hello")); // present
-Optional<String> onlyWorld = opt.filter(Predicate.isEqual("world")); // empty
-```
-
----
-
-**Q4: How do you build a complex multi-condition validation using `Predicate` composition?**
-
-```text
-A4: Predicate composition is ideal for validation rules because:
-1. Each rule is expressed as a named Predicate — independently readable and testable
-2. Rules are combined with and()/or() to express AND and OR logic
-3. The combined predicate can be applied to streams, collections, and Optional
-4. New rules can be added by chaining without modifying existing ones (Open/Closed Principle)
-
-This pattern is commonly seen in:
-- Email / password validation
-- Business rule engines
-- Data quality checks
-- Form input validation
-```
-
-```java
-// Email validation with composed Predicates
-public static Predicate<String> emailValidator() {
-    Predicate<String> notNull     = s -> s != null;
-    Predicate<String> notEmpty    = s -> !s.isEmpty();
-    Predicate<String> hasAtSign   = s -> s.contains("@");
-    Predicate<String> hasDomain   = s -> {
-        int at = s.indexOf('@');
-        return at > 0 && s.lastIndexOf('.') > at + 1;
-    };
-    return notNull.and(notEmpty).and(hasAtSign).and(hasDomain);
-}
-
-// Password strength validation
-public static Predicate<String> strongPasswordValidator() {
-    Predicate<String> minLength   = p -> p != null && p.length() >= 8;
-    Predicate<String> hasUpper    = p -> p.chars().anyMatch(Character::isUpperCase);
-    Predicate<String> hasLower    = p -> p.chars().anyMatch(Character::isLowerCase);
-    Predicate<String> hasDigit    = p -> p.chars().anyMatch(Character::isDigit);
-    Predicate<String> hasSpecial  = p -> p.chars().anyMatch(c -> !Character.isLetterOrDigit(c));
-    return minLength.and(hasUpper).and(hasLower).and(hasDigit).and(hasSpecial);
-}
-
-// Usage
-Predicate<String> validEmail = emailValidator();
-System.out.println(validEmail.test("user@example.com")); // true
-System.out.println(validEmail.test("not-an-email"));     // false
-System.out.println(validEmail.test(null));               // false
-
-Predicate<String> strongPwd = strongPasswordValidator();
-System.out.println(strongPwd.test("Passw0rd!"));    // true
-System.out.println(strongPwd.test("password"));     // false (no upper, no digit, no special)
-
-// Apply to a list
-List<String> emails = List.of("a@example.org", "invalid", "c@example.org", "bad");
-List<String> validEmails = emails.stream()
-    .filter(validEmail)
-    .collect(Collectors.toList());
-// ["a@example.org", "c@example.org"]
-```
-
----
-
-**Q5: What is `BiPredicate<T,U>` and how is it used in practice?**
-
-```text
-A5: BiPredicate<T,U> tests a condition on two arguments of types T and U and returns boolean.
-Its abstract method is boolean test(T t, U u).
-
-Like Predicate, it supports and(), or(), and negate() composition methods, but does not
-have static factories (not(), isEqual()).
-
-Key use sites in the JDK:
-- Files.find(Path, int, BiPredicate<Path, BasicFileAttributes>) — file system filtering
-- Testing a pair of values (e.g., key-value pair, parent-child, index-element)
-
-BiPredicate is also useful when you need to test a relationship between two objects
-(containment, comparison, membership) without capturing one via closure.
-```
-
-```java
-// Basic BiPredicate: tests if a String contains a substring
-BiPredicate<String, String> contains = String::contains;
-System.out.println(contains.test("Hello World", "World")); // true
-System.out.println(contains.test("Hello World", "Java"));  // false
-
-// BiPredicate composition
-BiPredicate<String, String> longerThan3 = (s, prefix) -> s.length() > 3;
-BiPredicate<String, String> startsWith  = (s, prefix) -> s.startsWith(prefix);
-BiPredicate<String, String> combined    = longerThan3.and(startsWith);
-
-List<String> words = List.of("hi", "hello", "hey", "java", "javafx");
-String prefix = "he";
-List<String> matching = words.stream()
-    .filter(w -> combined.test(w, prefix))
-    .collect(Collectors.toList());
-// ["hello"] — "hey" starts with "he" but its length 3 is not > 3, so longerThan3 fails
-
-// negate()
-BiPredicate<String, String> doesNotContain = contains.negate();
-System.out.println(doesNotContain.test("Hello World", "Java")); // true
-
-// Files.find — real JDK use of BiPredicate
-Path root = Path.of("/tmp");
-try (Stream<Path> found = Files.find(root, 3,
-        (path, attrs) -> attrs.isRegularFile() && path.toString().endsWith(".java"))) {
-    found.forEach(System.out::println);
+for (Hold h : holds) {
+    if (h.expired()) holds.remove(h);
 }
 ```
 
----
-
-**Q6: How do primitive `Predicate` specializations differ from generic `Predicate<T>`, and when should you use them?**
-
 ```text
-A6: IntPredicate, LongPredicate, and DoublePredicate test conditions on primitive types
-directly, without boxing:
-
-    IntPredicate:    boolean test(int value)
-    LongPredicate:   boolean test(long value)
-    DoublePredicate: boolean test(double value)
-
-All three support and(), or(), and negate() instance methods. They do NOT have the static
-factory methods not() or isEqual() that generic Predicate has.
-
-Use primitive specializations when:
-- Filtering IntStream, LongStream, or DoubleStream (these APIs require the primitive forms)
-- Testing elements in tight loops where boxing overhead is measurable
-- Working with large arrays of numbers
-
-The performance benefit is most visible in hot code paths that process millions of elements.
+for-each: java.util.ConcurrentModificationException
+for-each: [A1, A2, B2]
 ```
+
+The for-each runs on the list's `Iterator`. `remove` changes the list behind it, and the
+iterator's next call to `next()` sees the change count move and throws. In the second list,
+removing B1 shrinks the list to three, and `hasNext()` only compares its position, 3, with the
+size, 3. The loop ends without calling `next()`, so nothing throws and B2 is never tested. That
+seat stays held for another night.
+
+`removeIf` hands the loop to the collection:
 
 ```java
-// Generic Predicate with boxing
-Predicate<Integer> isEvenBoxed = n -> n % 2 == 0;
-List<Integer> evens = List.of(1, 2, 3, 4, 5, 6).stream()
-    .filter(isEvenBoxed)  // each int is boxed to Integer
-    .collect(Collectors.toList());
-
-// IntPredicate — no boxing
-IntPredicate isEvenPrimitive = n -> n % 2 == 0;
-int[] evensArray = IntStream.rangeClosed(1, 6)
-    .filter(isEvenPrimitive)  // no boxing at all
-    .toArray(); // [2, 4, 6]
-
-// Composition with IntPredicate
-IntPredicate positive = n -> n > 0;
-IntPredicate even     = n -> n % 2 == 0;
-IntPredicate negated  = even.negate();
-
-IntPredicate positiveAndEven = positive.and(even);
-IntPredicate positiveOrNeg   = positive.or(negated);
-
-int[] result = IntStream.rangeClosed(-5, 5)
-    .filter(positiveAndEven)
-    .toArray(); // [2, 4]
-
-// LongPredicate for large number checking
-LongPredicate isBillion = n -> n >= 1_000_000_000L;
-boolean result2 = isBillion.test(5_000_000_000L); // true — no boxing needed
+boolean changed = holds.removeIf(Hold::expired);
 ```
-
----
-
-**Q7: How would you use `Collection.removeIf(Predicate)` and when is it better than an iterator?**
 
 ```text
-A7: Collection.removeIf(Predicate<E> filter) removes all elements from the collection
-for which the Predicate returns true. It is a default method on Collection (Java 8+).
-
-Advantages over iterator-based removal:
-1. Conciseness: one line vs. 5-6 lines of iterator code
-2. Safety: no ConcurrentModificationException — the method handles iteration internally
-3. Performance: ArrayList's implementation marks the elements to remove in a bit mask and then
-   compacts the array once, so the whole removal is O(n) instead of O(n) per removed element
-4. Readability: the condition is expressed as a named Predicate
-
-Use removeIf when you want to modify a collection in-place based on a condition.
-Use stream.filter() when you want to produce a NEW collection without modifying the original.
+removeIf: [A1, A2], changed=true
 ```
 
+Java 21's `ArrayList` tests every element first and then moves the survivors down once, so no
+element is skipped. The result says whether anything was removed.
+
+Whether the call is allowed at all is up to the list. The `List.of` javadoc says every mutator
+throws, and the `removeIf` of `List.of`, `List.copyOf` and `Stream.toList()` throws before testing
+a single element. A fixed-size `Arrays.asList`
+uses the default `removeIf`, which removes through the iterator, so it throws only when an element
+matches:
+
+```text
+List.of, nothing expired: java.lang.UnsupportedOperationException
+Arrays.asList, nothing expired: changed=false
+Arrays.asList, one expired: java.lang.UnsupportedOperationException: remove
+```
+
+The release job in the opening had been handed an unmodifiable copy of the holds. Had it been
+given an `Arrays.asList`, it would fail only on nights with an expired hold, and tests without one
+stay green.
+When the caller's list may be immutable, filter into a new list and return that.
+
+<!-- practice 1 -->
+
+## filter Keeps Every Match; takeWhile Stops at the First false
+
+Log lines carry the minute they were written, and two servers write them. A report wants the lines
+before minute 10, once from the lines sorted by minute and once from the second server's lines
+appended to the first's:
+
 ```java
-// Iterator-based removal (verbose, error-prone)
-List<String> names = new ArrayList<>(List.of("Alice", "", "Bob", null, "  ", "Charlie"));
-Iterator<String> it = names.iterator();
-while (it.hasNext()) {
-    String s = it.next();
-    if (s == null || s.isBlank()) {
-        it.remove();
-    }
+Predicate<Integer> beforeTen = minute -> minute < 10;
+for (List<Integer> minutes : List.of(sorted, appended)) {
+    System.out.println(minutes);
+    System.out.println("  filter:    " + minutes.stream().filter(beforeTen).toList());
+    System.out.println("  takeWhile: " + minutes.stream().takeWhile(beforeTen).toList());
+    System.out.println("  dropWhile: " + minutes.stream().dropWhile(beforeTen).toList());
 }
-// names = ["Alice", "Bob", "Charlie"]
-
-// removeIf — concise and safe
-List<String> names2 = new ArrayList<>(List.of("Alice", "", "Bob", null, "  ", "Charlie"));
-names2.removeIf(s -> s == null || s.isBlank());
-// names2 = ["Alice", "Bob", "Charlie"]
-
-// With named Predicate for reusability
-Predicate<String> nullOrBlank = s -> s == null || s.isBlank();
-names2.removeIf(nullOrBlank);
-
-// Complex business condition
-List<User> users = new ArrayList<>(loadUsers());
-Predicate<User> inactive = u -> u.getLastLogin().isBefore(LocalDate.now().minusYears(1));
-users.removeIf(inactive); // remove users inactive for over a year
-
-// Note: removeIf works on mutable collections only
-// List.of() is immutable — removeIf throws UnsupportedOperationException
-// List.of("a", "b").removeIf(s -> true); // UnsupportedOperationException (even if nothing matches)
 ```
+
+```text
+[1, 2, 4, 6, 9, 11, 15]
+  filter:    [1, 2, 4, 6, 9]
+  takeWhile: [1, 2, 4, 6, 9]
+  dropWhile: [11, 15]
+[1, 4, 9, 15, 2, 6, 11]
+  filter:    [1, 4, 9, 2, 6]
+  takeWhile: [1, 4, 9]
+  dropWhile: [15, 2, 6, 11]
+```
+
+On the sorted list both give the same lines, and `takeWhile` tested 6 elements where `filter`
+tested 7. `takeWhile` returns the longest prefix that passes: at the first `false` a sequential
+stream stops and never tests the rest. `dropWhile` returns the rest, starting at that first failing
+element. So on the appended lines the report lost minutes 2 and 6, with no error.
+
+`takeWhile` is right when the order is part of the meaning: a sorted input you want to stop
+reading early, or a leading run such as a file's header. Anywhere else, use `filter`.
+
+> **Unordered streams differ.** On a stream with no encounter order, the javadoc lets `takeWhile`
+> return any subset of the matching elements.
+
+<!-- practice 2 -->
+
+## asPredicate Finds the Pattern Anywhere; asMatchPredicate Needs the Whole String
+
+A voucher code is lower-case letters followed by digits. The validator was built from the
+pattern:
+
+```java
+Pattern voucher = Pattern.compile("[a-z]+\\d+");
+Predicate<String> found = voucher.asPredicate();
+Predicate<String> matched = voucher.asMatchPredicate();
+```
+
+```text
+abc123         asPredicate=true  asMatchPredicate=true
+abc123x        asPredicate=true  asMatchPredicate=false
+<b>abc123</b>  asPredicate=true  asMatchPredicate=false
+```
+
+`asPredicate()` tests `matcher(s).find()`: true if the pattern occurs anywhere in the input.
+`asMatchPredicate()`, since Java 11, tests `matcher(s).matches()`: the whole input must match.
+
+Anchoring the pattern with `^` and `$` and keeping `asPredicate` comes close, but isn't the same:
+
+```text
+abc123     ^...$ asPredicate=true  asMatchPredicate=true
+#abc123    ^...$ asPredicate=false asMatchPredicate=false
+abc123x    ^...$ asPredicate=false asMatchPredicate=false
+abc123\n   ^...$ asPredicate=true  asMatchPredicate=false
+```
+
+`^` and `$` tie the match to the ends of the input, but `$` also matches just before one final line
+terminator, so a code with a trailing newline passes and reaches the database with it. For validation, use `asMatchPredicate`.
+
+## Predicate.isEqual Is Null-Safe on Both Sides; equals Called Through a Lambda Is Not
+
+A report counts the orders in one currency from their currency codes, where `null` means "no
+currency recorded". Three ways to write it, run against `Arrays.asList("EUR", null, "USD", "EUR")`:
+
+```java
+currencies.stream().filter(Predicate.isEqual(wanted)).count();
+currencies.stream().filter(c -> c.equals(wanted)).count();
+currencies.stream().filter(wanted::equals).count();
+```
+
+```text
+wanted EUR:
+  isEqual(wanted):       2
+  c -> c.equals(wanted): NullPointerException
+  wanted::equals:        2
+wanted null:
+  isEqual(wanted):       1
+  c -> c.equals(wanted): NullPointerException
+  wanted::equals:        NullPointerException before any element
+```
+
+`Predicate.isEqual(target)` tests `Objects.equals(target, t)`, so a `null` on either side is just a
+value, and `isEqual(null)` matches only `null`. The lambda fails at the first `null` element. The
+method reference fails earlier: `wanted::equals` evaluates `wanted` when the predicate is created,
+and a `null` receiver throws on that line, before any element is tested.
+
+`isEqual` still compares with `equals`, so the types must match: `Predicate.isEqual(1).test(1L)` is
+`false`, because an `Integer` never equals a `Long`.
+
+<!-- practice 3 -->
+
+## Optional Criteria Reduce from the Operator's Identity: x -> true for and, x -> false for or
+
+A search form has optional fields. The service turns each filled-in field into a
+`Predicate<Order>` and combines the list:
+
+```java
+static Predicate<Order> all(List<Predicate<Order>> criteria, Predicate<Order> identity) {
+    return criteria.stream().reduce(identity, Predicate::and);
+}
+
+static Predicate<Order> any(List<Predicate<Order>> options, Predicate<Order> identity) {
+    return options.stream().reduce(identity, Predicate::or);
+}
+```
+
+Pause: the user fills in nothing. Which identity lists every order?
+
+```text
+and, no criteria:   identity true [#1, #2, #3, #4, #5]  identity false []
+and, acme, >= 50:   identity true [#1]  identity false []
+or, PAID|SHIPPED:   identity false [#2, #3, #4]  identity true [#1, #2, #3, #4, #5]
+or, no statuses:    identity false []
+```
+
+The starting value is what an empty list means, and it is combined with every element, so it must
+not change the answer. `x && true` is `x`, so `and` starts from `x -> true`. `x || false` is `x`,
+so `or` starts from `x -> false`. With the other value, `and` rejects every order whatever the
+user typed, and `or` accepts every order.
+
+The version of this bug that ships is `reduce(Predicate::and).orElse(x -> false)`: right for every
+form with a field filled in, and empty for the form with none.
+
+The `no statuses` line follows the algebra, and the form needs something else. "Any of these
+statuses" with no box ticked means "don't filter on status". The or-reduction of nothing is
+`x -> false`, and ANDed with the other criteria it empties the result. Add a criterion only when
+its field holds something.
+
+`allMatch` on an empty stream returns `true` for the same reason, so an empty code passes a
+digits-only check:
+
+```text
+"".chars().allMatch(Character::isDigit): true
+```
+
+<!-- practice 4 -->
+
+## A Predicate That Remembers Answers Differently in Parallel and on Its Second Use
+
+`Stream` has no "distinct by key", and a common answer is a predicate that remembers what it has
+seen. `Set.add` returns `false` for a key already present:
+
+```java
+static <T, K> Predicate<T> distinctBy(Function<? super T, K> key) {
+    Set<K> seen = new HashSet<>();
+    return t -> seen.add(key.apply(t));
+}
+
+static final Predicate<Order> FIRST_PER_CUSTOMER = distinctBy(Order::customer);
+```
+
+Kept in a field so it is built only once, it serves two reports:
+
+```text
+first call:  [#1, #3, #4]
+second call: []
+```
+
+The set lives as long as the predicate, so the second report found every customer already seen.
+
+On a parallel stream the `HashSet` is updated from several threads, with the losses unit 4.2.1
+shows for `ArrayList`. A thread-safe set (`ConcurrentHashMap.newKeySet()`) stops the lost updates,
+and still keeps the wrong orders. Here are 200,000 orders over 1,000 customers, where customer
+`c7`'s first order is `#7` (20 cores; the counts vary by run):
+
+```text
+run 1: HashSet kept 1000, concurrent set kept 1000 (1000 not the customer's first; c7 kept #133007)
+run 2: HashSet kept 1008, concurrent set kept 1000 (1000 not the customer's first; c7 kept #172007)
+run 3: HashSet kept 1821, concurrent set kept 1000 (1000 not the customer's first; c7 kept #33007)
+```
+
+The concurrent set keeps one order per customer, but the thread that reached a key first wins,
+and in these runs that was never the first order. `filter` keeps the passing elements in
+encounter order; it promises nothing about the order in which it tests them.
+
+When "first" matters, let a collector decide. A non-concurrent collector combines partial results
+in encounter order, so a merge function that keeps the earlier value keeps the first, in parallel
+too:
+
+```java
+Map<String, Order> first = big.parallelStream()
+        .collect(Collectors.toMap(Order::customer, o -> o, (earlier, later) -> earlier, LinkedHashMap::new));
+```
+
+```text
+toMap run 1: kept 1000, c7 kept #7
+```
+
+A stateful predicate is safe only when it is created for one sequential pipeline and dropped with
+it.
+
+<!-- practice 5 -->
+
+## BiPredicate and IntPredicate Compose Like Predicate, Without not or isEqual
+
+`BiPredicate<T, U>` tests two values. `Files.find` takes one, so the test can read a file's
+attributes without a second call:
+
+```java
+BiPredicate<Path, BasicFileAttributes> javaSource =
+        (path, attrs) -> attrs.isRegularFile() && path.toString().endsWith(".java");
+try (Stream<Path> found = Files.find(Path.of("."), 1, javaSource)) {
+    System.out.println("sources: " + found.map(Path::getFileName).sorted().toList());
+}
+```
+
+`IntPredicate` (like `LongPredicate` and `DoublePredicate`) tests a primitive, and is what
+`IntStream.filter` takes. Both have `and`, `or` and `negate`, and neither has the static `not` or
+`isEqual`: `Predicate.not(digit)` on an `IntPredicate` doesn't compile. Use `negate()`:
+
+```java
+IntPredicate digit = Character::isDigit;
+System.out.println("SKU-0042 non-digits: " + "SKU-0042".chars().filter(digit.negate()).count());
+```
+
+```text
+SKU-0042 non-digits: 4
+```
+
+<!-- practice 6 -->
+
+## Summary
+
+- **`removeIf` removes safely while iterating.** A for-each removal throws or silently skips the
+  last element, and `List.of` refuses `removeIf` even when nothing matches.
+- **`takeWhile` stops at the first `false`.** On unsorted input it drops matches that `filter`
+  keeps.
+- **`asPredicate` finds; `asMatchPredicate` matches the whole string.** `^...$` still lets a
+  trailing newline through.
+- **`Predicate.isEqual` is null-safe on both sides**; `c.equals(w)` and `w::equals` throw.
+- **Reduce optional criteria from `x -> true` for `and` and `x -> false` for `or`**, and leave out
+  a criterion whose field is empty.
+- **A predicate with state** answers differently on reuse and arbitrarily in parallel.
+- **`BiPredicate` and `IntPredicate`** have `and`, `or` and `negate`, but no `not` or `isEqual`.
+
+## Reference
+
+**Where the JDK takes a predicate:**
+
+| Call | What the predicate decides |
+|---|---|
+| `Collection.removeIf(p)` | which elements are removed; returns whether any were |
+| `Stream.filter(p)` | which elements pass; every element the pipeline pulls is tested |
+| `Stream.takeWhile(p)` / `dropWhile(p)` | where the leading run ends; sequentially, `takeWhile` tests nothing after the first `false` |
+| `Stream.anyMatch` / `allMatch` / `noneMatch` | the answer; on an empty stream `false` / `true` / `true` |
+| `Optional.filter(p)` | whether the value is kept |
+| `Files.find(start, depth, bp)` | which paths are returned (a `BiPredicate<Path, BasicFileAttributes>`) |
+
+**`removeIf` on (ran on Java 21):**
+
+| List | Nothing matches | Something matches |
+|---|---|---|
+| `ArrayList`, `LinkedList` | `false` | removes, `true` |
+| `List.of`, `List.copyOf`, `Stream.toList()`, `Collections.unmodifiableList` | `UnsupportedOperationException` | `UnsupportedOperationException` |
+| `Arrays.asList` | `false` | `UnsupportedOperationException` |
+
+When the predicate threw part-way, the `ArrayList` in our run was unchanged and the `LinkedList`
+had already lost the matching elements tested before the throw. The javadoc promises neither.
+
+**Factories:**
+
+| Factory | Tests |
+|---|---|
+| `Pattern.asPredicate()` | `matcher(s).find()` |
+| `Pattern.asMatchPredicate()` (Java 11) | `matcher(s).matches()` |
+| `Predicate.isEqual(x)` | `Objects.equals(x, t)` |
+| `Predicate.not(p)` (Java 11) | `!p.test(t)` |
+
+## Challenges
+
+1. A cleanup must remove expired entries from a list that some callers create with `List.of`.
+   Do you return a new list, copy defensively, or document the requirement? What does each cost
+   the callers?
+2. A search form has ten optional fields, and product asks for "match any field" as a second mode.
+   Design one builder for both modes, and say what an empty form returns in each.
+3. Write `distinctBy` so it is safe to share, or explain why it can't be, and measure what the
+   `toMap` alternative costs on 10 million elements.
+
+## Design Note: Handing the Loop to the Collection
+
+With `removeIf` the collection runs the loop instead of the caller. That lets `ArrayList` test
+everything first and compact once, so no element can be skipped. It also means the caller no
+longer controls the loop: the collection decides when the predicate runs, how often, and whether
+it runs at all, as `List.of` does when it throws before calling it. Every method in the first
+reference table works this way, so a predicate passed to one should answer from its argument
+alone.
 
 ## Code Examples
 

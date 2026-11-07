@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Route each item to the valid or the invalid consumer",
+  "title": "Stop confirming orders the shop can't fill",
   "blocks": [
     {
       "type": "heading",
@@ -19,35 +19,25 @@
     },
     {
       "type": "para",
-      "text": "A consumer returns nothing: its whole job is a side effect. That makes a pair of consumers a clean way to decouple *deciding* about an item from *what happens* to it."
+      "text": "The shop's checkout runs one consumer for every order it accepts. That consumer takes the stock, emails the customer, and, where the deployment has one, writes the order to a compliance log. Support has two complaints: customers get \"your order is on its way\" for orders that were then refused because the warehouse was out of stock, and the staging deployment, which has no compliance log, can't be started with the current code."
     },
     {
       "type": "para",
-      "text": "Write `Router.route(List<String> items, Consumer<String> valid, Consumer<String> invalid)`. The page's shape is one dispatcher consumer run over `items` with `forEach`. An item is valid when it has visible content, meaning it is not `null` and `String.isBlank()` is false (so Unicode whitespace such as `\"\\u2003\"` counts as no content). Items are handled one at a time, in list order: every item goes to exactly one of the two handlers before the next item is looked at."
+      "text": "Write `build(reserve, confirm, audit)` in `src/main/java/practice/OrderPipeline.java`. The steps are given to you; you decide how they are put together. When you're done:"
     },
     {
-      "type": "table",
-      "headers": [
-        "items",
-        "`valid` receives",
-        "`invalid` receives"
-      ],
-      "rows": [
-        [
-          "`[\"Alice\", \"\", \"Bob\"]`",
-          "`Alice`, `Bob`",
-          "`\"\"`"
-        ],
-        [
-          "`[\"x\"]`",
-          "`x`",
-          "nothing"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "a customer is emailed only about an order whose stock was reserved;",
+        "when the stock can't be reserved, the checkout gets that exception as it was thrown, so it can show the customer why;",
+        "the compliance log holds only orders whose customer was emailed;",
+        "a deployment that passes `null` for `audit` still takes orders."
       ]
     },
     {
       "type": "para",
-      "text": "The page's own example list is `[\"Alice\", \"\", null, \"Bob\", \"  \"]`. Make sure every one of those is routed without an exception."
+      "text": "About three lines in total."
     },
     {
       "type": "heading",
@@ -62,7 +52,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Consumer;\n\npublic final class Router {\n\n    private Router() {\n    }\n\n    /** Hands every item, in order, to {@code valid} if it has visible content, else to {@code invalid}. */\n    public static void route(List<String> items, Consumer<String> valid, Consumer<String> invalid) {\n        Consumer<String> dispatcher = item -> {\n            if (item != null && !item.isBlank()) {\n                valid.accept(item);\n            } else {\n                invalid.accept(item);\n            }\n        };\n        items.forEach(dispatcher);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Puts together what happens to each order the shop accepts. The checkout calls the consumer\n * that {@link #build} returns once per order, and shows the customer an error when it throws.\n */\npublic final class OrderPipeline {\n\n    /** An order for {@code quantity} units of one product. */\n    public record Order(String id, String sku, int quantity) {}\n\n    private OrderPipeline() {\n    }\n\n    /**\n     * Builds the consumer the checkout runs for every order.\n     *\n     * @param reserve takes the stock for the order; throws IllegalStateException when there is not enough\n     * @param confirm emails the customer that the order is on its way; throws when the mail server is down\n     * @param audit   records the order in the compliance log; null on deployments that have no such log\n     */\n    public static Consumer<Order> build(Consumer<Order> reserve, Consumer<Order> confirm, Consumer<Order> audit) {\n        Consumer<Order> placed = reserve.andThen(confirm);\n        return audit == null ? placed : placed.andThen(audit);\n    }\n}\n"
         }
       ]
     },
@@ -74,7 +64,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Consumer;\n\npublic final class Router {\n\n    private Router() {\n    }\n\n    /** Hands every item, in order, to {@code valid} if it has visible content, else to {@code invalid}. */\n    public static void route(List<String> items, Consumer<String> valid, Consumer<String> invalid) {\n        throw new UnsupportedOperationException(\"write route\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Puts together what happens to each order the shop accepts. The checkout calls the consumer\n * that {@link #build} returns once per order, and shows the customer an error when it throws.\n */\npublic final class OrderPipeline {\n\n    /** An order for {@code quantity} units of one product. */\n    public record Order(String id, String sku, int quantity) {}\n\n    private OrderPipeline() {\n    }\n\n    /**\n     * Builds the consumer the checkout runs for every order.\n     *\n     * @param reserve takes the stock for the order; throws IllegalStateException when there is not enough\n     * @param confirm emails the customer that the order is on its way; throws when the mail server is down\n     * @param audit   records the order in the compliance log; null on deployments that have no such log\n     */\n    public static Consumer<Order> build(Consumer<Order> reserve, Consumer<Order> confirm, Consumer<Order> audit) {\n        // TODO: Customers have been emailed about orders that were then refused for lack of stock,\n        //       and the compliance log must hold only orders whose customer was told. Staging\n        //       has no compliance log. Return the consumer the checkout runs for each order.\n        throw new IllegalStateException(\"TODO: build\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -84,8 +74,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -93,11 +83,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "43ea48f160e6acd74fb920c029cc5571305d2ccf4418b8a1dab173f8b433dd6b",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Consumer;\n\npublic final class Router {\n\n    private Router() {\n    }\n\n    /** Hands every item, in order, to {@code valid} if it has visible content, else to {@code invalid}. */\n    public static void route(List<String> items, Consumer<String> valid, Consumer<String> invalid) {\n        throw new UnsupportedOperationException(\"write route\");\n    }\n}\n",
+  "content_sha256": "bc4625f1067805e9df7e57908875a6b1acb9bd834d51671e3b0f521635f13e90",
+  "starting_code": "package practice;\n\nimport java.util.function.Consumer;\n\n/**\n * Puts together what happens to each order the shop accepts. The checkout calls the consumer\n * that {@link #build} returns once per order, and shows the customer an error when it throws.\n */\npublic final class OrderPipeline {\n\n    /** An order for {@code quantity} units of one product. */\n    public record Order(String id, String sku, int quantity) {}\n\n    private OrderPipeline() {\n    }\n\n    /**\n     * Builds the consumer the checkout runs for every order.\n     *\n     * @param reserve takes the stock for the order; throws IllegalStateException when there is not enough\n     * @param confirm emails the customer that the order is on its way; throws when the mail server is down\n     * @param audit   records the order in the compliance log; null on deployments that have no such log\n     */\n    public static Consumer<Order> build(Consumer<Order> reserve, Consumer<Order> confirm, Consumer<Order> audit) {\n        // TODO: Customers have been emailed about orders that were then refused for lack of stock,\n        //       and the compliance log must hold only orders whose customer was told. Staging\n        //       has no compliance log. Return the consumer the checkout runs for each order.\n        throw new IllegalStateException(\"TODO: build\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-1/src/main/java/practice/Router.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-1/src/test/java/practice/RouterTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-1/src/main/java/practice/OrderPipeline.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-01/practice-1/src/test/java/practice/OrderPipelineTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -118,24 +108,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RouterTest#routesEachItemToOneHandler",
+        "id": "practice.OrderPipelineTest#placesAnOrderThatIsInStock",
         "kind": "main",
-        "says": "Items with text go to the valid handler, in order; empty ones go to the invalid handler."
+        "says": "an order that is in stock is reserved, confirmed and audited once each"
       },
       {
-        "id": "practice.RouterTest#whitespaceOnlyIsInvalid",
+        "id": "practice.OrderPipelineTest#anOrderThatCannotBeReservedIsNotConfirmed",
         "kind": "edge",
-        "says": "A string of spaces has no content, so it is invalid too."
+        "says": "no confirmation is emailed for an order whose stock could not be reserved"
       },
       {
-        "id": "practice.RouterTest#nullIsRoutedNotThrown",
+        "id": "practice.OrderPipelineTest#theCheckoutLearnsThatAnOrderCannotBeReserved",
         "kind": "edge",
-        "says": "A null item is handed to the invalid handler instead of throwing."
+        "says": "the exception that refused the reservation reaches the checkout unchanged"
       },
       {
-        "id": "practice.RouterTest#itemsAreHandledInListOrder",
+        "id": "practice.OrderPipelineTest#aDeploymentWithoutAComplianceLogStillTakesOrders",
         "kind": "edge",
-        "says": "Items are dispatched one after another in list order, so valid and invalid handling interleave as the list does."
+        "says": "with no compliance log configured, orders are still reserved and confirmed"
+      },
+      {
+        "id": "practice.OrderPipelineTest#anOrderWhoseEmailFailedIsNotInTheComplianceLog",
+        "kind": "edge",
+        "says": "an order whose confirmation email failed is not written to the compliance log"
       }
     ],
     "report": {
@@ -144,11 +139,11 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.1.md",
-      "section": "Interview Q&A Section"
+      "section": "andThen Runs the Steps in Order, and Stops at the First One That Throws"
     },
     "concepts": [
-      "A Consumer takes one value and returns nothing, so its whole purpose is a side effect.",
-      "A dispatcher consumer can route each item to one of two consumers, keeping the check apart from the handling."
+      "a.andThen(b) runs a, then b, on the same value, and if a throws, b does not run and the exception reaches the caller; so the step that can refuse goes first and the irreversible one last.",
+      "andThen(null) throws NullPointerException when the chain is built, not when it runs, so an optional step needs an explicit choice."
     ]
   }
 }

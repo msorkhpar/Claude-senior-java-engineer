@@ -18,295 +18,323 @@
       "text": "4.1.3. Using Lambda Expressions with Functional Interfaces"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
-    },
-    {
       "type": "para",
-      "text": "Functional interfaces are the foundation of lambda expressions in Java. A functional interface is an interface with exactly one abstract method (SAM - Single Abstract Method). Lambda expressions can only be used where a functional interface is expected, making functional interfaces the \"target type\" for lambdas."
-    },
-    {
-      "type": "para",
-      "text": "Java provides many built-in functional interfaces in the `java.util.function` package, and you can create custom functional interfaces for specific needs. The `@FunctionalInterface` annotation helps document this intent and prevents accidentally adding additional abstract methods."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a functional interface as a job description with one main responsibility. A lambda expression is like hiring a contractor to do that specific job. The interface defines what needs to be done (method signature), and the lambda provides how to do it (implementation)."
+      "text": "A pricing service passes `Function<Integer, Integer>` fee steps through a helper `mapAll(List<T>, Function<T, R>)` and sorts its support tickets with a `Comparator` that ends in `.reversed()`. In one week a teammate's `Function<Object, String>` won't compile against the helper, the ticket dashboard lists its queues backwards, and a profiler shows 300 MB of `Integer`s per batch. Each is a choice of functional interface, or of how two of them are combined."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "One Abstract Method Makes an Interface Functional; @FunctionalInterface Only Checks It"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Functional interfaces have exactly one abstract method.",
-        "They can have multiple default methods and static methods.",
-        "Methods inherited from Object class don't count toward the abstract method count.",
-        "The `@FunctionalInterface` annotation is optional but recommended.",
-        "Lambda expressions provide implementation for the functional interface's abstract method.",
-        "Java provides many standard functional interfaces in `java.util.function` package.",
-        "Custom functional interfaces can be created for domain-specific needs."
-      ]
+      "type": "para",
+      "text": "A lambda can target any interface with exactly one abstract method left once `default` and `static` methods, and abstract redeclarations of `Object`'s public methods, are set aside. `Comparator` declares two abstract methods:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "System.out.println(c.getSimpleName() + \" abstract methods: \" + Arrays.stream(c.getDeclaredMethods())\n        .filter(m -> Modifier.isAbstract(m.getModifiers()))\n        .map(Method::getName).sorted().toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Comparator abstract methods: [compare, equals]"
+    },
+    {
+      "type": "para",
+      "text": "`equals(Object)` doesn't count: every implementation inherits one from `Object`, so a lambda never has to supply it. `compare` is the only method left, and `Comparator` is functional."
+    },
+    {
+      "type": "para",
+      "text": "An unannotated one-method `RateLimit` takes a lambda just as well; the annotation changes where a mistake is reported. A teammate adds `void reset(String clientId)` to it. Without the annotation `RateLimit.java` still compiles, and the error appears in whichever file holds a lambda:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Gateway.java:2: error: incompatible types: RateLimit is not a functional interface\n    RateLimit open = clientId -> true;\n                     ^\n    multiple non-overriding abstract methods found in interface RateLimit"
+    },
+    {
+      "type": "para",
+      "text": "With `@FunctionalInterface`, the interface itself fails, in the change that broke it:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "RateLimit.java:1: error: Unexpected @FunctionalInterface annotation\n@FunctionalInterface\n^\n  RateLimit is not a functional interface\n    multiple non-overriding abstract methods found in interface RateLimit"
+    },
+    {
+      "type": "para",
+      "text": "Put it on every interface you publish for lambdas."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Use java.util.function Until a Name, a Checked Exception or a Third Parameter Asks for Your Own"
     },
     {
       "type": "para",
-      "text": "The functional interfaces in `java.util.function` are unchanged since Java 8; newer features combine well with them:"
+      "text": "The JDK's interfaces come with `andThen`, `and` and `negate`, and the streams and collections APIs take them. Declare your own when one of three things is true:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Pattern matching**: Functional interfaces work seamlessly with modern pattern matching.",
-        "**Sequenced collections** (Java 21): New collection methods such as `reversed()`, `getFirst()` and `getLast()` that fit into lambda pipelines (no new functional interfaces were added).",
-        "**Virtual threads** (Java 21): A `Runnable` or `Callable` lambda is what you hand to a virtual thread or its executor."
+        "the name carries meaning a reviewer needs: `FeeRule` says more than `BiFunction<Order, Customer, Money>`;",
+        "the method must throw a checked exception, which `Function.apply` can't declare (unit 3.2.2);",
+        "it needs three or more parameters: the JDK stops at `BiFunction`."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "A `Parser` with the same shape as `Function<String, Integer>` is not one:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "class Parsers {\n    @FunctionalInterface\n    interface Parser { Integer parse(String text); }\n\n    static Parser decimal = Integer::valueOf;\n    static Function<String, Integer> asFunction = decimal;           // does not compile\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Parsers.java:8: error: incompatible types: Parser cannot be converted to Function<String,Integer>"
+    },
+    {
+      "type": "para",
+      "text": "A lambda fits either type, but once it is typed as a `Parser` it is not a `Function`: a cast compiles and throws `ClassCastException`. Every boundary needs an adapter (`decimal::parse`): `Function.andThen` won't take a `Parser` either, and `Parser` has no `andThen` until you write it."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Function<Integer, Integer> Boxes Each Value Unless the JIT Removes It; IntUnaryOperator Never Boxes"
+    },
+    {
+      "type": "para",
+      "text": "`Function<Integer, Integer>.apply` takes and returns objects, so `f.apply(i)` boxes `i` and the result. `IntUnaryOperator.applyAsInt` takes and returns `int`. We summed `f.apply(i)` for ten million `i` in a program, `Boxing`, and read the thread's allocation counter (`com.sun.management.ThreadMXBean.getThreadAllocatedBytes`) around each loop:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static long boxed(Function<Integer, Integer> f) {\n    long sum = 0;\n    for (int i = 0; i < N; i++) sum += f.apply(i);\n    return sum;\n}"
+    },
+    {
+      "type": "para",
+      "text": "`primitive(IntUnaryOperator f)` is the same loop with `applyAsInt`. Round 5, after four warm-ups, first with one lambda passed to each method, then with three (one row of three shown):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "## one lambda through each method\nround 5, lambda 1   Function<Integer,Integer>:      28 KB   3 ms   IntUnaryOperator:   0 KB   2 ms\n## three lambdas through each method\nround 5, lambda 1   Function<Integer,Integer>: 312,496 KB  35 ms   IntUnaryOperator:   0 KB  14 ms"
+    },
+    {
+      "type": "para",
+      "text": "With one lambda, the JIT inlined it, saw that no `Integer` escaped, and removed the boxing. With three, the call site was megamorphic and was not inlined, so every call allocated two 16-byte `Integer`s (the `Integer` cache covers only -128 to 127). A shared pipeline that runs many lambdas through one call site is the second case. The timings are from one machine, not JMH. The Reference lists the specialisations for `int`; `long` and `double` have the same set."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "andThen Runs the Receiver First and compose the Argument First; and/or Stop Early"
+    },
+    {
+      "type": "para",
+      "text": "An order of 100.00, in cents, gets 10 % off and 5.00 shipping. Which call gives 95.00?"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Function<Integer, Integer> discount = cents -> cents * 90 / 100;   // 10 % off\nFunction<Integer, Integer> shipping = cents -> cents + 500;        // flat 5.00\n\nSystem.out.println(\"discount.andThen(shipping): \" + discount.andThen(shipping).apply(10_000));\nSystem.out.println(\"discount.compose(shipping): \" + discount.compose(shipping).apply(10_000));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "discount.andThen(shipping): 9500\ndiscount.compose(shipping): 9450"
+    },
+    {
+      "type": "para",
+      "text": "`f.andThen(g)` is `g(f(x))`; `f.compose(g)` is `f(g(x))`, so the second discounted the shipping too."
+    },
+    {
+      "type": "para",
+      "text": "`Predicate.and` and `or` behave like `&&` and `||`: the argument runs only if the receiver hasn't decided the answer. That makes the order a null guard:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Predicate<String> present = code -> code != null;\nPredicate<String> domestic = code -> code.startsWith(\"DE-\");\nList<String> codes = Arrays.asList(\"DE-10115\", null, \"FR-75001\");\n\nSystem.out.println(\"present.and(domestic): \" + codes.stream().filter(present.and(domestic)).toList());\nSystem.out.println(\"domestic.and(present): \" + codes.stream().filter(domestic.and(present)).toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "present.and(domestic): [DE-10115]\nException in thread \"main\" java.lang.NullPointerException: Cannot invoke \"String.startsWith(String)\" because \"code\" is null"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "reversed() Reverses the Whole Comparator Chain Built Before It"
+    },
+    {
+      "type": "para",
+      "text": "Support tickets are listed by queue A to Z, and within a queue by priority, highest first:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Comparator<Ticket> wanted = Comparator.comparing(Ticket::queue)\n        .thenComparing(Ticket::priority, Comparator.reverseOrder());\nComparator<Ticket> chainReversed = Comparator.comparing(Ticket::queue)\n        .thenComparing(Ticket::priority)\n        .reversed();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "thenComparing(priority, reverseOrder()): [access/3/T-7, access/1/T-9, billing/3/T-2, billing/1/T-4]\nthenComparing(priority).reversed():      [billing/3/T-2, billing/1/T-4, access/3/T-7, access/1/T-9]"
+    },
+    {
+      "type": "para",
+      "text": "`reversed()` wraps everything chained before it, so the queues came out Z to A too. Reverse one key by passing `Comparator.reverseOrder()` to its `thenComparing`, or by reversing the key's own comparator before you chain it."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Inference stops at the chain.** `Comparator.comparing(t -> t.priority()).reversed()` does not compile: `comparing` gets no target type when `reversed()` is called on it, so `t` is an `Object` (`cannot find symbol ... variable t of type Object`). A method reference (`Ticket::priority`) or a typed parameter (`(Ticket t) -> ...`) fixes it."
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Accept Function<? super T, ? extends R>, or Callers' Functions Don't Fit"
+    },
+    {
+      "type": "para",
+      "text": "A function over `Object` can label `Integer`s, but the compiler rejects it. The helper from the opening:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static <T, R> List<R> mapAll(List<T> items, Function<T, R> f) {"
+    },
+    {
+      "type": "para",
+      "text": "rejects a stored `Function<Object, String> describe` for a `List<Integer>`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Labels.java:15: error: method mapAll in class Labels cannot be applied to given types;\n        return mapAll(ids, describe);                                    // does not compile\n               ^\n  required: List<T>,Function<T,R>\n  found:    List<Integer>,Function<Object,String>\n  reason: inference variable T has incompatible equality constraints Object,Integer"
+    },
+    {
+      "type": "para",
+      "text": "`T` must be `Integer` for the list and `Object` for the function, and a `Function<Object, String>` is not a `Function<Integer, String>`: generic types are invariant. A function only consumes `T` and only produces `R`, so the parameter should be `Function<? super T, ? extends R>`. With that signature the same call compiles and prints `[Integer:7, Integer:42]`. An inline lambda hides the problem, because it is typed to fit; stored functions fail. The JDK's own signatures use these wildcards: `Stream.map`, `Function.andThen`, `Comparator.comparing`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**One abstract method makes an interface functional**; `@FunctionalInterface` reports a second one at the interface.",
+        "**Prefer `java.util.function`**; your own interface needs adapters at every boundary.",
+        "**`Function<Integer, Integer>` allocates two `Integer`s per call** wherever the JIT can't inline the lambda.",
+        "**`andThen` runs the receiver first; `and`/`or` stop early**, so the guard goes first.",
+        "**`reversed()` reverses the whole chain.**",
+        "**Take `Function<? super T, ? extends R>`**, or callers' functions don't fit."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Method",
+        "Result"
+      ],
+      "rows": [
         [
-          "**Using wrong functional interface type**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Wrong: Using Function when you need Consumer\nFunction<String, Void> wrong = s -> {\n    System.out.println(s);\n    return null;  // Awkward!\n};\n\n// Correct: Use Consumer for side effects\nConsumer<String> correct = s -> System.out.println(s);"
-          }
+          "`f.andThen(g)` / `f.compose(g)`",
+          "`g(f(x))` / `f(g(x))`"
         ],
         [
-          "**Forgetting @FunctionalInterface annotation**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Without annotation, accidentally adding methods goes unnoticed\ninterface MyInterface {  // No annotation - risky!\n    void doSomething();\n    void doSomethingElse();  // Oops! Not functional anymore\n}\n\n// With annotation, compiler catches the error\n@FunctionalInterface\ninterface MyInterface {\n    void doSomething();\n    // void doSomethingElse();  // Compilation error!\n}"
-          }
+          "`p.and(q)` / `p.or(q)`",
+          "`q` runs only if `p` is `true` / `false`"
         ],
         [
-          "**Not understanding generic type parameters**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Confusing input/output types\nFunction<String, Integer> length = s -> s.length();  // String -> Integer\nFunction<Integer, String> format = i -> String.valueOf(i);  // Integer -> String"
-          }
+          "`p.negate()`, `Predicate.not(p)`",
+          "the opposite of `p`"
         ],
         [
-          "**Using functional interfaces when method references would be clearer**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Less clear\nlist.forEach(item -> System.out.println(item));\n\n// More clear\nlist.forEach(System.out::println);"
-          }
+          "`c.thenComparing(key, cmp)`",
+          "ties under `c` broken by `key`, ordered by `cmp`"
+        ],
+        [
+          "`c.reversed()`",
+          "the whole of `c`, reversed"
+        ]
+      ]
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Boxed",
+        "Primitive (`long` and `double` have the same forms)"
+      ],
+      "rows": [
+        [
+          "`Predicate<Integer>`",
+          "`IntPredicate`"
+        ],
+        [
+          "`Function<Integer, R>` / `Function<T, Integer>`",
+          "`IntFunction<R>` / `ToIntFunction<T>`"
+        ],
+        [
+          "`UnaryOperator<Integer>` / `BinaryOperator<Integer>`",
+          "`IntUnaryOperator` / `IntBinaryOperator`"
+        ],
+        [
+          "`Supplier<Integer>` / `Consumer<Integer>`",
+          "`IntSupplier` / `IntConsumer`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        [
-          "**Choose the right functional interface**:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "`Consumer<T>`: Takes input, returns nothing",
-              "`Supplier<T>`: Takes nothing, returns output",
-              "`Function<T, R>`: Takes input, returns output",
-              "`Predicate<T>`: Takes input, returns boolean"
-            ]
-          }
-        ],
-        [
-          "**Use standard functional interfaces when possible**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Don't create custom interface for common cases\n// Instead of:\n@FunctionalInterface\ninterface StringProcessor {\n    String process(String s);\n}\n\n// Use standard:\nFunction<String, String> processor = s -> s.toUpperCase();"
-          }
-        ],
-        [
-          "**Create custom functional interfaces for domain-specific operations**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "@FunctionalInterface\ninterface OrderValidator {\n    boolean validate(Order order);\n\n    default OrderValidator and(OrderValidator other) {\n        return order -> this.validate(order) && other.validate(order);\n    }\n}"
-          }
-        ],
-        [
-          "**Compose functional interfaces**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Predicate<String> startsWithA = s -> s.startsWith(\"A\");\nPredicate<String> longerThan5 = s -> s.length() > 5;\nPredicate<String> combined = startsWithA.and(longerThan5);"
-          }
-        ],
-        [
-          "**Cache lambda instances when reusable**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Don't recreate lambdas unnecessarily\nprivate static final Comparator<String> LENGTH_COMPARATOR =\n    (s1, s2) -> Integer.compare(s1.length(), s2.length());\n\npublic void sort(List<String> list) {\n    list.sort(LENGTH_COMPARATOR);  // Reuse\n}"
-          }
-        ]
+        "Run `Boxing` with two lambdas instead of three. Does the JIT still remove the boxing?",
+        "Your service has eleven `Function<Order, Order>` steps. Would a `PricingStep` interface pay for its adapters?",
+        "Which test inputs would catch a comparator that lacks its last tie-breaker?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Functional interfaces with generic wildcards**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Function<? super String, ? extends Number> complex;\n// Understanding when to use bounded wildcards"
-          }
-        ],
-        [
-          "**Functional interfaces with primitive specializations**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Use IntFunction instead of Function<Integer, R> for better performance\nIntFunction<String> formatter = i -> \"Number: \" + i;"
-          }
-        ],
-        [
-          "**Functional interfaces throwing checked exceptions**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "@FunctionalInterface\ninterface ThrowingFunction<T, R> {\n    R apply(T t) throws Exception;\n}"
-          }
-        ],
-        [
-          "**Multiple abstract methods from different interfaces**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// This is still functional if only one method is abstract\ninterface MyInterface extends Runnable, Cloneable {\n    // Only run() is abstract: Cloneable is a marker interface that declares no methods at all\n}"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the JDK Has 43 Interfaces Instead of One"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Understanding the definition and purpose of functional interfaces",
-        "Knowledge of standard functional interfaces in `java.util.function`",
-        "Ability to choose the right functional interface for a given scenario",
-        "Understanding the relationship between lambda expressions and functional interfaces",
-        "Knowledge of functional interface composition and chaining",
-        "Understanding primitive specializations (IntPredicate, LongFunction, etc.)"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Can an interface with multiple methods be a functional interface?\"",
-        "\"What's the difference between Consumer and Function?\"",
-        "\"Why would you create a custom functional interface instead of using standard ones?\"",
-        "\"How do default methods affect functional interfaces?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is a functional interface and how does it relate to lambda expressions?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: A functional interface is an interface that contains exactly one abstract method (SAM - Single Abstract Method). It serves as the contract that lambda expressions implement.\n\nKey characteristics:\n1. **Exactly one abstract method**: This is the method the lambda will implement.\n2. **Can have default methods**: These don't count as abstract methods.\n3. **Can have static methods**: These also don't count.\n4. **Inherits methods from Object**: equals(), hashCode(), toString() don't count.\n\nRelationship with lambda expressions:\n- Lambda expressions can only be used where a functional interface is expected\n- The functional interface's method signature determines the lambda's parameters and return type\n- The compiler uses the functional interface as the \"target type\" to infer lambda parameter types\n- Each lambda expression is an implementation of the functional interface's abstract method"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Example demonstrating the relationship\npublic class FunctionalInterfaceExample {\n\n    // 1. Defining a functional interface\n    @FunctionalInterface\n    interface Calculator {\n        int calculate(int a, int b);  // Single abstract method\n\n        // Can have default methods\n        default int square(int n) {\n            return calculate(n, n);  // Uses the abstract method\n        }\n\n        // Can have static methods\n        static int negate(int n) {\n            return -n;\n        }\n    }\n\n    public void demonstrateRelationship() {\n        // Lambda provides implementation for calculate method\n        Calculator addition = (a, b) -> a + b;\n        Calculator multiplication = (a, b) -> a * b;\n        Calculator power = (a, b) -> (int) Math.pow(a, b);\n\n        // Using the lambdas\n        System.out.println(addition.calculate(5, 3));      // 8\n        System.out.println(multiplication.calculate(5, 3)); // 15\n        System.out.println(power.calculate(2, 3));          // 8\n\n        // Using default method\n        System.out.println(addition.square(5));             // 10: square(n) calls calculate(n, n), i.e. 5 + 5 for addition\n\n        // Using static method\n        System.out.println(Calculator.negate(10));          // -10\n    }\n\n    // 2. Using standard functional interfaces\n    public void standardInterfaces() {\n        // Function<T, R>: Takes T, returns R\n        Function<String, Integer> length = s -> s.length();\n\n        // Consumer<T>: Takes T, returns nothing\n        Consumer<String> printer = s -> System.out.println(s);\n\n        // Supplier<T>: Takes nothing, returns T\n        Supplier<Double> random = () -> Math.random();\n\n        // Predicate<T>: Takes T, returns boolean\n        Predicate<Integer> isEven = n -> n % 2 == 0;\n\n        // BiFunction<T, U, R>: Takes T and U, returns R\n        BiFunction<String, String, String> concat = (s1, s2) -> s1 + s2;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What are the standard functional interfaces in Java and when should you use each?**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class StandardFunctionalInterfaces {\n\n    // 1. Consumer<T> - Takes input, performs action, returns nothing\n    public void demonstrateConsumer() {\n        Consumer<String> print = s -> System.out.println(s);\n        Consumer<String> logAndPrint = s -> {\n            System.err.println(\"Logging: \" + s);\n            System.out.println(s);\n        };\n\n        List<String> items = List.of(\"A\", \"B\", \"C\");\n        items.forEach(print);  // Common use with forEach\n\n        // Chaining consumers\n        Consumer<String> combined = print.andThen(logAndPrint);\n    }\n\n    // 2. Supplier<T> - Takes no input, returns output\n    public void demonstrateSupplier() {\n        Supplier<String> uuidGenerator = () -> UUID.randomUUID().toString();\n        Supplier<LocalDateTime> now = LocalDateTime::now;\n        Supplier<List<String>> listSupplier = ArrayList::new;\n\n        // Common use: lazy initialization\n        String id = uuidGenerator.get();\n\n        // Common use: factory methods\n        List<String> list = listSupplier.get();\n    }\n\n    // 3. Function<T, R> - Takes input, returns output (transformation)\n    public void demonstrateFunction() {\n        Function<String, Integer> length = s -> s.length();\n        Function<Integer, String> format = i -> \"Number: \" + i;\n        Function<String, String> upper = String::toUpperCase;\n\n        // Chaining functions\n        Function<String, String> lengthMessage =\n                length.andThen(format);  // String -> Integer -> String\n\n        // Composing functions\n        Function<String, Integer> upperThenLength =\n                upper.andThen(String::length);  // First upper, then length\n\n        System.out.println(lengthMessage.apply(\"hello\"));  // \"Number: 5\"\n    }\n\n    // 4. Predicate<T> - Takes input, returns boolean (testing)\n    public void demonstratePredicate() {\n        Predicate<String> isEmpty = String::isEmpty;\n        Predicate<String> startsWithA = s -> s.startsWith(\"A\");\n        Predicate<Integer> isPositive = n -> n > 0;\n\n        // Combining predicates\n        Predicate<String> notEmpty = isEmpty.negate();\n        Predicate<String> startsWithAAndNotEmpty =\n                startsWithA.and(notEmpty);\n\n        List<String> names = List.of(\"Alice\", \"Bob\", \"\", \"Alex\");\n        names.stream()\n                .filter(startsWithAAndNotEmpty)\n                .forEach(System.out::println);  // Alice, Alex\n    }\n\n    // 5. BiFunction<T, U, R> - Takes two inputs, returns output\n    public void demonstrateBiFunction() {\n        BiFunction<String, String, String> concat = (s1, s2) -> s1 + s2;\n        BiFunction<Integer, Integer, Integer> add = (a, b) -> a + b;\n        BiFunction<String, Integer, String> repeat = (s, n) -> s.repeat(n);\n\n        String result = repeat.apply(\"Hello\", 3);  // \"HelloHelloHello\"\n\n        // andThen for further transformation\n        BiFunction<Integer, Integer, String> addAndFormat =\n                add.andThen(i -> \"Result: \" + i);\n    }\n\n    // 6. UnaryOperator<T> - Special case of Function where input and output are same type\n    public void demonstrateUnaryOperator() {\n        UnaryOperator<String> toUpper = s -> s.toUpperCase();\n        UnaryOperator<Integer> square = n -> n * n;\n        UnaryOperator<String> trim = String::trim;\n\n        // Chaining unary operators: andThen is inherited from Function and returns a Function, not a UnaryOperator\n        Function<String, String> trimAndUpper = trim.andThen(toUpper);\n        String result = trimAndUpper.apply(\"  hello  \");  // \"HELLO\"\n    }\n\n    // 7. BinaryOperator<T> - Special case of BiFunction where both inputs and output are same type\n    public void demonstrateBinaryOperator() {\n        BinaryOperator<Integer> max = (a, b) -> a > b ? a : b;\n        BinaryOperator<String> concat = (s1, s2) -> s1 + s2;\n        BinaryOperator<Integer> multiply = (a, b) -> a * b;\n\n        // Common use: reduce operations\n        List<Integer> numbers = List.of(1, 2, 3, 4, 5);\n        int product = numbers.stream()\n                .reduce(1, multiply);  // 120\n\n        // Using method reference\n        int maximum = numbers.stream()\n                .reduce(Integer::max)\n                .orElse(0);\n    }\n\n    // 8. Primitive specializations (better performance, avoid boxing)\n    public void demonstratePrimitiveSpecializations() {\n        // IntPredicate instead of Predicate<Integer>\n        IntPredicate isEven = n -> n % 2 == 0;\n\n        // IntFunction<R> instead of Function<Integer, R>\n        IntFunction<String> formatter = n -> \"Number: \" + n;\n\n        // ToIntFunction<T> instead of Function<T, Integer>\n        ToIntFunction<String> length = String::length;\n\n        // IntConsumer instead of Consumer<Integer>\n        IntConsumer printer = n -> System.out.println(n);\n\n        // IntSupplier instead of Supplier<Integer>\n        IntSupplier random = () -> ThreadLocalRandom.current().nextInt(100);\n\n        // IntBinaryOperator instead of BinaryOperator<Integer>\n        IntBinaryOperator adder = (a, b) -> a + b;\n\n        // Similar specializations exist for long and double\n        LongPredicate isPositiveLong = n -> n > 0;\n        DoublePredicate isPositiveDouble = d -> d > 0.0;\n    }\n}"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2 (continued): Guidelines for choosing:\n\nConsumer<T>: Use when you need side effects (printing, logging, modifying external state)\n- forEach operations\n- Logging and monitoring\n- Database updates\n\nSupplier<T>: Use for lazy initialization and factory methods\n- Generating values on demand\n- Factory patterns\n- Lazy loading\n\nFunction<T, R>: Use for transformations and mapping\n- Stream map operations\n- Data transformation pipelines\n- Type conversions\n\nPredicate<T>: Use for filtering and testing conditions\n- Stream filter operations\n- Validation logic\n- Conditional processing\n\nBiFunction<T, U, R>: Use when you need two inputs\n- Combining two values\n- Map merge operations\n- Two-argument transformations\n\nUnaryOperator<T>: Use for in-place transformations\n- Modifying values of the same type\n- replaceAll operations\n\nBinaryOperator<T>: Use for combining two values of the same type\n- Reduce operations\n- Accumulation\n- Finding min/max\n\nPrimitive specializations: Use for performance with primitives\n- Avoiding boxing/unboxing overhead\n- High-performance computations\n- Stream operations on primitive streams"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How do you create and use custom functional interfaces?**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class CustomFunctionalInterfaces {\n\n    // 1. Simple custom functional interface\n    @FunctionalInterface\n    interface StringTransformer {\n        String transform(String input);\n\n        // Can have default methods\n        default StringTransformer andThen(StringTransformer after) {\n            return input -> after.transform(this.transform(input));\n        }\n    }\n\n    // 2. Custom functional interface with domain-specific semantics\n    @FunctionalInterface\n    interface OrderValidator {\n        boolean validate(Order order);\n\n        // Combining validators\n        default OrderValidator and(OrderValidator other) {\n            return order -> this.validate(order) && other.validate(order);\n        }\n\n        default OrderValidator or(OrderValidator other) {\n            return order -> this.validate(order) || other.validate(order);\n        }\n\n        default OrderValidator negate() {\n            return order -> !this.validate(order);\n        }\n    }\n\n    // 3. Custom functional interface with checked exception\n    @FunctionalInterface\n    interface CheckedFunction<T, R> {\n        R apply(T t) throws Exception;\n\n        // Helper method to wrap in unchecked exception\n        static <T, R> Function<T, R> wrap(CheckedFunction<T, R> checked) {\n            return t -> {\n                try {\n                    return checked.apply(t);\n                } catch (Exception e) {\n                    throw new RuntimeException(e);\n                }\n            };\n        }\n    }\n\n    // 4. Custom functional interface for specific business logic\n    @FunctionalInterface\n    interface PriceCalculator {\n        double calculate(double basePrice, int quantity, Customer customer);\n\n        // Default implementations for common scenarios\n        static PriceCalculator standard() {\n            return (basePrice, quantity, customer) -> basePrice * quantity;\n        }\n\n        static PriceCalculator withDiscount(double discountPercent) {\n            return (basePrice, quantity, customer) ->\n                    basePrice * quantity * (1 - discountPercent / 100);\n        }\n\n        static PriceCalculator withCustomerTier() {\n            return (basePrice, quantity, customer) -> {\n                double tierDiscount = customer.getTierDiscount();\n                return basePrice * quantity * (1 - tierDiscount);\n            };\n        }\n    }\n\n    // Using custom functional interfaces\n    public void useCustomInterfaces() {\n        // 1. StringTransformer\n        StringTransformer toUpper = s -> s.toUpperCase();\n        StringTransformer addPrefix = s -> \"PREFIX_\" + s;\n        StringTransformer combined = toUpper.andThen(addPrefix);\n\n        String result = combined.transform(\"hello\");  // \"PREFIX_HELLO\"\n\n        // 2. OrderValidator\n        OrderValidator hasItems = order -> !order.getItems().isEmpty();\n        OrderValidator hasValidTotal = order -> order.getTotal() > 0;\n        OrderValidator hasCustomer = order -> order.getCustomer() != null;\n\n        OrderValidator fullValidator = hasItems\n                .and(hasValidTotal)\n                .and(hasCustomer);\n\n        Order order = new Order();\n        boolean isValid = fullValidator.validate(order);\n\n        // 3. CheckedFunction\n        CheckedFunction<String, Integer> parser = Integer::parseInt;\n        Function<String, Integer> safeParser = CheckedFunction.wrap(parser);\n\n        List<String> numbers = List.of(\"1\", \"2\", \"abc\", \"4\");\n        numbers.stream()\n                .map(safeParser)  // Any exception is wrapped in a RuntimeException\n                .forEach(System.out::println);  // Prints 1 and 2, then throws on \"abc\"\n                                                // (RuntimeException wrapping NumberFormatException)\n\n        // 4. PriceCalculator\n        PriceCalculator standard = PriceCalculator.standard();\n        PriceCalculator withDiscount = PriceCalculator.withDiscount(10);\n        PriceCalculator tierBased = PriceCalculator.withCustomerTier();\n\n        Customer vipCustomer = new Customer(\"VIP\");\n        double price = tierBased.calculate(100.0, 5, vipCustomer);\n    }\n\n    // 5. Functional interface with multiple type parameters\n    @FunctionalInterface\n    interface TriFunction<T, U, V, R> {\n        R apply(T t, U u, V v);\n\n        default <W> TriFunction<T, U, V, W> andThen(Function<R, W> after) {\n            return (t, u, v) -> after.apply(this.apply(t, u, v));\n        }\n    }\n\n    public void useTriFunction() {\n        TriFunction<String, Integer, Boolean, String> formatter =\n                (text, count, upper) -> {\n                    String repeated = text.repeat(count);\n                    return upper ? repeated.toUpperCase() : repeated;\n                };\n\n        String result = formatter.apply(\"hi\", 3, true);  // \"HIHIHI\"\n\n        // Chaining with andThen\n        TriFunction<String, Integer, Boolean, Integer> repeaterThenLength =\n                formatter.andThen(String::length);\n\n        int length = repeaterThenLength.apply(\"hi\", 3, true);  // 6\n    }\n\n    // Supporting classes\n    static class Order {\n        private List<String> items = new ArrayList<>();\n        private double total;\n        private Customer customer;\n\n        List<String> getItems() {\n            return items;\n        }\n\n        double getTotal() {\n            return total;\n        }\n\n        Customer getCustomer() {\n            return customer;\n        }\n    }\n\n    static class Customer {\n        private String tier;\n\n        Customer(String tier) {\n            this.tier = tier;\n        }\n\n        double getTierDiscount() {\n            return switch (tier) {\n                case \"VIP\" -> 0.20;\n                case \"Gold\" -> 0.10;\n                default -> 0.0;\n            };\n        }\n    }\n}"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Guidelines for creating custom functional interfaces:\n\nWhen to create custom interfaces:\n1. **Domain-specific semantics**: When standard interfaces don't convey meaning\n   - OrderValidator is clearer than Predicate<Order>\n   - PriceCalculator is clearer than TriFunction\n\n2. **Checked exceptions**: When you need to throw checked exceptions\n   - Create interfaces that declare throws clause\n   - Provide wrapper methods for standard functional interfaces\n\n3. **Multiple parameters**: When you need more than two parameters\n   - Standard interfaces only go up to BiFunction\n   - Create TriFunction, QuadFunction, etc. as needed\n\n4. **Complex composition**: When you want specific default methods\n   - Custom chaining methods (and, or, negate)\n   - Domain-specific transformations\n\nBest practices:\n1. Always use @FunctionalInterface annotation\n2. Provide meaningful names that convey intent\n3. Add useful default methods for composition\n4. Provide static factory methods for common cases\n5. Consider if a standard interface would suffice first\n6. Document the interface's purpose and contracts\n\nWhen NOT to create custom interfaces:\n- Simple transformations (use Function)\n- Simple conditions (use Predicate)\n- Simple side effects (use Consumer)\n- Value generation (use Supplier)\n\nThe key is balancing expressiveness with simplicity!"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do functional interfaces compose and chain together?**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class FunctionalInterfaceComposition {\n\n    // 1. Function composition with andThen and compose\n    public void demonstrateFunctionComposition() {\n        Function<String, String> trim = String::trim;\n        Function<String, String> toLowerCase = String::toLowerCase;\n        Function<String, Integer> length = String::length;\n        Function<Integer, String> format = n -> \"Length: \" + n;\n\n        // andThen: execute this function, then the next\n        Function<String, String> trimThenLower = trim.andThen(toLowerCase);\n        String result1 = trimThenLower.apply(\"  HELLO  \");  // \"hello\"\n\n        // Chaining multiple functions\n        Function<String, String> pipeline = trim\n                .andThen(toLowerCase)\n                .andThen(length)\n                .andThen(format);\n\n        String result2 = pipeline.apply(\"  HELLO  \");  // \"Length: 5\"\n\n        // compose: execute the parameter first, then this function\n        Function<String, Integer> lowerThenLength =\n                length.compose(toLowerCase);  // First lower, then length\n\n        // Difference between andThen and compose:\n        // f.andThen(g): f(x) then g(result) = g(f(x))\n        // f.compose(g): g(x) then f(result) = f(g(x))\n    }\n\n    // 2. Predicate composition with and, or, negate\n    public void demonstratePredicateComposition() {\n        Predicate<String> notNull = Objects::nonNull;\n        Predicate<String> notEmpty = s -> !s.isEmpty();\n        Predicate<String> startsWithA = s -> s.startsWith(\"A\");\n        Predicate<String> longerThan5 = s -> s.length() > 5;\n\n        // and: both must be true\n        Predicate<String> valid = notNull.and(notEmpty);\n\n        // or: at least one must be true\n        Predicate<String> startsWithAOrLong = startsWithA.or(longerThan5);\n\n        // negate: invert the result\n        Predicate<String> isEmpty = notEmpty.negate();\n\n        // Complex combinations\n        Predicate<String> complex = notNull\n                .and(notEmpty)\n                .and(startsWithA.or(longerThan5));\n\n        List<String> names = Arrays.asList(\"Alice\", \"Bob\", \"Alexander\", null, \"\", \"Amy\"); // List.of rejects null\n        List<String> filtered = names.stream()\n                .filter(complex)\n                .collect(Collectors.toList());\n        // Result: [\"Alice\", \"Alexander\", \"Amy\"]\n    }\n\n    // 3. Consumer composition with andThen\n    public void demonstrateConsumerComposition() {\n        Consumer<String> print = System.out::println;\n        Consumer<String> log = s -> System.err.println(\"LOG: \" + s);\n        Consumer<String> writeToFile = s -> {\n            // Simulate file writing\n            System.out.println(\"Writing to file: \" + s);\n        };\n\n        // Execute consumers in sequence\n        Consumer<String> pipeline = print\n                .andThen(log)\n                .andThen(writeToFile);\n\n        pipeline.accept(\"Hello\");\n        // Output:\n        // Hello\n        // LOG: Hello\n        // Writing to file: Hello\n    }\n\n    // 4. Comparator composition\n    public void demonstrateComparatorComposition() {\n        List<Person> people = List.of(\n                new Person(\"Alice\", 30, \"Engineering\"),\n                new Person(\"Bob\", 25, \"Sales\"),\n                new Person(\"Charlie\", 30, \"Engineering\"),\n                new Person(\"David\", 25, \"Engineering\")\n        );\n\n        // Simple comparators\n        Comparator<Person> byAge = Comparator.comparingInt(Person::getAge);\n        Comparator<Person> byName = Comparator.comparing(Person::getName);\n        Comparator<Person> byDepartment = Comparator.comparing(Person::getDepartment);\n\n        // Chaining: thenComparing\n        Comparator<Person> ageThenName = byAge.thenComparing(byName);\n        people.sort(ageThenName);\n        // Sorted by age, then by name for same age\n\n        // Complex sorting\n        Comparator<Person> complex = Comparator\n                .comparing(Person::getDepartment)\n                .thenComparingInt(Person::getAge)\n                .thenComparing(Person::getName);\n\n        people.sort(complex);\n        // Sorted by department, then age, then name\n\n        // Reversed comparator\n        Comparator<Person> oldestFirst = byAge.reversed();\n\n        // Null handling\n        Comparator<Person> nullSafe = Comparator\n                .nullsFirst(byName);\n    }\n\n    // 5. Custom composition patterns\n    public void customCompositionPatterns() {\n        // Building a validation pipeline\n        Validator<Order> validator = Validator\n                .of((Order o) -> o.getTotal() > 0, \"Order must have positive total\")\n                .and(o -> !o.getItems().isEmpty(), \"Order must have items\")\n                .and(o -> o.getCustomer() != null, \"Order must have customer\");\n\n        Order order = new Order();\n        ValidationResult result = validator.validate(order);\n\n        // Building a transformation pipeline\n        Transformer<String> transformer = Transformer\n                .of(String::trim)\n                .then(String::toLowerCase)\n                .then(s -> s.replaceAll(\"\\\\s+\", \"_\"))\n                .then(s -> s.substring(0, Math.min(s.length(), 50)));\n\n        String cleaned = transformer.apply(\"  Hello World  \");  // \"hello_world\"\n    }\n\n    // Helper classes for custom composition\n    @FunctionalInterface\n    interface Validator<T> {\n        ValidationResult validate(T value);\n\n        static <T> Validator<T> of(Predicate<T> predicate, String message) {\n            return value -> predicate.test(value)\n                    ? ValidationResult.success()\n                    : ValidationResult.failure(message);\n        }\n\n        default Validator<T> and(Predicate<T> predicate, String message) {\n            return value -> {\n                ValidationResult first = this.validate(value);\n                if (!first.isValid()) return first;\n\n                return predicate.test(value)\n                        ? ValidationResult.success()\n                        : ValidationResult.failure(message);\n            };\n        }\n    }\n\n    @FunctionalInterface\n    interface Transformer<T> {\n        T apply(T value);\n\n        static <T> Transformer<T> of(Function<T, T> function) {\n            return function::apply;\n        }\n\n        default Transformer<T> then(Function<T, T> next) {\n            return value -> next.apply(this.apply(value));\n        }\n    }\n\n    // Supporting classes\n    record Person(String name, int age, String department) {\n        String getName() {\n            return name;\n        }\n\n        int getAge() {\n            return age;\n        }\n\n        String getDepartment() {\n            return department;\n        }\n    }\n\n    static class Order {\n        private List<String> items = new ArrayList<>();\n        private double total;\n        private Object customer;\n\n        List<String> getItems() {\n            return items;\n        }\n\n        double getTotal() {\n            return total;\n        }\n\n        Object getCustomer() {\n            return customer;\n        }\n    }\n\n    record ValidationResult(boolean isValid, String message) {\n        static ValidationResult success() {\n            return new ValidationResult(true, \"\");\n        }\n\n        static ValidationResult failure(String message) {\n            return new ValidationResult(false, message);\n        }\n    }\n}"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Key composition patterns:\n\nFunction:\n- andThen(g): f.andThen(g) = g(f(x))\n- compose(g): f.compose(g) = f(g(x))\n- Use for building transformation pipelines\n\nPredicate:\n- and(p): both conditions must be true\n- or(p): at least one condition must be true\n- negate(): inverts the result\n- Use for building complex conditions\n\nConsumer:\n- andThen(c): execute both consumers in sequence\n- Use for building effect pipelines\n\nComparator:\n- thenComparing: secondary sort criteria\n- reversed: reverse the ordering\n- Use for multi-field sorting\n\nBenefits of composition:\n1. **Readability**: Intent is clear and declarative\n2. **Reusability**: Build complex logic from simple pieces\n3. **Maintainability**: Easy to modify individual pieces\n4. **Testability**: Test simple pieces independently\n5. **Type safety**: Compiler ensures type compatibility\n\nBest practices:\n1. Build simple, focused functions\n2. Compose them into complex behavior\n3. Name intermediate compositions meaningfully\n4. Extract common compositions to reusable constants\n5. Use method references when possible for clarity"
+      "text": "Java has no function types: `(int) -> int` is not a type, and generics can't range over `int`, so each shape needs a named interface, 43 of them in `java.util.function`. In exchange, every older one-method interface, `Runnable` and `Comparator` included, took lambdas in Java 8 without a change to its abstract method or to existing implementations. The price is adapters between same-shaped types, and wildcards in every signature that accepts one."
     },
     {
       "type": "heading",
@@ -326,17 +354,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 10,
-    "paras": 10,
-    "code": 8,
-    "tables": 0,
-    "lists": 8,
+    "headings": 12,
+    "paras": 21,
+    "code": 16,
+    "tables": 2,
+    "lists": 4,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "ad1bcf1d28e20f356054c0d17cf3f42daca086eb14bc067a255cb242379a6c90"
+  "content_sha256": "608db8e5c3bee62603adb53889af739b1354ff3970b5eec0afcc829e896f89d8"
 }

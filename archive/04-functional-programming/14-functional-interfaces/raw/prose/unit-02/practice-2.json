@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Resolve a value through lazy fallbacks",
+  "title": "Stop paying for error messages nobody reads",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,11 @@
     },
     {
       "type": "para",
-      "text": "`optional.orElse(compute())` runs `compute()` every time, because Java evaluates a method's arguments before the call. `orElseGet(supplier)` calls the supplier only when the `Optional` is empty, and `Optional.or(supplier)` (Java 9+) does the same for a fallback that is itself an `Optional`."
+      "text": "The warehouse scans forty thousand shipments an hour, and every scan goes through `ShipmentChecks` before a label is printed. A profile of the scanner shows most of the checker's time in `describe`, which formats every parcel of a shipment, and in building not-found errors, each with its stack trace. Yet fewer than one shipment in ten thousand lacks a carrier, and unknown ids are rarer still."
     },
     {
       "type": "para",
-      "text": "Write `Lookup.resolve(Optional<T> primary, Supplier<Optional<T>> secondary, Supplier<T> fallback)`. It returns the primary's value if present, else the secondary's value if present, else `fallback.get()`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "primary",
-        "secondary",
-        "fallback",
-        "result"
-      ],
-      "rows": [
-        [
-          "`Optional.of(\"cache\")`",
-          "`Optional.of(\"db\")`",
-          "`\"default\"`",
-          "`\"cache\"`"
-        ],
-        [
-          "empty",
-          "`Optional.of(\"db\")`",
-          "`\"default\"`",
-          "`\"db\"`"
-        ],
-        [
-          "empty",
-          "empty",
-          "`\"default\"`",
-          "`\"default\"`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "The secondary lookup and the fallback may be expensive (a database call, an HTTP request): no work may be done that the answer does not need, and each is asked at most once. Whatever the fallback returns is the answer, even `null`."
+      "text": "Finish `carrierOf` and `find` in `src/main/java/practice/ShipmentChecks.java`. A shipment without a carrier fails with a `NullPointerException` whose message is its description, and an unknown id with the exception `notFound` builds for it; the shipments and ids that pass must cost nothing extra. About two lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Supplier;\n\npublic final class Lookup {\n\n    private Lookup() {\n    }\n\n    /** Returns the primary value, else the secondary value, else the fallback; runs nothing it does not need. */\n    public static <T> T resolve(Optional<T> primary, Supplier<Optional<T>> secondary, Supplier<T> fallback) {\n        return primary.or(secondary).orElseGet(fallback);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Function;\n\n/**\n * Checks shipments on their way to the label printer. It runs for every shipment the warehouse\n * scans, and almost every shipment passes.\n */\npublic class ShipmentChecks {\n\n    public record Shipment(String id, String carrier, List<String> parcels) {}\n\n    private final Map<String, Shipment> byId;\n    private final Function<Shipment, String> describe;          // formats every parcel: slow on big shipments\n    private final Function<String, RuntimeException> notFound;  // builds the error for an unknown id\n\n    public ShipmentChecks(Map<String, Shipment> byId, Function<Shipment, String> describe,\n                          Function<String, RuntimeException> notFound) {\n        this.byId = byId;\n        this.describe = describe;\n        this.notFound = notFound;\n    }\n\n    /** The shipment's carrier. A shipment without one fails with a NullPointerException whose message describes it. */\n    public String carrierOf(Shipment shipment) {\n        return Objects.requireNonNull(shipment.carrier(), () -> describe.apply(shipment));\n    }\n\n    /** The shipment with this id. An unknown id fails with the exception notFound builds for it. */\n    public Shipment find(String id) {\n        return Optional.ofNullable(byId.get(id)).orElseThrow(() -> notFound.apply(id));\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Supplier;\n\npublic final class Lookup {\n\n    private Lookup() {\n    }\n\n    /** Returns the primary value, else the secondary value, else the fallback; runs nothing it does not need. */\n    public static <T> T resolve(Optional<T> primary, Supplier<Optional<T>> secondary, Supplier<T> fallback) {\n        throw new UnsupportedOperationException(\"write resolve\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Function;\n\n/**\n * Checks shipments on their way to the label printer. It runs for every shipment the warehouse\n * scans, and almost every shipment passes.\n */\npublic class ShipmentChecks {\n\n    public record Shipment(String id, String carrier, List<String> parcels) {}\n\n    private final Map<String, Shipment> byId;\n    private final Function<Shipment, String> describe;          // formats every parcel: slow on big shipments\n    private final Function<String, RuntimeException> notFound;  // builds the error for an unknown id\n\n    public ShipmentChecks(Map<String, Shipment> byId, Function<Shipment, String> describe,\n                          Function<String, RuntimeException> notFound) {\n        this.byId = byId;\n        this.describe = describe;\n        this.notFound = notFound;\n    }\n\n    /** The shipment's carrier. A shipment without one fails with a NullPointerException whose message describes it. */\n    public String carrierOf(Shipment shipment) {\n        // TODO: Return the carrier. When it is missing, fail with a NullPointerException whose\n        //       message is the shipment's description, without slowing down the shipments that pass.\n        throw new IllegalStateException(\"TODO: carrierOf\");\n    }\n\n    /** The shipment with this id. An unknown id fails with the exception notFound builds for it. */\n    public Shipment find(String id) {\n        // TODO: Return the shipment. When the id is unknown, throw what notFound builds for it,\n        //       without slowing down the lookups that succeed.\n        throw new IllegalStateException(\"TODO: find\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +58,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -102,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7ed4b815d3cd411c2d0fc673252c8b5d039f900faa67c4a9ab2ffa985adcd523",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Supplier;\n\npublic final class Lookup {\n\n    private Lookup() {\n    }\n\n    /** Returns the primary value, else the secondary value, else the fallback; runs nothing it does not need. */\n    public static <T> T resolve(Optional<T> primary, Supplier<Optional<T>> secondary, Supplier<T> fallback) {\n        throw new UnsupportedOperationException(\"write resolve\");\n    }\n}\n",
+  "content_sha256": "88bb79a592662574d67e6925e8ebde35d1b62d291e6f5decf79626b45f7e7594",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Function;\n\n/**\n * Checks shipments on their way to the label printer. It runs for every shipment the warehouse\n * scans, and almost every shipment passes.\n */\npublic class ShipmentChecks {\n\n    public record Shipment(String id, String carrier, List<String> parcels) {}\n\n    private final Map<String, Shipment> byId;\n    private final Function<Shipment, String> describe;          // formats every parcel: slow on big shipments\n    private final Function<String, RuntimeException> notFound;  // builds the error for an unknown id\n\n    public ShipmentChecks(Map<String, Shipment> byId, Function<Shipment, String> describe,\n                          Function<String, RuntimeException> notFound) {\n        this.byId = byId;\n        this.describe = describe;\n        this.notFound = notFound;\n    }\n\n    /** The shipment's carrier. A shipment without one fails with a NullPointerException whose message describes it. */\n    public String carrierOf(Shipment shipment) {\n        // TODO: Return the carrier. When it is missing, fail with a NullPointerException whose\n        //       message is the shipment's description, without slowing down the shipments that pass.\n        throw new IllegalStateException(\"TODO: carrierOf\");\n    }\n\n    /** The shipment with this id. An unknown id fails with the exception notFound builds for it. */\n    public Shipment find(String id) {\n        // TODO: Return the shipment. When the id is unknown, throw what notFound builds for it,\n        //       without slowing down the lookups that succeed.\n        throw new IllegalStateException(\"TODO: find\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-2/src/main/java/practice/Lookup.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-2/src/test/java/practice/LookupTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-2/src/main/java/practice/ShipmentChecks.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-2/src/test/java/practice/ShipmentChecksTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LookupTest#takesTheFirstSourceThatHasAValue",
+        "id": "practice.ShipmentChecksTest#aShipmentWithACarrierPassesAndOneWithoutFailsWithItsDescription",
         "kind": "main",
-        "says": "The first source with a value wins: primary, then secondary, then the fallback."
+        "says": "a shipment with a carrier returns it; one without fails with a NullPointerException carrying its description"
       },
       {
-        "id": "practice.LookupTest#theSecondaryIsNotAskedWhenThePrimaryHasAValue",
-        "kind": "edge",
-        "says": "The secondary lookup runs only when the primary came up empty."
+        "id": "practice.ShipmentChecksTest#aKnownIdIsFoundAndAnUnknownOneFailsWithTheBuiltError",
+        "kind": "main",
+        "says": "a known id returns its shipment; an unknown one throws the error built for it"
       },
       {
-        "id": "practice.LookupTest#theFallbackIsNotBuiltWhenAValueExists",
+        "id": "practice.ShipmentChecksTest#shipmentsThatPassAreNeverDescribed",
         "kind": "edge",
-        "says": "The fallback is built only when both lookups came up empty; orElse would build it every time."
+        "says": "checking shipments that have a carrier never formats a description"
       },
       {
-        "id": "practice.LookupTest#theSecondaryIsAskedAtMostOnce",
+        "id": "practice.ShipmentChecksTest#lookupsThatSucceedBuildNoError",
         "kind": "edge",
-        "says": "When the primary is empty, the secondary lookup runs once, not once to check and again to read."
-      },
-      {
-        "id": "practice.LookupTest#aNullFallbackIsReturnedAsIs",
-        "kind": "edge",
-        "says": "When the fallback is needed and returns null, null is the answer; nothing is thrown."
+        "says": "looking up ids that exist never builds the not-found error"
       }
     ],
     "report": {
@@ -158,11 +120,10 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.2.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "The JDK Takes a Supplier Where the Work May Not Be Needed"
     },
     "concepts": [
-      "Optional.or chains Optional fallbacks, calling each Supplier only when everything before it came up empty.",
-      "orElse evaluates its default every time, while orElseGet calls its Supplier only when the Optional is empty."
+      "Objects.requireNonNull(obj, Supplier) and Optional.orElseThrow(Supplier) call the supplier only on the failing path, while the String overload builds its message on every call."
     ]
   }
 }

@@ -1,17 +1,9 @@
-`p1.and(p2)` short-circuits like `&&`: if `p1` says `false`, `p2` is never asked. `p1.or(p2)` short-circuits like
-`||`. Both refuse a `null` argument with a `NullPointerException` right where they are called.
+The admin console shows each settings file with its description on top: the block of comment
+lines a file opens with. Below it, the console lists the rest of the file, which it rewrites line
+for line when someone changes a value. Operators disable a setting by putting `#` in front of it,
+and since then the console shows `# smtp.debug=true` as part of a file's description, and a save
+drops the disabled settings from the file.
 
-Write two methods in `Rules`:
-
-1. `allOf(List<Predicate<T>> rules)` returns a predicate that is true when every rule is true; `and()` is the page's tool.
-2. `anyOf(List<Predicate<T>> rules)` returns a predicate that is true when at least one rule is true; `or()` is
-   the page's tool.
-
-| rules | predicate | `test(4)` | `test(3)` | `test(-2)` |
-|---|---|---|---|---|
-| `n > 0`, `n % 2 == 0` | `allOf` | `true` | `false` | `false` |
-| `n > 0`, `n % 2 == 0` | `anyOf` | `true` | `true` | `true` |
-
-A list may be empty, and rules may be expensive: each rule is asked at most once per `test`. A list holding `null`,
-even a list holding nothing but `null`, is a caller's bug: report it as early as `and()` and `or()` themselves would.
-The predicate is fixed when it is built: changing the list afterwards does not change it.
+Write `description(...)` and `settings(...)` in `src/main/java/practice/SettingsFile.java`, using
+`comment(line)` to recognise a comment. The description is the comment block at the top of the
+file; the settings section is every line after it, in file order. About two lines in total.

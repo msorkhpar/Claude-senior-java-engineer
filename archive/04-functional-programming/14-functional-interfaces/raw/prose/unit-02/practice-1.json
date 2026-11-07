@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Stateful sources: a counter and a round-robin cycle",
+  "title": "Load the FX rate card once for every thread",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A `Supplier` takes nothing and returns a value, and every `get()` runs its lambda again, so a supplier that keeps state can hand out a different value on each call. `IntSupplier` does the same with `int getAsInt()`, and no boxing."
+      "text": "The FX service prices every request from a rate card it fetches from an upstream that answers slowly and allows a handful of requests a minute. The card is wrapped in one shared `Supplier<RateCard>` that all request threads call. After a deploy the upstream rejected the service for a minute: the first burst of requests had each fetched the card. Some desks have no card at all, and their source answers `null`. When the upstream is briefly down at startup, the service must keep trying on later requests rather than stay broken, and it must start without calling the upstream."
     },
     {
       "type": "para",
-      "text": "Write two methods in `Sources`:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`counter(int start, int step)` returns an `IntSupplier` that yields `start`, `start + step`, `start + 2*step`, …",
-        "`cycling(List<T> items)` returns a `Supplier<T>` that yields the items in order and starts over after the last."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "source",
-        "successive calls"
-      ],
-      "rows": [
-        [
-          "`counter(0, 1)`",
-          "`0, 1, 2, …`"
-        ],
-        [
-          "`counter(10, -5)`",
-          "`10, 5, 0, …`"
-        ],
-        [
-          "`cycling([\"red\", \"green\"])`",
-          "`red, green, red, …`"
-        ]
-      ]
+      "text": "Write `get()` in `src/main/java/practice/Once.java`, adding the fields it needs. When you're done, the source runs once for all threads, on the first request, whatever it returns, and a load that throws is tried again by the next caller. About twelve lines in total."
     },
     {
       "type": "para",
-      "text": "A program may hold several sources at once. An empty list has nothing to cycle through: throw `IllegalArgumentException(\"items must not be empty\")`. Watch what the supplier captures: a `List` the caller still holds is a mutable object. Items may be `null`; a `null` item is handed out like any other. The tests keep every counter value within `int` range and ask a source far fewer than `Integer.MAX_VALUE` times."
+      "text": "The tests call `get()` from a thread pool, and hold a load in progress with a latch while a second caller arrives."
     },
     {
       "type": "heading",
@@ -71,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.IntSupplier;\nimport java.util.function.Supplier;\n\npublic final class Sources {\n\n    private Sources() {\n    }\n\n    /** Returns an IntSupplier yielding start, start + step, start + 2 * step, ... */\n    public static IntSupplier counter(int start, int step) {\n        int[] next = {start};\n        return () -> {\n            int value = next[0];\n            next[0] += step;\n            return value;\n        };\n    }\n\n    /** Returns a Supplier yielding the items in order, over and over; rejects an empty list. */\n    public static <T> Supplier<T> cycling(List<T> items) {\n        if (items.isEmpty()) {\n            throw new IllegalArgumentException(\"items must not be empty\");\n        }\n        List<T> snapshot = new ArrayList<>(items);\n        int[] position = {0};\n        return () -> {\n            T item = snapshot.get(position[0]);\n            position[0] = (position[0] + 1) % snapshot.size();\n            return item;\n        };\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\n/**\n * Hands every caller the value its source produced the first time anyone asked. The FX service\n * wraps its rate-card loader in one of these and shares it between all request threads.\n */\npublic final class Once<T> implements Supplier<T> {\n\n    private final Supplier<T> source;\n    private final Object lock = new Object();\n    private volatile boolean loaded;\n    private T value;\n\n    public Once(Supplier<T> source) {\n        this.source = Objects.requireNonNull(source, \"source\");\n    }\n\n    /** The source's value: loaded on the first call, the same value on every call after that. */\n    @Override\n    public T get() {\n        if (!loaded) {\n            synchronized (lock) {\n                if (!loaded) {\n                    value = source.get();\n                    loaded = true;\n                }\n            }\n        }\n        return value;\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.IntSupplier;\nimport java.util.function.Supplier;\n\npublic final class Sources {\n\n    private Sources() {\n    }\n\n    /** Returns an IntSupplier yielding start, start + step, start + 2 * step, ... */\n    public static IntSupplier counter(int start, int step) {\n        throw new UnsupportedOperationException(\"write counter\");\n    }\n\n    /** Returns a Supplier yielding the items in order, over and over; rejects an empty list. */\n    public static <T> Supplier<T> cycling(List<T> items) {\n        throw new UnsupportedOperationException(\"write cycling\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\n/**\n * Hands every caller the value its source produced the first time anyone asked. The FX service\n * wraps its rate-card loader in one of these and shares it between all request threads.\n */\npublic final class Once<T> implements Supplier<T> {\n\n    private final Supplier<T> source;\n\n    public Once(Supplier<T> source) {\n        this.source = Objects.requireNonNull(source, \"source\");\n    }\n\n    /** The source's value: loaded on the first call, the same value on every call after that. */\n    @Override\n    public T get() {\n        // TODO: Call the source at most once for all the threads that share this object, and only\n        //       when someone first asks. Every caller gets that one value, whatever it is. Add the\n        //       fields you need.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f080d9a4a5d6c55a12f0f24a83df7314fb5200ed3c98c72a41784592fd6a596f",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.IntSupplier;\nimport java.util.function.Supplier;\n\npublic final class Sources {\n\n    private Sources() {\n    }\n\n    /** Returns an IntSupplier yielding start, start + step, start + 2 * step, ... */\n    public static IntSupplier counter(int start, int step) {\n        throw new UnsupportedOperationException(\"write counter\");\n    }\n\n    /** Returns a Supplier yielding the items in order, over and over; rejects an empty list. */\n    public static <T> Supplier<T> cycling(List<T> items) {\n        throw new UnsupportedOperationException(\"write cycling\");\n    }\n}\n",
+  "content_sha256": "e83871f3ba2c13119210c92bd02d2fb97769871edf40feab8330796fe705fe4f",
+  "starting_code": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\n/**\n * Hands every caller the value its source produced the first time anyone asked. The FX service\n * wraps its rate-card loader in one of these and shares it between all request threads.\n */\npublic final class Once<T> implements Supplier<T> {\n\n    private final Supplier<T> source;\n\n    public Once(Supplier<T> source) {\n        this.source = Objects.requireNonNull(source, \"source\");\n    }\n\n    /** The source's value: loaded on the first call, the same value on every call after that. */\n    @Override\n    public T get() {\n        // TODO: Call the source at most once for all the threads that share this object, and only\n        //       when someone first asks. Every caller gets that one value, whatever it is. Add the\n        //       fields you need.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/main/java/practice/Sources.java",
-    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/test/java/practice/SourcesTest.java",
+    "main_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/main/java/practice/Once.java",
+    "test_path": "practice/04-functional-programming/14-functional-interfaces/prose/unit-02/practice-1/src/test/java/practice/OnceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SourcesTest#countsFromStartByStep",
+        "id": "practice.OnceTest#everyCallGetsTheCardLoadedByTheFirst",
         "kind": "main",
-        "says": "Each getAsInt returns the next number, starting at start and moving by step."
+        "says": "calls one after another all get the object the first call loaded, and the source runs once"
       },
       {
-        "id": "practice.SourcesTest#cyclesThroughTheItems",
-        "kind": "main",
-        "says": "Each get returns the next item, going back to the first after the last."
-      },
-      {
-        "id": "practice.SourcesTest#eachSourceKeepsItsOwnPosition",
+        "id": "practice.OnceTest#creatingItLoadsNothing",
         "kind": "edge",
-        "says": "Two sources made by the same method do not share a position."
+        "says": "constructing the object does not call the source; the first get() does"
       },
       {
-        "id": "practice.SourcesTest#anEmptyCycleIsRejectedUpFront",
+        "id": "practice.OnceTest#aSecondCallerDuringASlowLoadWaitsForThatLoad",
         "kind": "edge",
-        "says": "An empty list is rejected when the cycle is created, not later on get."
+        "says": "a caller that arrives while the first load is still running gets that load's value instead of starting another"
       },
       {
-        "id": "practice.SourcesTest#laterChangesToTheListDoNotLeakIn",
+        "id": "practice.OnceTest#aSourceThatAnswersNullIsAskedOnce",
         "kind": "edge",
-        "says": "The cycle captures a copy, so changing the caller's list afterwards does not change it."
+        "says": "a source that returns null is still called only once"
+      },
+      {
+        "id": "practice.OnceTest#aFailedLoadIsTriedAgainOnTheNextCall",
+        "kind": "edge",
+        "says": "a load that throws passes the exception to its caller and is tried again on the next call"
       }
     ],
     "report": {
@@ -158,12 +129,11 @@
     },
     "origin": {
       "path": "14-functional-interfaces/README_4.2.2.md",
-      "section": "Concept Explanation"
+      "section": "A Safe Memo Chooses What It Pays: a Lock, Class Initialisation, or Startup Time"
     },
     "concepts": [
-      "Each get() runs the lambda again, so a Supplier with state can return a new value on every call.",
-      "IntSupplier returns a primitive int through getAsInt, with no boxing.",
-      "A Supplier that captures a mutable object sees every later change made to it."
+      "Double-checked locking with a volatile flag loads once, keeps a null result, and retries after a failed load.",
+      "A check-then-compute memo without a lock lets two threads that arrive together both run the load."
     ]
   }
 }

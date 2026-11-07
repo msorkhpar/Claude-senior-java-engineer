@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Count matches without mutating state from a lambda",
+  "title": "Let a closed console session stop hearing config changes",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A lambda cannot write to a local variable of its method, so `items.forEach(item -> count++)` does not compile. The tempting way around it is to keep the count somewhere the lambda *can* write. The page's better advice is to avoid the side effect and let a stream do the counting."
+      "text": "The admin console opens a `ConfigSession` for every signed-in user, and each open session is told about every configuration change so its screens can refresh. The `ConfigWatcher` that tells them lives as long as the server. After a week of uptime the server spends seconds on every change, and a heap dump shows the watcher holding a listener for every session that was ever opened."
     },
     {
       "type": "para",
-      "text": "Write `MatchCounter.countMatches(List<String> items, Predicate<String> condition)`, an instance method that returns how many items the condition accepts. The list may contain `null` items: they are never counted, and the condition is never called with `null`."
+      "text": "Finish the two `TODO`s in `src/main/java/practice/ConfigSession.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "items",
-        "condition",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[\"apple\", \"banana\", \"apricot\", \"cherry\"]`",
-          "`s -> s.startsWith(\"a\")`",
-          "`2`"
-        ],
-        [
-          "`[]`",
-          "any",
-          "`0`"
-        ],
-        [
-          "`[\"apple\", null, \"avocado\"]`",
-          "`s -> s.startsWith(\"a\")`",
-          "`2`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`open()`: from now on, every changed key reaches this session's `onChange(...)`;",
+        "`close()`: from now on, this session hears nothing, and the watcher holds nothing of it."
       ]
     },
     {
       "type": "para",
-      "text": "The same `MatchCounter` may be asked many times, even again from inside a condition while it is still counting; each answer must stand on its own. Duplicate items are counted each time they appear."
+      "text": "Other sessions on the same watcher are open at the same time, and closing one must not affect them. You may add a field. About four lines in total."
     },
     {
       "type": "heading",
@@ -67,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.function.Predicate;\n\npublic class MatchCounter {\n\n    /** How many non-null items of {@code items} the {@code condition} accepts. */\n    public int countMatches(List<String> items, Predicate<String> condition) {\n        return (int) items.stream()\n                .filter(Objects::nonNull)\n                .filter(condition)\n                .count();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * One user session of the admin console. While it is open it hears about every configuration\n * change, so its screens can refresh; a closed session must hear nothing and leave no trace in\n * the watcher, which lives as long as the server.\n */\npublic class ConfigSession {\n\n    /** The server-wide watcher. Given: don't change it. */\n    public static final class ConfigWatcher {\n        private final List<Consumer<String>> listeners = new CopyOnWriteArrayList<>();\n\n        public void subscribe(Consumer<String> listener) {\n            listeners.add(listener);\n        }\n\n        public void unsubscribe(Consumer<String> listener) {\n            listeners.remove(listener);\n        }\n\n        public void changed(String key) {\n            for (Consumer<String> listener : listeners) {\n                listener.accept(key);\n            }\n        }\n\n        public int listenerCount() {\n            return listeners.size();\n        }\n    }\n\n    private final ConfigWatcher watcher;\n    private final List<String> heard = new ArrayList<>();\n    private final Consumer<String> listener = key -> onChange(key);\n\n    public ConfigSession(ConfigWatcher watcher) {\n        this.watcher = watcher;\n    }\n\n    void onChange(String key) {\n        heard.add(key);\n    }\n\n    /** The keys this session has heard about, in order. */\n    public List<String> heard() {\n        return heard;\n    }\n\n    /** From now on, this session hears about every change. */\n    public void open() {\n        watcher.subscribe(listener);\n    }\n\n    /** From now on, this session hears nothing, and the watcher holds nothing of it. */\n    public void close() {\n        watcher.unsubscribe(listener);\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.function.Predicate;\n\npublic class MatchCounter {\n\n    /** How many non-null items of {@code items} the {@code condition} accepts. */\n    public int countMatches(List<String> items, Predicate<String> condition) {\n        throw new UnsupportedOperationException(\"write countMatches\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * One user session of the admin console. While it is open it hears about every configuration\n * change, so its screens can refresh; a closed session must hear nothing and leave no trace in\n * the watcher, which lives as long as the server.\n */\npublic class ConfigSession {\n\n    /** The server-wide watcher. Given: don't change it. */\n    public static final class ConfigWatcher {\n        private final List<Consumer<String>> listeners = new CopyOnWriteArrayList<>();\n\n        public void subscribe(Consumer<String> listener) {\n            listeners.add(listener);\n        }\n\n        public void unsubscribe(Consumer<String> listener) {\n            listeners.remove(listener);\n        }\n\n        public void changed(String key) {\n            for (Consumer<String> listener : listeners) {\n                listener.accept(key);\n            }\n        }\n\n        public int listenerCount() {\n            return listeners.size();\n        }\n    }\n\n    private final ConfigWatcher watcher;\n    private final List<String> heard = new ArrayList<>();\n\n    public ConfigSession(ConfigWatcher watcher) {\n        this.watcher = watcher;\n    }\n\n    void onChange(String key) {\n        heard.add(key);\n    }\n\n    /** The keys this session has heard about, in order. */\n    public List<String> heard() {\n        return heard;\n    }\n\n    /** From now on, this session hears about every change. */\n    public void open() {\n        // TODO: Start hearing about changes: each changed key should reach onChange(...).\n        //       You may add fields to this class.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n\n    /** From now on, this session hears nothing, and the watcher holds nothing of it. */\n    public void close() {\n        // TODO: Stop hearing about changes. The watcher lives as long as the server, and\n        //       other sessions stay open.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,8 +72,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5dfe53b68f2ba63f57794fbaf13eda0365c63aa7e1c6988130486b0fa31529b9",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.function.Predicate;\n\npublic class MatchCounter {\n\n    /** How many non-null items of {@code items} the {@code condition} accepts. */\n    public int countMatches(List<String> items, Predicate<String> condition) {\n        throw new UnsupportedOperationException(\"write countMatches\");\n    }\n}\n",
+  "content_sha256": "f844a6bd0992d73dbfb264d79d3a9a749ae395b8895d1599db42e814d33709fc",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * One user session of the admin console. While it is open it hears about every configuration\n * change, so its screens can refresh; a closed session must hear nothing and leave no trace in\n * the watcher, which lives as long as the server.\n */\npublic class ConfigSession {\n\n    /** The server-wide watcher. Given: don't change it. */\n    public static final class ConfigWatcher {\n        private final List<Consumer<String>> listeners = new CopyOnWriteArrayList<>();\n\n        public void subscribe(Consumer<String> listener) {\n            listeners.add(listener);\n        }\n\n        public void unsubscribe(Consumer<String> listener) {\n            listeners.remove(listener);\n        }\n\n        public void changed(String key) {\n            for (Consumer<String> listener : listeners) {\n                listener.accept(key);\n            }\n        }\n\n        public int listenerCount() {\n            return listeners.size();\n        }\n    }\n\n    private final ConfigWatcher watcher;\n    private final List<String> heard = new ArrayList<>();\n\n    public ConfigSession(ConfigWatcher watcher) {\n        this.watcher = watcher;\n    }\n\n    void onChange(String key) {\n        heard.add(key);\n    }\n\n    /** The keys this session has heard about, in order. */\n    public List<String> heard() {\n        return heard;\n    }\n\n    /** From now on, this session hears about every change. */\n    public void open() {\n        // TODO: Start hearing about changes: each changed key should reach onChange(...).\n        //       You may add fields to this class.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n\n    /** From now on, this session hears nothing, and the watcher holds nothing of it. */\n    public void close() {\n        // TODO: Stop hearing about changes. The watcher lives as long as the server, and\n        //       other sessions stay open.\n        throw new IllegalStateException(\"TODO: close\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-3/src/main/java/practice/MatchCounter.java",
-    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-3/src/test/java/practice/MatchCounterTest.java",
+    "main_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-3/src/main/java/practice/ConfigSession.java",
+    "test_path": "practice/04-functional-programming/13-lambda-expressions/prose/unit-01/practice-3/src/test/java/practice/ConfigSessionTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.MatchCounterTest#countsMatchingItems",
+        "id": "practice.ConfigSessionTest#anOpenSessionHearsEveryChange",
         "kind": "main",
-        "says": "It counts the items the condition accepts."
+        "says": "an open session hears every changed key, in order"
       },
       {
-        "id": "practice.MatchCounterTest#nullItemsAreSkipped",
-        "kind": "edge",
-        "says": "Null items are skipped and never handed to the condition."
+        "id": "practice.ConfigSessionTest#twoOpenSessionsBothHear",
+        "kind": "main",
+        "says": "two open sessions on one watcher both hear a change"
       },
       {
-        "id": "practice.MatchCounterTest#eachCallStartsFromZero",
+        "id": "practice.ConfigSessionTest#aClosedSessionHearsNothingAndLeavesNothingBehind",
         "kind": "edge",
-        "says": "A second call on the same counter counts from zero again; no count is kept between calls."
+        "says": "after close() the session hears no more changes and the watcher holds no listener for it"
       },
       {
-        "id": "practice.MatchCounterTest#conditionNeverSeesNull",
+        "id": "practice.ConfigSessionTest#closingOneSessionLeavesTheOthersListening",
         "kind": "edge",
-        "says": "The condition is never called with null, not even inside a try that would swallow its failure."
-      },
-      {
-        "id": "practice.MatchCounterTest#nestedCallsDoNotInterfere",
-        "kind": "edge",
-        "says": "A count asked for from inside a running condition does not disturb the outer count, so no count may live in a field."
+        "says": "closing one session removes only its own listener; another open session keeps hearing changes"
       }
     ],
     "report": {
@@ -154,11 +132,10 @@
     },
     "origin": {
       "path": "13-lambda-expressions/README_4.1.1.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "A Lambda's Identity Is Not Promised: Keep the Instance You Need to Find Again"
     },
     "concepts": [
-      "Mutating shared state from a lambda to get around effectively final is a bug waiting to happen; let a stream compute the result instead.",
-      "Null items and empty collections are handled in the pipeline before a lambda sees them."
+      "Two lambda expressions with the same text are different objects, so a listener must be removed with the instance that was added."
     ]
   }
 }

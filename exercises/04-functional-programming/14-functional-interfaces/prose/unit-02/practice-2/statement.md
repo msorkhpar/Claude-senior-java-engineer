@@ -1,16 +1,10 @@
-`optional.orElse(compute())` runs `compute()` every time, because Java evaluates a method's arguments before the
-call. `orElseGet(supplier)` calls the supplier only when the `Optional` is empty, and `Optional.or(supplier)`
-(Java 9+) does the same for a fallback that is itself an `Optional`.
+The warehouse scans forty thousand shipments an hour, and every scan goes through
+`ShipmentChecks` before a label is printed. A profile of the scanner shows most of the checker's
+time in `describe`, which formats every parcel of a shipment, and in building not-found errors,
+each with its stack trace. Yet fewer than one shipment in ten thousand lacks a carrier, and
+unknown ids are rarer still.
 
-Write `Lookup.resolve(Optional<T> primary, Supplier<Optional<T>> secondary, Supplier<T> fallback)`. It returns the
-primary's value if present, else the secondary's value if present, else `fallback.get()`.
-
-| primary | secondary | fallback | result |
-|---|---|---|---|
-| `Optional.of("cache")` | `Optional.of("db")` | `"default"` | `"cache"` |
-| empty | `Optional.of("db")` | `"default"` | `"db"` |
-| empty | empty | `"default"` | `"default"` |
-
-The secondary lookup and the fallback may be expensive (a database call, an HTTP request): no work may be done
-that the answer does not need, and each is asked at most once. Whatever the fallback returns is the answer, even
-`null`.
+Finish `carrierOf` and `find` in `src/main/java/practice/ShipmentChecks.java`. A shipment
+without a carrier fails with a `NullPointerException` whose message is its description, and an
+unknown id with the exception `notFound` builds for it; the shipments and ids that pass must cost
+nothing extra. About two lines in total.

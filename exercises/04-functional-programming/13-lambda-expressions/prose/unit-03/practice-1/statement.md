@@ -1,19 +1,13 @@
-`java.util.function` has one interface for each shape of job. A `Consumer<T>` takes a value
-and returns nothing, a `Supplier<T>` takes nothing and returns a value, a `Function<T, R>`
-turns one value into another, a `Predicate<T>` answers yes or no, and a `BinaryOperator<T>`
-combines two values of one type. Writing `Function<String, Void>` and returning `null` is the
-sign that a `Consumer` was wanted.
+A web shop's checkout decides which parcels may ship next-day and what a parcel costs. The team
+declared its own `Rule` and `Adjustment` interfaces in `src/main/java/practice/Checkout.java`,
+so the code reads in the shop's words, but nobody has written their combining methods yet:
+`Rule.and`, `Rule.or` and `Adjustment.then` all throw.
 
-Write the static factories of `Handlers`, each returning the interface named in its signature:
+Write those three methods. When you're done:
 
-| method | what the returned object does |
-|---|---|
-| `Consumer<String> appendTo(List<String> sink)` | adds every accepted string to `sink`, repeats included |
-| `Supplier<List<String>> freshList()` | gives an empty, modifiable list |
-| `Function<String, Integer> length()` | `"hello"` → `5` |
-| `Predicate<String> startsWithA()` | `"Alice"` → `true`; `"Bob"`, `"alice"` and `""` → `false` |
-| `BinaryOperator<Integer> larger()` | `(3, 7)` → `7`, for any two `int` values |
-| `Consumer<String> both(Consumer<String> first, Consumer<String> second)` | runs `first`, then `second` |
+- `nextDay()` turns down a parcel whose postcode is missing instead of failing on it;
+- every rule in a chain is asked at most once, in the order the chain was written, and only while
+  the answer is still open, because some of the shop's rules call a slow address service;
+- `price(percentOff, courierFee)` charges the courier fee in full on top of the discounted goods.
 
-A factory's supplier is called many times over its life, and "first, then second" is a
-promise about order.
+About four lines in total.

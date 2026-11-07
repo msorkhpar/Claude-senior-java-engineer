@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 5,
   "ingested": "2026-09-24",
-  "title": "A rectangle that is never invalid, not even half-way",
+  "title": "Map the order module's failures to API errors",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Failure atomicity is not automatic: a method that changes several fields and throws in the middle leaves the object half-updated. Write `Rectangle`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Rectangle(int width, int height)`, `getWidth()`, `getHeight()`;",
-        "`void resize(int newWidth, int newHeight)`."
-      ]
+      "text": "An ordering service's mobile app decides what to show from the API's error responses. The order module's developers improve their exception messages often, to make the logs easier to read, and those messages hold customer ids and the names of internal risk rules. After the last release the app started showing \"Something went wrong\" for out-of-stock items, and a security review flagged a response that named a risk rule."
     },
     {
       "type": "para",
-      "text": "Both the constructor and `resize` accept positive sides only. A side that is not positive throws `IllegalArgumentException(\"Width must be positive: <w>\")` or `IllegalArgumentException(\"Height must be positive: <h>\")`, the width checked first."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "result"
-      ],
-      "rows": [
-        [
-          "`new Rectangle(2, 3)` then `resize(4, 5)`",
-          "width `4`, height `5`"
-        ],
-        [
-          "`new Rectangle(2, 3)` then `resize(10, 0)`",
-          "throws `IllegalArgumentException(\"Height must be positive: 0\")`; still `2` by `3`"
-        ],
-        [
-          "`new Rectangle(0, 3)`",
-          "throws `IllegalArgumentException(\"Width must be positive: 0\")`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "If a constructor throws, the caller never gets a reference, so validating there means an invalid rectangle can never exist."
+      "text": "Finish `toResponse` in `src/main/java/practice/OrderApi.java`, using the statuses its comment documents. About five lines."
     },
     {
       "type": "heading",
@@ -71,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Rectangle {\n\n    private int width;\n    private int height;\n\n    public Rectangle(int width, int height) {\n        validate(width, height);\n        this.width = width;\n        this.height = height;\n    }\n\n    /** Both sides must be positive; a failed resize leaves the rectangle as it was. */\n    public void resize(int newWidth, int newHeight) {\n        validate(newWidth, newHeight);\n        this.width = newWidth;\n        this.height = newHeight;\n    }\n\n    public int getWidth() {\n        return width;\n    }\n\n    public int getHeight() {\n        return height;\n    }\n\n    private static void validate(int width, int height) {\n        if (width <= 0) {\n            throw new IllegalArgumentException(\"Width must be positive: \" + width);\n        }\n        if (height <= 0) {\n            throw new IllegalArgumentException(\"Height must be positive: \" + height);\n        }\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * The web layer of an ordering service: turns the order module's failures into the API's error\n * responses. Mobile and partner clients decide what to show from the response.\n */\npublic class OrderApi {\n\n    /** The order module's failures, as published in the API documentation. */\n    public enum ErrorCode { OUT_OF_STOCK, COUPON_EXPIRED, ORDER_LIMIT_REACHED }\n\n    /** Every failure the order module reports on purpose. */\n    public static class OrderException extends RuntimeException {\n        private final ErrorCode code;\n\n        public OrderException(ErrorCode code, String message) {\n            super(message);\n            this.code = code;\n        }\n\n        public ErrorCode code() {\n            return code;\n        }\n    }\n\n    /** What the client receives: an HTTP status, the documented code, and text it may display. */\n    public record ApiError(int status, String code, String detail) {\n    }\n\n    /**\n     * The response for a failure: OUT_OF_STOCK is 409, COUPON_EXPIRED is 422 and\n     * ORDER_LIMIT_REACHED is 429. The code is the constant's name.\n     */\n    public static ApiError toResponse(OrderException e) {\n        return switch (e.code()) {\n            case OUT_OF_STOCK -> new ApiError(409, e.code().name(), \"This item is out of stock.\");\n            case COUPON_EXPIRED -> new ApiError(422, e.code().name(), \"This coupon has expired.\");\n            case ORDER_LIMIT_REACHED -> new ApiError(429, e.code().name(), \"You've reached today's order limit.\");\n        };\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Rectangle {\n\n    public Rectangle(int width, int height) {\n        throw new UnsupportedOperationException(\"write Rectangle(int, int)\");\n    }\n\n    /** Both sides must be positive; a failed resize leaves the rectangle as it was. */\n    public void resize(int newWidth, int newHeight) {\n        throw new UnsupportedOperationException(\"write resize\");\n    }\n\n    public int getWidth() {\n        throw new UnsupportedOperationException(\"write getWidth\");\n    }\n\n    public int getHeight() {\n        throw new UnsupportedOperationException(\"write getHeight\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * The web layer of an ordering service: turns the order module's failures into the API's error\n * responses. Mobile and partner clients decide what to show from the response.\n */\npublic class OrderApi {\n\n    /** The order module's failures, as published in the API documentation. */\n    public enum ErrorCode { OUT_OF_STOCK, COUPON_EXPIRED, ORDER_LIMIT_REACHED }\n\n    /** Every failure the order module reports on purpose. */\n    public static class OrderException extends RuntimeException {\n        private final ErrorCode code;\n\n        public OrderException(ErrorCode code, String message) {\n            super(message);\n            this.code = code;\n        }\n\n        public ErrorCode code() {\n            return code;\n        }\n    }\n\n    /** What the client receives: an HTTP status, the documented code, and text it may display. */\n    public record ApiError(int status, String code, String detail) {\n    }\n\n    /**\n     * The response for a failure: OUT_OF_STOCK is 409, COUPON_EXPIRED is 422 and\n     * ORDER_LIMIT_REACHED is 429. The code is the constant's name.\n     */\n    public static ApiError toResponse(OrderException e) {\n        // TODO: Build the response for this failure. The detail is shown to the customer as it\n        //       is: \"This item is out of stock.\", \"This coupon has expired.\" or\n        //       \"You've reached today's order limit.\"\n        throw new IllegalStateException(\"TODO: toResponse\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e8e7db8c10f3595e83712364b345bc8646b80bb2d222f57a32b266ff2997779a",
-  "starting_code": "package practice;\n\npublic class Rectangle {\n\n    public Rectangle(int width, int height) {\n        throw new UnsupportedOperationException(\"write Rectangle(int, int)\");\n    }\n\n    /** Both sides must be positive; a failed resize leaves the rectangle as it was. */\n    public void resize(int newWidth, int newHeight) {\n        throw new UnsupportedOperationException(\"write resize\");\n    }\n\n    public int getWidth() {\n        throw new UnsupportedOperationException(\"write getWidth\");\n    }\n\n    public int getHeight() {\n        throw new UnsupportedOperationException(\"write getHeight\");\n    }\n}\n",
+  "content_sha256": "22c185b164b75f96b97f865b5263b363504758ed022e7c0ecceb31ebb26ceadc",
+  "starting_code": "package practice;\n\n/**\n * The web layer of an ordering service: turns the order module's failures into the API's error\n * responses. Mobile and partner clients decide what to show from the response.\n */\npublic class OrderApi {\n\n    /** The order module's failures, as published in the API documentation. */\n    public enum ErrorCode { OUT_OF_STOCK, COUPON_EXPIRED, ORDER_LIMIT_REACHED }\n\n    /** Every failure the order module reports on purpose. */\n    public static class OrderException extends RuntimeException {\n        private final ErrorCode code;\n\n        public OrderException(ErrorCode code, String message) {\n            super(message);\n            this.code = code;\n        }\n\n        public ErrorCode code() {\n            return code;\n        }\n    }\n\n    /** What the client receives: an HTTP status, the documented code, and text it may display. */\n    public record ApiError(int status, String code, String detail) {\n    }\n\n    /**\n     * The response for a failure: OUT_OF_STOCK is 409, COUPON_EXPIRED is 422 and\n     * ORDER_LIMIT_REACHED is 429. The code is the constant's name.\n     */\n    public static ApiError toResponse(OrderException e) {\n        // TODO: Build the response for this failure. The detail is shown to the customer as it\n        //       is: \"This item is out of stock.\", \"This coupon has expired.\" or\n        //       \"You've reached today's order limit.\"\n        throw new IllegalStateException(\"TODO: toResponse\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-5/src/main/java/practice/Rectangle.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-5/src/test/java/practice/RectangleTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-5/src/main/java/practice/OrderApi.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-5/src/test/java/practice/OrderApiTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RectangleTest#buildsAndResizes",
+        "id": "practice.OrderApiTest#eachCodeGetsItsDocumentedStatus",
         "kind": "main",
-        "says": "A valid rectangle is built and resized to new valid sides."
+        "says": "each error code gets its documented HTTP status and its name as the response code"
       },
       {
-        "id": "practice.RectangleTest#aHalfValidResizeChangesNothing",
+        "id": "practice.OrderApiTest#rewordingAMessageDoesNotChangeTheResponse",
         "kind": "edge",
-        "says": "A resize whose second side is invalid leaves both sides as they were, not half-updated."
+        "says": "two failures with the same code and different messages get the same response"
       },
       {
-        "id": "practice.RectangleTest#anInvalidRectangleCannotBeBuilt",
+        "id": "practice.OrderApiTest#theResponseCarriesNothingFromTheInternalMessage",
         "kind": "edge",
-        "says": "The constructor validates too, so an invalid rectangle never exists."
-      },
-      {
-        "id": "practice.RectangleTest#theWidthIsCheckedFirst",
-        "kind": "edge",
-        "says": "When both sides are invalid, the width is the one reported."
+        "says": "the response carries none of the internal values the exception's message holds"
       }
     ],
     "report": {
@@ -153,11 +115,10 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.3.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "Clients Branch on an Error Code, Never on the Message"
     },
     "concepts": [
-      "A method that changes several fields and throws in the middle leaves the object half-updated.",
-      "A constructor that validates its arguments means an invalid object can never exist."
+      "An API maps failures by an error-code field, never by message text, and returns its own text rather than the exception's message."
     ]
   }
 }

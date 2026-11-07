@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Translate a data-layer SQLException at the service boundary",
+  "title": "Write a rejection message on-call can act on",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A service should not leak its data layer's `SQLException`. Translate it at the boundary into an exception of the service's own level of abstraction, keeping it as the cause."
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Complete the checked `OrderLookupException(String message, Throwable cause)`.",
-        "Write `OrderService(OrderDao dao)` and `String findOrder(long id) throws OrderLookupException`, which returns `dao.load(id)`. When `load` throws `SQLException`, throw `OrderLookupException(\"Could not load order <id>\")`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "DAO behaviour for `42`",
-        "`findOrder(42)`"
-      ],
-      "rows": [
-        [
-          "returns `\"order-42\"`",
-          "`\"order-42\"`"
-        ],
-        [
-          "throws `SQLException(\"connection reset\")`",
-          "throws `OrderLookupException(\"Could not load order 42\")`"
-        ]
-      ]
+      "text": "A bank's transfer API rejects transfers outside its per-transfer limits, which differ by customer tier and change a few times a year. When a business customer calls to ask why a payment was refused, support pastes the log line into a ticket and on-call answers from it. The ticket system is read by a hundred people at an outsourcing partner."
     },
     {
       "type": "para",
-      "text": "A caller depends only on the service's API, yet an operator reading the log still needs to see `Caused by: java.sql.SQLException`. Catch only what you can translate."
+      "text": "Finish `rejection` in `src/main/java/practice/TransferLimits.java`: the message of the exception that rejects a transfer. From the message alone, on-call must be able to tell what was wrong with the transfer and find it again, and the ticket must be safe to share. About two lines."
     },
     {
       "type": "heading",
@@ -63,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.sql.SQLException;\n\n/** The data layer: loads an order by id. */\ninterface OrderDao {\n    String load(long id) throws SQLException;\n}\n\n/** Checked: the service could not look an order up. */\nclass OrderLookupException extends Exception {\n\n    OrderLookupException(String message, Throwable cause) {\n        super(message, cause);\n    }\n}\n\npublic class OrderService {\n\n    private final OrderDao dao;\n\n    public OrderService(OrderDao dao) {\n        this.dao = dao;\n    }\n\n    /** Returns the order; a SQLException becomes OrderLookupException(\"Could not load order \" + id). */\n    public String findOrder(long id) throws OrderLookupException {\n        try {\n            return dao.load(id);\n        } catch (SQLException e) {\n            throw new OrderLookupException(\"Could not load order \" + id, e);\n        }\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Checks a bank transfer against the per-transfer limits before it is sent. A rejected transfer's\n * exception message is written to the application log, which is shipped to the log aggregator,\n * and pasted into support tickets.\n */\npublic class TransferLimits {\n\n    /** A transfer as the API received it. */\n    public record TransferRequest(String id, String fromIban, String toIban, String apiToken, long amountCents) {\n    }\n\n    private final long minCents;\n    private final long maxCents;\n\n    /** Both limits are inclusive: a transfer of exactly minCents or maxCents is allowed. */\n    public TransferLimits(long minCents, long maxCents) {\n        this.minCents = minCents;\n        this.maxCents = maxCents;\n    }\n\n    /** Throws IllegalArgumentException when the amount is outside the limits. */\n    public void check(TransferRequest request) {\n        if (request.amountCents() < minCents || request.amountCents() > maxCents) {\n            throw new IllegalArgumentException(rejection(request));\n        }\n    }\n\n    /** The message of the exception that rejects this request. */\n    String rejection(TransferRequest request) {\n        return \"amountCents \" + request.amountCents() + \" outside [\" + minCents + \", \" + maxCents\n                + \"] in transfer \" + request.id();\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.sql.SQLException;\n\n/** The data layer: loads an order by id. */\ninterface OrderDao {\n    String load(long id) throws SQLException;\n}\n\n/** Checked: the service could not look an order up. */\nclass OrderLookupException extends Exception {\n\n    OrderLookupException(String message, Throwable cause) {\n        throw new UnsupportedOperationException(\"write OrderLookupException(String, Throwable)\");\n    }\n}\n\npublic class OrderService {\n\n    public OrderService(OrderDao dao) {\n    }\n\n    /** Returns the order; a SQLException becomes OrderLookupException(\"Could not load order \" + id). */\n    public String findOrder(long id) throws OrderLookupException {\n        throw new UnsupportedOperationException(\"write findOrder\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Checks a bank transfer against the per-transfer limits before it is sent. A rejected transfer's\n * exception message is written to the application log, which is shipped to the log aggregator,\n * and pasted into support tickets.\n */\npublic class TransferLimits {\n\n    /** A transfer as the API received it. */\n    public record TransferRequest(String id, String fromIban, String toIban, String apiToken, long amountCents) {\n    }\n\n    private final long minCents;\n    private final long maxCents;\n\n    /** Both limits are inclusive: a transfer of exactly minCents or maxCents is allowed. */\n    public TransferLimits(long minCents, long maxCents) {\n        this.minCents = minCents;\n        this.maxCents = maxCents;\n    }\n\n    /** Throws IllegalArgumentException when the amount is outside the limits. */\n    public void check(TransferRequest request) {\n        if (request.amountCents() < minCents || request.amountCents() > maxCents) {\n            throw new IllegalArgumentException(rejection(request));\n        }\n    }\n\n    /** The message of the exception that rejects this request. */\n    String rejection(TransferRequest request) {\n        // TODO: Write the message the on-call engineer reads when a transfer is rejected. They\n        //       must be able to tell from it alone what was wrong with this transfer and which\n        //       transfer it was, and the log must stay safe to share.\n        throw new IllegalStateException(\"TODO: rejection\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -85,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -94,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "548dfdf399a88b3728579842b362a5f1ce81bf4b3858ef8b95deaa77a2af216a",
-  "starting_code": "package practice;\n\nimport java.sql.SQLException;\n\n/** The data layer: loads an order by id. */\ninterface OrderDao {\n    String load(long id) throws SQLException;\n}\n\n/** Checked: the service could not look an order up. */\nclass OrderLookupException extends Exception {\n\n    OrderLookupException(String message, Throwable cause) {\n        throw new UnsupportedOperationException(\"write OrderLookupException(String, Throwable)\");\n    }\n}\n\npublic class OrderService {\n\n    public OrderService(OrderDao dao) {\n    }\n\n    /** Returns the order; a SQLException becomes OrderLookupException(\"Could not load order \" + id). */\n    public String findOrder(long id) throws OrderLookupException {\n        throw new UnsupportedOperationException(\"write findOrder\");\n    }\n}\n",
+  "content_sha256": "0a73a62ee185fe222910caadddb53754077b9f0a0dd201a995de6c30d132dd75",
+  "starting_code": "package practice;\n\n/**\n * Checks a bank transfer against the per-transfer limits before it is sent. A rejected transfer's\n * exception message is written to the application log, which is shipped to the log aggregator,\n * and pasted into support tickets.\n */\npublic class TransferLimits {\n\n    /** A transfer as the API received it. */\n    public record TransferRequest(String id, String fromIban, String toIban, String apiToken, long amountCents) {\n    }\n\n    private final long minCents;\n    private final long maxCents;\n\n    /** Both limits are inclusive: a transfer of exactly minCents or maxCents is allowed. */\n    public TransferLimits(long minCents, long maxCents) {\n        this.minCents = minCents;\n        this.maxCents = maxCents;\n    }\n\n    /** Throws IllegalArgumentException when the amount is outside the limits. */\n    public void check(TransferRequest request) {\n        if (request.amountCents() < minCents || request.amountCents() > maxCents) {\n            throw new IllegalArgumentException(rejection(request));\n        }\n    }\n\n    /** The message of the exception that rejects this request. */\n    String rejection(TransferRequest request) {\n        // TODO: Write the message the on-call engineer reads when a transfer is rejected. They\n        //       must be able to tell from it alone what was wrong with this transfer and which\n        //       transfer it was, and the log must stay safe to share.\n        throw new IllegalStateException(\"TODO: rejection\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-3/src/main/java/practice/OrderService.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-3/src/test/java/practice/OrderServiceTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-3/src/main/java/practice/TransferLimits.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-3/src/test/java/practice/TransferLimitsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.OrderServiceTest#findsAnOrder",
+        "id": "practice.TransferLimitsTest#onlyAmountsOutsideTheLimitsAreRejected",
         "kind": "main",
-        "says": "An order the DAO loads is returned."
+        "says": "transfers of exactly the minimum and the maximum go through, and one below the minimum is rejected"
       },
       {
-        "id": "practice.OrderServiceTest#aStorageFailureIsTranslated",
+        "id": "practice.TransferLimitsTest#aRejectionNamesTheAmountAndTheTransfer",
         "kind": "main",
-        "says": "A SQLException from the DAO leaves the service as OrderLookupException(\"Could not load order <id>\")."
+        "says": "a rejection's message contains the rejected amount and the transfer's id"
       },
       {
-        "id": "practice.OrderServiceTest#theSqlExceptionIsKeptAsTheCause",
+        "id": "practice.TransferLimitsTest#aRejectionNamesTheAmountsThatWouldHaveBeenAccepted",
         "kind": "edge",
-        "says": "The SQLException is kept as the cause, so the real reason still shows in the logs."
+        "says": "the message gives both limits, so the reader knows what would have been accepted"
       },
       {
-        "id": "practice.OrderServiceTest#aBugIsNotTranslated",
+        "id": "practice.TransferLimitsTest#aRejectionCarriesNoCredentialsOrAccountNumbers",
         "kind": "edge",
-        "says": "Only the SQLException is caught; an unchecked exception from the DAO is a bug and propagates as it is."
+        "says": "the message holds no API token and no account number, even though the request carries them"
       }
     ],
     "report": {
@@ -145,11 +120,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.3.md",
-      "section": "Best Practices"
+      "section": "A Message Names the Bad Value and the Range It Expected, and Nothing Secret"
     },
     "concepts": [
-      "Catching Exception also catches the RuntimeExceptions that signal bugs, so catch only what you can handle.",
-      "A layer translates a lower-level exception into its own, keeping the original as the cause."
+      "A rejection message gives the bad value, the accepted range and an identifier, so the log alone tells what was wrong.",
+      "Concatenating a whole request into a message copies every component (a record's toString() prints them all) into every log and ticket; secrets and personal data never go in a message."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Pick a standard exception or a custom one for each seat-booking failure",
+  "title": "Give the playlist's failures the answers clients need",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Reuse a standard exception when it describes the error; create a custom one when the error belongs to your domain and callers need to tell it apart, or when it must carry data. Write `SeatMap` with seats numbered `1` to `capacity`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`SeatMap(int capacity)`, `boolean isReserved(int seat)`, `void close()`;",
-        "`void reserve(int seat) throws SeatTakenException`, and its failures:"
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "situation",
-        "exception",
-        "message"
-      ],
-      "rows": [
-        [
-          "seat is not in `1..capacity`",
-          "`IllegalArgumentException`",
-          "`No such seat: <seat>`"
-        ],
-        [
-          "the map was closed with `close()`",
-          "`IllegalStateException`",
-          "`Booking closed`"
-        ],
-        [
-          "the seat is already reserved",
-          "`SeatTakenException` (checked, yours to complete) with `getSeat()`",
-          "`Seat <seat> is taken`"
-        ]
-      ]
+      "text": "A party playlist service lets guests add tracks from their phones. The host can lock the playlist while the DJ reorders it, and the venue's screens get a view that only displays it. Every service of the company answers failures through the same handler, `Playlist.Api.status`, which nobody on your team may change."
     },
     {
       "type": "para",
-      "text": "When more than one failure applies to a call, which one is reported is up to you; the tests give each call exactly one."
+      "text": "Guests complain: the app tells them \"server error\" when they ask for a track that isn't there, and tells them their request is malformed when they add a song during a reorder, so they never try again."
     },
     {
       "type": "para",
-      "text": "`reserve(3)` on a fresh `new SeatMap(10)` reserves seat 3; a second `reserve(3)` throws `SeatTakenException` with `getSeat() == 3`."
-    },
-    {
-      "type": "para",
-      "text": "Each failure has a different cause: a bug in the caller, an object in the wrong state, or a business rule a caller can recover from. Choose the type that says which."
+      "text": "In `src/main/java/practice/Playlist.java`, finish the three methods that create the exception for each failure, and decide what `NoSuchTrackException` extends. The mobile app catches `NoSuchTrackException` by name, so it stays. The client should learn from the status whether to fix its request, try again later, or stop trying. About four lines in total."
     },
     {
       "type": "heading",
@@ -79,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\n/** Checked: the seat is already reserved. Carries the seat number. */\nclass SeatTakenException extends Exception {\n\n    private final int seat;\n\n    SeatTakenException(String message, int seat) {\n        super(message);\n        this.seat = seat;\n    }\n\n    int getSeat() {\n        return seat;\n    }\n}\n\npublic class SeatMap {\n\n    private final boolean[] reserved;\n    private boolean closed;\n\n    public SeatMap(int capacity) {\n        this.reserved = new boolean[capacity];\n    }\n\n    /** Reserves a seat in 1..capacity; see the statement for each failure. */\n    public void reserve(int seat) throws SeatTakenException {\n        if (closed) {\n            throw new IllegalStateException(\"Booking closed\");\n        }\n        if (seat < 1 || seat > reserved.length) {\n            throw new IllegalArgumentException(\"No such seat: \" + seat);\n        }\n        if (reserved[seat - 1]) {\n            throw new SeatTakenException(\"Seat \" + seat + \" is taken\", seat);\n        }\n        reserved[seat - 1] = true;\n    }\n\n    public boolean isReserved(int seat) {\n        return reserved[seat - 1];\n    }\n\n    public void close() {\n        closed = true;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * A party playlist that guests add tracks to. The host locks it while the DJ reorders it, and\n * the venue's screens get a view of it that only displays.\n */\npublic class Playlist {\n\n    /** The API's error handler, shared by every service. Don't change it. */\n    public static final class Api {\n        private Api() {\n        }\n\n        public static int status(RuntimeException e) {\n            if (e instanceof IllegalArgumentException) return 400;\n            if (e instanceof IllegalStateException) return 409;\n            if (e instanceof UnsupportedOperationException) return 405;\n            return 500;\n        }\n    }\n\n    /** The mobile app catches this one to offer a search instead of an error. */\n    public static class NoSuchTrackException extends IllegalArgumentException {\n        private final int position;\n\n        public NoSuchTrackException(int position, int size) {\n            super(\"position \" + position + \" outside [1, \" + size + \"]\");\n            this.position = position;\n        }\n\n        public int position() {\n            return position;\n        }\n    }\n\n    private final List<String> tracks = new ArrayList<>();\n    private boolean locked;\n\n    /** The track at a position counted from 1. */\n    public String track(int position) {\n        if (position < 1 || position > tracks.size()) throw noSuchTrack(position);\n        return tracks.get(position - 1);\n    }\n\n    public void add(String track) {\n        if (locked) throw lockedForReordering();\n        tracks.add(track);\n    }\n\n    public void lock() {\n        locked = true;\n    }\n\n    public void unlock() {\n        locked = false;\n    }\n\n    /** What the venue's screens get: they display the playlist and never change it. */\n    public Playlist screenView() {\n        Playlist owner = this;\n        return new Playlist() {\n            @Override\n            public String track(int position) {\n                return owner.track(position);\n            }\n\n            @Override\n            public void add(String track) {\n                throw displayOnly();\n            }\n        };\n    }\n\n    RuntimeException noSuchTrack(int position) {\n        return new NoSuchTrackException(position, tracks.size());\n    }\n\n    RuntimeException lockedForReordering() {\n        return new IllegalStateException(\"playlist is locked for reordering\");\n    }\n\n    RuntimeException displayOnly() {\n        return new UnsupportedOperationException(\"screen view is display-only\");\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\n/** Checked: the seat is already reserved. Carries the seat number. */\nclass SeatTakenException extends Exception {\n\n    SeatTakenException(String message, int seat) {\n        throw new UnsupportedOperationException(\"write SeatTakenException(String, int)\");\n    }\n\n    int getSeat() {\n        throw new UnsupportedOperationException(\"write getSeat\");\n    }\n}\n\npublic class SeatMap {\n\n    public SeatMap(int capacity) {\n    }\n\n    /** Reserves a seat in 1..capacity; see the statement for each failure. */\n    public void reserve(int seat) throws SeatTakenException {\n        throw new UnsupportedOperationException(\"write reserve\");\n    }\n\n    public boolean isReserved(int seat) {\n        throw new UnsupportedOperationException(\"write isReserved\");\n    }\n\n    public void close() {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * A party playlist that guests add tracks to. The host locks it while the DJ reorders it, and\n * the venue's screens get a view of it that only displays.\n */\npublic class Playlist {\n\n    /** The API's error handler, shared by every service. Don't change it. */\n    public static final class Api {\n        private Api() {\n        }\n\n        public static int status(RuntimeException e) {\n            if (e instanceof IllegalArgumentException) return 400;\n            if (e instanceof IllegalStateException) return 409;\n            if (e instanceof UnsupportedOperationException) return 405;\n            return 500;\n        }\n    }\n\n    /** The mobile app catches this one to offer a search instead of an error. */\n    public static class NoSuchTrackException extends RuntimeException {  // TODO: is RuntimeException the right parent?\n        private final int position;\n\n        public NoSuchTrackException(int position, int size) {\n            super(\"position \" + position + \" outside [1, \" + size + \"]\");\n            this.position = position;\n        }\n\n        public int position() {\n            return position;\n        }\n    }\n\n    private final List<String> tracks = new ArrayList<>();\n    private boolean locked;\n\n    /** The track at a position counted from 1. */\n    public String track(int position) {\n        if (position < 1 || position > tracks.size()) throw noSuchTrack(position);\n        return tracks.get(position - 1);\n    }\n\n    public void add(String track) {\n        if (locked) throw lockedForReordering();\n        tracks.add(track);\n    }\n\n    public void lock() {\n        locked = true;\n    }\n\n    public void unlock() {\n        locked = false;\n    }\n\n    /** What the venue's screens get: they display the playlist and never change it. */\n    public Playlist screenView() {\n        Playlist owner = this;\n        return new Playlist() {\n            @Override\n            public String track(int position) {\n                return owner.track(position);\n            }\n\n            @Override\n            public void add(String track) {\n                throw displayOnly();\n            }\n        };\n    }\n\n    // Each method below returns the exception to throw for one failure. The API answers it\n    // through Api.status: choose exceptions that give the client the answer it needs.\n\n    /** A guest asked for a position the playlist doesn't have. */\n    RuntimeException noSuchTrack(int position) {\n        // TODO: return the exception for this failure.\n        throw new AssertionError(\"TODO: noSuchTrack\");\n    }\n\n    /** A guest added a track while the host had the playlist locked. */\n    RuntimeException lockedForReordering() {\n        // TODO: return the exception for this failure.\n        throw new AssertionError(\"TODO: lockedForReordering\");\n    }\n\n    /** Something tried to add a track through a screen view. */\n    RuntimeException displayOnly() {\n        // TODO: return the exception for this failure.\n        throw new AssertionError(\"TODO: displayOnly\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -110,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cec1c5db937c939e4ac117a1cef598b64327f07529bbda9985849e6dd94bcd6e",
-  "starting_code": "package practice;\n\n/** Checked: the seat is already reserved. Carries the seat number. */\nclass SeatTakenException extends Exception {\n\n    SeatTakenException(String message, int seat) {\n        throw new UnsupportedOperationException(\"write SeatTakenException(String, int)\");\n    }\n\n    int getSeat() {\n        throw new UnsupportedOperationException(\"write getSeat\");\n    }\n}\n\npublic class SeatMap {\n\n    public SeatMap(int capacity) {\n    }\n\n    /** Reserves a seat in 1..capacity; see the statement for each failure. */\n    public void reserve(int seat) throws SeatTakenException {\n        throw new UnsupportedOperationException(\"write reserve\");\n    }\n\n    public boolean isReserved(int seat) {\n        throw new UnsupportedOperationException(\"write isReserved\");\n    }\n\n    public void close() {\n        throw new UnsupportedOperationException(\"write close\");\n    }\n}\n",
+  "content_sha256": "484219c80432d4946fc87c0cbdaac4bbe66634ff89f334adcf453d19af78f045",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * A party playlist that guests add tracks to. The host locks it while the DJ reorders it, and\n * the venue's screens get a view of it that only displays.\n */\npublic class Playlist {\n\n    /** The API's error handler, shared by every service. Don't change it. */\n    public static final class Api {\n        private Api() {\n        }\n\n        public static int status(RuntimeException e) {\n            if (e instanceof IllegalArgumentException) return 400;\n            if (e instanceof IllegalStateException) return 409;\n            if (e instanceof UnsupportedOperationException) return 405;\n            return 500;\n        }\n    }\n\n    /** The mobile app catches this one to offer a search instead of an error. */\n    public static class NoSuchTrackException extends RuntimeException {  // TODO: is RuntimeException the right parent?\n        private final int position;\n\n        public NoSuchTrackException(int position, int size) {\n            super(\"position \" + position + \" outside [1, \" + size + \"]\");\n            this.position = position;\n        }\n\n        public int position() {\n            return position;\n        }\n    }\n\n    private final List<String> tracks = new ArrayList<>();\n    private boolean locked;\n\n    /** The track at a position counted from 1. */\n    public String track(int position) {\n        if (position < 1 || position > tracks.size()) throw noSuchTrack(position);\n        return tracks.get(position - 1);\n    }\n\n    public void add(String track) {\n        if (locked) throw lockedForReordering();\n        tracks.add(track);\n    }\n\n    public void lock() {\n        locked = true;\n    }\n\n    public void unlock() {\n        locked = false;\n    }\n\n    /** What the venue's screens get: they display the playlist and never change it. */\n    public Playlist screenView() {\n        Playlist owner = this;\n        return new Playlist() {\n            @Override\n            public String track(int position) {\n                return owner.track(position);\n            }\n\n            @Override\n            public void add(String track) {\n                throw displayOnly();\n            }\n        };\n    }\n\n    // Each method below returns the exception to throw for one failure. The API answers it\n    // through Api.status: choose exceptions that give the client the answer it needs.\n\n    /** A guest asked for a position the playlist doesn't have. */\n    RuntimeException noSuchTrack(int position) {\n        // TODO: return the exception for this failure.\n        throw new AssertionError(\"TODO: noSuchTrack\");\n    }\n\n    /** A guest added a track while the host had the playlist locked. */\n    RuntimeException lockedForReordering() {\n        // TODO: return the exception for this failure.\n        throw new AssertionError(\"TODO: lockedForReordering\");\n    }\n\n    /** Something tried to add a track through a screen view. */\n    RuntimeException displayOnly() {\n        // TODO: return the exception for this failure.\n        throw new AssertionError(\"TODO: displayOnly\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-2/src/main/java/practice/SeatMap.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-2/src/test/java/practice/SeatMapTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-2/src/main/java/practice/Playlist.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-03/practice-2/src/test/java/practice/PlaylistTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,24 +98,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SeatMapTest#reservesFreeSeats",
+        "id": "practice.PlaylistTest#aMissingPositionCanBeCaughtByTheMobileAppWithThePositionAsked",
         "kind": "main",
-        "says": "Free seats in range can be reserved, and isReserved reports them."
+        "says": "a missing position throws NoSuchTrackException carrying the position asked"
       },
       {
-        "id": "practice.SeatMapTest#aTakenSeatIsADomainFailure",
-        "kind": "edge",
-        "says": "A taken seat is the domain's own SeatTakenException, carrying the seat number for the caller to offer another."
+        "id": "practice.PlaylistTest#aLockedPlaylistRefusesTracksUntilItIsUnlocked",
+        "kind": "main",
+        "says": "a locked playlist refuses new tracks and accepts them again once unlocked"
       },
       {
-        "id": "practice.SeatMapTest#aSeatOutsideTheMapIsABadArgument",
-        "kind": "edge",
-        "says": "A seat number outside 1..capacity is a plain IllegalArgumentException naming the number, not an array index error."
+        "id": "practice.PlaylistTest#theScreenViewNeverChangesThePlaylist",
+        "kind": "main",
+        "says": "the screen view displays the playlist and refuses to add to it"
       },
       {
-        "id": "practice.SeatMapTest#aClosedMapIsInTheWrongState",
+        "id": "practice.PlaylistTest#aMissingPositionTellsTheClientItsRequestIsWrong",
         "kind": "edge",
-        "says": "Reserving after close() is an IllegalStateException: the argument is fine, the object is not ready."
+        "says": "a position the playlist doesn't have, at either end, is answered 400 by the existing handler"
+      },
+      {
+        "id": "practice.PlaylistTest#aTrackAddedWhileLockedTellsTheClientToTryAgainLater",
+        "kind": "edge",
+        "says": "a track added while the playlist is locked is answered 409, not as a bad request"
+      },
+      {
+        "id": "practice.PlaylistTest#anAddThroughTheScreenViewTellsTheClientItIsNeverAllowed",
+        "kind": "edge",
+        "says": "an add through the display-only view is answered 405, an operation the object never supports"
       }
     ],
     "report": {
@@ -161,11 +134,10 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.3.md",
-      "section": "Key Points to Remember"
+      "section": "Throw IllegalArgumentException, IllegalStateException or UnsupportedOperationException When They Already Mean the Error"
     },
     "concepts": [
-      "A custom exception is worth creating when the error is part of the domain and callers must tell it apart.",
-      "Standard exceptions such as IllegalArgumentException and IllegalStateException are reused when they describe the error."
+      "IllegalArgumentException, IllegalStateException and UnsupportedOperationException are already mapped by existing handlers; a home-grown RuntimeException falls through to the fallback, while a subclass of the standard one keeps its meaning."
     ]
   }
 }

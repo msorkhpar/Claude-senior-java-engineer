@@ -1,17 +1,9 @@
-`IntPredicate` is `boolean test(int)`: the primitive form of `Predicate<Integer>`, with no boxing, and the type
-`IntStream.filter` takes. It composes with `and()`, `or()` and `negate()`, but has no static `not()` or `isEqual()`.
+The marketing dashboard shows, for each user, the page they landed on: their first visit in the
+time range. One `VisitReport` object serves the dashboard while the application runs, and the
+dashboard asks it for a new report every few minutes, with that period's visits in the order they
+happened.
 
-Write three methods in `Ranges`:
-
-1. `between(int lo, int hi)` returns an `IntPredicate` for `lo <= n <= hi`.
-2. `outside(int lo, int hi)` returns its opposite (`negate()` gives it directly).
-3. `select(int from, int to, IntPredicate keep)` returns the values `from, from + 1, …, to` that pass `keep`.
-
-| call | result |
-|---|---|
-| `select(1, 6, n -> n % 2 == 0)` | `[2, 4, 6]` |
-| `select(-5, 5, between(1, 5).and(n -> n % 2 == 0))` | `[2, 4]` |
-| `select(-2, 2, outside(-1, 1))` | `[-2, 2]` |
-
-Mind the bounds, and a range written backwards: `between(5, 1)` holds no number at all, so `outside(5, 1)` holds
-every number. The tests keep `to` below `Integer.MAX_VALUE` and every range small.
+Write `firstPer(...)` and `landingVisits(...)` in `src/main/java/practice/VisitReport.java`.
+`firstPer(key)` is a reusable building block: a predicate that passes the first element it sees
+for each key and rejects the ones after it. `landingVisits` uses it to list each user's first
+visit, in the order the visits happened. About four lines in total.

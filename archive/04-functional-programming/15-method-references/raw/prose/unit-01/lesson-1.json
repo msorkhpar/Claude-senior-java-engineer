@@ -18,426 +18,360 @@
       "text": "4.3.1. Introduction to Method References"
     },
     {
+      "type": "para",
+      "text": "A rate limiter reads its limit through an `IntSupplier` that is wired once, at startup. A reviewer shortened the wiring from `() -> settings.limit()` to `settings::limit`, with the comment \"same thing, shorter\". Since that change, an operator who reloads the settings sees the new limit, 250, in the log, and the limiter keeps allowing 100 requests a second. Nobody restarted anything. Where does the 100 come from?"
+    },
+    {
+      "type": "para",
+      "text": "A method reference behaves like a lambda that makes one call, and most of the time the shorter text means exactly the same thing. This unit is about the places where it doesn't. Every output below is from Java 21; long stack traces are cut to their first frames."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Method Reference Is a Lambda That Makes One Call, and the Target Type Decides What the Call Means"
     },
     {
       "type": "para",
-      "text": "Method references are a shorthand notation introduced in Java 8 for lambda expressions that do nothing but call an existing method. They are a feature of functional programming in Java that lets you refer to methods or constructors without actually invoking them — you capture a reference to an existing method and pass it around as a function object."
+      "text": "`String::length` names a method without calling it. Like a lambda (unit 4.1.1), it has no type of its own: the interface the context expects, its target type, supplies the parameters, and the compiler finds a call to `length` that fits them. As a `Function<String, Integer>` it is `s -> s.length()`; the kinds of reference and how each one maps the parameters are unit 4.3.2."
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of a method reference like a bookmark on a page in a cookbook. Instead of copying the entire recipe (writing out the lambda body), you just hand someone the bookmark and tell them, \"follow the instructions on that page.\" The person (the JVM) knows exactly what to do when the time comes. The bookmark doesn't execute the recipe — it just references it."
-    },
-    {
-      "type": "para",
-      "text": "Before method references, developers using lambdas would often write trivial wrappers like:"
+      "text": "A leaderboard wants the best of three scores:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "list.forEach(s -> System.out.println(s));      // lambda that just calls one method\nlist.stream().map(s -> s.toUpperCase());       // lambda that delegates to another\nlist.stream().map(s -> new StringBuilder(s));  // lambda that just calls a constructor"
+      "text": "List<Integer> scores = List.of(40, 95, 70);\nSystem.out.println(\"max(Integer::max)     = \" + scores.stream().max(Integer::max).get());\nSystem.out.println(\"max(Integer::compare) = \" + scores.stream().max(Integer::compare).get());\nComparator<Integer> c = Integer::max;\nSystem.out.println(\"compare(40, 95)       = \" + c.compare(40, 95));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "max(Integer::max)     = 40\nmax(Integer::compare) = 95\ncompare(40, 95)       = 95"
     },
     {
       "type": "para",
-      "text": "Method references simplify these to:"
+      "text": "`max` takes a `Comparator<Integer>`, whose method is `int compare(Integer, Integer)`. `Integer.max(int, int)` takes two ints and returns an int, so the reference compiles, without a warning. The comparator now is `Integer.max`: asked to compare 40 and 95, it answers 95, a positive number, which means \"40 is greater\". With positive scores every comparison says \"the first is greater\", so `max` returns whichever score came first."
+    },
+    {
+      "type": "para",
+      "text": "The compiler checks that the call fits the interface's method: the number of parameters, their types after boxing, and the return type. It can't check that the method means what the interface's contract asks for, and a lambda is no safer: `(a, b) -> Math.max(a, b)` compiles too. The reference hides what the call does, though: a reader sees `max(Integer::max)` and assumes it finds the maximum."
+    },
+    {
+      "type": "para",
+      "text": "The leaderboard passes any test whose best score comes first, which is common when test data is typed in sorted order."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Bound Receiver Is Evaluated Once, When the Reference Is Created"
+    },
+    {
+      "type": "para",
+      "text": "`settings::limit` and `() -> settings.limit()` call the same method. They differ in when `settings` is read. In a reference with an expression before the `::` (a **bound** reference), the expression is evaluated when the reference is created, and the result is kept. A lambda's body, receiver included, runs on every call. A counter that issues a new ticket on each `next()` shows when each one runs:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "list.forEach(System.out::println);\nlist.stream().map(String::toUpperCase);\nlist.stream().map(StringBuilder::new);"
+      "text": "Counter counter = new Counter();\nSupplier<String> ref = counter.next()::toString;\nSupplier<String> lambda = () -> counter.next().toString();\nSystem.out.println(\"issued after creating both: \" + counter.issued());\nSystem.out.println(\"ref:    \" + ref.get() + \" \" + ref.get() + \" \" + ref.get());\nSystem.out.println(\"lambda: \" + lambda.get() + \" \" + lambda.get() + \" \" + lambda.get());\nSystem.out.println(\"issued at the end: \" + counter.issued());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "issued after creating both: 1\nref:    T-1 T-1 T-1\nlambda: T-2 T-3 T-4\nissued at the end: 4"
     },
     {
       "type": "para",
-      "text": "Both a method reference and the equivalent lambda are compiled to an `invokedynamic` call site; the only difference in the bytecode is that a lambda body is also compiled into a private synthetic `lambda$...` method, which a method reference does not need. The practical difference is readability: method references are self-documenting because the method name communicates intent directly, whereas a lambda body requires reading to understand."
+      "text": "Creating the reference issued T-1, before anyone called `get()`, and every call returns that ticket. The lambda issued nothing until it was called, and then a new ticket per call."
+    },
+    {
+      "type": "para",
+      "text": "The rate limiter has the same shape. `settings` is a `volatile` field that a reload replaces with a new `Settings` object:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static volatile Settings settings = new Settings(100);\n\npublic static void main(String[] args) {\n    IntSupplier byRef = settings::limit;\n    IntSupplier byLambda = () -> settings.limit();\n    settings = new Settings(250);                 // a reload\n    System.out.println(\"byRef:    \" + byRef.getAsInt());\n    System.out.println(\"byLambda: \" + byLambda.getAsInt());\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "byRef:    100\nbyLambda: 250"
+    },
+    {
+      "type": "para",
+      "text": "The reference holds the object that was in the field at startup. The reload changed the field, not that object, so the limiter reads 100 for as long as the process runs. The lambda reads the field on each call. A lambda that reads a local copy instead, `Settings s = settings;` and then `() -> s.limit()`, is pinned just like the reference: what it captured is the object, not the field (unit 4.1.1)."
+    },
+    {
+      "type": "para",
+      "text": "Neither is wrong in itself: a job that must report the settings it started with wants them pinned, and the limiter, which must follow reloads, wants the field read on every call."
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "Relationship Between Lambdas and Method References"
+      "text": "A Null Receiver Fails Where the Reference Is Created"
     },
     {
       "type": "para",
-      "text": "A method reference is syntactic sugar — every method reference can be rewritten as a lambda expression:"
+      "text": "Because the receiver is evaluated at creation, a `null` one fails there. Here the settings are not loaded yet:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Settings settings;                         // not loaded yet\n\npublic static void main(String[] args) {\n    IntSupplier byLambda = () -> settings.limit();\n    System.out.println(\"lambda created\");\n    try {\n        IntSupplier byRef = settings::limit;\n        System.out.println(\"ref created\");\n    } catch (NullPointerException e) {\n        System.out.println(\"creating the ref: \" + e);\n        System.out.println(\"\\tat \" + e.getStackTrace()[0]);\n        System.out.println(\"\\tat \" + e.getStackTrace()[1]);\n    }\n    try {\n        byLambda.getAsInt();\n    } catch (NullPointerException e) {\n        System.out.println(\"calling the lambda: \" + e);\n        System.out.println(\"\\tat \" + e.getStackTrace()[0]);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lambda created\ncreating the ref: java.lang.NullPointerException\n\tat java.base/java.util.Objects.requireNonNull(Objects.java:233)\n\tat NullReceiver.main(NullReceiver.java:12)\ncalling the lambda: java.lang.NullPointerException: Cannot invoke \"NullReceiver$Settings.limit()\" because \"NullReceiver.settings\" is null\n\tat NullReceiver.lambda$main$0(NullReceiver.java:9)"
+    },
+    {
+      "type": "para",
+      "text": "javac compiles a bound reference as `Objects.requireNonNull(receiver)` followed by the code that creates the object, so the exception comes from `requireNonNull` and carries no message. The line number is the only clue. The lambda was created without complaint and failed on its first call, with a message that names the field."
+    },
+    {
+      "type": "para",
+      "text": "In the limiter, wiring `settings::limit` before the settings are loaded stops the service at startup with that bare exception. The lambda version starts, and fails on the first request if the load never happens. Failing at startup is usually better than failing on a request an hour later, after the load was quietly skipped."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "javac Points Most Method References Straight at the Method, With No lambda$ Method in Between"
+    },
+    {
+      "type": "para",
+      "text": "Unit 4.1.1 showed that a lambda's body becomes a private method, `lambda$main$0`, and the lambda itself an `invokedynamic` whose bootstrap method, `LambdaMetafactory.metafactory`, builds an object that calls that method. A method reference already names a method, so javac usually passes that one instead. This class has three plain references, one lambda, and three references of kinds that need help:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.BiFunction;\nimport java.util.function.Function;\nimport java.util.function.IntFunction;\nimport java.util.function.Supplier;\n\npublic class Refs {\n    void wire(String prefix) {\n        Function<String, Integer> unbound = String::length;\n        Function<String, String> bound = prefix::concat;\n        Supplier<List<String>> ctor = ArrayList::new;\n        Function<String, Integer> lambda = s -> s.length();\n        BiFunction<String, Object, String> varargs = String::format;\n        IntFunction<int[]> array = int[]::new;\n        Supplier<String> viaSuper = super::toString;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "$ javap -p Refs\nCompiled from \"Refs.java\"\npublic class Refs {\n  public Refs();\n  void wire(java.lang.String);\n  private java.lang.String lambda$wire$3();\n  private static int[] lambda$wire$2(int);\n  private static java.lang.String lambda$wire$1(java.lang.String, java.lang.Object);\n  private static java.lang.Integer lambda$wire$0(java.lang.String);\n}\n$ javap -v Refs | grep -E \"^ +#[0-9]+ REF_\"\n      #71 REF_invokeVirtual java/lang/String.length:()I\n      #73 REF_invokeVirtual java/lang/String.concat:(Ljava/lang/String;)Ljava/lang/String;\n      #81 REF_newInvokeSpecial java/util/ArrayList.\"<init>\":()V\n      #87 REF_invokeStatic Refs.lambda$wire$0:(Ljava/lang/String;)Ljava/lang/Integer;\n      #92 REF_invokeStatic Refs.lambda$wire$1:(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/String;\n      #98 REF_invokeStatic Refs.lambda$wire$2:(I)[I\n      #102 REF_invokeVirtual Refs.lambda$wire$3:()Ljava/lang/String;"
+    },
+    {
+      "type": "para",
+      "text": "The second listing is the method handle each `invokedynamic` hands to `LambdaMetafactory`. `String::length`, `prefix::concat` and `ArrayList::new` point at `String.length`, `String.concat` and the constructor directly. The lambda gets `lambda$wire$0`, and so do the three that need an adapter:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`String::format` is `format(String, Object...)`. Called through `BiFunction`, the second argument must be wrapped in an `Object[]`, and `lambda$wire$1` does that.",
+        "`int[]::new` has no method to point at: creating an array is a bytecode instruction.",
+        "`super::toString` must call `Object.toString` without virtual dispatch, which only code inside `Refs` may do."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "A bound receiver needs no adapter. `prefix` is checked with `requireNonNull` and passed as an argument of the `invokedynamic`, and the function object it returns holds it, the way a lambda holds a captured value. Performance is not a reason to pick either form: both are an `invokedynamic` and a small hidden class, and an adapter adds one call to a small private method."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Stack Trace Through a Method Reference Has No Frame of Its Own"
+    },
+    {
+      "type": "para",
+      "text": "The missing `lambda$` method shows in stack traces. A list of codes holds a `null`, and a stream maps each code to its length, once with a reference and once with a lambda. `show` runs the code and prints the exception and its first frames:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> codes = Arrays.asList(\"A1\", null, \"C3\");\nshow(\"ref\", () -> codes.stream().map(String::length).toList());\nshow(\"lambda\", () -> codes.stream().map(s -> s.length()).toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ref: java.lang.NullPointerException\n\tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\n\tat java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)\n\tat java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)\nlambda: java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"<parameter1>\" is null\n\tat Traces.lambda$main$1(Traces.java:12)\n\tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\n\tat java.base/java.util.Spliterators$ArraySpliterator.forEachRemaining(Spliterators.java:1024)"
+    },
+    {
+      "type": "para",
+      "text": "The reference's NPE was thrown in the metafactory's hidden class, before `String.length` was entered, and the JVM leaves hidden frames out of stack traces. So the top frame is the stream's, no frame names our code, and the NPE has no message: the JVM computes that message from the method that threw, and here that method is hidden. The lambda's trace starts at `lambda$main$1`, line 12, with the message."
+    },
+    {
+      "type": "para",
+      "text": "When the referenced method is our own, it is in the trace, and the reference adds nothing between it and the stream. `parse(code)` is `Integer.parseInt(code.substring(1))`, and here `map(Traces::parse)` and `map(s -> parse(s))` fail on the code `\"Bx\"` (in a `List.of`, hence the other spliterator):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ref to parse: java.lang.NumberFormatException: For input string: \"x\"\n\t... 3 java.lang frames\n\tat Traces.parse(Traces.java:6)\n\tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\n\tat java.base/java.util.AbstractList$RandomAccessSpliterator.forEachRemaining(AbstractList.java:722)\nlambda calling parse: java.lang.NumberFormatException: For input string: \"x\"\n\t... 3 java.lang frames\n\tat Traces.parse(Traces.java:6)\n\tat Traces.lambda$main$4(Traces.java:15)\n\tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)"
+    },
+    {
+      "type": "para",
+      "text": "Neither trace gives the line where the reference was written. In a pipeline with five `map(SomeType::method)` steps, a bare NPE from a reference to a JDK method still tells you which step failed if you count: each `map` stage calls the next one's `accept`, so a failure in the third step sits on three `ReferencePipeline$3$1.accept` frames. It doesn't tell you the line, or what was null."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Hidden frames.** `-XX:+UnlockDiagnosticVMOptions -XX:+ShowHiddenFrames` puts the generated frame back (`Traces$$Lambda/0x….apply(Unknown Source)`), and the NPE gets its message again. It is a diagnostic option for a debugging session."
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Lambda Reads Better When the Call Needs Swapped Arguments, a Constant, or a Chain"
+    },
+    {
+      "type": "para",
+      "text": "A method reference passes the interface's parameters to one method, in order. When the call needs anything else, the reference form needs a helper, and the helper moves the logic away from the call site:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Comparator<String> newestFirst = (a, b) -> b.compareTo(a);     // arguments swapped\nPredicate<String> isError = line -> line.startsWith(\"ERROR\");    // a constant argument\nFunction<Order, String> city = order -> order.customer().city(); // two calls\n\n// The same three as method references:\nComparator<String> newestFirstRef = Reads::newestFirst;\nPredicate<String> isErrorRef = Reads::isError;\nFunction<Order, String> cityRef = Reads::cityOf;"
+    },
+    {
+      "type": "para",
+      "text": "`String::startsWith` alone does not fit a `Predicate<String>`: it needs a prefix that the predicate's one parameter doesn't supply."
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "NoRef.java:4: error: incompatible types: invalid method reference\n    Predicate<String> isError = String::startsWith;\n                                ^\n    unexpected instance method startsWith(String) found in unbound lookup"
+    },
+    {
+      "type": "para",
+      "text": "The helpers make the reader jump to learn that one swaps its arguments, one checks a prefix and one walks two getters; the lambda says it in place. A named method is worth it when the logic has a name in the domain, is reused, or needs its own test (unit 4.1.4). For descending order, `Comparator.reverseOrder()` beats both. Prefer the reference for a straight pass-through (`map(Order::customer)`, `forEach(System.out::println)`), and the lambda when the call has to rearrange, add or chain anything."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**A method reference is a lambda that makes one call; the target type decides what it means.** javac checks the call's shape, not its sense: `max(Integer::max)` compiles and returns the first element.",
+        "**A bound receiver is evaluated once, when the reference is created.** `settings::limit` keeps the old settings after a reload, and a `null` receiver throws a message-less NPE at creation; `() -> settings.limit()` reads the field on every call and fails only when called.",
+        "**javac points most method references straight at the method.** Of the forms above, only varargs, array constructors and `super::` got a `lambda$` adapter; a bound receiver is passed as a captured argument.",
+        "**A stack trace through a method reference has no frame of its own.** A reference to a JDK method that meets a null element gives a trace with no line of ours and no NPE message.",
+        "**A lambda reads better when the call swaps arguments, adds a constant or chains calls.** Use the reference for a straight pass-through."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**When the receiver is read (Java 21, `ex/eval`):**"
     },
     {
       "type": "table",
       "headers": [
-        "Method Reference",
-        "Equivalent Lambda"
+        "Form",
+        "Receiver evaluated",
+        "`null` receiver"
       ],
       "rows": [
         [
-          "`String::toUpperCase`",
-          "`s -> s.toUpperCase()`"
+          "`expr::m` (bound)",
+          "once, when the reference is created",
+          "`NullPointerException` at creation, from `Objects.requireNonNull`, no message"
         ],
         [
-          "`System.out::println`",
-          "`s -> System.out.println(s)`"
+          "`() -> expr.m()`",
+          "on every call",
+          "`NullPointerException` at the call, with a helpful message"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**What javac 21 generates (`javap -p`, `javap -v`):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Written",
+        "`lambda$` method",
+        "Method handle passed to `LambdaMetafactory`"
+      ],
+      "rows": [
+        [
+          "`String::length`",
+          "none",
+          "`REF_invokeVirtual String.length`"
         ],
         [
-          "`Integer::parseInt`",
-          "`s -> Integer.parseInt(s)`"
+          "`prefix::concat`",
+          "none",
+          "`REF_invokeVirtual String.concat`; `prefix` is an `invokedynamic` argument"
         ],
         [
           "`ArrayList::new`",
-          "`() -> new ArrayList<>()`"
+          "none",
+          "`REF_newInvokeSpecial ArrayList.<init>`"
         ],
         [
-          "`String::compareTo`",
-          "`(s1, s2) -> s1.compareTo(s2)`"
-        ]
-      ]
-    },
-    {
-      "type": "para",
-      "text": "The reverse is NOT always true: not every lambda can be rewritten as a method reference. Lambdas that perform calculations, combine calls, or include conditional logic cannot be expressed as method references."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Syntax"
-    },
-    {
-      "type": "para",
-      "text": "The double-colon (`::`) operator separates the class or object from the method name:"
-    },
-    {
-      "type": "code",
-      "lang": "",
-      "text": "ClassName::methodName      // Static or unbound instance method reference\nobjectReference::methodName  // Bound instance method reference\nClassName::new             // Constructor reference"
-    },
-    {
-      "type": "para",
-      "text": "No parentheses are used after the method name — that would invoke the method. The `::` syntax captures a reference, not a result."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Method references use the `::` (double-colon) operator to separate the class/object from the method name.",
-        "They are syntactic sugar for lambdas that simply invoke a single method — no transformation, no logic.",
-        "There are four types: static method, bound instance method, unbound instance method, and constructor.",
-        "Method references are resolved at compile time; the compiler verifies that the referenced method signature matches the functional interface's abstract method signature.",
-        "Method references improve readability when the intent is clear from the method name alone.",
-        "They do NOT introduce new behavior — they reuse existing methods.",
-        "A method reference that calls a method that may throw a checked exception cannot be used with a functional interface that doesn't declare that exception.",
-        "Method references compose seamlessly with the Stream API and other functional interfaces.",
-        "The `::` syntax was deliberately chosen to avoid confusion with field access (`.`) and invocation (`()`).",
-        "Overloaded methods can cause ambiguity — the compiler picks based on the functional interface's target type."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Java 8 (introduced)**: The `::` operator and all four method reference types were introduced in Java 8 alongside lambda expressions and the `java.util.function` package.",
-        "**Java 8+**: Method references work with all standard functional interfaces in `java.util.function`: `Function`, `Consumer`, `Supplier`, `Predicate`, `BiFunction`, `Comparator`, etc.",
-        "**Java 11**: `var` in lambda parameters (not directly for method references, but for contexts where method references are used).",
-        "**Java 16+**: Records (final in Java 16) integrate cleanly with method references — record accessor methods (`Person::name`) can be used as method references.",
-        "**Java 16+**: `Stream.toList()` and other convenience terminal operations pair naturally with method references.",
-        "**Java 21**: Virtual threads and structured concurrency commonly use `Thread.ofVirtual()::start` and similar method references for cleaner concurrent code.",
-        "**Java 21**: Pattern matching in switch combined with method references enables concise dispatch patterns."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Confusing bound and unbound instance method references**: The same method (`String::toUpperCase`) can mean different things depending on context.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: unclear whether this is bound (specific instance) or unbound (on each element)\nString s = \"hello\";\nSupplier<String> bound = s::toUpperCase;       // bound: always operates on 's'\nFunction<String, String> unbound = String::toUpperCase; // unbound: operates on each passed string"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: choose the right type based on whether you have a specific instance\n// Bound: use when you have a specific object\nString prefix = \"Hello \";\nSupplier<String> supplier = prefix::toUpperCase;  // always returns \"HELLO \"\n// Unbound: use when each element should be transformed\nList<String> result = List.of(\"a\",\"b\").stream().map(String::toUpperCase).toList();"
-          }
+          "`s -> s.length()`",
+          "one",
+          "`REF_invokeStatic lambda$…`"
         ],
         [
-          "**Method references to overloaded methods causing ambiguity**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: println is overloaded — which overload does the compiler pick?\nConsumer<Object> printer = System.out::println; // OK — unambiguous here\n// But when the target type is ambiguous, compiler may reject it"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: cast to the specific functional interface or use explicit lambda with a cast\nConsumer<String> stringPrinter = System.out::println; // explicitly Consumer<String>\nConsumer<Integer> intPrinter = System.out::println;   // explicitly Consumer<Integer>"
-          }
+          "`String::format` as `BiFunction<String, Object, String>` (varargs)",
+          "one",
+          "`REF_invokeStatic lambda$…`"
         ],
         [
-          "**Using method references with checked exceptions**: Standard functional interfaces don't declare checked exceptions, so a method reference to a method that throws one won't compile.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Files::delete throws IOException, which Consumer<Path> doesn't declare\nList<Path> paths = List.of(Path.of(\"/tmp/a\"), Path.of(\"/tmp/b\"));\n// paths.forEach(Files::delete); // Compile error!"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: wrap in a lambda with try-catch, or create a custom functional interface\npaths.forEach(p -> {\n    try { Files.delete(p); }\n    catch (IOException e) { throw new UncheckedIOException(e); }\n});"
-          }
+          "`int[]::new`",
+          "one",
+          "`REF_invokeStatic lambda$…`"
         ],
         [
-          "**Null receiver for bound method references**: If the instance in a bound method reference is null, an NPE occurs at the time of method reference creation (for bound references where the receiver is evaluated eagerly).",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: if formatter is null, NPE at method reference creation time\nDateTimeFormatter formatter = null;\nFunction<LocalDate, String> fn = formatter::format; // NPE here!"
-          },
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Fix: null-check before creating the method reference\nObjects.requireNonNull(formatter, \"formatter must not be null\");\nFunction<LocalDate, String> fn = formatter::format;"
-          }
-        ],
-        "**Assuming method references always have better performance**: Method references and their equivalent lambdas both compile to an `invokedynamic` call site (the lambda adds a small synthetic method), and their runtime performance is effectively the same. Choosing between them should be based on readability, not performance."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Prefer method references over trivial lambdas**: If a lambda does nothing but call a single method, replace it with a method reference. `list.forEach(System.out::println)` vs `list.forEach(s -> System.out.println(s))`.",
-        "**Name your helper methods meaningfully**: The readability benefit of method references is only realized when the method name is descriptive. `users.stream().filter(User::isActive)` is clear; `users.stream().filter(User::x)` is not.",
-        "**Use constructor references for factory-method patterns**: `Stream.of(\"a\",\"b\",\"c\").map(StringBuilder::new)` is idiomatic and more readable than `Stream.of(\"a\",\"b\",\"c\").map(s -> new StringBuilder(s))`.",
-        "**Avoid method references when parameters need transformation**: If you need to adapt the parameter before calling the method (e.g., convert a type, validate, add default values), a lambda is more appropriate.",
-        "**Combine with `Comparator.comparing()`**: This is one of the most common and readable uses of method references: `Comparator.comparing(Person::getName)` vs `Comparator.comparing(p -> p.getName())`.",
-        "**Consider method references in tests**: Method references like `assertThat(result).allMatch(String::isEmpty)` make test assertions highly readable."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Method reference to an inherited method**: If a subclass inherits a method from a superclass, you can use either `SubClass::method` or `SuperClass::method` — they resolve to the same method unless overridden.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "class Animal { String speak() { return \"...\"; } }\nclass Dog extends Animal { }\nFunction<Dog, String> f = Dog::speak; // Valid, resolves to Animal::speak"
-          }
-        ],
-        [
-          "**Method reference to a default interface method**: Default methods in interfaces can also be used as method references through the implementing type.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Collection.stream() is a default method; List::stream references it through the List type\nFunction<List<String>, Stream<String>> toStream = List::stream;"
-          }
-        ],
-        [
-          "**Generic methods as method references**: When the method is generic and the target type provides enough information for type inference, method references work cleanly.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Collections.emptyList() is generic — target type infers the type parameter\nSupplier<List<String>> emptyListSupplier = Collections::emptyList; // List<String> inferred"
-          }
-        ],
-        [
-          "**Varargs methods as method references**: Methods that accept varargs work as method references, but the compiler generates an array-creation call under the hood.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// String.format is varargs; it works as a BiFunction<String,Object[],String> but is rarely used that way\n// More commonly used with printf(String, Object...)"
-          }
-        ],
-        [
-          "**Method references and `null` in the stream**: Method references don't automatically handle null elements in a stream. Always filter nulls first or use `Objects::nonNull`.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "List<String> withNulls = Arrays.asList(\"a\", null, \"b\");\n// withNulls.stream().map(String::toUpperCase).toList(); // NPE on null!\nwithNulls.stream().filter(Objects::nonNull).map(String::toUpperCase).toList(); // Safe"
-          }
+          "`super::toString`",
+          "one, an instance method",
+          "`REF_invokeVirtual lambda$…`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "para",
-      "text": "Interviewers focus on:"
+      "text": "Challenges"
     },
     {
       "type": "list",
-      "ordered": false,
+      "ordered": true,
       "items": [
-        "Ability to identify when a lambda can be replaced by a method reference (signal of Java fluency).",
-        "Understanding the four distinct types of method references and how to choose between them.",
-        "The difference between bound vs. unbound instance method references — this trips up many candidates.",
-        "How method references interact with overloaded methods and how the compiler resolves ambiguity.",
-        "Recognizing that method references and their lambda equivalents both compile to `invokedynamic` and perform the same.",
-        "Real-world use cases, especially in Stream pipelines, `Comparator.comparing`, and `Optional.map`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Common tricky interview questions:**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What is the difference between `String::toUpperCase` as a `Function<String, String>` and as a `Supplier<String>` when `str` is a bound instance?\"",
-        "\"Can a method reference throw a checked exception? If so, when is that allowed?\"",
-        "\"How does the compiler resolve the overload in `System.out::println` when the target type is `Consumer<Integer>`?\"",
-        "\"Write the equivalent lambda for `ClassName::instanceMethod` when used as a `BiFunction`.\""
+        "Your service wires twenty components with bound references to fields that a reload replaces. How would you find them all, and which ones should stay bound?",
+        "A production NPE has no message and no frame of your code, and the pipeline has six `map(Type::method)` steps. What can you learn from the trace alone, and what would you change, in the code or in a test environment's JVM flags, to find the step?",
+        "`Integer::max` compiles as a `Comparator<Integer>`. Find two other JDK methods that fit `Comparator` or `Predicate` by shape and mean something else. Would a code review catch them?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview Q&A Section"
+      "text": "Design Note: Why a Bound Reference Evaluates Its Receiver Early"
     },
     {
       "type": "para",
-      "text": "**Q1: What is a method reference and how does it differ from a lambda expression?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: A method reference is a shorthand syntax that allows you to refer to an existing method\n(or constructor) without invoking it. It uses the double-colon (::) operator.\n\nA lambda expression is a more general construct that can contain arbitrary logic. A method\nreference is a special case of a lambda that delegates to a single, already-defined method.\n\nKey differences:\n1. Syntax: method references use ClassName::methodName; lambdas use (params) -> body.\n2. Reuse: method references reuse existing code; lambdas define new inline behavior.\n3. Readability: method references communicate intent through the method name; lambdas require\n   reading the body.\n4. Bytecode: both are compiled using invokedynamic — a lambda additionally gets a private synthetic method for its\n   body, but the runtime behaviour and performance are equivalent.\n5. Flexibility: lambdas can contain multiple statements, conditionals, and complex logic;\n   method references are limited to single-method delegation.\n\nWhen to prefer method references over lambdas:\n- When the lambda body consists of a single method call that maps naturally to the target interface\n- When the method name clearly communicates the intent\n- When the method is already defined and tested elsewhere"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Lambda\nFunction<String, Integer> lambdaLength = s -> s.length();\n\n// Method reference (equivalent — preferred)\nFunction<String, Integer> refLength = String::length;\n\n// More complex lambda — cannot be expressed as a method reference\nFunction<String, Integer> complexFn = s -> s.trim().length() * 2; // must stay as lambda"
-    },
-    {
-      "type": "rule"
+      "text": "The Java Language Specification (section 15.13.3) has the receiver evaluated when the method reference expression is evaluated, and a `null` result throws there. Re-evaluating it on every call would make `expr::m` a lambda in all but syntax, and `counter.next()::m` would run `next()` once per call, hidden behind text that looks like a name. Early evaluation makes a bound reference a value: an object paired with one of its methods, fixed when made, like a lambda's captured variables."
     },
     {
       "type": "para",
-      "text": "**Q2: What is the `::` operator and what does it produce?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: The :: (double-colon) operator is the method reference operator introduced in Java 8.\nIt separates the object/class (left side) from the method name (right side).\n\nWhat it produces: The :: operator does NOT call the method. It creates a functional interface\ninstance whose abstract method is bound to (or delegates to) the referenced method. The actual\nmethod invocation happens later, when the functional interface's abstract method is called.\n\nThe compiler uses the target type (the functional interface the method reference is assigned to\nor passed to) to determine how to bind the method reference. The method signature must be\ncompatible with the functional interface's abstract method.\n\nImportant: no parentheses follow the method name after :: — that would invoke the method."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// :: creates a Function<String, Integer> — method is NOT called yet\nFunction<String, Integer> fn = String::length;\n\n// The method is called here, when apply() is invoked\nint len = fn.apply(\"hello\"); // 5\n\n// Compare with direct invocation (no method reference):\nint directLen = \"hello\".length(); // called immediately, result is 5\n\n// :: on a constructor — creates a Supplier<ArrayList>\nSupplier<ArrayList<String>> listFactory = ArrayList::new;\nArrayList<String> list = listFactory.get(); // constructor called here"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Can a method reference throw a checked exception? Give an example.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: A method reference can refer to a method that throws a checked exception. However, whether\nit compiles depends on the target functional interface.\n\nRule: A method reference is only compatible with a functional interface if the functional\ninterface's abstract method declares (throws) all checked exceptions that the referenced method\nmay throw, OR if the referenced method throws no checked exceptions.\n\nStandard functional interfaces (Consumer, Function, Predicate, etc.) do NOT declare checked\nexceptions. Therefore, a method reference to a method that throws a checked exception is\nincompatible with them.\n\nTo use such a method reference, you need a custom functional interface that declares the\nchecked exception, or you must wrap the call in a lambda with a try-catch."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.util.List;\n\n// Custom functional interface declaring IOException\n@FunctionalInterface\ninterface CheckedConsumer<T> {\n    void accept(T t) throws IOException;\n}\n\npublic class CheckedExceptionDemo {\n\n    // Method that throws a checked exception\n    static void deleteFile(Path path) throws IOException {\n        Files.delete(path);\n    }\n\n    public static void main(String[] args) {\n        // This compiles because CheckedConsumer declares IOException\n        CheckedConsumer<Path> ref = CheckedExceptionDemo::deleteFile; // OK\n\n        // This does NOT compile: Consumer<Path> doesn't declare IOException\n        // Consumer<Path> consumer = CheckedExceptionDemo::deleteFile; // compile error!\n\n        // Workaround with a lambda wrapper:\n        List<Path> paths = List.of(Path.of(\"/tmp/test.txt\"));\n        paths.forEach(p -> {\n            try { deleteFile(p); }\n            catch (IOException e) { throw new RuntimeException(e); }\n        });\n    }\n}"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does the compiler resolve an overloaded method reference?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: When a method is overloaded and used as a method reference, the compiler resolves the\noverload based on the target type (the functional interface the method reference is assigned\nto or passed to). The functional interface's abstract method signature serves as the type\ncontext.\n\nThe compiler applies the same overload resolution rules as for normal method calls, using\nthe parameter types of the functional interface as the argument types.\n\nIf the target type is ambiguous (e.g., the method reference is passed to a method that\naccepts multiple overloaded functional interfaces), the compiler reports an ambiguity error\nand you must cast to the specific functional interface to disambiguate."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.function.Consumer;\n\n// System.out.println is overloaded for String, int, long, Object, etc.\n// The compiler picks the right overload based on target type:\n\nConsumer<String>  sc = System.out::println;  // resolves to println(String)\nConsumer<Integer> ic = System.out::println;  // resolves to println(Object): overload resolution tries\n                                             // methods without unboxing first, and println(Object) fits\nConsumer<Object>  oc = System.out::println;  // resolves to println(Object)\n\n// Ambiguity example (Consumer<String> and Consumer<Object> overloads would not even compile:\n// they have the same erasure, so two distinct functional interfaces are used here):\n// interface StringSink { void accept(String s); }\n// interface IntSink    { void accept(Integer i); }\n// void ambiguousMethod(StringSink s) { ... }\n// void ambiguousMethod(IntSink i)    { ... }\n// ambiguousMethod(System.out::println); // compile error: reference to ambiguousMethod is ambiguous\n\n// Fix: cast explicitly\n// ambiguousMethod((StringSink) System.out::println);"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the difference between a bound and an unbound instance method reference?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Both types use the :: syntax with an instance method name, but they differ in how the\nreceiver (the object on which the method is called) is determined:\n\nBOUND instance method reference (objectInstance::methodName):\n- The receiver object is FIXED at the time the method reference is created.\n- The method is always called on that specific object.\n- The functional interface's abstract method takes the SAME parameters as the referenced method.\n- Used as: Supplier, Consumer, Function (with just the method's own arguments)\n\nUNBOUND instance method reference (ClassName::instanceMethodName):\n- The receiver object is the FIRST argument supplied when the method is invoked.\n- The method is called on whatever object is passed at invocation time.\n- The functional interface's abstract method takes the receiver AS THE FIRST PARAMETER,\n  followed by the method's own parameters.\n- Used as: Function, BiFunction, Predicate, Comparator, etc.\n\nThis distinction is critical for interviews and is a common source of confusion."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BOUND: specific instance is captured\nString greeting = \"Hello, World!\";\nSupplier<String> bound = greeting::toUpperCase;\n// Every call to bound.get() operates on the same 'greeting' object\nSystem.out.println(bound.get()); // \"HELLO, WORLD!\" — always\n\n// UNBOUND: receiver is supplied at call time\nFunction<String, String> unbound = String::toUpperCase;\n// The String passed to unbound.apply() is the receiver\nSystem.out.println(unbound.apply(\"hello\"));   // \"HELLO\"\nSystem.out.println(unbound.apply(\"goodbye\")); // \"GOODBYE\"\n\n// BOUND with a specific comparator object\njava.util.Comparator<String> cmp = String.CASE_INSENSITIVE_ORDER;\njava.util.function.ToIntBiFunction<String,String> boundCompare = cmp::compare;\nSystem.out.println(boundCompare.applyAsInt(\"abc\", \"ABC\")); // 0\n\n// UNBOUND: String::compareTo — first String arg is receiver, second is argument\njava.util.Comparator<String> unboundCompare = String::compareTo;\nSystem.out.println(unboundCompare.compare(\"apple\", \"banana\")); // negative"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How do method references improve code in a Streams pipeline? Give a real example.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Method references improve stream pipelines by:\n1. Removing boilerplate — eliminating trivial lambda wrappers\n2. Improving readability — method names communicate intent better than lambda bodies\n3. Encouraging code reuse — existing utility methods become first-class stream operations\n4. Making chains more scannable — the pipeline reads as a sequence of named operations\n\nA well-written stream pipeline with method references reads almost like a sentence describing\nwhat the code does, without describing HOW (which is handled by the referenced methods)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.*;\nimport java.util.stream.*;\nimport java.util.function.*;\n\nrecord Employee(String name, String department, double salary, boolean active) {}\n\npublic class StreamMethodRefDemo {\n\n    public static List<String> getTopEarnerNames(List<Employee> employees) {\n        // With lambdas (harder to scan):\n        return employees.stream()\n                .filter(e -> e.active())\n                .sorted((e1, e2) -> Double.compare(e2.salary(), e1.salary()))\n                .limit(5)\n                .map(e -> e.name())\n                .collect(Collectors.toList());\n    }\n\n    public static List<String> getTopEarnerNamesRefactored(List<Employee> employees) {\n        // With method references (reads like a description):\n        return employees.stream()\n                .filter(Employee::active)                          // filter active\n                .sorted(Comparator.comparingDouble(Employee::salary).reversed()) // sort by salary desc\n                .limit(5)\n                .map(Employee::name)                               // extract name\n                .collect(Collectors.toList());\n    }\n\n    public static Map<String, Double> averageSalaryByDepartment(List<Employee> employees) {\n        return employees.stream()\n                .filter(Employee::active)\n                .collect(Collectors.groupingBy(\n                        Employee::department,\n                        Collectors.averagingDouble(Employee::salary)\n                ));\n    }\n\n    public static void main(String[] args) {\n        // Without method references — possible, but noisier\n        List<String> names = Arrays.asList(\"Alice\", \"Bob\", \"Charlie\");\n        names.stream()\n                .map(s -> s.toLowerCase())  // lambda\n                .forEach(s -> System.out.println(s)); // lambda\n\n        // With method references — idiomatic Java 8+\n        names.stream()\n                .map(String::toLowerCase)    // method reference\n                .forEach(System.out::println); // method reference\n    }\n}"
-    },
-    {
-      "type": "rule"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: How do you handle null safety when using method references in streams?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: Method references do not automatically guard against null values — if a null element\nflows into a method reference that calls an instance method on it, you get a NullPointerException.\n\nCommon strategies for null safety:\n1. Pre-filter with Objects::nonNull before applying instance method references\n2. Use Optional::ofNullable in map before operating on potentially null results\n3. Prefer static utility methods (like Objects::toString) that handle nulls explicitly\n4. Filter nulls out early in the pipeline so the rest of the pipeline is null-safe\n\nThe method reference Objects::nonNull is itself extremely useful as a filter predicate."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.*;\nimport java.util.stream.*;\n\npublic class NullSafeMethodRefDemo {\n\n    record User(String name, String email) {}\n\n    public static List<String> getEmailsNullSafe(List<User> users) {\n        return users.stream()\n                .filter(Objects::nonNull)          // filter null users\n                .map(User::email)                  // extract email (may be null)\n                .filter(Objects::nonNull)           // filter null emails\n                .map(String::toLowerCase)          // safe: all non-null here\n                .distinct()\n                .sorted()\n                .collect(Collectors.toList());\n    }\n\n    public static void main(String[] args) {\n        List<User> users = Arrays.asList(\n                new User(\"Alice\", \"alice@example.com\"),\n                null,                               // null user\n                new User(\"Bob\", null),              // null email\n                new User(\"Charlie\", \"CHARLIE@example.com\")\n        );\n\n        List<String> emails = getEmailsNullSafe(users);\n        // [\"alice@example.com\", \"charlie@example.com\"]\n        System.out.println(emails);\n    }\n}"
+      "text": "This is the bug in the opening. Two spellings that look interchangeable read the receiver at different times, and a reviewer or an automated refactoring that shortens a lambda to a reference can change when a value is read without changing anything else on the line."
     },
     {
       "type": "heading",
@@ -458,16 +392,16 @@
   "attachments": [],
   "counts": {
     "headings": 12,
-    "paras": 18,
-    "code": 17,
-    "tables": 1,
-    "lists": 8,
+    "paras": 29,
+    "code": 15,
+    "tables": 2,
+    "lists": 4,
     "images": 0,
     "videos": 0,
-    "rules": 6,
-    "quotes": 0,
-    "html": 0,
+    "rules": 0,
+    "quotes": 1,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "c8b01ae9ab5356212ce343b0ed12a9af04279a6bc15cb7cfb73ca3d047392e97"
+  "content_sha256": "67480c065d1b5cca1264c42b27dcee6221afeabfeb4f463a1dd886336704001d"
 }

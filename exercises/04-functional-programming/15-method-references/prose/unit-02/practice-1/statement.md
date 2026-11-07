@@ -1,22 +1,15 @@
-A **static** method reference (`Integer::parseInt`, `Math::abs`, `Objects::nonNull`)
-passes the interface's arguments straight to a static method. An **unbound** one
-(`String::trim`, `String::isEmpty`) calls the method on the argument itself. Both look
-like `ClassName::method`; which one you have depends on how the method is declared.
+The accounting team reviews large journal entries on a screen that flags every amount at or above
+a limit with `[review]`. At month end the same entries go out as a CSV file, and the import on the
+other side rejects any amount column that isn't a plain number. Each exported entry id also carries
+the accounting period after it, so `AP-9` in March 2031 becomes `AP-9/2031-03`.
 
-Write two methods in `Prices` (the page writes them as pipelines of method references):
+`Ledger.PlainFormat` and `Ledger.FlaggedFormat` already render amounts. Finish the three `TODO`s in
+`src/main/java/practice/Ledger.java`, each of which returns a function that other code calls later:
 
-1. `List<Integer> parse(List<String> raw)` parses every usable entry as a decimal integer, in
-   order (`"010"` is `10`). `null` entries and entries that are empty once trimmed are skipped;
-   spaces around a number are ignored. Any other entry that is not a number, such as `"4 2"`,
-   makes `parse` throw a `NumberFormatException`.
-2. `List<Integer> magnitudes(List<Integer> values)` returns each value's absolute value, one
-   per input value, repeats included.
+- `withPeriod(String period)`: the function the export applies to each entry id;
+- `FlaggedFormat.exportColumn()`: the function for the export's amount column;
+- `FlaggedFormat.screenColumn()`: the function for the review screen. Teams extend
+  `FlaggedFormat` to restyle their own screen, and the screen must show their style.
 
-| call | result |
-|---|---|
-| `parse(["42", "7"])` | `[42, 7]` |
-| `parse(["  42  ", null, "   ", "100"])` | `[42, 100]` |
-| `magnitudes([-5, 3])` | `[5, 3]` |
-
-The order of the steps matters: think about what each reference needs to be true of
-its argument before it runs.
+One line each, about three lines in total. A method reference fits some of them; whether it fits
+each one is part of the task.

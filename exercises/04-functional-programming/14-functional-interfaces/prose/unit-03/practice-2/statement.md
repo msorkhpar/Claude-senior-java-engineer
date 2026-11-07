@@ -1,18 +1,10 @@
-A data-cleaning pipeline is a chain of small, named `Function<String, String>` steps joined with `andThen`; each
-step can be tested alone and the whole thing can be handed to `Stream.map`.
+The chat service shows a green dot next to everyone who is online. A user counts as online while at
+least one of their connections (phone, laptop, another tab) is open. Connection events arrive on many
+threads at once, and the gateway sometimes sends a disconnect twice, or for a user it never reported
+as connected.
 
-Write `Slugs.slugifier()`. It returns a `Function<String, String>` that turns a title into a URL slug, built from
-these steps: lower-case the text, remove every character that is not `a-z`, `0-9`, whitespace or `-`, trim, turn
-each run of whitespace into one space, and replace each space with `-`. Choose an order that gives the answers
-below.
-
-| title | slug |
-|---|---|
-| `"  Hello, World!  "` | `"hello-world"` |
-| `"Java 21 Features!!!"` | `"java-21-features"` |
-| `"  My   Blog   Post  "` | `"my-blog-post"` |
-
-Look closely at a title like `"Hello, World !"`. A `null` title has no slug: return `""`. Lower-casing is
-`toLowerCase(Locale.ROOT)`, and the kept characters are exactly the ASCII letters `a-z` and digits `0-9` (plus
-whitespace and `-` before the last steps): `é` and `_` are removed. Hyphens already in a title are kept as they are;
-the tests use no title with a hyphen next to whitespace or at either end.
+`Presence` keeps an open-connection count per user in a `ConcurrentHashMap`, and `online()` lists
+the users that have an entry. Finish the two `TODO`s in `src/main/java/practice/Presence.java`:
+`connect(user)` and `disconnect(user)`, each one call on the map. When you're done, a user whose
+last connection closes disappears from `online()`, and a disconnect nobody can match leaves the map
+as it was. About two lines in total.

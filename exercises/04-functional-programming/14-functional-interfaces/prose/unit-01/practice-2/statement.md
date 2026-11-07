@@ -1,15 +1,11 @@
-`Consumer.andThen(after)` builds a consumer that runs `this` first and `after` second, handing **both the same
-input**. Chaining is how a pipeline of side effects (log, then store, then notify) is put together from small steps.
+Devices upload event ids in batches, and `EventIngest` takes each batch. The raw archive must
+hold every id the devices sent, repeats included: it is what support reads when a device
+misbehaves. Subscribers, on the other hand, must hear about each event once, the first time its
+id arrives, whether the repeat comes in the same batch or a later one.
 
-Write `ConsumerChain.chain(List<Consumer<T>> steps)`. It returns one `Consumer<T>` that, on `accept(t)`, runs every
-step in list order on `t`.
+The previous version did both jobs in a stream and returned the batch size from it. The count was
+always right; the archive had holes, and subscribers were paged twice for the same door opening.
 
-| steps | `accept("Alice")` records |
-|---|---|
-| log, store | `["log:Alice", "store:Alice"]` |
-| store, log | `["store:Alice", "log:Alice"]` |
-| log | `["log:Alice"]` |
-
-The list may contain `null` entries and may be empty; the returned consumer must be usable either way. The chain is
-fixed when `chain` returns: changing the list afterwards does not change it. When a step throws, that same exception
-reaches the caller, unwrapped, and the later steps do not run.
+Write `ingest(batch)` in `src/main/java/practice/EventIngest.java`. It archives every id,
+announces the new ones, remembers what it has seen, and returns how many ids the batch held.
+About four lines in total.

@@ -1,33 +1,11 @@
-A method reference is shorthand for a lambda that does nothing but call one existing
-method. The page's table pairs each reference with its lambda:
+A puzzle game shows two standings after every round: the best score, and the fewest moves anyone
+needed. Last release, players complained that the board named the wrong winners: in some rounds
+the "best score" was simply the first one played, and the "fewest moves" the last one recorded.
+The code that picked them was rewritten in a hurry and lost.
 
-| method reference | equivalent lambda |
-|---|---|
-| `String::toUpperCase` | `s -> s.toUpperCase()` |
-| `Integer::parseInt` | `s -> Integer.parseInt(s)` |
-| `ArrayList::new` | `() -> new ArrayList<>()` |
-| `String::compareTo` | `(s1, s2) -> s1.compareTo(s2)` |
-| `StringBuilder::new` | `s -> new StringBuilder(s)` |
+`Leaderboard` already streams the round's numbers into `max` and `min`. Finish the two `TODO`
+methods in `src/main/java/practice/Leaderboard.java`, `byScore()` and `byMoves()`, which give the
+order each standing ranks its numbers in. About two lines in total.
 
-Complete `RefTable` so that each factory method returns the function in its row.
-The tests check what each function does; writing each one as the reference in its
-row is the practice's aim:
-
-- `Function<String, String> upper()`
-- `Function<String, Integer> parse()`
-- `Supplier<ArrayList<String>> newList()`
-- `Comparator<String> compare()`
-- `Function<String, StringBuilder> builder()`
-
-| call | result |
-|---|---|
-| `upper().apply("hello")` | `"HELLO"` |
-| `parse().apply("42")` | `42` |
-| `parse().apply("010")` | `10` (decimal, as `parseInt` reads it) |
-| `newList().get()` | an empty `ArrayList` |
-| `compare().compare("a", "a")` | `0` |
-| `builder().apply("abc").toString()` | `"abc"` |
-| `builder().apply(null)` | throws `NullPointerException`, like `new StringBuilder(null)` |
-
-A reference must behave like its lambda on every call, not only the first, and a
-reference to an instance method has to decide which argument is the receiver.
+The tests feed rounds in which the winner sits anywhere in the list, not only where a hand-typed
+test list would put it.
