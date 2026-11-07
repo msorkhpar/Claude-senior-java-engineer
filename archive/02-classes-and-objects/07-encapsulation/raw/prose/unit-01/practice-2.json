@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Read and rank access levels",
+  "title": "Show any object's fields on the support page",
   "blocks": [
     {
       "type": "heading",
@@ -19,33 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page orders the access levels from most to least restrictive: **private > default (package-private) > protected > public**."
-    },
-    {
-      "type": "para",
-      "text": "Write three methods of the enum `AccessLevel`:"
+      "text": "The support team's diagnostics page shows the state of an order, a session or a cart: every field next to its value. `FieldReader.read(object)` builds that table and already works out the names; it needs two helpers in `src/main/java/practice/FieldReader.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`static AccessLevel of(int modifiers)` reads the level out of the bit set that `java.lang.reflect.Member.getModifiers()` or `Class.getModifiers()` returns. Use the helpers in `java.lang.reflect.Modifier`.",
-        "`boolean isMoreRestrictiveThan(AccessLevel other)` answers whether this level allows access to fewer places than `other`.",
-        "`static AccessLevel mostRestrictive(AccessLevel first, AccessLevel... rest)` returns the most restrictive of the levels given."
+        "`instanceFields(type)`: the fields an object of that type carries. Support wants the whole state, not only the parts a class chose to expose, and static fields are not state;",
+        "`value(field, object)`: the field's value in that object."
       ]
     },
     {
       "type": "para",
-      "text": "The constants are declared in alphabetical order, which is **not** the order of restrictiveness."
-    },
-    {
-      "type": "para",
-      "text": "Examples:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "of(Modifier.PUBLIC)                                 -> PUBLIC\nof(Modifier.STATIC | Modifier.FINAL)                -> PACKAGE\nPACKAGE.isMoreRestrictiveThan(PUBLIC)               -> true\nmostRestrictive(PUBLIC, PROTECTED)                  -> PROTECTED"
+      "text": "Support also opens objects whose class comes from the JDK, such as the plain `ArrayList` behind a cart. For those the page must still render, with `FieldReader.HIDDEN` in place of each value the JVM won't let the reader see. About ten lines in total."
     },
     {
       "type": "heading",
@@ -60,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Modifier;\n\n/** The four access levels, declared in alphabetical order. */\npublic enum AccessLevel {\n    PACKAGE, PRIVATE, PROTECTED, PUBLIC;\n\n    /** The level a modifier bit set declares. */\n    public static AccessLevel of(int modifiers) {\n        if (Modifier.isPublic(modifiers)) {\n            return PUBLIC;\n        }\n        if (Modifier.isProtected(modifiers)) {\n            return PROTECTED;\n        }\n        if (Modifier.isPrivate(modifiers)) {\n            return PRIVATE;\n        }\n        return PACKAGE;\n    }\n\n    /** How restrictive a level is: a higher number allows fewer places. */\n    private int restriction() {\n        return switch (this) {\n            case PUBLIC -> 0;\n            case PROTECTED -> 1;\n            case PACKAGE -> 2;\n            case PRIVATE -> 3;\n        };\n    }\n\n    /** Whether this level allows access to fewer places than {@code other}. */\n    public boolean isMoreRestrictiveThan(AccessLevel other) {\n        return restriction() > other.restriction();\n    }\n\n    /** The most restrictive of the levels given. */\n    public static AccessLevel mostRestrictive(AccessLevel first, AccessLevel... rest) {\n        AccessLevel most = first;\n        for (AccessLevel level : rest) {\n            if (level.isMoreRestrictiveThan(most)) {\n                most = level;\n            }\n        }\n        return most;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Reads the state of any object for the support team's diagnostics page, which shows every field\n * of an order, a session or a cart next to its value.\n */\npublic final class FieldReader {\n\n    /** Shown instead of a value this code is not allowed to read. */\n    public static final String HIDDEN = \"<hidden>\";\n\n    private FieldReader() {\n    }\n\n    /**\n     * Field name to value, for every instance field the object carries. Where two classes of the\n     * hierarchy declare the same name, the one found first is kept.\n     */\n    public static Map<String, Object> read(Object object) {\n        Map<String, Object> state = new LinkedHashMap<>();\n        for (Field field : instanceFields(object.getClass())) {\n            state.putIfAbsent(field.getName(), value(field, object));\n        }\n        return state;\n    }\n\n    /** Every instance field an object of this type carries; static fields are not state. */\n    static List<Field> instanceFields(Class<?> type) {\n        List<Field> fields = new ArrayList<>();\n        for (Class<?> c = type; c != null; c = c.getSuperclass()) {\n            for (Field field : c.getDeclaredFields()) {\n                if (!Modifier.isStatic(field.getModifiers())) fields.add(field);\n            }\n        }\n        return fields;\n    }\n\n    /** The field's value in this object, or HIDDEN when the JVM won't let this code read it. */\n    static Object value(Field field, Object object) {\n        if (!field.trySetAccessible()) return HIDDEN;\n        try {\n            return field.get(object);\n        } catch (IllegalAccessException e) {\n            return HIDDEN;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -72,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.reflect.Modifier;\n\n/** The four access levels, declared in alphabetical order. */\npublic enum AccessLevel {\n    PACKAGE, PRIVATE, PROTECTED, PUBLIC;\n\n    /** The level a modifier bit set declares. */\n    public static AccessLevel of(int modifiers) {\n        throw new UnsupportedOperationException(\"write of\");\n    }\n\n    /** Whether this level allows access to fewer places than {@code other}. */\n    public boolean isMoreRestrictiveThan(AccessLevel other) {\n        throw new UnsupportedOperationException(\"write isMoreRestrictiveThan\");\n    }\n\n    /** The most restrictive of the levels given. */\n    public static AccessLevel mostRestrictive(AccessLevel first, AccessLevel... rest) {\n        throw new UnsupportedOperationException(\"write mostRestrictive\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Reads the state of any object for the support team's diagnostics page, which shows every field\n * of an order, a session or a cart next to its value.\n */\npublic final class FieldReader {\n\n    /** Shown instead of a value this code is not allowed to read. */\n    public static final String HIDDEN = \"<hidden>\";\n\n    private FieldReader() {\n    }\n\n    /**\n     * Field name to value, for every instance field the object carries. Where two classes of the\n     * hierarchy declare the same name, the one found first is kept.\n     */\n    public static Map<String, Object> read(Object object) {\n        Map<String, Object> state = new LinkedHashMap<>();\n        for (Field field : instanceFields(object.getClass())) {\n            state.putIfAbsent(field.getName(), value(field, object));\n        }\n        return state;\n    }\n\n    /** Every instance field an object of this type carries; static fields are not state. */\n    static List<Field> instanceFields(Class<?> type) {\n        // TODO: Support wants the object's whole state: every instance field it carries,\n        //       whatever its access level and whichever class of the hierarchy declares it.\n        throw new IllegalStateException(\"TODO: instanceFields\");\n    }\n\n    /** The field's value in this object, or HIDDEN when the JVM won't let this code read it. */\n    static Object value(Field field, Object object) {\n        // TODO: Read the value. Some objects come from the JDK itself (a cart is often a plain\n        //       ArrayList); where the JVM won't let this code read a field, answer HIDDEN, so\n        //       the page still renders.\n        throw new IllegalStateException(\"TODO: value\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -80,8 +66,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -91,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "43700d7801cb31f01ac12a050c058fa6e5900dc8771e66b7ead0e45935ae0c74",
-  "starting_code": "package practice;\n\nimport java.lang.reflect.Modifier;\n\n/** The four access levels, declared in alphabetical order. */\npublic enum AccessLevel {\n    PACKAGE, PRIVATE, PROTECTED, PUBLIC;\n\n    /** The level a modifier bit set declares. */\n    public static AccessLevel of(int modifiers) {\n        throw new UnsupportedOperationException(\"write of\");\n    }\n\n    /** Whether this level allows access to fewer places than {@code other}. */\n    public boolean isMoreRestrictiveThan(AccessLevel other) {\n        throw new UnsupportedOperationException(\"write isMoreRestrictiveThan\");\n    }\n\n    /** The most restrictive of the levels given. */\n    public static AccessLevel mostRestrictive(AccessLevel first, AccessLevel... rest) {\n        throw new UnsupportedOperationException(\"write mostRestrictive\");\n    }\n}\n",
+  "content_sha256": "20deed9b07eb9371a2d26458b2b5285c6d69660d262424c179405d1c2269ed15",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Reads the state of any object for the support team's diagnostics page, which shows every field\n * of an order, a session or a cart next to its value.\n */\npublic final class FieldReader {\n\n    /** Shown instead of a value this code is not allowed to read. */\n    public static final String HIDDEN = \"<hidden>\";\n\n    private FieldReader() {\n    }\n\n    /**\n     * Field name to value, for every instance field the object carries. Where two classes of the\n     * hierarchy declare the same name, the one found first is kept.\n     */\n    public static Map<String, Object> read(Object object) {\n        Map<String, Object> state = new LinkedHashMap<>();\n        for (Field field : instanceFields(object.getClass())) {\n            state.putIfAbsent(field.getName(), value(field, object));\n        }\n        return state;\n    }\n\n    /** Every instance field an object of this type carries; static fields are not state. */\n    static List<Field> instanceFields(Class<?> type) {\n        // TODO: Support wants the object's whole state: every instance field it carries,\n        //       whatever its access level and whichever class of the hierarchy declares it.\n        throw new IllegalStateException(\"TODO: instanceFields\");\n    }\n\n    /** The field's value in this object, or HIDDEN when the JVM won't let this code read it. */\n    static Object value(Field field, Object object) {\n        // TODO: Read the value. Some objects come from the JDK itself (a cart is often a plain\n        //       ArrayList); where the JVM won't let this code read a field, answer HIDDEN, so\n        //       the page still renders.\n        throw new IllegalStateException(\"TODO: value\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-01/practice-2/src/main/java/practice/AccessLevel.java",
-    "test_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-01/practice-2/src/test/java/practice/AccessLevelTest.java",
+    "main_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-01/practice-2/src/main/java/practice/FieldReader.java",
+    "test_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-01/practice-2/src/test/java/practice/FieldReaderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -116,24 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AccessLevelTest#readsEachKeyword",
+        "id": "practice.FieldReaderTest#readsThePublicFieldsOfAPlainObject",
         "kind": "main",
-        "says": "A member declared public, protected or private is read as that level."
+        "says": "the instance fields of a plain object are shown with their values, and static fields are left out"
       },
       {
-        "id": "practice.AccessLevelTest#noKeywordMeansPackagePrivate",
+        "id": "practice.FieldReaderTest#listsThePrivateFieldsToo",
         "kind": "edge",
-        "says": "A member with no access keyword is package-private, even when it carries other modifiers such as static or final."
+        "says": "private fields are listed, not only public ones"
       },
       {
-        "id": "practice.AccessLevelTest#privateIsTheMostRestrictive",
+        "id": "practice.FieldReaderTest#showsThePrivateFieldsValues",
         "kind": "edge",
-        "says": "Of several levels, private is the most restrictive and public the least."
+        "says": "a private field of the application's own class is opened and its value shown, not hidden"
       },
       {
-        "id": "practice.AccessLevelTest#packageIsStricterThanProtected",
+        "id": "practice.FieldReaderTest#includesWhatTheSuperclassesDeclare",
         "kind": "edge",
-        "says": "Package-private is more restrictive than protected, because protected adds subclasses in other packages."
+        "says": "fields declared by a superclass, private ones included, are part of the object's state"
+      },
+      {
+        "id": "practice.FieldReaderTest#aJdkObjectIsShownWithItsValuesHidden",
+        "kind": "edge",
+        "says": "an object whose class is inside the JDK is shown with every value hidden instead of failing"
       }
     ],
     "report": {
@@ -142,11 +133,11 @@
     },
     "origin": {
       "path": "07-encapsulation/README_2.2.1.md",
-      "section": "Key Points to Remember"
+      "section": "setAccessible Opens Private Members of Class-Path Code, Not of the JDK"
     },
     "concepts": [
-      "A member declared with no access keyword is package-private.",
-      "From most to least restrictive the levels run private, package-private, protected, public."
+      "getDeclaredFields() lists one class's own fields, private ones included; a superclass's private fields are listed by its own Class, and getFields() returns only public ones.",
+      "setAccessible(true) opens private members of class-path code but throws the unchecked InaccessibleObjectException on JDK internals unless the package is opened; trySetAccessible() answers false instead."
     ]
   }
 }

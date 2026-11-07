@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Find the fields a class exposes",
+  "title": "Freeze a permissions table",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Data hiding starts with the fields: **make them private**, and expose only what is necessary. The page's one exception is a constant (`public static final`), which cannot be changed by anybody."
+      "text": "The authorizer builds one `AccessPolicy` at startup from a table the config loader produces, and asks it on every request. Last week an auditor exported customer data the policy had never granted. The loader reuses its lists when it reloads, and a plugin ships a class that extends `AccessPolicy`."
     },
     {
       "type": "para",
-      "text": "Write `FieldAudit.exposed(Class<?> type)`, a code-review helper. It returns the names of the fields **declared by `type` itself** that break the rule, sorted alphabetically. A field breaks the rule when:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "it is not `private`, and",
-        "it is not a constant: a field that is both `static` and `final`."
-      ]
+      "text": "Finish `src/main/java/practice/AccessPolicy.java` so that a policy, once built, answers the same for as long as it lives: whatever its caller later does with the map and lists it passed in, or with what `actionsFor` and `roles` return, and whatever class a caller passes off as an `AccessPolicy`. Requests for a role or an action the table doesn't give are still refused, and `actionsFor` keeps the order the table gave."
     },
     {
       "type": "para",
-      "text": "Fields the compiler adds on its own (synthetic fields; see `java.lang.reflect.Field.isSynthetic()`) are not the author's and are never reported."
-    },
-    {
-      "type": "para",
-      "text": "Examples:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class Account { public double balance; private String id; }\nexposed(Account.class)   -> [balance]\n\nclass Limits { static final int MAX = 5; static int counter; int size; }\nexposed(Limits.class)    -> [counter, size]"
+      "text": "About five lines in total, in `frozenCopy` and the class declaration."
     },
     {
       "type": "heading",
@@ -59,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Arrays;\nimport java.util.List;\n\npublic final class FieldAudit {\n\n    private FieldAudit() {\n    }\n\n    /** The sorted names of the fields {@code type} declares that are neither private nor constants. */\n    public static List<String> exposed(Class<?> type) {\n        return Arrays.stream(type.getDeclaredFields())\n                .filter(field -> !field.isSynthetic())\n                .filter(field -> !Modifier.isPrivate(field.getModifiers()))\n                .filter(field -> !(Modifier.isStatic(field.getModifiers()) && Modifier.isFinal(field.getModifiers())))\n                .map(Field::getName)\n                .sorted()\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * Which actions each role may perform. The authorizer keeps one policy for as long as the\n * service runs and asks it on every request.\n */\npublic final class AccessPolicy {\n\n    private final Map<String, List<String>> actionsByRole;\n\n    public AccessPolicy(Map<String, List<String>> actionsByRole) {\n        this.actionsByRole = frozenCopy(actionsByRole);\n    }\n\n    public boolean allows(String role, String action) {\n        return actionsFor(role).contains(action);\n    }\n\n    /** The actions of one role, in the order they were given; empty for a role it doesn't know. */\n    public List<String> actionsFor(String role) {\n        return actionsByRole.getOrDefault(role, List.of());\n    }\n\n    public Set<String> roles() {\n        return actionsByRole.keySet();\n    }\n\n    /**\n     * The table this policy keeps, built from what the caller passed in.\n     */\n    static Map<String, List<String>> frozenCopy(Map<String, List<String>> source) {\n        Map<String, List<String>> copy = new HashMap<>();\n        source.forEach((role, actions) -> copy.put(role, List.copyOf(actions)));\n        return Map.copyOf(copy);\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class FieldAudit {\n\n    private FieldAudit() {\n    }\n\n    /** The sorted names of the fields {@code type} declares that are neither private nor constants. */\n    public static List<String> exposed(Class<?> type) {\n        throw new UnsupportedOperationException(\"write exposed\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * Which actions each role may perform. The authorizer keeps one policy for as long as the\n * service runs and asks it on every request.\n */\npublic class AccessPolicy {\n\n    private final Map<String, List<String>> actionsByRole;\n\n    public AccessPolicy(Map<String, List<String>> actionsByRole) {\n        this.actionsByRole = frozenCopy(actionsByRole);\n    }\n\n    public boolean allows(String role, String action) {\n        return actionsFor(role).contains(action);\n    }\n\n    /** The actions of one role, in the order they were given; empty for a role it doesn't know. */\n    public List<String> actionsFor(String role) {\n        return actionsByRole.getOrDefault(role, List.of());\n    }\n\n    public Set<String> roles() {\n        return actionsByRole.keySet();\n    }\n\n    /**\n     * The table this policy keeps, built from what the caller passed in.\n     * TODO: whatever a caller does later with the map or the lists it passed in, or with what\n     *       actionsFor() and roles() return, the policy must keep answering as it did when it\n     *       was built.\n     */\n    static Map<String, List<String>> frozenCopy(Map<String, List<String>> source) {\n        throw new IllegalStateException(\"TODO: frozenCopy\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d83f11afb9544fcd1809d9ecf7706156f7907dac91a2e51876c746044437f890",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class FieldAudit {\n\n    private FieldAudit() {\n    }\n\n    /** The sorted names of the fields {@code type} declares that are neither private nor constants. */\n    public static List<String> exposed(Class<?> type) {\n        throw new UnsupportedOperationException(\"write exposed\");\n    }\n}\n",
+  "content_sha256": "8f10308df58d8d6db33d611a015a54984e35ebd1e933bf2259406cf26bdc2331",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * Which actions each role may perform. The authorizer keeps one policy for as long as the\n * service runs and asks it on every request.\n */\npublic class AccessPolicy {\n\n    private final Map<String, List<String>> actionsByRole;\n\n    public AccessPolicy(Map<String, List<String>> actionsByRole) {\n        this.actionsByRole = frozenCopy(actionsByRole);\n    }\n\n    public boolean allows(String role, String action) {\n        return actionsFor(role).contains(action);\n    }\n\n    /** The actions of one role, in the order they were given; empty for a role it doesn't know. */\n    public List<String> actionsFor(String role) {\n        return actionsByRole.getOrDefault(role, List.of());\n    }\n\n    public Set<String> roles() {\n        return actionsByRole.keySet();\n    }\n\n    /**\n     * The table this policy keeps, built from what the caller passed in.\n     * TODO: whatever a caller does later with the map or the lists it passed in, or with what\n     *       actionsFor() and roles() return, the policy must keep answering as it did when it\n     *       was built.\n     */\n    static Map<String, List<String>> frozenCopy(Map<String, List<String>> source) {\n        throw new IllegalStateException(\"TODO: frozenCopy\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-2/src/main/java/practice/FieldAudit.java",
-    "test_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-2/src/test/java/practice/FieldAuditTest.java",
+    "main_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-2/src/main/java/practice/AccessPolicy.java",
+    "test_path": "practice/02-classes-and-objects/07-encapsulation/prose/unit-03/practice-2/src/test/java/practice/AccessPolicyTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,29 +98,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FieldAuditTest#flagsAPublicField",
+        "id": "practice.AccessPolicyTest#answersFromTheTableItWasBuiltFrom",
         "kind": "main",
-        "says": "A public field is flagged and a private one is not."
+        "says": "the policy allows exactly the actions its table gives each role, and nothing for a role it doesn't know"
       },
       {
-        "id": "practice.FieldAuditTest#packageAndProtectedFieldsAreExposed",
-        "kind": "edge",
-        "says": "Package-private and protected fields are flagged too, since only private hides a field."
+        "id": "practice.AccessPolicyTest#listsEachRolesActionsInTheOrderGiven",
+        "kind": "main",
+        "says": "actionsFor lists a role's actions in the order they were given, and is empty for an unknown role"
       },
       {
-        "id": "practice.FieldAuditTest#constantsAreAllowed",
+        "id": "practice.AccessPolicyTest#theCallersListsCanChangeWithoutChangingThePolicy",
         "kind": "edge",
-        "says": "A static final constant is not flagged, whatever its access."
+        "says": "changing the lists the policy was built from afterwards doesn't change its answers"
       },
       {
-        "id": "practice.FieldAuditTest#aStaticFieldThatCanChangeIsExposed",
+        "id": "practice.AccessPolicyTest#noCallerCanAddAnActionThroughWhatThePolicyReturns",
         "kind": "edge",
-        "says": "A static field that is not final is flagged."
+        "says": "adding to the list actionsFor returns doesn't give a role a new action"
       },
       {
-        "id": "practice.FieldAuditTest#fieldsTheCompilerAddsAreIgnored",
+        "id": "practice.AccessPolicyTest#noCallerCanRemoveARoleThroughWhatThePolicyReturns",
         "kind": "edge",
-        "says": "A field the compiler adds by itself, such as an inner class's link to its outer object, is not flagged."
+        "says": "removing from the set roles returns doesn't take a role out of the policy"
+      },
+      {
+        "id": "practice.AccessPolicyTest#noSubclassCanChangeHowAPolicyAnswers",
+        "kind": "edge",
+        "says": "no subclass can override how a policy answers"
       }
     ],
     "report": {
@@ -146,11 +134,11 @@
     },
     "origin": {
       "path": "07-encapsulation/README_2.2.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "An Immutable Class Is final, and Copies Every Mutable Part, Not Just the Collection"
     },
     "concepts": [
-      "Following least privilege, a class exposes only what callers need.",
-      "Fields are private, and the only public fields are constants declared public static final."
+      "A final field holds a reference; a class is immutable only as deep as its copy, so mutable elements are copied too or replaced by immutable ones.",
+      "Final fields and no setters don't make a type immutable while it can be subclassed; the class is final, or has only private constructors."
     ]
   }
 }

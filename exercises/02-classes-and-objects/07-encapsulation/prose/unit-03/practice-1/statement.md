@@ -1,29 +1,11 @@
-The page's interview answer hides a bank account's number and balance in private
-fields. The only way to change the balance is through methods that check every
-request first. Write the course's `BankAccount`:
+At 03:11 an engineer saved an alert rule with a window of `0s`. The API answered
+`400 Bad Request`, and the engineer fixed the typo. At 03:12 the evaluator's thread died with a
+`NullPointerException`, and no alert fired for the rest of the night.
 
-- `BankAccount(String accountNumber, double initialBalance)`:
-  - a `null`, empty or blank number is refused with
-    `IllegalArgumentException("Account number cannot be null or empty")`;
-  - a negative opening balance is refused with
-    `IllegalArgumentException("Initial balance cannot be negative")`.
-- `deposit(double amount)`: the amount must be positive, otherwise
-  `IllegalArgumentException("Deposit amount must be positive")`.
-- `withdraw(double amount)`: the amount must be positive, otherwise
-  `IllegalArgumentException("Withdrawal amount must be positive")`. An amount
-  larger than the balance is a different failure: the request is well formed, but
-  the account cannot serve it. Refuse it with
-  `IllegalStateException("Insufficient funds")`.
-- `getAccountNumber()` and `getBalance()`.
+Every rule lives in a `RuleBook`, which the evaluator walks once a minute. Make
+`src/main/java/practice/AlertRule.java` refuse, with `IllegalArgumentException`, any rule the
+evaluator can't run: a missing or blank metric, a threshold that isn't a finite number, or a
+missing window or one shorter than a minute. A rule that was refused must never be walked by
+the evaluator, while every valid rule still is.
 
-A refused request changes nothing.
-
-Examples:
-
-```
-BankAccount a = new BankAccount("123456", 1000.0);
-a.deposit(500.0);   a.getBalance()   -> 1500.0
-a.withdraw(300.0);  a.getBalance()   -> 1200.0
-a.withdraw(5000.0)                   -> IllegalStateException("Insufficient funds")
-new BankAccount("  ", 10.0)          -> IllegalArgumentException
-```
+About six lines in total: the `check` method, and whatever else in the class it takes.

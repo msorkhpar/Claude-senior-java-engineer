@@ -1,26 +1,15 @@
-A **static** field belongs to the class: there is one copy, shared by every
-object. An **instance** field belongs to one object: every object has its own. The
-page's `InstanceCounter` uses a static field to count the objects created.
+The warehouse prints shipping labels on several packing lines. Each line has one `LabelPrinter`,
+and every packer on the line renders labels with it from their own thread. Last month someone
+made the printer reuse a single buffer for every label "to save allocations". Since then a few
+parcels a day go out with one customer's name above another customer's street. The postcode
+lookup goes to a remote service and can take seconds, so a label waiting for its city must not
+hold up the other packers.
 
-Write `Ticket`:
+Finish the two `TODO`s in `src/main/java/practice/LabelPrinter.java`:
 
-- `static int issued()` returns how many tickets have been created so far. It is
-  called on the class, with no ticket needed.
-- Every new `Ticket` raises that count by one and takes the count's new value as
-  **its own** number, returned by `number()`: the first ticket is 1, the next 2,
-  and so on.
-- A ticket's number never changes afterwards.
-- The page warns that static mutable fields are shared by every thread: tickets
-  created by many threads at the same moment must all be counted, and no two
-  tickets may get the same number. Guard the shared count with **the class's own
-  lock**: a `static synchronized` method, or a `synchronized (Ticket.class)` block.
-  While another thread holds that lock, creating a ticket waits.
+- `render(...)`: the three lines of one label, counted for the dashboard;
+- `renderedByAll()`: the number the dashboard shows, every label that any printer has rendered
+  since the service started.
 
-**Examples**
-
-```
-Ticket.issued()   -> 0
-a = new Ticket()  -> a.number() == 1
-b = new Ticket()  -> b.number() == 2, a.number() == 1
-Ticket.issued()   -> 2
-```
+About eight lines in total. The tests render labels from several threads on one printer, and on
+several printers one after the other.

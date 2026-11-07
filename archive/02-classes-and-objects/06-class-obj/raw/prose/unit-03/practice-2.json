@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "An inner class that reads its outer object",
+  "title": "Load the rate card when it is needed, and again after a failure",
   "blocks": [
     {
       "type": "heading",
@@ -19,31 +19,27 @@
     },
     {
       "type": "para",
-      "text": "An **inner class** (a nested class that is not `static`) is an instance member: each of its objects belongs to one object of the outer class and can read that object's instance fields directly. Since Java 16 an inner class may also declare **static** members, which belong to the inner class as a whole."
-    },
-    {
-      "type": "para",
-      "text": "Write `Bank` and its inner class `Bank.Account`:"
+      "text": "The pricing service converts every price with a rate card that it loads from the rate service. Two incidents last quarter:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Bank(double ratePercent)`, `setRate(double ratePercent)`;",
-        "`Account open(double balance)` opens an account **at this bank**;",
-        "`Account.balance()` returns the balance;",
-        "`Account.yearlyInterest()` returns `balance * rate / 100`, using its own bank's rate **as it is now**;",
-        "`static int Account.opened()` counts every account opened so far, at any bank."
+        "The rate service was down for ten minutes. The pricing service's health check, which calls `RateCard.version()`, failed too, so the orchestrator restarted the pricing pods over and over.",
+        "At one startup the rate service timed out once. It answered again a second later, but every price request failed until the pods were restarted by hand."
       ]
     },
     {
       "type": "para",
-      "text": "**Examples**"
+      "text": "At startup a few hundred requests arrive together, and the rate service allows one load per pod."
     },
     {
-      "type": "code",
-      "lang": "java",
-      "text": "b = new Bank(2.0); a = b.open(1000)\na.yearlyInterest()       -> 20.0\nb.setRate(3.0)\na.yearlyInterest()       -> 30.0\nBank.Account.opened()    -> grows by 1 for each open"
+      "type": "para",
+      "text": "Finish the `TODO` in `rates()` in `src/main/java/practice/RateCard.java`. When you're done, the health check answers whatever the rate service is doing, a request whose load fails gets the rate service's own error and the next request tries again, and requests that arrive together while the rates are loading wait for that one load. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "Each test loads a fresh copy of `RateCard` through a class loader of its own, so every test starts as if the pod had just started."
     },
     {
       "type": "heading",
@@ -58,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Bank {\n    private double ratePercent;\n\n    public Bank(double ratePercent) {\n        this.ratePercent = ratePercent;\n    }\n\n    public void setRate(double ratePercent) {\n        this.ratePercent = ratePercent;\n    }\n\n    public Account open(double balance) {\n        return new Account(balance);\n    }\n\n    public class Account {\n        private static int opened;\n\n        private final double balance;\n\n        private Account(double balance) {\n            this.balance = balance;\n            opened++;\n        }\n\n        public static int opened() {\n            return opened;\n        }\n\n        public double balance() {\n            return balance;\n        }\n\n        public double yearlyInterest() {\n            return balance * ratePercent / 100;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Exchange rates for the shop's prices, loaded from the rate service. Every request thread of the\n * pricing service reads them through this class.\n */\npublic class RateCard {\n\n    /** Where the rates come from: the rate service in production, a stand-in in tests. */\n    public static final class Source {\n        public static volatile Supplier<Map<String, Long>> rates =\n                () -> { throw new IllegalStateException(\"no rate source configured\"); };\n\n        private Source() {\n        }\n    }\n\n    private static Map<String, Long> loaded;\n\n    /** What the health check reports. It needs no rates. */\n    public static String version() {\n        return \"rate-card 3.2\";\n    }\n\n    /** How many cents of the currency one euro buys. */\n    public static long centsPerEuro(String currency) {\n        Long cents = rates().get(currency);\n        if (cents == null) {\n            throw new IllegalArgumentException(\"no rate for \" + currency);\n        }\n        return cents;\n    }\n\n    static synchronized Map<String, Long> rates() {\n        if (loaded == null) {\n            loaded = Map.copyOf(Source.rates.get());\n        }\n        return loaded;\n    }\n}\n"
         }
       ]
     },
@@ -70,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Bank {\n\n    public Bank(double ratePercent) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public void setRate(double ratePercent) {\n        throw new UnsupportedOperationException(\"write setRate\");\n    }\n\n    public Account open(double balance) {\n        throw new UnsupportedOperationException(\"write open\");\n    }\n\n    public class Account {\n\n        public static int opened() {\n            throw new UnsupportedOperationException(\"write opened\");\n        }\n\n        public double balance() {\n            throw new UnsupportedOperationException(\"write balance\");\n        }\n\n        public double yearlyInterest() {\n            throw new UnsupportedOperationException(\"write yearlyInterest\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Exchange rates for the shop's prices, loaded from the rate service. Every request thread of the\n * pricing service reads them through this class.\n */\npublic class RateCard {\n\n    /** Where the rates come from: the rate service in production, a stand-in in tests. */\n    public static final class Source {\n        public static volatile Supplier<Map<String, Long>> rates =\n                () -> { throw new IllegalStateException(\"no rate source configured\"); };\n\n        private Source() {\n        }\n    }\n\n    /** What the health check reports. It needs no rates. */\n    public static String version() {\n        return \"rate-card 3.2\";\n    }\n\n    /** How many cents of the currency one euro buys. */\n    public static long centsPerEuro(String currency) {\n        Long cents = rates().get(currency);\n        if (cents == null) {\n            throw new IllegalArgumentException(\"no rate for \" + currency);\n        }\n        return cents;\n    }\n\n    static Map<String, Long> rates() {\n        // TODO: Return the rates, asking Source.rates for them only when they are first needed.\n        //       The health check must answer while the rate service is down; a load that fails\n        //       must be tried again by the next request; and the requests that arrive together\n        //       at startup must not each ask the rate service.\n        throw new IllegalStateException(\"TODO: rates\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,8 +74,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
-    "code": 2,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -89,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "801b2390b997396ab5788d10474a53ec28999415c05877b33729dce31c414533",
-  "starting_code": "package practice;\n\npublic class Bank {\n\n    public Bank(double ratePercent) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public void setRate(double ratePercent) {\n        throw new UnsupportedOperationException(\"write setRate\");\n    }\n\n    public Account open(double balance) {\n        throw new UnsupportedOperationException(\"write open\");\n    }\n\n    public class Account {\n\n        public static int opened() {\n            throw new UnsupportedOperationException(\"write opened\");\n        }\n\n        public double balance() {\n            throw new UnsupportedOperationException(\"write balance\");\n        }\n\n        public double yearlyInterest() {\n            throw new UnsupportedOperationException(\"write yearlyInterest\");\n        }\n    }\n}\n",
+  "content_sha256": "1d0beaeafba290013c4f353c5d493449ce53fed9aec77a8ee77ef6230016946b",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * Exchange rates for the shop's prices, loaded from the rate service. Every request thread of the\n * pricing service reads them through this class.\n */\npublic class RateCard {\n\n    /** Where the rates come from: the rate service in production, a stand-in in tests. */\n    public static final class Source {\n        public static volatile Supplier<Map<String, Long>> rates =\n                () -> { throw new IllegalStateException(\"no rate source configured\"); };\n\n        private Source() {\n        }\n    }\n\n    /** What the health check reports. It needs no rates. */\n    public static String version() {\n        return \"rate-card 3.2\";\n    }\n\n    /** How many cents of the currency one euro buys. */\n    public static long centsPerEuro(String currency) {\n        Long cents = rates().get(currency);\n        if (cents == null) {\n            throw new IllegalArgumentException(\"no rate for \" + currency);\n        }\n        return cents;\n    }\n\n    static Map<String, Long> rates() {\n        // TODO: Return the rates, asking Source.rates for them only when they are first needed.\n        //       The health check must answer while the rate service is down; a load that fails\n        //       must be tried again by the next request; and the requests that arrive together\n        //       at startup must not each ask the rate service.\n        throw new IllegalStateException(\"TODO: rates\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/main/java/practice/Bank.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/test/java/practice/BankTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/main/java/practice/RateCard.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-03/practice-2/src/test/java/practice/RateCardTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -114,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BankTest#anAccountEarnsItsBanksInterest",
+        "id": "practice.RateCardTest#pricesUseTheRatesFromTheRateService",
         "kind": "main",
-        "says": "An account opened at a bank earns interest at that bank's rate, and the class counts every account opened."
+        "says": "prices use the rates the rate service returned, and repeated requests reuse one load"
       },
       {
-        "id": "practice.BankTest#eachAccountUsesItsOwnBanksRate",
+        "id": "practice.RateCardTest#theHealthCheckAnswersWhileTheRateServiceIsDown",
         "kind": "edge",
-        "says": "Accounts at two banks with different rates each earn their own bank's rate."
+        "says": "the health check answers while the rate service is down, and prices work once it is back"
       },
       {
-        "id": "practice.BankTest#aRateChangeReachesExistingAccounts",
+        "id": "practice.RateCardTest#aLoadThatFailsIsTriedAgainByTheNextRequest",
         "kind": "edge",
-        "says": "Changing a bank's rate changes the interest its already-open accounts earn."
+        "says": "a request whose load fails gets the rate service's own error, and the next request loads the rates and succeeds"
+      },
+      {
+        "id": "practice.RateCardTest#requestsThatArriveTogetherAskTheRateServiceOnce",
+        "kind": "edge",
+        "says": "two requests that arrive while the first load is still running ask the rate service once between them"
       }
     ],
     "report": {
@@ -135,10 +136,11 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.3.md",
-      "section": "Relevant Java 21 Features"
+      "section": "A Static Initializer That Throws Leaves the Class Unusable Until the JVM Restarts"
     },
     "concepts": [
-      "An inner class's objects each belong to an outer object and read its current instance state, and since Java 16 an inner class may declare static members."
+      "A static initializer that throws is never run again: the first use gets ExceptionInInitializerError and every later use NoClassDefFoundError until the JVM restarts.",
+      "Work that can fail belongs in a method that can be called again, not in a static initializer; a holder class makes the load lazy but not retryable."
     ]
   }
 }

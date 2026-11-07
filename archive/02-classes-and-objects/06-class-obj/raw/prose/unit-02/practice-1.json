@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Constructor chaining with defaults",
+  "title": "Give the retry settings one way in",
   "blocks": [
     {
       "type": "heading",
@@ -19,37 +19,15 @@
     },
     {
       "type": "para",
-      "text": "**Constructor chaining**: write the most specific constructor first, and have the others call it with `this(...)`, so the defaults and the checks live in one place."
+      "text": "The payment client reads its retry settings for each endpoint from YAML. The settings loader creates a `RetrySettings` through its no-argument constructor and then sets the fields the document names. Application code also builds settings by hand, mostly with the one-argument constructor that takes just the endpoint."
     },
     {
       "type": "para",
-      "text": "Write `Employee` with three constructors:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Employee(String name, int id, String department)`;",
-        "`Employee(String name, int id)`: the department is `General`;",
-        "`Employee(String name)`: the id is `0` and the department is `General`."
-      ]
+      "text": "Two problems came back from staging. Documents that name only the endpoint gave a client that never retried. And a client built with `new RetrySettings(...)` from a value typed by an operator was never recognised by the circuit breaker, which compares endpoints as text, while the same value passed to the three-argument constructor was."
     },
     {
       "type": "para",
-      "text": "and the getters `getName()`, `getId()`, `getDepartment()`."
-    },
-    {
-      "type": "para",
-      "text": "Every constructor refuses a name that is `null` or blank (only whitespace) with an `IllegalArgumentException`."
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Employee(\"Ann\", 7, \"Sales\")  -> Ann, 7, Sales\nnew Employee(\"Ann\", 7)           -> Ann, 7, General\nnew Employee(\"Ann\")              -> Ann, 0, General\nnew Employee(\"  \")               -> IllegalArgumentException"
+      "text": "Finish the two `TODO` constructors in `src/main/java/practice/RetrySettings.java`. When you're done, every `RetrySettings`, however it was made, has the defaults the class declares for what nobody gave it, and holds to everything the three-argument constructor promises about its values. About two lines in total."
     },
     {
       "type": "heading",
@@ -64,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Employee {\n    private final String name;\n    private final int id;\n    private final String department;\n\n    public Employee(String name, int id, String department) {\n        if (name == null || name.isBlank()) {\n            throw new IllegalArgumentException(\"Name cannot be null or blank\");\n        }\n        this.name = name;\n        this.id = id;\n        this.department = department;\n    }\n\n    public Employee(String name, int id) {\n        this(name, id, \"General\");\n    }\n\n    public Employee(String name) {\n        this(name, 0);\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public int getId() {\n        return id;\n    }\n\n    public String getDepartment() {\n        return department;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Locale;\n\n/**\n * How the payment client retries a call to one endpoint. The service's settings loader creates\n * these from YAML documents: it calls the no-argument constructor, then sets each field the\n * document names. Application code uses the other two constructors.\n */\npublic class RetrySettings {\n\n    static final String DEFAULT_ENDPOINT = \"http://127.0.0.1:8080\";\n    static final int DEFAULT_ATTEMPTS = 3;\n    static final long DEFAULT_BACKOFF_MILLIS = 200;\n\n    private String endpoint;\n    private int maxAttempts;\n    private long backoffMillis;\n\n    /** Used by the settings loader, which then sets the fields the document names. */\n    RetrySettings() {\n        this(DEFAULT_ENDPOINT, DEFAULT_ATTEMPTS, DEFAULT_BACKOFF_MILLIS);\n    }\n\n    /** An endpoint with the default number of attempts and backoff. */\n    public RetrySettings(String endpoint) {\n        this(endpoint, DEFAULT_ATTEMPTS, DEFAULT_BACKOFF_MILLIS);\n    }\n\n    public RetrySettings(String endpoint, int maxAttempts, long backoffMillis) {\n        if (endpoint == null || endpoint.isBlank()) {\n            throw new IllegalArgumentException(\"endpoint is required\");\n        }\n        if (maxAttempts < 1 || maxAttempts > 10) {\n            throw new IllegalArgumentException(\"maxAttempts must be 1 to 10: \" + maxAttempts);\n        }\n        if (backoffMillis <= 0) {\n            throw new IllegalArgumentException(\"backoffMillis must be positive: \" + backoffMillis);\n        }\n        this.endpoint = normalise(endpoint);\n        this.maxAttempts = maxAttempts;\n        this.backoffMillis = backoffMillis;\n    }\n\n    /** Endpoints are compared as text by the client's circuit breaker, so they are kept in one form. */\n    private static String normalise(String endpoint) {\n        String e = endpoint.strip().toLowerCase(Locale.ROOT);\n        while (e.endsWith(\"/\")) e = e.substring(0, e.length() - 1);\n        return e;\n    }\n\n    public String endpoint() { return endpoint; }\n    public int maxAttempts() { return maxAttempts; }\n    public long backoffMillis() { return backoffMillis; }\n}\n"
         }
       ]
     },
@@ -76,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Employee {\n\n    public Employee(String name, int id, String department) {\n        throw new UnsupportedOperationException(\"write the full constructor\");\n    }\n\n    public Employee(String name, int id) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Employee(String name) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public String getName() {\n        throw new UnsupportedOperationException(\"write getName\");\n    }\n\n    public int getId() {\n        throw new UnsupportedOperationException(\"write getId\");\n    }\n\n    public String getDepartment() {\n        throw new UnsupportedOperationException(\"write getDepartment\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Locale;\n\n/**\n * How the payment client retries a call to one endpoint. The service's settings loader creates\n * these from YAML documents: it calls the no-argument constructor, then sets each field the\n * document names. Application code uses the other two constructors.\n */\npublic class RetrySettings {\n\n    static final String DEFAULT_ENDPOINT = \"http://127.0.0.1:8080\";\n    static final int DEFAULT_ATTEMPTS = 3;\n    static final long DEFAULT_BACKOFF_MILLIS = 200;\n\n    private String endpoint;\n    private int maxAttempts;\n    private long backoffMillis;\n\n    /** Used by the settings loader, which then sets the fields the document names. */\n    RetrySettings() {\n        // TODO: The loader fills in only what a document names. A document that leaves out a\n        //       value must still give a usable object, with the defaults above.\n        throw new IllegalStateException(\"TODO: RetrySettings()\");\n    }\n\n    /** An endpoint with the default number of attempts and backoff. */\n    public RetrySettings(String endpoint) {\n        // TODO: Objects made this way must hold to everything the full constructor promises.\n        throw new IllegalStateException(\"TODO: RetrySettings(String)\");\n    }\n\n    public RetrySettings(String endpoint, int maxAttempts, long backoffMillis) {\n        if (endpoint == null || endpoint.isBlank()) {\n            throw new IllegalArgumentException(\"endpoint is required\");\n        }\n        if (maxAttempts < 1 || maxAttempts > 10) {\n            throw new IllegalArgumentException(\"maxAttempts must be 1 to 10: \" + maxAttempts);\n        }\n        if (backoffMillis <= 0) {\n            throw new IllegalArgumentException(\"backoffMillis must be positive: \" + backoffMillis);\n        }\n        this.endpoint = normalise(endpoint);\n        this.maxAttempts = maxAttempts;\n        this.backoffMillis = backoffMillis;\n    }\n\n    /** Endpoints are compared as text by the client's circuit breaker, so they are kept in one form. */\n    private static String normalise(String endpoint) {\n        String e = endpoint.strip().toLowerCase(Locale.ROOT);\n        while (e.endsWith(\"/\")) e = e.substring(0, e.length() - 1);\n        return e;\n    }\n\n    public String endpoint() { return endpoint; }\n    public int maxAttempts() { return maxAttempts; }\n    public long backoffMillis() { return backoffMillis; }\n}\n"
     }
   ],
   "video": null,
@@ -84,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 5,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -95,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4cbe9780a059fc6e6f0a69a33fa7dcf6f0f644027de9a5228e347c3a5d2f592b",
-  "starting_code": "package practice;\n\npublic class Employee {\n\n    public Employee(String name, int id, String department) {\n        throw new UnsupportedOperationException(\"write the full constructor\");\n    }\n\n    public Employee(String name, int id) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public Employee(String name) {\n        throw new UnsupportedOperationException(\"write this constructor\");\n    }\n\n    public String getName() {\n        throw new UnsupportedOperationException(\"write getName\");\n    }\n\n    public int getId() {\n        throw new UnsupportedOperationException(\"write getId\");\n    }\n\n    public String getDepartment() {\n        throw new UnsupportedOperationException(\"write getDepartment\");\n    }\n}\n",
+  "content_sha256": "0e2e1689fe228dcc5d04eee2bffecfb0476df8af569f2831456e557a969e695d",
+  "starting_code": "package practice;\n\nimport java.util.Locale;\n\n/**\n * How the payment client retries a call to one endpoint. The service's settings loader creates\n * these from YAML documents: it calls the no-argument constructor, then sets each field the\n * document names. Application code uses the other two constructors.\n */\npublic class RetrySettings {\n\n    static final String DEFAULT_ENDPOINT = \"http://127.0.0.1:8080\";\n    static final int DEFAULT_ATTEMPTS = 3;\n    static final long DEFAULT_BACKOFF_MILLIS = 200;\n\n    private String endpoint;\n    private int maxAttempts;\n    private long backoffMillis;\n\n    /** Used by the settings loader, which then sets the fields the document names. */\n    RetrySettings() {\n        // TODO: The loader fills in only what a document names. A document that leaves out a\n        //       value must still give a usable object, with the defaults above.\n        throw new IllegalStateException(\"TODO: RetrySettings()\");\n    }\n\n    /** An endpoint with the default number of attempts and backoff. */\n    public RetrySettings(String endpoint) {\n        // TODO: Objects made this way must hold to everything the full constructor promises.\n        throw new IllegalStateException(\"TODO: RetrySettings(String)\");\n    }\n\n    public RetrySettings(String endpoint, int maxAttempts, long backoffMillis) {\n        if (endpoint == null || endpoint.isBlank()) {\n            throw new IllegalArgumentException(\"endpoint is required\");\n        }\n        if (maxAttempts < 1 || maxAttempts > 10) {\n            throw new IllegalArgumentException(\"maxAttempts must be 1 to 10: \" + maxAttempts);\n        }\n        if (backoffMillis <= 0) {\n            throw new IllegalArgumentException(\"backoffMillis must be positive: \" + backoffMillis);\n        }\n        this.endpoint = normalise(endpoint);\n        this.maxAttempts = maxAttempts;\n        this.backoffMillis = backoffMillis;\n    }\n\n    /** Endpoints are compared as text by the client's circuit breaker, so they are kept in one form. */\n    private static String normalise(String endpoint) {\n        String e = endpoint.strip().toLowerCase(Locale.ROOT);\n        while (e.endsWith(\"/\")) e = e.substring(0, e.length() - 1);\n        return e;\n    }\n\n    public String endpoint() { return endpoint; }\n    public int maxAttempts() { return maxAttempts; }\n    public long backoffMillis() { return backoffMillis; }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-1/src/main/java/practice/Employee.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-1/src/test/java/practice/EmployeeTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-1/src/main/java/practice/RetrySettings.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-02/practice-1/src/test/java/practice/RetrySettingsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -120,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EmployeeTest#theFullConstructorKeepsEveryValue",
+        "id": "practice.RetrySettingsTest#theLoaderBuildsSettingsFromACompleteDocument",
         "kind": "main",
-        "says": "The three-argument constructor keeps the name, id and department it is given."
+        "says": "the loader builds settings through the no-argument constructor and every value the document names arrives"
       },
       {
-        "id": "practice.EmployeeTest#twoArgumentsDefaultTheDepartment",
-        "kind": "edge",
-        "says": "The two-argument constructor sets the department to General."
+        "id": "practice.RetrySettingsTest#theShortFormKeepsTheEndpointAndUsesTheDefaults",
+        "kind": "main",
+        "says": "the one-argument constructor keeps a well-formed endpoint and uses 3 attempts and 200 ms"
       },
       {
-        "id": "practice.EmployeeTest#oneArgumentDefaultsTheIdAndDepartment",
+        "id": "practice.RetrySettingsTest#aDocumentThatNamesOnlyTheEndpointGetsTheDefaultsForTheRest",
         "kind": "edge",
-        "says": "The one-argument constructor sets the id to 0 and the department to General."
+        "says": "a document that leaves out attempts and backoff gives the defaults, not zero"
       },
       {
-        "id": "practice.EmployeeTest#everyConstructorRefusesABlankName",
+        "id": "practice.RetrySettingsTest#theShortFormRefusesABlankEndpoint",
         "kind": "edge",
-        "says": "A null or blank name is refused by every constructor, not only the full one."
+        "says": "the one-argument constructor refuses a blank endpoint, as the full one does"
+      },
+      {
+        "id": "practice.RetrySettingsTest#theShortFormStoresTheEndpointInTheSameFormAsTheFullOne",
+        "kind": "edge",
+        "says": "the one-argument constructor stores the endpoint in the same normalised form as the full one"
       }
     ],
     "report": {
@@ -146,10 +129,11 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.2.md",
-      "section": "Interview-specific Insights"
+      "section": "Overloaded Constructors Chain with this(...) to One That Checks and Assigns"
     },
     "concepts": [
-      "Overloaded constructors chain with this(...) to the most specific one, so defaults and checks live in one place."
+      "Overloaded constructors delegate with this(...) to one constructor that checks and assigns, so no overload skips a check or a default.",
+      "Declaring any constructor removes the default no-argument one, so a reflective framework that needs it fails at run time and a subclass without a constructor stops compiling."
     ]
   }
 }

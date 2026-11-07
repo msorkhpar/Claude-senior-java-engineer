@@ -1,24 +1,11 @@
-The page's strongest protection is an **immutable object**: once made, its state
-never changes, so there is nothing to guard. The page also warns that
-**subclassing can break encapsulation**: a subclass could add mutable state or
-override behaviour, so an immutable class is declared `final`.
+The web tier keeps a guest's `Reservation` in the session, and the session store writes sessions
+out as serialized objects and reads them back on whichever node takes the next request. Since
+last month's release the price page sometimes shows a stay for 0 nights or for 9 guests, values
+the constructor has always refused. The session store logs a stream it can't read as an
+`IOException` and starts a fresh session; anything else it lets through to the error page.
 
-Write `Schedule`, an immutable list of time slots with a name:
+Finish `readObject` in `src/main/java/practice/Reservation.java`, so that a reservation read
+back from a stream holds to the same rules as one built with the constructor, and a stream that
+breaks them reaches the session store as a stream it can't read.
 
-- `Schedule(String name, List<String> slots)`;
-- `String getName()` and `List<String> getSlots()`: the slots can be read but not
-  changed through the returned list;
-- `Schedule withSlot(String slot)` returns a **new** schedule with `slot` added at
-  the end. The schedule it was called on stays as it was.
-
-Changing the list passed to the constructor afterwards does not change the schedule.
-The class cannot be extended, and every field it declares is `private` and `final`.
-
-Examples:
-
-```
-Schedule monday = new Schedule("Mon", List.of("09:00"));
-Schedule longer = monday.withSlot("14:00");
-longer.getSlots()     -> [09:00, 14:00]
-monday.getSlots()     -> [09:00]
-```
+About five lines in total.

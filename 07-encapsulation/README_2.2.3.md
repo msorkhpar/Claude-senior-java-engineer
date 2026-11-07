@@ -1,134 +1,204 @@
 # 2.2.3 Data Hiding and Protection in Java
 
-## Concept Explanation
+A booking service caches stays as serialized objects. A release made `Stay` refuse zero nights,
+and the next run of the invoice job failed with `/ by zero` dividing by `nights()`: the cache held stays the
+constructor would never build. Private fields hide data. They protect it only if every way an
+object is made, and every way its state changes, goes through the checks.
 
-Data hiding, also known as information hiding, is a fundamental principle of object-oriented programming (OOP) that
-emphasizes restricting direct access to some of an object's components. In Java, data hiding is primarily achieved
-through encapsulation, which involves bundling the data (attributes) and the methods that operate on the data within a
-single unit or object.
+## A Constructor That Fails Has Already Published this If It Registered Itself First
 
-The main goals of data hiding are:
-
-1. To reduce system complexity by limiting interdependencies between software components.
-2. To protect the integrity of data by preventing unauthorized access or modifications.
-3. To make the internal implementation of a class independent from the code that uses the class.
-
-## Key Points to Remember
-
-1. Use private access modifier for class attributes to hide them from external access.
-2. Provide public getter and setter methods to control access to private attributes.
-3. Implement validation logic in setter methods to ensure data integrity.
-4. Consider using immutable objects for better protection and thread safety.
-5. Use the principle of least privilege: only expose what is necessary.
-
-## Relevant Java Features
-
-- Java 16 introduced Records, which provide a concise way to create immutable data classes with built-in data
-  protection.
-- Java 9 introduced the `private` interface method, allowing better encapsulation within interfaces.
-
-## Common Pitfalls and How to Avoid Them
-
-1. Exposing mutable objects: Return defensive copies of mutable fields.
-2. Over-exposing internal state: Only provide getters and setters when necessary.
-3. Neglecting validation in setters: Always validate input in setter methods.
-4. Using public fields: Avoid public fields except for constants (public static final).
-
-## Best Practices and Optimization Techniques
-
-1. Use immutable objects when possible to enhance data protection.
-2. Implement the Java Bean convention for consistent getter and setter naming.
-3. Consider using builder pattern for objects with many attributes.
-4. Use package-private (default) access for classes and methods not intended for external use.
-
-## Edge Cases and Their Handling
-
-1. Subclassing: Be cautious when extending classes, as it can potentially break encapsulation.
-2. Reflection: Remember that reflection can bypass access control - use it judiciously.
-
-## Interview-specific Insights
-
-- Be prepared to explain the benefits of data hiding and how it contributes to better software design.
-- Understand the trade-offs between strict encapsulation and performance in certain scenarios.
-- Be able to refactor poorly encapsulated code to improve data hiding.
-
-## Interview Q&A Section
-
-Q1: What is data hiding, and why is it important in Java?
-
-A1:
-
-```text
-Data hiding is a principle of encapsulation in object-oriented programming where the internal details of a class are hidden from the outside world. It's important in Java for several reasons:
-
-1. Improved security: By hiding the internal data of a class, we prevent unauthorized access and modifications.
-2. Reduced complexity: It helps in managing the complexity of the code by separating the internal implementation from the external interface.
-3. Flexibility in development: The internal implementation can be changed without affecting the code that uses the class.
-4. Better maintainability: It's easier to maintain and update code when the internal details are hidden.
-5. Prevents misuse: It prevents other parts of the program from directly manipulating the object's state in unexpected ways.
-
-In Java, data hiding is typically achieved by declaring class variables as private and providing public getter and setter methods to access and modify the variables.
-```
-
-Q2: How would you implement data hiding for a class representing a bank account?
-
-A2:
+A meter adds itself to the scheduler's list, then checks its interval:
 
 ```java
-public class BankAccount {
-    private String accountNumber;
-    private double balance;
+import java.util.ArrayList;
+import java.util.List;
 
-    public BankAccount(String accountNumber, double initialBalance) {
-        this.accountNumber = accountNumber;
-        this.balance = initialBalance;
+final class Meter {
+    static final List<Meter> ACTIVE = new ArrayList<>();   // the scheduler polls every meter here
+
+    private final String id;
+    private final int intervalSeconds;
+
+    Meter(String id, int intervalSeconds) {
+        ACTIVE.add(this);
+        if (intervalSeconds <= 0) throw new IllegalArgumentException("interval " + intervalSeconds);
+        this.id = id;
+        this.intervalSeconds = intervalSeconds;
     }
 
-    public String getAccountNumber() {
-        return accountNumber;
-    }
+    long pollsPerHour() { return 3600 / intervalSeconds; }
 
-    public double getBalance() {
-        return balance;
-    }
-
-    public void deposit(double amount) {
-        if (amount > 0) {
-            balance += amount;
-        } else {
-            throw new IllegalArgumentException("Deposit amount must be positive");
-        }
-    }
-
-    public void withdraw(double amount) {
-        if (amount > 0 && amount <= balance) {
-            balance -= amount;
-        } else {
-            throw new IllegalArgumentException("Invalid withdrawal amount");
-        }
-    }
+    @Override public String toString() { return id + " every " + intervalSeconds + " s"; }
 }
 ```
 
-Q3: How does data hiding contribute to the principle of least privilege?
-
-A3:
+After `new Meter("m-1", 60)`, `new Meter("m-2", 0)` is refused, and the scheduler then polls what it holds:
 
 ```text
-Data hiding contributes to the principle of least privilege by ensuring that each part of a program has access only to the information and resources that are necessary for its legitimate purpose. Here's how:
-
-1. Limited Access: By making data members private, we restrict direct access to the internal state of an object. This means that other parts of the program can't accidentally or maliciously modify the object's state.
-
-2. Controlled Interfaces: Public methods (like getters and setters) provide a controlled interface to interact with the object. These methods can include validation logic to ensure that only valid operations are performed.
-
-3. Information Hiding: The internal implementation details are hidden, which means that the user of the class only needs to know how to use the public interface, not how it's implemented internally.
-
-4. Reduced Dependencies: By hiding implementation details, we reduce the dependencies between different parts of the program. This makes the system more modular and easier to maintain.
-
-5. Selective Exposure: We can choose which aspects of an object to expose through public methods, adhering to the principle of least privilege by only exposing what's necessary.
-
-By following these practices, data hiding helps ensure that each component of a system has the minimum access required to perform its function, which is the essence of the principle of least privilege.
+refused: interval 0
+active: [m-1 every 60 s, null every 0 s]
+m-1 every 60 s: 60 polls/h
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+	at Meter.pollsPerHour(Meter.java:17)
+	at Escape.main(Escape.java:10)
 ```
+
+The object exists before the constructor body runs. The exception stops `new` from returning a
+reference, but one already handed out survives, with its fields at their defaults: `null every 0 s`.
+The crash comes on every later poll, far from the line that refused the meter. Registering a
+listener, starting a thread or caching `this` does the same. Check every argument first, assign,
+and publish last, or let a factory publish the finished object.
+
+<!-- practice 1 -->
+
+## An Immutable Class Is final, and Copies Every Mutable Part, Not Just the Collection
+
+`Money` has `private final long cents`, a getter and no setters, so `Invoice` keeps the `Money` it
+is given without copying it; `dueCents()` returns `total.cents()`. But `Money` isn't `final`:
+
+```java
+static class AdjustableMoney extends Money {
+    long cents;
+    AdjustableMoney(long cents) { super(cents); this.cents = cents; }
+    @Override long cents() { return cents; }
+}
+```
+
+```java
+AdjustableMoney total = new AdjustableMoney(12_000);
+Invoice invoice = new Invoice(total);
+System.out.println("due: " + invoice.dueCents());
+total.cents = 1;                                    // the caller still holds its object
+System.out.println("due: " + invoice.dueCents());
+System.out.println("BigDecimal final: " + Modifier.isFinal(BigDecimal.class.getModifiers())
+        + ", BigInteger final: " + Modifier.isFinal(BigInteger.class.getModifiers())
+        + ", String final: " + Modifier.isFinal(String.class.getModifiers()));
+```
+
+```text
+due: 12000
+due: 1
+BigDecimal final: false, BigInteger final: false, String final: true
+```
+
+`BigDecimal` and `BigInteger` can be subclassed too, so
+code that keeps one from a caller it doesn't trust checks its exact class or copies it. Make the
+class `final`, or give it only private constructors and static factories.
+
+A `final` field holds a reference, so immutability goes only as deep as the copy. `List.copyOf`
+copies the list, not its elements (unit 1.3.3). `Holidays` keeps a list of `java.util.Date`:
+
+```java
+Holidays h = new Holidays(input);              // this.days = List.copyOf(days)
+input.get(0).setTime(0);                       // the caller reuses its Date
+System.out.println(h.days().get(0).toInstant());
+```
+
+```text
+1970-01-01T00:00:00Z
+```
+
+Hold immutable elements (`LocalDate`, `Instant`, `String`), or copy each one in and out. A class
+whose fields are all `final` also gets the publication guarantee of unit 5.2.2, provided its
+constructor doesn't publish `this`.
+
+<!-- practice 2 -->
+
+## Deserialization Builds the Object Without Your Constructor, So readObject Checks Again
+
+`Stay` refuses fewer than one night in its constructor. A record `StayRecord(int nights)` has the
+same check in its compact constructor, and `CheckedStay`, the class again, repeats it in `readObject`:
+
+```java
+private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+    in.defaultReadObject();
+    if (nights < 1) throw new InvalidObjectException("nights " + nights);
+}
+```
+
+We serialize each with three nights, set the four bytes of `nights` in the stream to zero, and
+read it back. Both classes print themselves in the record's format:
+
+```text
+class: Stay[nights=0]
+record: java.io.InvalidObjectException: nights 0, cause java.lang.IllegalArgumentException: nights 0
+readObject: java.io.InvalidObjectException: nights 0
+```
+
+For a `Serializable` class, `ObjectInputStream` runs only the no-arg constructor of the first
+superclass that isn't serializable, here `Object`'s, then sets the fields from the stream. A
+record is rebuilt through its canonical constructor. The stream needn't be forged: objects written
+before the check existed carry such values too. Throw `InvalidObjectException`, an `IOException`,
+so a caller that handles a bad stream handles this one.
+
+A serializable singleton comes back as a second instance, unless a `readResolve()` method returns
+the existing one.
+
+<!-- practice 3 -->
+
+## Reflection Can Rewrite a private final Field of a Class, but Not of a Record
+
+`setAccessible(true)` (unit 2.2.1) also gets past `final` in class-path code:
+
+```java
+Field f = Stay.class.getDeclaredField("nights");
+f.setAccessible(true);
+f.setInt(stay, -1);
+System.out.println("class field set: nights=" + stay.nights());
+```
+
+The same calls, in the program's outer class `Around`, on a record's field and on a
+`static final` field set to 365:
+
+```text
+class field set: nights=-1
+record: java.lang.IllegalAccessException: Can not set final int field Around$StayRecord.nights to (int)-1
+static final: java.lang.IllegalAccessException: Can not set static final int field Around$Limits.MAX_NIGHTS to (int)365
+```
+
+After `setAccessible(true)` succeeds, `Field.set` writes a `final` field only if it is non-static
+and its class is neither a record nor a hidden class. A named module that doesn't open its package
+refuses `setAccessible` altogether.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **Check every argument before the constructor publishes `this`.** A reference handed out before
+  the throw survives it.
+- **An immutable class is `final` and copies every mutable part.** A subclass or a shared element
+  changes what callers were told can't change.
+- **Deserialization skips your constructor**, records excepted. `readObject` repeats the checks
+  and throws `InvalidObjectException`.
+- **Reflection can rewrite a `private final` field** of an ordinary class, not of a record. A test
+  that does it breaks when the class becomes a record.
+
+## Reference
+
+**What runs when an object is made (Java 21):**
+
+| The object comes from | Constructor that runs |
+|---|---|
+| `new` | its own, which first runs its superclass's |
+| deserializing a `Serializable` class | only the no-arg constructor of the first non-serializable superclass |
+| deserializing a record | the canonical constructor |
+| deserializing an `Externalizable` class | its public no-arg constructor, then `readExternal` |
+| `Object.clone()` | none |
+
+## Challenges
+
+1. A class you own has been serialized into a cache for two years. You add an invariant. What
+   happens to the entries already there, and how do you find out before the release?
+2. A method of yours keeps a `BigDecimal` from its caller. Copy it, check its class, or accept the
+   risk? What does each cost?
+3. A test sets a private `final` field by reflection. Which change to the class breaks that test?
+
+## Design Note: Why Serialization Skips the Constructor
+
+Serialization restores an object's fields, private ones included, so it works for classes with no
+constructor that takes those fields. The cost is a second way to create objects, one the class's
+author doesn't see. Records changed that: their state is their components, so the stream is read
+back through the canonical constructor.
 
 ## Code Examples
 

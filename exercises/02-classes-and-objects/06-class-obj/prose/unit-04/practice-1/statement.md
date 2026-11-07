@@ -1,30 +1,11 @@
-A subclass **inherits** the non-private members of its superclass, can **override**
-a method to give its own version (mark it `@Override`), and can call the
-superclass's version with `super.method()`. Constructors are not inherited: the
-subclass constructor calls `super(...)`.
+The depot's intake scanner checks every parcel's weight and longest side before it goes on the
+belt. Pallets take much bigger parcels, and since freight was added the scanner still refuses a
+12 kg pallet parcel, and the intake screen shows belt limits for it.
 
-Write `Animal` and its nested static subclass `Animal.Dog`:
+`Depot.Parcel` already checks belt parcels correctly. Finish the `TODO` in
+`src/main/java/practice/Depot.java`: the constructor of `Depot.FreightParcel`, a parcel that goes
+on a pallet (up to 30,000 g, up to 150 cm on the longest side).
 
-`Animal(String name)`:
-
-- `getName()` returns the name;
-- `makeSound()` returns `The animal makes a sound`;
-- `describe()` returns `<name> the animal`.
-
-`Dog(String name, String breed)` extends `Animal`:
-
-- `getBreed()` returns the breed;
-- `makeSound()` returns `The dog barks`, and does so however the dog is referred to;
-- `fetch()` returns `<name> is fetching`;
-- `describe()` returns the animal's description followed by ` (<breed>)`, built on
-  the superclass's version.
-
-**Examples**
-
-```
-Animal a = new Animal.Dog("Buddy", "Labrador")
-a.getName()     -> "Buddy"
-a.makeSound()   -> "The dog barks"
-a.describe()    -> "Buddy the animal (Labrador)"
-new Animal("Generic").makeSound() -> "The animal makes a sound"
-```
+When you're done, everything the depot asks a freight parcel, whether it accepts a size and what
+its limits are, answers for a pallet, wherever the parcel is handled as a plain `Parcel`. Belt
+parcels keep their own limits. About two lines.
