@@ -1,21 +1,12 @@
-Any class that implements `AutoCloseable` can be declared in a try-with-resources statement, and its
-`close()` is called automatically when the block exits.
+An ingest run writes sensor rows into one file per partition of the object store. It opens a
+partition's writer when the first row for that partition arrives, so the number of writers is
+known only at run time and they can't be declared in one try-with-resources header. The run
+itself is the resource: the job does `try (PartitionWriters run = ...)`.
 
-Write the class `Session implements AutoCloseable`:
+The object store flushes a writer's last rows when it is closed, and that flush can fail. After a
+night when the store was briefly unavailable, two things were found: partitions whose files were
+never closed, and an alert that named one failed partition when three had failed.
 
-- `Session(String name, List<String> log)` opens a session that records what happens in `log`;
-- `void use(String what)` adds `"use " + what` to the log;
-- `void close()` adds `"close " + name` to the log (it throws no checked exception);
-- `boolean isClosed()` says whether **this** session has been closed (each session keeps its own state,
-  even when two share a name and a log).
-
-```
-try (Session s = new Session("db", log)) {
-    s.use("query");
-}
-// log is now ["use query", "close db"]
-```
-
-Page's pitfall: a resource is closed after its try block, so using it there must fail with
-`IllegalStateException("Resource is already closed")`. And a resource may be closed more than once
-by careless callers.
+Write `close()` in `src/main/java/practice/PartitionWriters.java` so the run ends the way it
+would if every writer had been declared in a try-with-resources header in the order it was
+opened. About ten lines.

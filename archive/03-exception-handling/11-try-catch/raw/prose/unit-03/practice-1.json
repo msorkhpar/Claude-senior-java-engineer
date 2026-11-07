@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Read the first line and close the source in finally",
+  "title": "Keep the quote service's in-flight gauge honest",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A `finally` block runs after the `try` block however it ends, which makes it the classic place for cleanup such as closing a reader. (Try-with-resources, on the next page, replaces this pattern; here you write it by hand.)"
+      "text": "The quote service protects its pricing backend: while `limit` quotes are in flight it refuses new ones with `BusyException`. Yesterday the backend was down for four minutes. It came back, but the service went on refusing every quote until it was restarted, with nothing running, and the gateway, which retries a quote that failed with an `IOException`, never retried anything that morning."
     },
     {
       "type": "para",
-      "text": "Write `FirstLine.read(Reader source)`. It wraps `source` in a `BufferedReader`, returns its first line (as `readLine()` gives it), and always closes the reader, which closes `source` too."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "source text",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`\"first\\nsecond\"`",
-          "`\"first\"`"
-        ],
-        [
-          "`\"only\"`",
-          "`\"only\"`"
-        ]
-      ]
+      "text": "Finish `lookup(...)` in `src/main/java/practice/QuoteService.java`. It counts the quote in `inFlight` for as long as it runs, answers from the cache when it can, and otherwise asks the backend and caches the price."
     },
     {
       "type": "para",
-      "text": "\"Always\" includes the run where `readLine()` throws, an `IOException` or anything else, which must still reach the caller. (What happens when `close()` itself fails is not checked here.) Keep `readLine()`'s own answer for a source with no lines at all."
+      "text": "When you're done, `inFlight()` goes back down however a quote ends: with a price, from the cache, or with whatever the backend throws, checked or not. And the backend's exception reaches the caller of `quote()` as it was thrown. About ten lines in total."
     },
     {
       "type": "heading",
@@ -59,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.io.Reader;\n\npublic final class FirstLine {\n\n    private FirstLine() {\n    }\n\n    /** Returns the first line of {@code source} and always closes it. */\n    public static String read(Reader source) throws IOException {\n        BufferedReader reader = new BufferedReader(source);\n        try {\n            return reader.readLine();\n        } finally {\n            reader.close();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Quotes prices for SKUs from a pricing backend, with a cache in front of it. To protect the\n * backend, the service refuses a quote while {@code limit} quotes are already in flight.\n */\npublic class QuoteService {\n\n    /** The pricing backend. It fails with an IOException, or with any unchecked exception. */\n    public interface Backend {\n        BigDecimal fetch(String sku) throws IOException;\n    }\n\n    /** Thrown when too many quotes are in flight. */\n    public static class BusyException extends RuntimeException {\n        public BusyException(int inFlight) {\n            super(inFlight + \" quotes in flight\");\n        }\n    }\n\n    private final Backend backend;\n    private final int limit;\n    private final Map<String, BigDecimal> cache = new ConcurrentHashMap<>();\n    private final AtomicInteger inFlight = new AtomicInteger();\n\n    public QuoteService(Backend backend, int limit) {\n        this.backend = backend;\n        this.limit = limit;\n    }\n\n    /** Quotes a price, or refuses with BusyException when {@code limit} quotes are in flight. */\n    public BigDecimal quote(String sku) throws IOException {\n        int now = inFlight.get();\n        if (now >= limit) throw new BusyException(now);\n        return lookup(sku);\n    }\n\n    /** How many quotes are in flight right now; the load balancer's dashboard shows it. */\n    public int inFlight() {\n        return inFlight.get();\n    }\n\n    /** Answers one quote, from the cache when it can, and counts it in flight while it runs. */\n    BigDecimal lookup(String sku) throws IOException {\n        inFlight.incrementAndGet();\n        try {\n            BigDecimal cached = cache.get(sku);\n            if (cached != null) return cached;\n            BigDecimal price = backend.fetch(sku);\n            cache.put(sku, price);\n            return price;\n        } finally {\n            inFlight.decrementAndGet();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.Reader;\n\npublic final class FirstLine {\n\n    private FirstLine() {\n    }\n\n    /** Returns the first line of {@code source} and always closes it. */\n    public static String read(Reader source) throws IOException {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Quotes prices for SKUs from a pricing backend, with a cache in front of it. To protect the\n * backend, the service refuses a quote while {@code limit} quotes are already in flight.\n */\npublic class QuoteService {\n\n    /** The pricing backend. It fails with an IOException, or with any unchecked exception. */\n    public interface Backend {\n        BigDecimal fetch(String sku) throws IOException;\n    }\n\n    /** Thrown when too many quotes are in flight. */\n    public static class BusyException extends RuntimeException {\n        public BusyException(int inFlight) {\n            super(inFlight + \" quotes in flight\");\n        }\n    }\n\n    private final Backend backend;\n    private final int limit;\n    private final Map<String, BigDecimal> cache = new ConcurrentHashMap<>();\n    private final AtomicInteger inFlight = new AtomicInteger();\n\n    public QuoteService(Backend backend, int limit) {\n        this.backend = backend;\n        this.limit = limit;\n    }\n\n    /** Quotes a price, or refuses with BusyException when {@code limit} quotes are in flight. */\n    public BigDecimal quote(String sku) throws IOException {\n        int now = inFlight.get();\n        if (now >= limit) throw new BusyException(now);\n        return lookup(sku);\n    }\n\n    /** How many quotes are in flight right now; the load balancer's dashboard shows it. */\n    public int inFlight() {\n        return inFlight.get();\n    }\n\n    /** Answers one quote, from the cache when it can, and counts it in flight while it runs. */\n    BigDecimal lookup(String sku) throws IOException {\n        // TODO: Count this quote in inFlight for as long as it runs, so that quote() can refuse\n        //       work while the backend is saturated. Answer from the cache when it holds the\n        //       SKU; otherwise ask the backend and cache its price. Whatever the backend throws\n        //       is for the caller: the gateway retries a quote that failed with an IOException.\n        throw new IllegalStateException(\"TODO: lookup\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -81,7 +64,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -90,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0c57961ab7386712596d51ef2eed49cf6603610a4c2df01e086e7af71f9b31d0",
-  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.io.Reader;\n\npublic final class FirstLine {\n\n    private FirstLine() {\n    }\n\n    /** Returns the first line of {@code source} and always closes it. */\n    public static String read(Reader source) throws IOException {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n}\n",
+  "content_sha256": "a40c5fe7148b2a6d335dfdc67109eb0f54e91495b278b0b858975bc5c95f6da0",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * Quotes prices for SKUs from a pricing backend, with a cache in front of it. To protect the\n * backend, the service refuses a quote while {@code limit} quotes are already in flight.\n */\npublic class QuoteService {\n\n    /** The pricing backend. It fails with an IOException, or with any unchecked exception. */\n    public interface Backend {\n        BigDecimal fetch(String sku) throws IOException;\n    }\n\n    /** Thrown when too many quotes are in flight. */\n    public static class BusyException extends RuntimeException {\n        public BusyException(int inFlight) {\n            super(inFlight + \" quotes in flight\");\n        }\n    }\n\n    private final Backend backend;\n    private final int limit;\n    private final Map<String, BigDecimal> cache = new ConcurrentHashMap<>();\n    private final AtomicInteger inFlight = new AtomicInteger();\n\n    public QuoteService(Backend backend, int limit) {\n        this.backend = backend;\n        this.limit = limit;\n    }\n\n    /** Quotes a price, or refuses with BusyException when {@code limit} quotes are in flight. */\n    public BigDecimal quote(String sku) throws IOException {\n        int now = inFlight.get();\n        if (now >= limit) throw new BusyException(now);\n        return lookup(sku);\n    }\n\n    /** How many quotes are in flight right now; the load balancer's dashboard shows it. */\n    public int inFlight() {\n        return inFlight.get();\n    }\n\n    /** Answers one quote, from the cache when it can, and counts it in flight while it runs. */\n    BigDecimal lookup(String sku) throws IOException {\n        // TODO: Count this quote in inFlight for as long as it runs, so that quote() can refuse\n        //       work while the backend is saturated. Answer from the cache when it holds the\n        //       SKU; otherwise ask the backend and cache its price. Whatever the backend throws\n        //       is for the caller: the gateway retries a quote that failed with an IOException.\n        throw new IllegalStateException(\"TODO: lookup\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-1/src/main/java/practice/FirstLine.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-1/src/test/java/practice/FirstLineTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-1/src/main/java/practice/QuoteService.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-03/practice-1/src/test/java/practice/QuoteServiceTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,19 +98,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FirstLineTest#readsTheFirstLineAndCloses",
+        "id": "practice.QuoteServiceTest#quotesFromTheBackendAndCountsTheQuoteWhileItRuns",
         "kind": "main",
-        "says": "It returns the first line and closes the source."
+        "says": "a quote is counted in flight while the backend works on it, returns the backend's price, and is no longer counted afterwards"
       },
       {
-        "id": "practice.FirstLineTest#closesWhenReadingFails",
-        "kind": "edge",
-        "says": "The source is closed even when reading throws, and the read failure reaches the caller."
+        "id": "practice.QuoteServiceTest#aSecondQuoteForTheSameSkuComesFromTheCache",
+        "kind": "main",
+        "says": "a second quote for the same SKU comes from the cache without calling the backend"
       },
       {
-        "id": "practice.FirstLineTest#anEmptySourceGivesNull",
+        "id": "practice.QuoteServiceTest#refusesAQuoteWhileTheLimitIsInFlight",
+        "kind": "main",
+        "says": "a quote asked for while the limit is in flight is refused with BusyException"
+      },
+      {
+        "id": "practice.QuoteServiceTest#aBackendThatFailsWithAnIOExceptionDoesNotKeepCountingTheQuote",
         "kind": "edge",
-        "says": "An empty source has no first line: the answer is null, and the source is still closed."
+        "says": "quotes that fail with an IOException from the backend are no longer counted in flight"
+      },
+      {
+        "id": "practice.QuoteServiceTest#aBackendThatFailsWithAnUncheckedExceptionDoesNotKeepCountingTheQuote",
+        "kind": "edge",
+        "says": "quotes that fail with an unchecked exception from the backend are no longer counted in flight"
+      },
+      {
+        "id": "practice.QuoteServiceTest#aQuoteAnsweredFromTheCacheDoesNotKeepCountingIt",
+        "kind": "edge",
+        "says": "quotes answered from the cache are no longer counted in flight"
+      },
+      {
+        "id": "practice.QuoteServiceTest#theBackendsFailureReachesTheCallerUnchanged",
+        "kind": "edge",
+        "says": "the exception the backend throws reaches the caller of quote() unchanged"
       }
     ],
     "report": {
@@ -136,10 +139,11 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.3.md",
-      "section": "Key Points"
+      "section": "A return in finally Throws Away the Exception and the try's Result"
     },
     "concepts": [
-      "Finally is where resources such as readers are closed, however the try block ends."
+      "finally runs on every way out of its try: normal end, return, break, continue and an exception of any type, so cleanup written after the block or in one catch misses paths.",
+      "A finally that ends with return (or break, continue or its own throw) discards the try's pending exception or return value."
     ]
   }
 }

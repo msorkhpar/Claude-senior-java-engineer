@@ -1,20 +1,19 @@
-Several catch blocks can follow one `try`, and a multi-catch (`catch (A | B e)`) lets two unrelated
-types share one handler instead of duplicating it.
+The warehouse books a shipping label for every parcel through the carrier's API. Addresses come
+from customers' typing, so the carrier sometimes rejects one, and `ship(...)` then hands the parcel
+to `bookNormalized(...)`, which tries once more with the address cleaned up.
 
-Write `InputHandler.handle(Backend backend, String input)`. It returns one line:
+During last week's carrier incident, the packing stations showed a stack trace instead of the usual
+"retry later" for every parcel that had needed a second attempt. And a parcel whose address was
+wrong in both forms must go to the address-review queue, where a person fixes it; it must not
+come back every ten minutes.
 
-| situation | returns |
-|---|---|
-| `input` is `null` | `"Invalid input: Input is null"` |
-| `input` is empty | `"Invalid input: Input is empty"` |
-| `backend.process(input)` returns `r` | `"Input processed successfully: " + r` |
-| it throws an `IOException` or a `SQLException` | `"Database or I/O error: " + message` |
-| it throws any other `Exception` | `"Unexpected error: " + message` |
+`ship(...)` already books, and already answers a carrier failure on the first attempt. Finish the
+`TODO` in `src/main/java/practice/LabelBooking.java`:
 
-Here `message` is the thrown exception's own `getMessage()`. "Empty" means `isEmpty()`: blank input
-such as `"  "` is valid and goes to the backend exactly as given. Invalid input never reaches the
-backend, and an `Error` is not reported: it reaches the caller. For instance, with a backend that throws
-`new SQLException("Simulated SQLException")`, `handle(backend, "x")` returns
-`"Database or I/O error: Simulated SQLException"`.
+- `bookNormalized(...)`: book the parcel with `normalize(address)` and return what `ship(...)`
+  returns: `"booked: "` and the tracking number, `"review: "` and the carrier's reason when the
+  address is rejected again, or `"retry later: "` and the message when the carrier fails.
 
-Every row of the table is checked, the unlikely ones included.
+`ship(...)` never throws a carrier failure at its caller. About six lines in total.
+
+The tests use a scripted carrier, with addresses and failures of their own.

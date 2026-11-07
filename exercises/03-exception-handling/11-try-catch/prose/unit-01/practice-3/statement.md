@@ -1,15 +1,15 @@
-Never leave a catch block empty: at the very least, record what went wrong.
+The cart, the search page and the order service all ask the catalog for prices, and unknown SKUs
+are frequent: old links, typos, a search that tries SKUs as the user types. Two complaints reached
+the team last week. The order service started sending a SKU that never existed, and the error
+log, which records each failure with its stack trace, pointed at the search page, which had asked
+for that SKU first, that morning. And the search page, which calls `find(...)` on every keystroke,
+spends most of its CPU on SKUs that don't exist.
 
-Write `BatchImporter.sum(List<String> rows, List<String> log)`. It parses every row with `Integer.parseInt`, exactly
-as written (no trimming; a row too large for an `int` is bad), and
-returns the sum of the rows that parse. A row that does not parse is skipped, and one line is added
-to `log` for it: `"row <n>: <message>"`, where `<n>` counts rows from 1 and `<message>` is the
-message of the exception `Integer.parseInt` threw.
+Finish the two `TODO`s in `src/main/java/practice/Catalog.java`:
 
-| rows | returns | log afterwards |
-|---|---|---|
-| `["1", "2", "3"]` | `6` | `[]` |
-| `["1", "x", "3"]` | `4` | `["row 2: For input string: \"x\""]` |
+- `unknown(...)`: the exception `price(...)` throws for a SKU the catalog doesn't sell. It names
+  the SKU, and its trace shows the code that asked, even when another caller asked for the same
+  SKU before or after.
+- `find(...)`: the price, or nothing, for the search page.
 
-Every kind of bad row goes to the log, including one that is not there at all (`null`), whose line also
-carries the message `Integer.parseInt` threw for it.
+About four lines in total.

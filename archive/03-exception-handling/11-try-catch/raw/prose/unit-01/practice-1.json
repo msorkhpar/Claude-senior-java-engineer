@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Report every division, catching each failure on its own",
+  "title": "Stop the price import from hiding its own failures",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "When a statement inside a `try` block throws, control jumps straight to the matching `catch` block; when nothing throws, the `catch` block is skipped. The catch parameter is the exception itself, so `e.getMessage()` gives its detail."
+      "text": "Every night a job imports the suppliers' price lists into the catalog. Its report counts the rows it turned away, and the buyers call suppliers about them. Two things went wrong last month. A supplier renamed a column in its file, the report said every one of its 3,000 rows was rejected, and the buyers spent a morning on the phone over a file that had no typo in it. And a deploy that interrupted the job did not stop it: it counted the rest of the file as rejected and finished."
     },
     {
       "type": "para",
-      "text": "Write `DivisionReport.report(int[][] pairs)`. Each pair is `{numerator, denominator}`. Return one line per pair, in order:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`\"a / b = q\"` when the `int` division `a / b` succeeds (it wraps silently on overflow, so `Integer.MIN_VALUE / -1` is `Integer.MIN_VALUE`);",
-        "`\"a / b: <message>\"` when it throws, where `<message>` is the caught exception's message."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "pairs",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`{{10, 2}, {7, 2}}`",
-          "`[\"10 / 2 = 5\", \"7 / 2 = 3\"]`"
-        ],
-        [
-          "`{{10, 0}}`",
-          "`[\"10 / 0: / by zero\"]`"
-        ]
-      ]
+      "text": "Finish the `TODO` in `importRow(...)` in `src/main/java/practice/PriceImport.java`. A row whose price is not a whole number of cents is turned away and counted, as before. A file the job can't read at all fails the import, and an interrupt ends it with the `InterruptedException` that `importAll` declares, so the job runner sees it. About six lines in total."
     },
     {
       "type": "para",
-      "text": "A pair \"throws\" exactly when `a / b` would throw, so the message for a zero divisor is `\"/ by zero\"`. Think about where the `try` goes: one bad pair must not cost the report the pairs after it, and the message is the exception's message, not its whole description."
+      "text": "The tests hand the job a throttle that never waits but can be interrupted on a chosen call."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class DivisionReport {\n\n    private DivisionReport() {\n    }\n\n    /** Returns one line per pair: \"a / b = q\", or \"a / b: <message>\" when the division throws. */\n    public static List<String> report(int[][] pairs) {\n        List<String> lines = new ArrayList<>();\n        for (int[] pair : pairs) {\n            String head = pair[0] + \" / \" + pair[1];\n            try {\n                lines.add(head + \" = \" + (pair[0] / pair[1]));\n            } catch (ArithmeticException e) {\n                lines.add(head + \": \" + e.getMessage());\n            }\n        }\n        return lines;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports a supplier's price list into the catalog. Each row maps a column name from the file's\n * header to the cell's text. Runs as a job that a deploy stops by interrupting its thread.\n */\npublic class PriceImport {\n\n    /** Limits the write rate to the catalog database. In production it blocks until a slot is free. */\n    public interface Throttle {\n        void acquire() throws InterruptedException;\n    }\n\n    /** The catalog database. */\n    public interface Catalog {\n        void put(String sku, long cents);\n    }\n\n    /** How many rows went into the catalog, and how many were turned away as unreadable. */\n    public record Result(int imported, int rejected) {\n    }\n\n    private final Throttle throttle;\n    private final Catalog catalog;\n\n    public PriceImport(Throttle throttle, Catalog catalog) {\n        this.throttle = throttle;\n        this.catalog = catalog;\n    }\n\n    /** Imports every row in order and reports the counts. */\n    public Result importAll(List<Map<String, String>> rows) throws InterruptedException {\n        int imported = 0;\n        int rejected = 0;\n        for (Map<String, String> row : rows) {\n            if (importRow(row)) {\n                imported++;\n            } else {\n                rejected++;\n            }\n        }\n        return new Result(imported, rejected);\n    }\n\n    /**\n     * Imports one row: its \"price_cents\" cell, a whole number of cents that may have spaces around\n     * it, becomes the price of its \"sku\". Returns false for a row whose price isn't a number.\n     */\n    boolean importRow(Map<String, String> row) throws InterruptedException {\n        long cents;\n        try {\n            cents = Long.parseLong(row.get(\"price_cents\").strip());\n        } catch (NumberFormatException e) {\n            return false;\n        }\n        throttle.acquire();\n        catalog.put(row.get(\"sku\"), cents);\n        return true;\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class DivisionReport {\n\n    private DivisionReport() {\n    }\n\n    /** Returns one line per pair: \"a / b = q\", or \"a / b: <message>\" when the division throws. */\n    public static List<String> report(int[][] pairs) {\n        throw new UnsupportedOperationException(\"write report\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports a supplier's price list into the catalog. Each row maps a column name from the file's\n * header to the cell's text. Runs as a job that a deploy stops by interrupting its thread.\n */\npublic class PriceImport {\n\n    /** Limits the write rate to the catalog database. In production it blocks until a slot is free. */\n    public interface Throttle {\n        void acquire() throws InterruptedException;\n    }\n\n    /** The catalog database. */\n    public interface Catalog {\n        void put(String sku, long cents);\n    }\n\n    /** How many rows went into the catalog, and how many were turned away as unreadable. */\n    public record Result(int imported, int rejected) {\n    }\n\n    private final Throttle throttle;\n    private final Catalog catalog;\n\n    public PriceImport(Throttle throttle, Catalog catalog) {\n        this.throttle = throttle;\n        this.catalog = catalog;\n    }\n\n    /** Imports every row in order and reports the counts. */\n    public Result importAll(List<Map<String, String>> rows) throws InterruptedException {\n        int imported = 0;\n        int rejected = 0;\n        for (Map<String, String> row : rows) {\n            if (importRow(row)) {\n                imported++;\n            } else {\n                rejected++;\n            }\n        }\n        return new Result(imported, rejected);\n    }\n\n    /**\n     * Imports one row: its \"price_cents\" cell, a whole number of cents that may have spaces around\n     * it, becomes the price of its \"sku\". Returns false for a row whose price isn't a number.\n     */\n    boolean importRow(Map<String, String> row) throws InterruptedException {\n        // TODO: Wait for the throttle before each write to the catalog, then store the row's price.\n        //       A row whose price the supplier got wrong is turned away and counted; anything\n        //       else that goes wrong is not the supplier's typo and must not be counted as one.\n        throw new IllegalStateException(\"TODO: importRow\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "1da8558a6dcb7a20bd280b88fb8992d5fdff26fd7891c8e30ad588616f774fef",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class DivisionReport {\n\n    private DivisionReport() {\n    }\n\n    /** Returns one line per pair: \"a / b = q\", or \"a / b: <message>\" when the division throws. */\n    public static List<String> report(int[][] pairs) {\n        throw new UnsupportedOperationException(\"write report\");\n    }\n}\n",
+  "content_sha256": "c5f48734e0495fb81d07afe22eeeeb62ff9105eea4c68e60abe94452fac2aaa3",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Imports a supplier's price list into the catalog. Each row maps a column name from the file's\n * header to the cell's text. Runs as a job that a deploy stops by interrupting its thread.\n */\npublic class PriceImport {\n\n    /** Limits the write rate to the catalog database. In production it blocks until a slot is free. */\n    public interface Throttle {\n        void acquire() throws InterruptedException;\n    }\n\n    /** The catalog database. */\n    public interface Catalog {\n        void put(String sku, long cents);\n    }\n\n    /** How many rows went into the catalog, and how many were turned away as unreadable. */\n    public record Result(int imported, int rejected) {\n    }\n\n    private final Throttle throttle;\n    private final Catalog catalog;\n\n    public PriceImport(Throttle throttle, Catalog catalog) {\n        this.throttle = throttle;\n        this.catalog = catalog;\n    }\n\n    /** Imports every row in order and reports the counts. */\n    public Result importAll(List<Map<String, String>> rows) throws InterruptedException {\n        int imported = 0;\n        int rejected = 0;\n        for (Map<String, String> row : rows) {\n            if (importRow(row)) {\n                imported++;\n            } else {\n                rejected++;\n            }\n        }\n        return new Result(imported, rejected);\n    }\n\n    /**\n     * Imports one row: its \"price_cents\" cell, a whole number of cents that may have spaces around\n     * it, becomes the price of its \"sku\". Returns false for a row whose price isn't a number.\n     */\n    boolean importRow(Map<String, String> row) throws InterruptedException {\n        // TODO: Wait for the throttle before each write to the catalog, then store the row's price.\n        //       A row whose price the supplier got wrong is turned away and counted; anything\n        //       else that goes wrong is not the supplier's typo and must not be counted as one.\n        throw new IllegalStateException(\"TODO: importRow\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-1/src/main/java/practice/DivisionReport.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-1/src/test/java/practice/DivisionReportTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-1/src/main/java/practice/PriceImport.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-1/src/test/java/practice/PriceImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,19 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DivisionReportTest#reportsEveryQuotient",
+        "id": "practice.PriceImportTest#importsTheReadableRowsAndCountsTheUnreadableOnes",
         "kind": "main",
-        "says": "It reports the quotient of every pair that divides."
+        "says": "rows with a whole number of cents go into the catalog, spaces around the number allowed, and rows with any other price are counted as rejected"
       },
       {
-        "id": "practice.DivisionReportTest#aZeroDivisorIsReportedWithTheExceptionMessage",
+        "id": "practice.PriceImportTest#aFileWithoutThePriceColumnFailsTheImport",
         "kind": "edge",
-        "says": "A zero divisor is reported with the caught exception's own message, from getMessage()."
+        "says": "a file whose price column is missing makes the import fail instead of rejecting every row"
       },
       {
-        "id": "practice.DivisionReportTest#aFailureDoesNotStopThePairsAfterIt",
+        "id": "practice.PriceImportTest#anInterruptEndsTheImportAndReachesTheJobRunner",
         "kind": "edge",
-        "says": "A failing pair is reported and the pairs after it are still divided."
+        "says": "an interrupt while waiting for the throttle ends the import with InterruptedException, and no later row is written"
       }
     ],
     "report": {
@@ -144,11 +119,11 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.1.md",
-      "section": "Concept Explanation"
+      "section": "A catch Clause Catches Its Type and Every Subtype"
     },
     "concepts": [
-      "The catch parameter is the exception itself, so getMessage() gives its detail.",
-      "When a statement in the try block throws, control jumps straight to the matching catch block, and when nothing throws the catch block is skipped."
+      "catch (Exception) around a blocking call also catches InterruptedException, so a thread that was asked to stop carries on.",
+      "A catch clause takes its type and every subtype, so catch (Exception) around a parse also turns a bug such as a NullPointerException into the fallback."
     ]
   }
 }

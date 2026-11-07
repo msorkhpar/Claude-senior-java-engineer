@@ -1,17 +1,18 @@
-Checked exceptions must be caught or declared; unchecked ones need not be.
-Which kind a type is follows from where it sits in the hierarchy. Write
-`ExceptionKinds.isChecked(Class<? extends Throwable> type)`.
+Customers build their own services against the payments SDK. Last quarter a patch release made
+one customer's build fail at forty call sites, and the team only heard about it from the
+customer. Now CI compares every public method of the release candidate with the same method in
+the last release, and fails the release when the new `throws` clause would stop code that
+compiled against the last release from compiling.
 
-| type | `isChecked` |
-|---|---|
-| `IOException.class` | `true` |
-| `SQLException.class` | `true` |
-| `ClassNotFoundException.class` | `true` |
-| `IllegalArgumentException.class` | `false` |
-| `NullPointerException.class` | `false` |
+`ThrowsDiff.breaking(last, next)` already walks the candidate's throws clause and collects what
+it finds. Finish the two `TODO`s in `src/main/java/practice/ThrowsDiff.java`:
 
-The page names two branches of the hierarchy whose members are all unchecked,
-and "member" means any descendant, however deep. Answer as the compiler does:
-every other throwable type is checked, including `Throwable` itself and a class
-that extends `Throwable` directly. `Class.isAssignableFrom`
-answers "is this type that one or a subtype of it?".
+- `isChecked(type)`: whether a caller must catch or declare an exception of that type;
+- `handledBy(type, declared)`: whether code written against a method that declared `declared`
+  already copes with that type.
+
+When you're done, CI fails a release exactly when a customer's build would, and never for a
+change their compiler accepts. About six lines in total.
+
+The tests describe two versions of an SDK interface and compare their methods through
+reflection; `Class.isAssignableFrom` answers "is this the same type, or a supertype of that one?".

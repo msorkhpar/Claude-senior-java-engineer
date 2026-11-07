@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Parse leniently, catching only the failure you expect",
+  "title": "Keep both failures when the rates fallback fails",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A broad `catch (Exception e)` masks failures that should have been seen. What the tests check is the effect: the one failure that means \"not a number\" gives the fallback, and a different failure still reaches the caller."
+      "text": "The checkout converts prices with rates from a primary provider, and asks a mirror when the primary fails. Last Friday both failed for an hour, and the checkout's alert carried a stack trace that named one provider's problem only. The team spent the hour on that one; the other provider's problem, the one that needed a fix on our side, showed up only in the provider's own logs the next day."
     },
     {
       "type": "para",
-      "text": "Write `LenientParser.parseOrDefault(String text, int fallback)`. It removes surrounding whitespace as `String.strip()` does (Unicode white space), and returns the `int` that `Integer.parseInt` reads from what is left: decimal only, so `\"010\"` is ten and `\"0x10\"` is not a number. When `Integer.parseInt` rejects the text, it returns `fallback`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`parseOrDefault(\"42\", 0)`",
-          "`42`"
-        ],
-        [
-          "`parseOrDefault(\" -7 \", 0)`",
-          "`-7`"
-        ],
-        [
-          "`parseOrDefault(\"abc\", -1)`",
-          "`-1`"
-        ],
-        [
-          "`parseOrDefault(\"\", 9)`",
-          "`9`"
-        ]
-      ]
+      "text": "Finish the `TODO` in `fromMirror(...)` in `src/main/java/practice/RateClient.java`, which `rate(...)` calls once the primary has failed. When the mirror fails too, the checkout gets a `RatesUnavailableException` that names the pair, and its stack trace shows what went wrong with each provider. About eight lines in total."
     },
     {
       "type": "para",
-      "text": "A `null` text is not bad input but a bug in the caller: it must fail with its `NullPointerException`, not quietly turn into the fallback. And decide what \"not a valid `int`\" really covers before you try to check it by hand."
+      "text": "The tests check that each provider's own exception object can be reached from the exception the checkout gets, through causes or suppressed exceptions: what a printed stack trace shows."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class LenientParser {\n\n    private LenientParser() {\n    }\n\n    /** Returns the int written in {@code text} (whitespace ignored), or {@code fallback} when it is not one. */\n    public static int parseOrDefault(String text, int fallback) {\n        String trimmed = text.strip();\n        try {\n            return Integer.parseInt(trimmed);\n        } catch (NumberFormatException e) {\n            return fallback;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\n\n/** Exchange rates for the checkout: from the primary provider, or from a mirror when it fails. */\npublic class RateClient {\n\n    /** One provider of rates, such as \"GBP-JPY\". */\n    public interface Source {\n        BigDecimal rate(String pair) throws IOException;\n    }\n\n    /** Neither provider could give a rate. */\n    public static class RatesUnavailableException extends Exception {\n        public RatesUnavailableException(String message) {\n            super(message);\n        }\n\n        public RatesUnavailableException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final Source primary;\n    private final Source mirror;\n\n    public RateClient(Source primary, Source mirror) {\n        this.primary = primary;\n        this.mirror = mirror;\n    }\n\n    /** The rate for the pair, from the primary if it answers. */\n    public BigDecimal rate(String pair) throws RatesUnavailableException {\n        try {\n            return primary.rate(pair);\n        } catch (IOException fromPrimary) {\n            return fromMirror(pair, fromPrimary);\n        }\n    }\n\n    /** Asks the mirror, after the primary failed with {@code fromPrimary}. */\n    BigDecimal fromMirror(String pair, IOException fromPrimary) throws RatesUnavailableException {\n        try {\n            return mirror.rate(pair);\n        } catch (IOException fromMirror) {\n            RatesUnavailableException unavailable = new RatesUnavailableException(\"no rate for \" + pair, fromMirror);\n            unavailable.addSuppressed(fromPrimary);\n            throw unavailable;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class LenientParser {\n\n    private LenientParser() {\n    }\n\n    /** Returns the int written in {@code text} (whitespace ignored), or {@code fallback} when it is not one. */\n    public static int parseOrDefault(String text, int fallback) {\n        throw new UnsupportedOperationException(\"write parseOrDefault\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\n\n/** Exchange rates for the checkout: from the primary provider, or from a mirror when it fails. */\npublic class RateClient {\n\n    /** One provider of rates, such as \"GBP-JPY\". */\n    public interface Source {\n        BigDecimal rate(String pair) throws IOException;\n    }\n\n    /** Neither provider could give a rate. */\n    public static class RatesUnavailableException extends Exception {\n        public RatesUnavailableException(String message) {\n            super(message);\n        }\n\n        public RatesUnavailableException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final Source primary;\n    private final Source mirror;\n\n    public RateClient(Source primary, Source mirror) {\n        this.primary = primary;\n        this.mirror = mirror;\n    }\n\n    /** The rate for the pair, from the primary if it answers. */\n    public BigDecimal rate(String pair) throws RatesUnavailableException {\n        try {\n            return primary.rate(pair);\n        } catch (IOException fromPrimary) {\n            return fromMirror(pair, fromPrimary);\n        }\n    }\n\n    /** Asks the mirror, after the primary failed with {@code fromPrimary}. */\n    BigDecimal fromMirror(String pair, IOException fromPrimary) throws RatesUnavailableException {\n        // TODO: Return the mirror's rate. When the mirror fails too, the checkout gets a\n        //       RatesUnavailableException that names the pair, and whoever reads its stack trace\n        //       later must be able to tell what went wrong with each provider.\n        throw new IllegalStateException(\"TODO: fromMirror\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,7 +64,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "84634663f9c2e980f88d606c8d611161a013b2062039fdc6be96817d96bf26c2",
-  "starting_code": "package practice;\n\npublic final class LenientParser {\n\n    private LenientParser() {\n    }\n\n    /** Returns the int written in {@code text} (whitespace ignored), or {@code fallback} when it is not one. */\n    public static int parseOrDefault(String text, int fallback) {\n        throw new UnsupportedOperationException(\"write parseOrDefault\");\n    }\n}\n",
+  "content_sha256": "4dd4d8811952522474aa3e205ac89dd1b4dc04f9b5ea2a9e3511bfd7c82799a8",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\n\n/** Exchange rates for the checkout: from the primary provider, or from a mirror when it fails. */\npublic class RateClient {\n\n    /** One provider of rates, such as \"GBP-JPY\". */\n    public interface Source {\n        BigDecimal rate(String pair) throws IOException;\n    }\n\n    /** Neither provider could give a rate. */\n    public static class RatesUnavailableException extends Exception {\n        public RatesUnavailableException(String message) {\n            super(message);\n        }\n\n        public RatesUnavailableException(String message, Throwable cause) {\n            super(message, cause);\n        }\n    }\n\n    private final Source primary;\n    private final Source mirror;\n\n    public RateClient(Source primary, Source mirror) {\n        this.primary = primary;\n        this.mirror = mirror;\n    }\n\n    /** The rate for the pair, from the primary if it answers. */\n    public BigDecimal rate(String pair) throws RatesUnavailableException {\n        try {\n            return primary.rate(pair);\n        } catch (IOException fromPrimary) {\n            return fromMirror(pair, fromPrimary);\n        }\n    }\n\n    /** Asks the mirror, after the primary failed with {@code fromPrimary}. */\n    BigDecimal fromMirror(String pair, IOException fromPrimary) throws RatesUnavailableException {\n        // TODO: Return the mirror's rate. When the mirror fails too, the checkout gets a\n        //       RatesUnavailableException that names the pair, and whoever reads its stack trace\n        //       later must be able to tell what went wrong with each provider.\n        throw new IllegalStateException(\"TODO: fromMirror\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/main/java/practice/LenientParser.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/test/java/practice/LenientParserTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/main/java/practice/RateClient.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-01/practice-2/src/test/java/practice/RateClientTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,29 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LenientParserTest#parsesNumbers",
+        "id": "practice.RateClientTest#usesThePrimaryAndFallsBackToTheMirror",
         "kind": "main",
-        "says": "It parses ordinary numbers, ignoring surrounding spaces."
+        "says": "the primary's rate is used when it answers, the mirror's when the primary fails, and RatesUnavailableException naming the pair when both fail"
       },
       {
-        "id": "practice.LenientParserTest#returnsTheFallbackForText",
-        "kind": "main",
-        "says": "Text that is not a number gives the fallback."
-      },
-      {
-        "id": "practice.LenientParserTest#aNullTextIsAnErrorNotAFallback",
+        "id": "practice.RateClientTest#thePrimarysFailureCanBeFoundInWhatTheCheckoutGets",
         "kind": "edge",
-        "says": "A null text is a caller's bug: its NullPointerException must reach the caller, not be masked as the fallback."
+        "says": "when both providers fail, the primary's exception itself is reachable from the exception the checkout gets"
       },
       {
-        "id": "practice.LenientParserTest#anOutOfRangeNumberGetsTheFallback",
+        "id": "practice.RateClientTest#theMirrorsFailureCanBeFoundInWhatTheCheckoutGets",
         "kind": "edge",
-        "says": "Digits too large for an int are not a number either: parseInt throws, and that gives the fallback."
-      },
-      {
-        "id": "practice.LenientParserTest#everyDigitParseIntAcceptsCounts",
-        "kind": "edge",
-        "says": "Integer.parseInt accepts any Unicode decimal digit, such as Arabic-Indic ones; a hand-written [0-9] check wrongly rejects them."
+        "says": "when both providers fail, the mirror's exception itself is reachable from the exception the checkout gets"
       }
     ],
     "report": {
@@ -154,10 +119,11 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.1.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "An Exception Thrown in a catch Block Replaces the One Being Handled"
     },
     "concepts": [
-      "Catch the specific exception you expect, because catching Exception masks other failures."
+      "An exception thrown inside a catch block replaces the one being handled, unless the first is attached with addSuppressed or as a cause.",
+      "A new exception thrown without the caught one as its cause loses the original's type and trace; copying its message keeps neither."
     ]
   }
 }

@@ -1,16 +1,11 @@
-Since Java 14 a `switch` expression may use `throw` as the body of a case,
-which makes rejecting an unexpected value a one-liner; a `switch` expression
-is a natural fit here. Write `LevelParser.parseLevel(String s)`:
+The airline's app lets passengers change seats after check-in. Support has three kinds of tickets
+about it. Some passengers who picked a seat number from an old seat plan, one this aircraft
+doesn't have, were left with no seat at all. Twice, two passengers ended up holding the same
+seat, after one of them picked a seat that showed as free on a page loaded a minute earlier. And
+one passenger "moved" out of a seat that belonged to someone else.
 
-| call | result |
-|---|---|
-| `parseLevel("low")` | `1` |
-| `parseLevel("high")` | `3` |
-| `parseLevel("mid")` | throws `IllegalArgumentException("Unknown level: mid")` |
+Write `rebook(...)` in `src/main/java/practice/SeatMap.java`. When you're done, a seat change
+either happens completely or is refused with an `IllegalArgumentException` whose message names
+the seat at fault, and a refused request leaves every seat exactly as it was. About ten lines.
 
-Only the exact spellings `"low"` and `"high"` are known: case and surrounding
-spaces count.
-
-A message should say what was wrong *and with which value*. Every input that is
-not a known level, whatever it is, gets the same exception; remember what a
-plain `switch` does with `null`, and that Java 21 lets a case say otherwise.
+`assign(...)`, which check-in uses, is already written.

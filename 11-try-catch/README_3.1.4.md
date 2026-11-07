@@ -1,118 +1,210 @@
 # 3.1.4 Try-with-resources Statement
 
-The try-with-resources statement is a powerful feature introduced in Java 7 that simplifies resource management and
-helps prevent resource leaks. It automatically closes resources that implement the `AutoCloseable` interface at the end
-of the try block, eliminating the need for explicit cleanup in a finally block.
-
-## Key Points
-
-1. Introduced in Java 7 to simplify resource management.
-2. Automatically closes resources that implement `AutoCloseable`.
-3. Resources are closed in reverse order of their creation.
-4. Suppressed exceptions are handled automatically.
-5. Can be used with multiple resources.
-
-## Syntax
+An upload service accepts gzipped CSV files. Partners started sending plain CSV by mistake, the
+service rejected each one, and a week later it failed with `Too many open files`. Every stream it
+opens sits in a try-with-resources statement:
 
 ```java
-try (Resource1 res1 = new Resource1();
-     Resource2 res2 = new Resource2()) {
-    // Use resources
-} catch (Exception e) {
-    // Handle exceptions
-}
+try (InputStream in = new GZIPInputStream(new FileInputStream(path))) {
 ```
 
-## Benefits
+The statement (Java 7) closes each `AutoCloseable` declared in its header when the block exits.
+Outputs are from Java 21.
 
-1. **Automatic Resource Management**: Resources are automatically closed when the try block exits, reducing the risk of
-   resource leaks.
-2. **Cleaner Code**: Eliminates the need for explicit finally blocks to close resources.
-3. **Exception Handling**: Properly handles exceptions thrown during resource closing.
-4. **Multiple Resources**: Can manage multiple resources in a single try statement.
-
-## Best Practices
-
-1. Use try-with-resources for all `AutoCloseable` resources.
-2. Declare resources in the order they depend on each other (for example a stream before the reader that wraps it);
-   they are closed in the reverse order of declaration.
-3. Avoid declaring variables or performing operations in the try-with-resources statement that are not related to
-   resource initialization.
-
-## Common Pitfalls
-
-1. Using try-with-resources with resources that don't implement `AutoCloseable`.
-2. Attempting to use the resource after the try block (it will be closed).
-3. Overlooking suppressed exceptions.
-
-## Java 9+ Enhancements
-
-Java 9 introduced an improvement to try-with-resources, allowing the use of effectively final variables:
+## Resources Close in Reverse Order, Before the Statement's catch and finally Run
 
 ```java
-Resource res = new Resource();
-try (res) {
-    // Use resource
-}
-```
-
-## Interview Insights
-
-- Be prepared to explain the advantages of try-with-resources over traditional try-catch-finally blocks.
-- Understand how suppressed exceptions work in the context of try-with-resources.
-- Know how to implement the `AutoCloseable` interface for custom resources.
-
-## Q&A
-
-Q1: What is the main advantage of using try-with-resources over traditional try-catch-finally blocks?
-
-```text
-A1: The main advantage of try-with-resources is automatic resource management. It ensures that resources are properly closed when the try block exits, even if an exception occurs. This eliminates the need for explicit cleanup in a finally block, reducing the risk of resource leaks and making the code cleaner and more concise. It also handles suppressed exceptions automatically, which can occur when both the try block throws an exception and the resource closing throws an exception.
-```
-
-Q2: How does try-with-resources handle multiple resources?
-
-```text
-A2: Try-with-resources can manage multiple resources in a single statement. Resources are declared in the parentheses of the try statement, separated by semicolons. When the try block exits, the resources are closed automatically in the reverse order of their declaration. This ensures proper cleanup of all resources, even if an exception occurs during the closing of one of them.
-```
-
-Q3: What is the requirement for a resource to be used with try-with-resources?
-
-```text
-A3: For a resource to be used with try-with-resources, it must implement the `AutoCloseable` interface. This interface defines a single method, `close()`, which is called automatically when the try block exits. Many standard Java classes that represent resources (such as InputStream, OutputStream, java.sql.Connection, etc.) already implement this interface.
-```
-
-Q4: Can you explain how suppressed exceptions are handled in try-with-resources?
-
-```text
-A4: In try-with-resources, if an exception occurs in the try block and another exception occurs while closing the resources, the exception from the try block is thrown, and the exception from closing is suppressed. These suppressed exceptions are not lost; they are added to the primary exception using the `addSuppressed()` method. They can be retrieved later using the `getSuppressed()` method on the thrown exception. This mechanism ensures that the original exception is preserved while still capturing information about any issues that occurred during resource cleanup.
-```
-
-Q5: Write a simple example demonstrating the use of try-with-resources with a custom `AutoCloseable` resource.
-
-```java
-public class CustomResource implements AutoCloseable {
-    public void doSomething() {
-        System.out.println("Doing something with the resource");
+public class Order {
+    record Res(String name) implements AutoCloseable {
+        Res { System.out.println("open  " + name); }
+        @Override public void close() { System.out.println("close " + name); }
     }
 
-    @Override
-    public void close() throws Exception {
-        System.out.println("Closing the resource");
-    }
-}
-
-public class TryWithResourcesExample {
     public static void main(String[] args) {
-        try (CustomResource resource = new CustomResource()) {
-            resource.doSomething();
-            // Resource will be automatically closed after this block
-        } catch (Exception e) {
-            e.printStackTrace();
+        try (Res conn = new Res("connection");
+             Res tx = new Res("transaction");
+             Res cursor = new Res("cursor")) {
+            System.out.println("body: query fails");
+            throw new IllegalStateException("deadlock detected");
+        } catch (IllegalStateException e) {
+            System.out.println("catch: " + e.getMessage());
+        } finally {
+            System.out.println("finally");
         }
     }
 }
 ```
+
+```text
+open  connection
+open  transaction
+open  cursor
+body: query fails
+close cursor
+close transaction
+close connection
+catch: deadlock detected
+finally
+```
+
+A later resource usually depends on an earlier one, so it is closed first. The `catch` and
+`finally` belong to the statement, not to the block, and run after every resource is closed. A
+catch that retries on the connection, or assumes the transaction is still open, works on
+something already released.
+
+## A close() Failure Is Attached as Suppressed, Not Thrown in Place of the Body's Exception
+
+A bad row in the upload, and an `Upload` whose `close()` throws `IOException`, handled with
+try-with-resources and with `finally` (unit 3.1.3):
+
+```java
+static void withResources() throws IOException {
+    try (Upload up = new Upload()) {
+        throw new IllegalArgumentException("row 42: bad amount");
+    }
+}
+
+static void withFinally() throws IOException {
+    Upload up = new Upload();
+    try {
+        throw new IllegalArgumentException("row 42: bad amount");
+    } finally {
+        up.close();
+    }
+}
+```
+
+```text
+try-with-resources: java.lang.IllegalArgumentException: row 42: bad amount
+  suppressed: java.io.IOException: connection reset while closing upload
+finally:            java.io.IOException: connection reset while closing upload
+  suppressed: none
+```
+
+With `finally`, the log shows a network error and never learns about row 42. Try-with-resources
+throws the body's exception and adds the close failure to it with `addSuppressed`: `getSuppressed()`
+returns it and a printed stack trace lists it, but a log line built from `getMessage()` drops it.
+
+When the body completes and `close()` throws, the close exception is the one thrown, and the
+statement's `catch` receives it.
+
+<!-- practice 1 -->
+
+## Only a Resource That Finished Constructing Is Closed, So Declare Each Stream Separately
+
+The opening's upload, where `TracedFile` is a `FileInputStream` that prints when it is closed:
+
+```java
+static void nested(String path) throws IOException {
+    try (InputStream in = new GZIPInputStream(new TracedFile(path))) {
+        in.read();
+    }
+}
+
+static void separate(String path) throws IOException {
+    try (InputStream file = new TracedFile(path);
+         InputStream in = new GZIPInputStream(file)) {
+        in.read();
+    }
+}
+```
+
+```text
+nested:
+  java.util.zip.ZipException: Not in GZIP format
+separate:
+  file closed
+  java.util.zip.ZipException: Not in GZIP format
+```
+
+`GZIPInputStream`'s constructor reads the header and throws on a plain CSV. In the nested form the
+only resource is the `GZIPInputStream`, which never finished constructing, so nothing closes the
+file. Declared separately, the file is its own resource and is closed. The nested form, run 1,000
+times:
+
+```text
+open files after 1000 rejected uploads: +1000
+after a full GC: +0
+```
+
+The descriptors come back only when a garbage collection lets the JDK's cleaner close them, and a
+large heap can go hours without one.
+
+Once both are constructed, the separate form closes the file twice: `GZIPInputStream.close()`
+closes it, then the statement does. `Closeable.close()` must have no effect the second time;
+`AutoCloseable.close()` needn't. Declared as `try (Conn c = pool.pop(); Stmt s = new Stmt(c))`,
+this pooled connection goes back to the pool twice:
+
+```java
+import java.util.Deque;
+
+record Conn(String id, Deque<Conn> pool) implements AutoCloseable {
+    @Override public void close() { pool.push(this); }
+}
+record Stmt(Conn conn) implements AutoCloseable {
+    @Override public void close() { conn.close(); }
+}
+```
+
+```text
+the next two borrowers get: [conn-2, conn-2]
+```
+
+<!-- practice 2 -->
+
+## A Variable Named in the Header Is Closed Too, Whoever Opened It
+
+Since Java 9 the header can name an existing final or effectively final variable. This helper
+reads the first line from a reader its caller passed in:
+
+```java
+static String header(BufferedReader reader) throws IOException {
+    try (reader) {
+        return reader.readLine();
+    }
+}
+```
+
+```text
+header: id,amount
+first row: java.io.IOException: Stream closed
+```
+
+Write `try (x)` only where the method owns `x`. A reassigned variable is refused:
+`variable reader used as a try-with-resources resource neither final nor effectively final`.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Resources close in reverse order, before the statement's `catch` and `finally`.**
+- **A `close()` failure is suppressed under the body's exception**; `finally` would replace it.
+- **Only fully constructed resources are closed**, so a wrapped stream leaks when its wrapper's
+  constructor throws, unless declared on its own; then its `close()` runs twice and must be
+  idempotent.
+- **A variable named in the header is closed**, whoever opened it.
+
+## Reference
+
+| Situation (Java 21) | What happens |
+|---|---|
+| a resource initialised to `null` | the body runs, nothing is closed, no exception |
+| body throws, two resources' `close()` throw | body's exception thrown; both close failures suppressed, last-declared first |
+| body completes, two resources' `close()` throw | the last-declared resource's exception thrown, the other suppressed under it |
+
+## Challenges
+
+1. A `close()` that flushes buffered rows fails after the body succeeded. Is the upload failed?
+2. Your logger prints only `getMessage()`. Where do you add suppressed exceptions?
+3. A method returns an open `Stream<String>` from `Files.lines`. Who closes it, and how would a
+   reviewer know?
+
+## Design Note: Why Suppression and Not Replacement
+
+Before Java 7, careful code wrapped each `close()` in `finally` in its own try/catch and
+discarded the failure, or let it replace the body's exception. Java 7 added
+`Throwable.addSuppressed` with the statement, so the body's failure is thrown and the close
+failures are kept. They are invisible to code that never calls `getSuppressed()`.
 
 ## Code Examples
 

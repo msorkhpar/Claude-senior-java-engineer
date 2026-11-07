@@ -1,17 +1,16 @@
-`Exception` offers four public constructors, and a custom exception usually
-mirrors them. Write the checked `ReportGenerationException` with all four, each
-handing its arguments to the matching superclass constructor:
+The nightly customer export runs on a fleet of worker JVMs. When an export fails, the job
+framework serializes the failure with Java serialization and sends it to the coordinator, which
+logs it and schedules a retry for that customer. Since the last release, the coordinator logs
+`java.io.NotSerializableException` where the failures used to be, and no failed export has been
+retried.
 
-- `ReportGenerationException()`
-- `ReportGenerationException(String message)`
-- `ReportGenerationException(String message, Throwable cause)`
-- `ReportGenerationException(Throwable cause)`
+Workers and coordinators are upgraded on different days, so for a while a worker on one release
+talks to a coordinator on the other. The coordinators still run the previous release of
+`ExportFailedException`, which was declared with `serialVersionUID = 1L` and kept the customer's
+id in a `String` field named `customerId`. `Customer` comes from the CRM client library and you
+can't change it.
 
-| construction | `getMessage()` | `getCause()` |
-|---|---|---|
-| `new ReportGenerationException("Report failed", io)` | `"Report failed"` | `io` |
-| `new ReportGenerationException(io)` where `io` is `new IOException("disk full")` | `"java.io.IOException: disk full"` | `io` |
-
-Each form must behave exactly as the same form of `Exception` does, including
-what it leaves unset. `initCause` is a good way to find out whether a cause was
-set at all.
+Finish `ExportFailedException` in `src/main/java/practice/Exports.java`: its constructor and
+`getCustomerId()`, and whatever its fields need. When you're done, a failure written on either
+release reaches the coordinator with its message, its cause and the id of the customer to retry.
+About six lines in total.

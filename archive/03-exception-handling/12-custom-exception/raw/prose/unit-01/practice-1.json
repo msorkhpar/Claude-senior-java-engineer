@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Reject a bad username with an unchecked exception that names the user",
+  "title": "Make a failed stock reservation explain itself",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's first custom exception is an unchecked `InvalidUserException` that carries the id of the user whose data was wrong. Write it, and use it."
+      "text": "The checkout service reserves stock for each line of an order before it takes payment. On Black Friday the reservations started failing, and the alert channel filled with `ReservationFailedException` lines that nobody could act on: the on-call engineer couldn't tell which product had failed, or whether the stock database had rejected a lock, timed out or run out of connections. The checkout service itself only needs the SKU and the quantity, to tell the customer which line couldn't be reserved."
+    },
+    {
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/Reservations.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "Complete `InvalidUserException` (it extends `RuntimeException`): the constructor `InvalidUserException(String message, String userId)` and the getter `getUserId()`. The id is a `final` field.",
-        "Write `UserValidator.validateUsername(String userId, String username)`. It returns normally for a usable username and otherwise throws `InvalidUserException` with the message `Username cannot be null or empty` and the given `userId`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`validateUsername(\"u1\", \"alice\")`",
-          "returns normally"
-        ],
-        [
-          "`validateUsername(\"u7\", \"\")`",
-          "throws `InvalidUserException`, message `Username cannot be null or empty`, `getUserId()` is `\"u7\"`"
-        ]
+        "the constructor of `ReservationFailedException`;",
+        "`reserve(...)`, which takes the stock from the store."
       ]
     },
     {
       "type": "para",
-      "text": "A handler may read the message through `getMessage()` or print the exception, so decide where the message has to live. A username is unusable when it is `null`, empty, or only whitespace, where whitespace means what `String.isBlank()` means (Unicode whitespace, not only the ASCII characters `trim()` removes)."
+      "text": "When you're done, a failed reservation tells the checkout service which line failed, and the log line and stack trace of the exception tell the on-call engineer the same, plus everything the database said. About eight lines in total."
     },
     {
       "type": "heading",
@@ -63,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\n/** Unchecked: thrown when a user's data is invalid. Carries the id of that user. */\nclass InvalidUserException extends RuntimeException {\n\n    private final String userId;\n\n    InvalidUserException(String message, String userId) {\n        super(message);\n        this.userId = userId;\n    }\n\n    String getUserId() {\n        return userId;\n    }\n}\n\npublic class UserValidator {\n\n    /** Returns normally for a usable username, else throws InvalidUserException naming userId. */\n    public void validateUsername(String userId, String username) {\n        if (username == null || username.isBlank()) {\n            throw new InvalidUserException(\"Username cannot be null or empty\", userId);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.SQLException;\n\n/**\n * Reserves stock for the lines of an order. The stock table lives in a database, and a reservation\n * that fails there reaches the checkout service as a ReservationFailedException.\n */\npublic class Reservations {\n\n    /** The stock table. */\n    public interface StockStore {\n        /** Takes quantity units of sku out of the available stock. */\n        void take(String sku, int quantity) throws SQLException;\n    }\n\n    /** A reservation that could not be made. */\n    public static class ReservationFailedException extends Exception {\n        private final String sku;\n        private final int quantity;\n\n        public ReservationFailedException(String sku, int quantity, Throwable cause) {\n            super(\"could not reserve \" + quantity + \" x \" + sku, cause);\n            this.sku = sku;\n            this.quantity = quantity;\n        }\n\n        public String getSku() {\n            return sku;\n        }\n\n        public int getQuantity() {\n            return quantity;\n        }\n    }\n\n    private final StockStore store;\n\n    public Reservations(StockStore store) {\n        this.store = store;\n    }\n\n    /** Reserves quantity units of sku, or reports why it could not. */\n    public void reserve(String sku, int quantity) throws ReservationFailedException {\n        try {\n            store.take(sku, quantity);\n        } catch (SQLException e) {\n            throw new ReservationFailedException(sku, quantity, e);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\n/** Unchecked: thrown when a user's data is invalid. Carries the id of that user. */\nclass InvalidUserException extends RuntimeException {\n\n    InvalidUserException(String message, String userId) {\n        throw new UnsupportedOperationException(\"write InvalidUserException(String, String)\");\n    }\n\n    String getUserId() {\n        throw new UnsupportedOperationException(\"write getUserId\");\n    }\n}\n\npublic class UserValidator {\n\n    /** Returns normally for a usable username, else throws InvalidUserException naming userId. */\n    public void validateUsername(String userId, String username) {\n        throw new UnsupportedOperationException(\"write validateUsername\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.SQLException;\n\n/**\n * Reserves stock for the lines of an order. The stock table lives in a database, and a reservation\n * that fails there reaches the checkout service as a ReservationFailedException.\n */\npublic class Reservations {\n\n    /** The stock table. */\n    public interface StockStore {\n        /** Takes quantity units of sku out of the available stock. */\n        void take(String sku, int quantity) throws SQLException;\n    }\n\n    /** A reservation that could not be made. */\n    public static class ReservationFailedException extends Exception {\n        private final String sku;\n        private final int quantity;\n\n        public ReservationFailedException(String sku, int quantity, Throwable cause) {\n            // TODO: Build the exception for a failed reservation of quantity units of sku, which\n            //       failed because of cause. The checkout service reads getSku() and\n            //       getQuantity(); the on-call engineer reads only the log.\n            super((String) null);\n            throw new IllegalStateException(\"TODO: ReservationFailedException\");\n        }\n\n        public String getSku() {\n            return sku;\n        }\n\n        public int getQuantity() {\n            return quantity;\n        }\n    }\n\n    private final StockStore store;\n\n    public Reservations(StockStore store) {\n        this.store = store;\n    }\n\n    /** Reserves quantity units of sku, or reports why it could not. */\n    public void reserve(String sku, int quantity) throws ReservationFailedException {\n        // TODO: Take the stock from the store. A failure of the store reaches the caller as a\n        //       ReservationFailedException.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -94,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b73551584fec2808b11af57ddbaa22abad07266b759ca991fafc34f4505c82ac",
-  "starting_code": "package practice;\n\n/** Unchecked: thrown when a user's data is invalid. Carries the id of that user. */\nclass InvalidUserException extends RuntimeException {\n\n    InvalidUserException(String message, String userId) {\n        throw new UnsupportedOperationException(\"write InvalidUserException(String, String)\");\n    }\n\n    String getUserId() {\n        throw new UnsupportedOperationException(\"write getUserId\");\n    }\n}\n\npublic class UserValidator {\n\n    /** Returns normally for a usable username, else throws InvalidUserException naming userId. */\n    public void validateUsername(String userId, String username) {\n        throw new UnsupportedOperationException(\"write validateUsername\");\n    }\n}\n",
+  "content_sha256": "9975a7eb05db507e1778ab41921b0ea32f490c988cbda6a50e7a50ad0d6c15fa",
+  "starting_code": "package practice;\n\nimport java.sql.SQLException;\n\n/**\n * Reserves stock for the lines of an order. The stock table lives in a database, and a reservation\n * that fails there reaches the checkout service as a ReservationFailedException.\n */\npublic class Reservations {\n\n    /** The stock table. */\n    public interface StockStore {\n        /** Takes quantity units of sku out of the available stock. */\n        void take(String sku, int quantity) throws SQLException;\n    }\n\n    /** A reservation that could not be made. */\n    public static class ReservationFailedException extends Exception {\n        private final String sku;\n        private final int quantity;\n\n        public ReservationFailedException(String sku, int quantity, Throwable cause) {\n            // TODO: Build the exception for a failed reservation of quantity units of sku, which\n            //       failed because of cause. The checkout service reads getSku() and\n            //       getQuantity(); the on-call engineer reads only the log.\n            super((String) null);\n            throw new IllegalStateException(\"TODO: ReservationFailedException\");\n        }\n\n        public String getSku() {\n            return sku;\n        }\n\n        public int getQuantity() {\n            return quantity;\n        }\n    }\n\n    private final StockStore store;\n\n    public Reservations(StockStore store) {\n        this.store = store;\n    }\n\n    /** Reserves quantity units of sku, or reports why it could not. */\n    public void reserve(String sku, int quantity) throws ReservationFailedException {\n        // TODO: Take the stock from the store. A failure of the store reaches the caller as a\n        //       ReservationFailedException.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-1/src/main/java/practice/UserValidator.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-1/src/test/java/practice/UserValidatorTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-1/src/main/java/practice/Reservations.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-1/src/test/java/practice/ReservationsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,34 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.UserValidatorTest#rejectsAnEmptyUsernameNamingTheUser",
+        "id": "practice.ReservationsTest#takesTheStockWhenTheStoreAccepts",
         "kind": "main",
-        "says": "An empty username is rejected with an InvalidUserException that carries the user id, and a valid one passes."
+        "says": "a reservation the store accepts takes the stock and throws nothing"
       },
       {
-        "id": "practice.UserValidatorTest#theMessageReachesTheSuperclass",
-        "kind": "edge",
-        "says": "The message is passed to the superclass, so getMessage() and toString() both show it."
+        "id": "practice.ReservationsTest#aStoreFailureReachesTheCallerWithTheLineItFailedOn",
+        "kind": "main",
+        "says": "a store failure reaches the caller as a ReservationFailedException whose getters name the SKU and quantity"
       },
       {
-        "id": "practice.UserValidatorTest#aBlankUsernameIsRejected",
+        "id": "practice.ReservationsTest#theStoresOwnErrorStaysReachable",
         "kind": "edge",
-        "says": "A username of only whitespace is as empty as \"\"."
+        "says": "the store's own exception, with its stack trace, is the cause of the reservation failure"
       },
       {
-        "id": "practice.UserValidatorTest#aNullUsernameIsRejectedTheSameWay",
+        "id": "practice.ReservationsTest#theLogLineSaysWhichLineFailed",
         "kind": "edge",
-        "says": "A null username gets the same InvalidUserException, not a NullPointerException."
-      },
-      {
-        "id": "practice.UserValidatorTest#theUserIdFieldIsFinal",
-        "kind": "edge",
-        "says": "The user id is a final field, so no layer that catches the exception can change it."
-      },
-      {
-        "id": "practice.UserValidatorTest#unicodeWhitespaceIsBlankToo",
-        "kind": "edge",
-        "says": "Whitespace means what String.isBlank() means, so a name of only an em space (U+2003) is blank too, though trim() keeps it."
+        "says": "the exception's log line names the SKU and the quantity"
       }
     ],
     "report": {
@@ -155,11 +132,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.1.md",
-      "section": "Concept Explanation"
+      "section": "Context Goes in Final Fields and in the Message"
     },
     "concepts": [
-      "A custom exception extends Exception to be checked or RuntimeException to be unchecked.",
-      "The message and the cause go to the superclass constructor, not into fields of your own."
+      "A wrapper keeps the original exception and its stack trace only if it is passed the cause, so the (message, cause) constructor is the one never to leave out.",
+      "Context goes in final fields for code and in the message for the log, because toString() and the stack trace show only the class name and the message."
     ]
   }
 }

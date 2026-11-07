@@ -1,152 +1,329 @@
 # 3.2.4 Checked vs. Unchecked Exceptions
 
-## Concept Explanation
+Release 2.0 of the rates library added `throws RatesUnavailableException` to `Rates.fetch`, and
+the exception is checked. Every team that rebuilt against it got a compile error at each call. The
+reporting service wasn't rebuilt: the new jar went into its classpath, and that night the report
+died with a `RatesUnavailableException` that got past a `catch (RuntimeException e)`
+written to log any failure and carry on. In the service's compiled code, `fetch` declares nothing.
 
-In Java, exceptions are divided into two main categories: checked exceptions and unchecked exceptions. Understanding the
-difference between these two types is crucial for effective exception handling and designing robust Java applications.
+Both outcomes have one cause: only the compiler enforces checked exceptions.
 
-### Checked Exceptions
+## A Throwable Is Checked Unless It Is a RuntimeException or an Error
 
-- Checked exceptions are exceptions that must be either caught or declared in the method signature using the `throws`
-  keyword.
-- They are typically used for recoverable conditions that a well-written application should anticipate and handle.
-- Examples include `IOException`, `SQLException`, and `ClassNotFoundException`.
-- Checked exceptions are subclasses of `Exception` but not `RuntimeException`.
-
-### Unchecked Exceptions
-
-- Unchecked exceptions are exceptions that don't need to be explicitly caught or declared.
-- They are typically used for programming errors or unrecoverable conditions.
-- Examples include `NullPointerException`, `ArrayIndexOutOfBoundsException`, and `IllegalArgumentException`.
-- Unchecked exceptions are subclasses of `RuntimeException` (subclasses of `Error` are unchecked as well).
-
-## Key Points to Remember
-
-1. Checked exceptions enforce explicit handling, while unchecked exceptions don't.
-2. The decision to use checked or unchecked exceptions should be based on whether the client code can reasonably be
-   expected to recover from the exception.
-3. Overuse of checked exceptions can lead to cluttered code and reduced readability.
-4. Unchecked exceptions are often preferred in modern Java programming for their simplicity and reduced boilerplate.
-
-## Relevant Java Features
-
-- Since Java 8, functional interfaces and lambda expressions have influenced exception handling, leading to a preference
-  for unchecked exceptions in many scenarios.
-- Java 7 introduced the try-with-resources statement, which can help manage resources that might throw checked
-  exceptions.
-
-## Common Pitfalls and How to Avoid Them
-
-1. Overusing checked exceptions: Only use checked exceptions for truly recoverable conditions.
-2. Catching and ignoring exceptions: Always handle exceptions appropriately, even if it's just logging them.
-3. Using exceptions for control flow: Exceptions should be used for exceptional circumstances, not regular program flow.
-
-## Best Practices
-
-1. Use checked exceptions for recoverable conditions and unchecked exceptions for programming errors.
-2. Document all exceptions, whether checked or unchecked, in Javadoc comments.
-3. Create custom exceptions when built-in exceptions don't adequately describe the error.
-4. Prefer unchecked exceptions for methods that might fail due to factors outside the immediate calling context.
-
-## Edge Cases and Their Handling
-
-1. Wrapping checked exceptions: Sometimes it's appropriate to catch a checked exception and wrap it in an unchecked
-   exception to propagate it up the call stack without forcing callers to handle it.
-2. Exception translation: When working with APIs or libraries, you might need to translate between checked and unchecked
-   exceptions to maintain a consistent exception hierarchy in your application.
-
-## Interview-specific Insights
-
-- Be prepared to explain the difference between checked and unchecked exceptions and provide examples of each.
-- Understand the pros and cons of each type and be able to justify when to use one over the other.
-- Be familiar with common design patterns for exception handling, such as exception translation and exception wrapping.
-
-Q1: What is the main difference between checked and unchecked exceptions in Java?
-
-A1: The main difference between checked and unchecked exceptions in Java is:
-
-Checked exceptions:
-
-- Are subclasses of Exception but not RuntimeException
-- Must be either caught or declared in the method signature using the 'throws' keyword
-- Are typically used for recoverable conditions
-- Compiler enforces handling of these exceptions
-
-Unchecked exceptions:
-
-- Are subclasses of RuntimeException (or of Error)
-- Do not need to be explicitly caught or declared
-- Are typically used for programming errors or unrecoverable conditions
-- Compiler does not enforce handling of these exceptions
-
-Q2: Provide an example of how to create and throw a custom checked exception.
-
-A2: Here's an example of creating and throwing a custom checked exception:
+Each class is thrown with no `throws` clause:
 
 ```java
-public class CustomCheckedException extends Exception {
-    public CustomCheckedException(String message) {
-        super(message);
-    }
-}
+public class Kinds {
+    static class Abort extends Throwable {}                      // straight from Throwable
+    static class QuotaExceeded extends Exception {}
+    static class StaleCache extends RuntimeException {}
+    static class ShardLost extends Error {}
 
-public class ExampleClass {
-    public void methodThatThrowsCheckedException() throws CustomCheckedException {
-        // Some condition that warrants throwing the exception
-        if (someCondition) {
-            throw new CustomCheckedException("This is a custom checked exception");
+    static void abort()  { throw new Abort(); }
+    static void quota()  { throw new QuotaExceeded(); }
+    static void stale()  { throw new StaleCache(); }
+    static void shard()  { throw new ShardLost(); }
+}
+```
+
+```text
+Kinds.java:7: error: unreported exception Abort; must be caught or declared to be thrown
+    static void abort()  { throw new Abort(); }
+                           ^
+Kinds.java:8: error: unreported exception QuotaExceeded; must be caught or declared to be thrown
+    static void quota()  { throw new QuotaExceeded(); }
+                           ^
+2 errors
+```
+
+JLS 11.1.1 defines checked by exclusion: every `Throwable` except `RuntimeException`, `Error`
+and their subclasses. "Checked means it extends `Exception`" misses `Abort`, and so does a
+`catch (Exception e)` meant to catch everything. In `CatchAll`, whose `Abort` takes a message:
+
+```java
+static void step() throws Abort { throw new Abort("workflow aborted by operator"); }
+// ...
+try {
+    try {
+        step();
+    } catch (Exception e) {                  // "catch everything"
+        System.out.println("handled: " + e);
+    }
+} catch (Throwable t) {
+    System.out.println("escaped catch (Exception): " + t);
+}
+```
+
+```text
+escaped catch (Exception): CatchAll$Abort: workflow aborted by operator
+```
+
+`Error` and `RuntimeException` are unchecked for different reasons. The `Error` javadoc says it
+"indicates serious problems that a reasonable application should not try to catch", such as
+running out of memory, so no method should have to declare one. A `RuntimeException` usually means
+a bug, which the caller fixes rather than handles. Unit 3.2.1 shows how a custom exception's
+superclass decides which kind it is.
+
+## Adding a Checked Exception Breaks Every Caller's Source; Adding an Unchecked One Breaks None
+
+The reporting service calls the library like this, compiled against 1.x:
+
+```java
+import rates.Rates;
+
+public class NightlyReport {
+    public static void main(String[] args) {
+        for (String pair : new String[] {"EUR/USD", "GBP/USD"}) {
+            try {
+                System.out.println(pair + " " + Rates.fetch(pair));
+            } catch (RuntimeException e) {               // log any failure, go on with the next pair
+                System.out.println(pair + " skipped: " + e.getMessage());
+            }
         }
+        System.out.println("report written");
     }
 }
 ```
 
-Q3: In modern Java development, there's a trend towards preferring unchecked exceptions. Why is this, and what are the
-potential drawbacks?
+Recompiled against 2.0, where `RatesUnavailableException extends Exception`:
 
-A3: The trend towards preferring unchecked exceptions in modern Java development is due to several factors:
+```text
+app/NightlyReport.java:7: error: unreported exception RatesUnavailableException; must be caught or declared to be thrown
+                System.out.println(pair + " " + Rates.fetch(pair));
+                                                           ^
+1 error
+```
 
-1. Reduced boilerplate: Unchecked exceptions don't require explicit handling or declaration, leading to cleaner code.
-2. Improved readability: Code without numerous try-catch blocks or throws declarations can be easier to read and
-   understand.
-3. Better suited for functional programming: Unchecked exceptions work more seamlessly with Java 8+ functional
-   interfaces and lambda expressions.
-4. More flexible for API design: Unchecked exceptions allow API designers to add new failure modes without breaking
-   backward compatibility.
+Against a variant where the same class extends `RuntimeException`, it compiles and, with the feed
+down, prints:
 
-However, potential drawbacks include:
+```text
+EUR/USD skipped: feed down, no rate for EUR/USD
+GBP/USD skipped: feed down, no rate for GBP/USD
+report written
+```
 
-1. Less explicit error handling: Developers might overlook potential exceptions if they're not forced to handle them.
-2. Reduced compile-time safety: The compiler doesn't enforce handling of unchecked exceptions, which could lead to
-   runtime errors.
-3. Potential for misuse: Overuse of unchecked exceptions might lead to ignoring important error conditions.
-4. Documentation importance: With unchecked exceptions, thorough documentation becomes crucial to inform users about
-   potential exceptions.
+Adding a checked exception forces each call site to catch it or declare it, and declaring it hands
+the same choice to their callers: a breaking change for every user of the library. Taking it out again breaks them too: a `catch (RatesUnavailableException e)` around a `fetch` that
+no longer declares it fails with "is never thrown in body of corresponding try statement" (unit
+3.1.2).
 
-Q4: How would you decide whether to use a checked or unchecked exception when designing a method?
+An unchecked addition compiles without a word to callers. This service handled it only because
+it already caught `RuntimeException`.
 
-A4: When deciding whether to use a checked or unchecked exception, consider the following factors:
+On an interface, adding `throws IOException` to a method breaks code that calls through the
+interface, but not the implementations, since an implementation may throw less than the interface
+declares. The reverse is the error: an implementation can't add a checked exception that the
+interface method lacks.
 
-1. Recoverability: If the exception represents a condition that the calling code can reasonably be expected to recover
-   from, use a checked exception. If it's a programming error or an unrecoverable condition, use an unchecked exception.
+```java
+import java.io.IOException;
 
-2. Frequency: If the exception occurs frequently and is part of the normal operation of the method, it might be better
-   as a checked exception. Rare or unexpected errors are often better as unchecked exceptions.
+public class Sources {
+    interface Source { String read(); }
 
-3. Caller's perspective: Consider whether the caller of your method should be forced to handle or declare the exception.
-   If yes, use a checked exception; if no, use an unchecked exception.
+    static class FileSource implements Source {
+        public String read() throws IOException { return "x"; }
+    }
+}
+```
 
-4. API design: For public APIs, checked exceptions provide a clear contract about possible failure modes. However, they
-   also make the API less flexible for future changes.
+```text
+Sources.java:7: error: read() in FileSource cannot implement read() in Source
+        public String read() throws IOException { return "x"; }
+                      ^
+  overridden method does not throw IOException
+1 error
+```
 
-5. Exception propagation: If you expect the exception to be handled at a higher level of the application, an unchecked
-   exception might be more appropriate as it can propagate up the call stack without explicit declaration.
+<!-- practice 1 -->
 
-6. Performance: Checked or unchecked makes no difference at run time; both fill in a stack trace when created. If
-   creating exceptions on a hot path is a measured cost, a custom exception can skip the stack trace through the
-   `Throwable(String, Throwable, boolean enableSuppression, boolean writableStackTrace)` constructor.
+## Catch-or-Declare Is a Compiler Rule; at Run Time Any Method Can Throw a Checked Exception
 
-Ultimately, the decision should balance these factors while considering the specific context and requirements of your
-application.
+The `NightlyReport.class` compiled against 1.x, run with the 2.0 jar:
+
+```text
+Exception in thread "main" rates.RatesUnavailableException: feed down, no rate for EUR/USD
+	at rates.Rates.fetch(Rates.java:5)
+	at NightlyReport.main(NightlyReport.java:7)
+```
+
+The call linked, and a checked exception left `main`, which declares none. The JVM links a call by
+name and descriptor, and the descriptor holds no exceptions. From `javap -v` on 2.0's `Rates`:
+
+```text
+  public static double fetch(java.lang.String) throws rates.RatesUnavailableException;
+    descriptor: (Ljava/lang/String;)D
+    Exceptions:
+      throws rates.RatesUnavailableException
+```
+
+The `throws` clause sits in an `Exceptions` attribute that javac reads and the JVM doesn't check.
+JLS 13.4.21: changing a `throws` clause doesn't break compatibility with existing binaries. At run time, checked and unchecked exceptions are thrown, caught and cost the same.
+
+The service caught `RuntimeException`, which this exception isn't. Recompiling against 2.0 would
+have forced it to catch or declare. Without recompiling, a catch for a type the 1.x `fetch`
+doesn't declare doesn't compile (unit 3.1.2), so the clause has to be `catch (Exception e)` or
+`catch (Throwable t)`.
+
+`Class.newInstance()` (deprecated since Java 9) also passes on whatever the constructor throws, checked or not; its replacement,
+`getDeclaredConstructor().newInstance()`, wraps it:
+
+```java
+import java.io.IOException;
+
+public class Plugin {
+    public Plugin() throws IOException {
+        throw new IOException("plugin.properties not found");
+    }
+}
+```
+
+```java
+Plugin.class.newInstance();                            // declares InstantiationException, IllegalAccessException
+Plugin.class.getDeclaredConstructor().newInstance();   // its checked exceptions are ReflectiveOperationExceptions
+```
+
+```text
+Class.newInstance let through: java.io.IOException: plugin.properties not found
+Constructor.newInstance threw: java.lang.reflect.InvocationTargetException, cause java.io.IOException: plugin.properties not found
+```
+
+A sneaky throw through a generic method does the same (unit 3.2.2). Code at the top of a thread
+that must survive any exception its callees throw, such as a scheduler loop or a plugin host,
+catches `Exception`, not `RuntimeException`.
+
+## Streams Can't Throw IOException, So Files.lines Throws UncheckedIOException from the Terminal Operation
+
+A log scanner counts `ERROR` lines per file and skips a file it can't read:
+
+```java
+static long countErrors(Path log) {
+    try (Stream<String> lines = Files.lines(log)) {
+        return lines.filter(l -> l.contains("ERROR")).count();
+    } catch (IOException e) {
+        System.out.println("  skipped " + log.getFileName() + ": " + e);
+        return 0;
+    }
+}
+```
+
+Of three logs, `app-1` (good), `app-3` (missing) and `app-2` (written in Latin-1, so its `é` isn't
+valid UTF-8), which does the catch skip?
+
+```text
+app-1.log: 1 ERROR lines
+  skipped app-3.log: java.nio.file.NoSuchFileException: logs/app-3.log
+app-3.log: 0 ERROR lines
+app-2.log: batch stopped by java.io.UncheckedIOException: java.nio.charset.MalformedInputException: Input length = 1
+    thrown inside Lines.countErrors(Lines.java:11)
+```
+
+`Files.lines` opens the file at once, so a missing file fails there, with a checked `IOException`.
+The lines are read later, while `count()` pulls them through the stream, and a stream's
+`Iterator` and `Spliterator` methods can't throw checked exceptions. So a read error in the middle
+of the file arrives as an `UncheckedIOException` from `count()`, the terminal operation (line 11),
+and goes past the `catch (IOException e)`. The javadoc of `Files.lines` and of
+`BufferedReader.lines()` documents this wrapping.
+
+`UncheckedIOException` is the JDK's standard wrapper: its constructors require an `IOException`
+cause, and its `getCause()` returns one. When the stream code sits in a method that declares
+`IOException`, unwrap it where the stream ends, so callers handle one exception type:
+
+```java
+} catch (UncheckedIOException e) {
+    throw e.getCause();
+}
+```
+
+Wrapping your own checked exception inside a lambda is unit 3.2.2.
+
+<!-- practice 2 -->
+
+## Make It Checked When the Caller Can Act on It, Unchecked When It Means a Bug
+
+The JDK offers both for one failure. `new URI(String)` throws the checked
+`URISyntaxException`; `URI.create(String)` throws the unchecked `IllegalArgumentException`, with
+the same message:
+
+```text
+URI.create: java.lang.IllegalArgumentException: Illegal character in path at index 29: https://rates.example.com/eur usd
+new URI:    java.net.URISyntaxException: Illegal character in path at index 29: https://rates.example.com/eur usd
+```
+
+A form where a user types a webhook URL can act on the
+failure: it tells the user the URL has a space in it, and the checked constructor makes sure that
+handler gets written. A URL that is a constant in our code fails only if we mistyped it, and the
+caller can do nothing at run time but crash. `URI.create`'s javadoc names that case: "URI
+constants declared within a program", where a failure "would be considered a programming error".
+
+So ask whether the caller can act on the failure and couldn't have prevented it by checking first. A rate feed that is down, a file that isn't there, a declined card: the caller retries,
+falls back or tells the user, and checked fits. A null argument, an index past the end, a call in
+the wrong state: the caller could have prevented these and can't repair them afterwards, and
+unchecked fits.
+
+A checked exception for a bug gives every caller a catch block with
+nothing to do in it, and those blocks end up empty or wrapping. An unchecked exception for an
+expected outcome compiles without a handler, and the user's typo comes back as an HTTP 500. Where the
+caller is a lambda, `Function.apply` declares no checked exception, so the lambda must wrap (the
+previous section).
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Every `Throwable` is checked except `RuntimeException`, `Error` and their subclasses.** A class
+  extending `Throwable` directly is checked, and `catch (Exception e)` doesn't catch it.
+- **Adding a checked exception to a method breaks every caller's source; removing one breaks
+  callers that catch it.** An unchecked one changes nothing at compile time.
+- **The JVM never checks `throws`.** Code compiled against an older library, or
+  `Class.newInstance`, receives checked exceptions it never declared, and only a catch for
+  `Exception` or `Throwable` stops them.
+- **`Files.lines` and `BufferedReader.lines` wrap read errors in `UncheckedIOException`, thrown by
+  the terminal operation.** A `catch (IOException e)` around the stream misses them.
+- **Checked when the caller can act on the failure and couldn't prevent it; unchecked for a bug.**
+  The same failure can be either, depending on where the input comes from.
+
+## Reference
+
+**Which exceptions are checked (JLS 11.1.1):**
+
+| Class | Checked |
+|---|---|
+| `Throwable`, and its subclasses outside `Exception` and `Error` | yes |
+| `Exception` and its subclasses, except `RuntimeException`'s | yes |
+| `RuntimeException` and its subclasses | no |
+| `Error` and its subclasses | no |
+
+**What a change to `throws` does (javac 21; binaries per JLS 13.4.21):**
+
+| Change | Callers' source | Callers' compiled classes |
+|---|---|---|
+| add a checked exception | unreported exception at each call | run; the exception reaches them undeclared |
+| add an unchecked exception | compiles | run |
+| remove a checked exception | a `catch` for it is "never thrown" | run |
+| add a checked exception to an interface method | calls through the interface fail; implementations compile | run |
+| an implementation adds a checked exception its interface lacks | the implementation fails: "overridden method does not throw" | not applicable |
+
+## Challenges
+
+1. Your library must report a new failure from a method thousands of callers use. Compare a new
+   checked exception in a major version, an unchecked one in a minor version, and a new method
+   that declares it while the old one keeps its signature.
+2. A plugin host loads jars built against older versions of its API. Which exceptions can reach
+   its top-level `catch`, and what should it do with an `Error`?
+3. Find a catch block in your code with nothing useful in it. Was the exception checked? Should it
+   have been?
+
+## Design Note: A Contract Only the Compiler Reads
+
+Java made exceptions part of a method's type so a caller can't forget a failure it should handle.
+The check costs nothing at run time because only javac makes it, and that is also its limit:
+whatever javac doesn't see gets through, such as a jar swapped after the build, reflection or a
+generic trick. Checked exceptions also don't compose: `Function.apply` declares none, so every
+lambda passed to a stream that does I/O has to wrap. Kotlin, also on the JVM, has no checked
+exceptions at all. Common practice reserves them for failures the caller can act on, and where
+they get in the way, as in streams, the JDK wraps them.
 
 ## Code Examples
 

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Report a task's outcome, most specific failure first",
+  "title": "Roll back a failed invoice posting without changing what the caller sees",
   "blocks": [
     {
       "type": "heading",
@@ -19,65 +19,30 @@
     },
     {
       "type": "para",
-      "text": "Catch blocks are evaluated in order, top to bottom, and the first one whose type matches wins. So the more specific types go first and the most general last."
+      "text": "Accounts receivable posts each invoice with `InvoicePosting.post(...)`: a row in the ledger, the PDF in the archive, and one database transaction around both. Two things have to hold for the people around it."
     },
     {
       "type": "para",
-      "text": "Write `TaskRunner.run(Callable<String> task)`. It calls the task and returns one line:"
+      "text": "The nightly job catches `SQLException` from `post(...)` and retries the invoice when the database reports a serialization conflict (SQLState `40001`); anything else it reports. And last month an invoice in a currency nobody had enabled made the ledger code throw, the transaction stayed open, and the connection pool ran dry an hour later."
     },
     {
-      "type": "table",
-      "headers": [
-        "the task",
-        "returns"
-      ],
-      "rows": [
-        [
-          "returns `r`",
-          "`\"done: \" + r`"
-        ],
-        [
-          "throws a `FileNotFoundException`",
-          "`\"missing: \" + message`"
-        ],
-        [
-          "throws any other `IOException`",
-          "`\"io: \" + message`"
-        ],
-        [
-          "throws any other `Exception`",
-          "`\"failed: \" + message`"
-        ]
-      ]
+      "type": "para",
+      "text": "`write(...)` already does the work of one posting, commit included. Finish the `TODO` in `src/main/java/practice/InvoicePosting.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "task",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`() -> \"42\"`",
-          "`\"done: 42\"`"
-        ],
-        [
-          "throws `new FileNotFoundException(\"a.txt\")`",
-          "`\"missing: a.txt\"`"
-        ],
-        [
-          "throws `new IOException(\"disk\")`",
-          "`\"io: disk\"`"
-        ],
-        [
-          "throws `new IllegalStateException(\"nope\")`",
-          "`\"failed: nope\"`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`post(...)`: begin the transaction and run `write(...)`. Whatever goes wrong, the transaction is rolled back and the caller sees the failure exactly as it was thrown. Keep the method's signature."
       ]
     },
     {
       "type": "para",
-      "text": "A type is matched with its subclasses (an `EOFException` is an `IOException`). Report exceptions, and only exceptions: anything thrown that is not an `Exception` reaches the caller unchanged."
+      "text": "About seven lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests hand the posting a ledger, an archive and a transaction that record every call."
     },
     {
       "type": "heading",
@@ -92,7 +57,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.FileNotFoundException;\nimport java.io.IOException;\nimport java.util.concurrent.Callable;\n\npublic final class TaskRunner {\n\n    private TaskRunner() {\n    }\n\n    /** Calls {@code task} and returns a one-line report of its outcome. */\n    public static String run(Callable<String> task) {\n        try {\n            return \"done: \" + task.call();\n        } catch (FileNotFoundException e) {\n            return \"missing: \" + e.getMessage();\n        } catch (IOException e) {\n            return \"io: \" + e.getMessage();\n        } catch (Exception e) {\n            return \"failed: \" + e.getMessage();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.sql.SQLException;\n\n/** Posts an invoice to the ledger and archives its PDF, in one database transaction. */\npublic class InvoicePosting {\n\n    /** The ledger table. */\n    public interface Ledger {\n        void insert(String invoiceId, long cents) throws SQLException;\n    }\n\n    /** The document archive that keeps the invoice's PDF. */\n    public interface Archive {\n        void store(String invoiceId) throws IOException;\n    }\n\n    /** The database transaction the ledger rows are written in. */\n    public interface Transaction {\n        void begin() throws SQLException;\n\n        void commit() throws SQLException;\n\n        void rollback();\n    }\n\n    private final Ledger ledger;\n    private final Archive archive;\n    private final Transaction tx;\n\n    public InvoicePosting(Ledger ledger, Archive archive, Transaction tx) {\n        this.ledger = ledger;\n        this.archive = archive;\n        this.tx = tx;\n    }\n\n    /**\n     * Posts one invoice. Either the ledger row is committed and the PDF archived, or the\n     * transaction is rolled back and the caller sees what went wrong.\n     */\n    public void post(String invoiceId, long cents) throws IOException, SQLException {\n        tx.begin();\n        try {\n            write(invoiceId, cents);\n        } catch (Exception e) {\n            tx.rollback();\n            throw e;\n        }\n    }\n\n    /** The work of one posting, inside the transaction. */\n    private void write(String invoiceId, long cents) throws IOException, SQLException {\n        ledger.insert(invoiceId, cents);\n        archive.store(invoiceId);\n        tx.commit();\n    }\n}\n"
         }
       ]
     },
@@ -104,7 +69,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.concurrent.Callable;\n\npublic final class TaskRunner {\n\n    private TaskRunner() {\n    }\n\n    /** Calls {@code task} and returns a one-line report of its outcome. */\n    public static String run(Callable<String> task) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.sql.SQLException;\n\n/** Posts an invoice to the ledger and archives its PDF, in one database transaction. */\npublic class InvoicePosting {\n\n    /** The ledger table. */\n    public interface Ledger {\n        void insert(String invoiceId, long cents) throws SQLException;\n    }\n\n    /** The document archive that keeps the invoice's PDF. */\n    public interface Archive {\n        void store(String invoiceId) throws IOException;\n    }\n\n    /** The database transaction the ledger rows are written in. */\n    public interface Transaction {\n        void begin() throws SQLException;\n\n        void commit() throws SQLException;\n\n        void rollback();\n    }\n\n    private final Ledger ledger;\n    private final Archive archive;\n    private final Transaction tx;\n\n    public InvoicePosting(Ledger ledger, Archive archive, Transaction tx) {\n        this.ledger = ledger;\n        this.archive = archive;\n        this.tx = tx;\n    }\n\n    /**\n     * Posts one invoice. Either the ledger row is committed and the PDF archived, or the\n     * transaction is rolled back and the caller sees what went wrong.\n     */\n    public void post(String invoiceId, long cents) throws IOException, SQLException {\n        // TODO: run write(...) in a transaction that never stays open, and keep this signature.\n        throw new IllegalStateException(\"TODO: post the invoice in a transaction\");\n    }\n\n    /** The work of one posting, inside the transaction. */\n    private void write(String invoiceId, long cents) throws IOException, SQLException {\n        ledger.insert(invoiceId, cents);\n        archive.store(invoiceId);\n        tx.commit();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -112,10 +77,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 5,
     "code": 1,
-    "tables": 2,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -123,11 +88,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3cb926d0d50c1fd478b6fdfa70a1504965624ee919fc88254325dca4bc4936d9",
-  "starting_code": "package practice;\n\nimport java.util.concurrent.Callable;\n\npublic final class TaskRunner {\n\n    private TaskRunner() {\n    }\n\n    /** Calls {@code task} and returns a one-line report of its outcome. */\n    public static String run(Callable<String> task) {\n        throw new UnsupportedOperationException(\"write run\");\n    }\n}\n",
+  "content_sha256": "39706ff75c650407fe556011f197a273ff1a119565cfeaebf0ab5fada7897bc7",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.sql.SQLException;\n\n/** Posts an invoice to the ledger and archives its PDF, in one database transaction. */\npublic class InvoicePosting {\n\n    /** The ledger table. */\n    public interface Ledger {\n        void insert(String invoiceId, long cents) throws SQLException;\n    }\n\n    /** The document archive that keeps the invoice's PDF. */\n    public interface Archive {\n        void store(String invoiceId) throws IOException;\n    }\n\n    /** The database transaction the ledger rows are written in. */\n    public interface Transaction {\n        void begin() throws SQLException;\n\n        void commit() throws SQLException;\n\n        void rollback();\n    }\n\n    private final Ledger ledger;\n    private final Archive archive;\n    private final Transaction tx;\n\n    public InvoicePosting(Ledger ledger, Archive archive, Transaction tx) {\n        this.ledger = ledger;\n        this.archive = archive;\n        this.tx = tx;\n    }\n\n    /**\n     * Posts one invoice. Either the ledger row is committed and the PDF archived, or the\n     * transaction is rolled back and the caller sees what went wrong.\n     */\n    public void post(String invoiceId, long cents) throws IOException, SQLException {\n        // TODO: run write(...) in a transaction that never stays open, and keep this signature.\n        throw new IllegalStateException(\"TODO: post the invoice in a transaction\");\n    }\n\n    /** The work of one posting, inside the transaction. */\n    private void write(String invoiceId, long cents) throws IOException, SQLException {\n        ledger.insert(invoiceId, cents);\n        archive.store(invoiceId);\n        tx.commit();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-2/src/main/java/practice/TaskRunner.java",
-    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-2/src/test/java/practice/TaskRunnerTest.java",
+    "main_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-2/src/main/java/practice/InvoicePosting.java",
+    "test_path": "practice/03-exception-handling/11-try-catch/prose/unit-02/practice-2/src/test/java/practice/InvoicePostingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -148,29 +113,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TaskRunnerTest#reportsTheResult",
+        "id": "practice.InvoicePostingTest#aPostedInvoiceIsCommittedOnce",
         "kind": "main",
-        "says": "A task that completes is reported with its result."
+        "says": "an invoice that posts cleanly is inserted, archived and committed once, with no rollback"
       },
       {
-        "id": "practice.TaskRunnerTest#reportsAnIoFailure",
+        "id": "practice.InvoicePostingTest#aFailedArchiveRollsTheInvoiceBack",
         "kind": "main",
-        "says": "An IOException is reported as an I/O failure."
+        "says": "when archiving fails, the transaction is rolled back instead of committed and post() throws"
       },
       {
-        "id": "practice.TaskRunnerTest#reportsAnyOtherFailure",
-        "kind": "main",
-        "says": "Any other exception is reported as a plain failure."
-      },
-      {
-        "id": "practice.TaskRunnerTest#aMissingFileIsReportedAsMissing",
+        "id": "practice.InvoicePostingTest#anUnexpectedFailureAlsoRollsBackAndReachesTheCallerUnchanged",
         "kind": "edge",
-        "says": "A FileNotFoundException, a subclass of IOException, gets its own report, so its catch comes first."
+        "says": "an unchecked failure from the ledger also rolls the transaction back, and the caller gets that same exception"
       },
       {
-        "id": "practice.TaskRunnerTest#anErrorIsNotCaught",
+        "id": "practice.InvoicePostingTest#aDatabaseFailureReachesTheCallerAsTheSameSqlException",
         "kind": "edge",
-        "says": "An Error is not an Exception: it must reach the caller instead of being reported."
+        "says": "a database failure reaches the caller as the same SQLException, so a retry on its SQLState can run"
       }
     ],
     "report": {
@@ -179,10 +139,10 @@
     },
     "origin": {
       "path": "11-try-catch/README_3.1.2.md",
-      "section": "Key Points"
+      "section": "Catching Exception to Rethrow It Keeps the Precise throws Clause"
     },
     "concepts": [
-      "Catch blocks are evaluated in order from top to bottom, and the first matching one handles the exception."
+      "Rethrowing an effectively final catch (Exception e) parameter throws only the checked exceptions the try block can throw, so the method keeps its precise throws clause and the caller sees the same exception."
     ]
   }
 }

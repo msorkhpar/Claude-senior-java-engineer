@@ -1,16 +1,13 @@
-The stack trace is captured when the exception object is **created**, not
-where it is thrown, so a pre-built exception kept in a field points at the
-wrong place in the logs. Write `Connection`:
+The support dashboard looks customers up through `CustomerService`. It shows "no such customer"
+for `UnknownCustomerException`, "try again later" for `CustomerStoreException`, and sends anything
+else to the error tracker as a bug. The repository underneath is JDBC code, and the dashboard team
+doesn't want to know about `SQLException`.
 
-- `String send(String message)` returns `"sent: " + message` while the
-  connection is open;
-- `void close()` closes it;
-- after `close()`, `send` throws `IllegalStateException("Connection closed")`.
+Three complaints arrived after the last release. Agents who mistype a customer id are told to try
+again later, and do, for minutes. When the database does fail, the log says only "cannot load
+customer", and on-call can't tell a timeout from a full connection pool. And a mapping bug
+introduced in the repository last week showed up on the dashboard as a database outage, so
+nobody opened a bug for it.
 
-| calls | result |
-|---|---|
-| `send("hi")` | `"sent: hi"` |
-| `close(); send("hi")` | throws `IllegalStateException("Connection closed")` |
-
-Anyone reading the trace of a failed `send` should be led straight to `send`,
-every time it fails.
+Write `find(...)` in `src/main/java/practice/CustomerService.java` so that each of the three
+reaches the right place. About eight lines.

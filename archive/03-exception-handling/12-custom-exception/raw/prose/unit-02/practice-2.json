@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Validate a thermostat target before anything changes",
+  "title": "Give the report cache's callers the source's own exception",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,11 @@
     },
     {
       "type": "para",
-      "text": "*Fail fast*: validate the arguments at the start of a method and throw at once, before any state has changed. Write `Thermostat`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Thermostat()` starts with target `20` and an empty history.",
-        [
-          "`void setTarget(Integer celsius)` accepts a target from `5` to `30` inclusive: it becomes the target and is appended to the history.",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "a `null` target throws `NullPointerException` with the message `celsius` (`Objects.requireNonNull` does this in one call);",
-              "a target out of range throws `IllegalArgumentException(\"Target out of range: <celsius>\")`."
-            ]
-          }
-        ],
-        "`int getTarget()` and `List<Integer> history()` (the accepted targets, oldest first). Whether the returned list is a copy or a view is up to you; the tests only read it."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "`getTarget()`",
-        "`history()`"
-      ],
-      "rows": [
-        [
-          "`setTarget(22)`",
-          "`22`",
-          "`[22]`"
-        ],
-        [
-          "`setTarget(22); setTarget(42)`",
-          "`22` (the second call throws)",
-          "`[22]`"
-        ]
-      ]
+      "text": "The reporting service reads report texts from a file share that is slow, so it keeps each text in memory after the first read. The cache is meant to be built on `Map.computeIfAbsent`. Its callers already handle failures by type: a `FileNotFoundException` becomes \"no such report\" for the user, any other `IOException` becomes \"try again later\", and an unchecked exception is a bug that goes to the error tracker."
     },
     {
       "type": "para",
-      "text": "Once a `throw` runs, nothing after it in the method runs, so where you put the checks decides what a failed call leaves behind."
+      "text": "Write `get(...)` and `fetchForCache(...)` in `src/main/java/practice/ReportCache.java`. When you're done, `get` caches each text, and when the source fails, the caller receives exactly the exception the source threw, checked or unchecked. About eight lines in total."
     },
     {
       "type": "heading",
@@ -77,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\n\npublic class Thermostat {\n\n    private final List<Integer> history = new ArrayList<>();\n    private int target = 20;\n\n    public Thermostat() {\n    }\n\n    /** Accepts 5..30 inclusive; null throws NPE(\"celsius\"), out of range IAE(\"Target out of range: \" + celsius). */\n    public void setTarget(Integer celsius) {\n        Objects.requireNonNull(celsius, \"celsius\");\n        if (celsius < 5 || celsius > 30) {\n            throw new IllegalArgumentException(\"Target out of range: \" + celsius);\n        }\n        history.add(celsius);\n        target = celsius;\n    }\n\n    public int getTarget() {\n        return target;\n    }\n\n    /** The accepted targets, oldest first. */\n    public List<Integer> history() {\n        return List.copyOf(history);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Report texts, fetched from a slow source once and then served from memory. */\npublic class ReportCache {\n\n    /** Where report texts come from: a file share, an object store. */\n    public interface ReportSource {\n        String fetch(String name) throws IOException;\n    }\n\n    private final ReportSource source;\n    private final Map<String, String> texts = new HashMap<>();\n\n    public ReportCache(ReportSource source) {\n        this.source = source;\n    }\n\n    /**\n     * The text of the named report. The first call for a name fetches it from the source;\n     * later calls return the cached text. When the source fails, the caller gets what it threw.\n     */\n    public String get(String name) throws IOException {\n        try {\n            return texts.computeIfAbsent(name, this::fetchForCache);\n        } catch (UncheckedIOException e) {\n            throw e.getCause();\n        }\n    }\n\n    /** The mapping function computeIfAbsent runs for a name that isn't cached yet. */\n    String fetchForCache(String name) {\n        try {\n            return source.fetch(name);\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic class Thermostat {\n\n    public Thermostat() {\n    }\n\n    /** Accepts 5..30 inclusive; null throws NPE(\"celsius\"), out of range IAE(\"Target out of range: \" + celsius). */\n    public void setTarget(Integer celsius) {\n        throw new UnsupportedOperationException(\"write setTarget\");\n    }\n\n    public int getTarget() {\n        throw new UnsupportedOperationException(\"write getTarget\");\n    }\n\n    /** The accepted targets, oldest first. */\n    public List<Integer> history() {\n        throw new UnsupportedOperationException(\"write history\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Report texts, fetched from a slow source once and then served from memory. */\npublic class ReportCache {\n\n    /** Where report texts come from: a file share, an object store. */\n    public interface ReportSource {\n        String fetch(String name) throws IOException;\n    }\n\n    private final ReportSource source;\n    private final Map<String, String> texts = new HashMap<>();\n\n    public ReportCache(ReportSource source) {\n        this.source = source;\n    }\n\n    /**\n     * The text of the named report. The first call for a name fetches it from the source;\n     * later calls return the cached text. When the source fails, the caller gets what it threw.\n     */\n    public String get(String name) throws IOException {\n        // TODO: return the text, cached after the first fetch; a failure of the source reaches the caller.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n\n    /** The mapping function computeIfAbsent runs for a name that isn't cached yet. */\n    String fetchForCache(String name) {\n        // TODO: fetch the text from the source. computeIfAbsent takes a Function, which declares no checked exception.\n        throw new IllegalStateException(\"TODO: fetchForCache\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -108,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7d3b33d4ce2db22421cdd00da850516d23b585b890f596ec9e61012459ed1c15",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic class Thermostat {\n\n    public Thermostat() {\n    }\n\n    /** Accepts 5..30 inclusive; null throws NPE(\"celsius\"), out of range IAE(\"Target out of range: \" + celsius). */\n    public void setTarget(Integer celsius) {\n        throw new UnsupportedOperationException(\"write setTarget\");\n    }\n\n    public int getTarget() {\n        throw new UnsupportedOperationException(\"write getTarget\");\n    }\n\n    /** The accepted targets, oldest first. */\n    public List<Integer> history() {\n        throw new UnsupportedOperationException(\"write history\");\n    }\n}\n",
+  "content_sha256": "e9c12136cfbbb25d5495fbee9650937d439bfd57cb3763f360bf0e690161e659",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Report texts, fetched from a slow source once and then served from memory. */\npublic class ReportCache {\n\n    /** Where report texts come from: a file share, an object store. */\n    public interface ReportSource {\n        String fetch(String name) throws IOException;\n    }\n\n    private final ReportSource source;\n    private final Map<String, String> texts = new HashMap<>();\n\n    public ReportCache(ReportSource source) {\n        this.source = source;\n    }\n\n    /**\n     * The text of the named report. The first call for a name fetches it from the source;\n     * later calls return the cached text. When the source fails, the caller gets what it threw.\n     */\n    public String get(String name) throws IOException {\n        // TODO: return the text, cached after the first fetch; a failure of the source reaches the caller.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n\n    /** The mapping function computeIfAbsent runs for a name that isn't cached yet. */\n    String fetchForCache(String name) {\n        // TODO: fetch the text from the source. computeIfAbsent takes a Function, which declares no checked exception.\n        throw new IllegalStateException(\"TODO: fetchForCache\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-2/src/main/java/practice/Thermostat.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-2/src/test/java/practice/ThermostatTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-2/src/main/java/practice/ReportCache.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-02/practice-2/src/test/java/practice/ReportCacheTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ThermostatTest#acceptsATargetInRange",
+        "id": "practice.ReportCacheTest#fetchesEachReportOnceAndThenServesItFromMemory",
         "kind": "main",
-        "says": "A target in range becomes the target and joins the history; one out of range throws IllegalArgumentException."
+        "says": "each report is fetched from the source once, then served from the cache"
       },
       {
-        "id": "practice.ThermostatTest#theMessageStatesTheRejectedValue",
-        "kind": "edge",
-        "says": "The message says what was wrong and with which value: \"Target out of range: 42\"."
+        "id": "practice.ReportCacheTest#aFailingSourceFailsTheCallWithAnIOException",
+        "kind": "main",
+        "says": "a fetch that fails makes the call fail with an IOException, and other reports still load"
       },
       {
-        "id": "practice.ThermostatTest#aRejectedTargetChangesNothing",
+        "id": "practice.ReportCacheTest#theCallerReceivesTheExceptionTheSourceThrew",
         "kind": "edge",
-        "says": "The check runs before any state changes, so a rejected target leaves the target and the history as they were."
+        "says": "the caller receives the very IOException the source threw, so it can catch the specific subtype"
       },
       {
-        "id": "practice.ThermostatTest#aNullTargetIsNamedInTheMessage",
+        "id": "practice.ReportCacheTest#anUncheckedFailureOfTheSourceReachesTheCallerUnchanged",
         "kind": "edge",
-        "says": "A null target fails fast with a NullPointerException whose message is \"celsius\"."
+        "says": "an unchecked exception from the source reaches the caller as it was thrown"
       }
     ],
     "report": {
@@ -159,12 +120,10 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.2.md",
-      "section": "Best Practices"
+      "section": "A Checked Exception Can't Leave a `Function`: Wrap It in the Lambda, Unwrap It at Your Boundary"
     },
     "concepts": [
-      "Arguments are validated at the start of a method, before any state changes.",
-      "Objects.requireNonNull documents a null check and fails fast with a named message.",
-      "A throw ends the method at once, so no statement after it runs."
+      "A lambda for a standard functional interface can't throw a checked exception, so it wraps it, and the enclosing method unwraps it before returning so callers catch the original checked type."
     ]
   }
 }

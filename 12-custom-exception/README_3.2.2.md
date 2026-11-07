@@ -1,186 +1,335 @@
 # 3.2.2. Throwing Exceptions Using the `throw` Keyword
 
-## Concept Explanation
+A customer sends 250.00 from account `A-1` to `B-2x`, a typo for `B-2`. The transfer API answers
+`500 Internal Server Error`, and `A-1` is 250.00 lighter. The same day, a request with a negative
+amount succeeds and moves money from the receiver to the sender.
 
-The `throw` keyword is used to explicitly throw an exception in Java. It can be used with both built-in Java exceptions
-and custom exceptions. Its operand must be an expression whose type is `Throwable` or a subclass; usually it is a new
-instance:
+Outputs are from Java 21, with classes compiled with `-g` so that exception messages name local
+variables.
+
+## Throw Where the Bad Value Arrives, Before Anything Changes
+
+Two versions of the transfer, with amounts in cents:
 
 ```java
-if (userInput.isEmpty()) {
-    throw new InvalidUserInputException("User input cannot be empty");
+static void transferLate(String fromId, String toId, long cents) {
+    Account from = ACCOUNTS.get(fromId);
+    Account to = ACCOUNTS.get(toId);
+    from.withdraw(cents);
+    to.deposit(cents);
+}
+
+static void transferEarly(String fromId, String toId, long cents) {
+    Account from = find(fromId);
+    Account to = find(toId);
+    if (cents <= 0) throw new IllegalArgumentException("amount must be positive: " + cents);
+    from.withdraw(cents);
+    to.deposit(cents);
+}
+
+static Account find(String id) {
+    Objects.requireNonNull(id, "account id");
+    Account a = ACCOUNTS.get(id);
+    if (a == null) throw new IllegalArgumentException("unknown account: " + id);
+    return a;
 }
 ```
 
-When a `throw` statement runs:
+Each call starts from `A-1 = 100000` and `B-2 = 0`:
 
-1. The current method stops at that point; no further statement of it runs (apart from `finally` blocks on the way out).
-2. The JVM looks for the nearest enclosing `try` whose `catch` clause matches the exception's run-time type, first in
-   the current method and then in each caller up the call stack.
-3. If no handler is found, the thread terminates and its uncaught-exception handler (by default) prints the stack trace.
-
-### `throw` and `throws`
-
-The two keywords are easy to mix up:
-
-- `throw` is a **statement**: it throws one exception object, now.
-- `throws` is part of a **method declaration**: it lists the checked exceptions the method may let escape.
-
-A method that throws a checked exception must either catch it or declare it with `throws`; otherwise the code does not
-compile:
-
-```java
-public static void methodWithCheckedException(boolean throwException) throws CustomCheckedException {
-    if (throwException) {
-        throw new CustomCheckedException("This is a custom checked exception");
-    }
-}
-
-// Without "throws CustomCheckedException" the compiler reports:
-// error: unreported exception CustomCheckedException; must be caught or declared to be thrown
+```text
+late,  to=B-2x: java.lang.NullPointerException: Cannot invoke "Transfer$Account.deposit(long)" because "to" is null
+    A-1 = 75000, B-2 = 0
+early, to=B-2x: java.lang.IllegalArgumentException: unknown account: B-2x
+    A-1 = 100000, B-2 = 0
+early, to=null: java.lang.NullPointerException: account id
+    A-1 = 100000, B-2 = 0
+late,  amount=-500: ok
+    A-1 = 100500, B-2 = -500
+early, amount=-500: java.lang.IllegalArgumentException: amount must be positive: -500
+    A-1 = 100000, B-2 = 0
 ```
 
-An unchecked exception (a `RuntimeException` subclass) can be thrown without a `throws` clause. Listing it in `throws`
-is allowed and documents it, but the compiler does not enforce it.
+The late version did fail on the unknown account, with a `NullPointerException` that names the
+null variable (the default since Java 15). But it failed after the withdrawal, so the money was
+already gone. The negative amount failed nowhere, because
+`withdraw` and `deposit` accept a negative number; the transfer simply ran backwards.
 
-### Rethrowing and wrapping
+A `throw` stops execution at that line, and control goes to the nearest enclosing matching
+`catch`, in this method or a caller. Whatever ran before it stays done. So a method checks its arguments and preconditions before its
+first change of state, and throws there. A `throw` placed after a change has to undo it, which a
+payment, an email or a row in another system often can't.
 
-Inside a `catch` block, `throw` can rethrow the caught exception or throw a new one that wraps it as its cause
-(exception chaining):
+The early version also says what was wrong and with which value, which the caller can turn into a
+`400` instead of a `500`. `Objects.requireNonNull(id, "account id")` is the short form of the null
+check: if `id` is null, it throws a `NullPointerException` with the message you give it.
+
+<!-- practice 1 -->
+
+## The Compiler Knows a `throw` Ends the Block; It Doesn't Know Your Helper Always Throws
+
+The operand of `throw` must be a `Throwable`: `throw "negative quantity";` fails with
+`incompatible types: String cannot be converted to Throwable`. In return, the compiler knows that
+a `throw` never completes normally. A statement right after it in the same block is an
+`unreachable statement` error, and a `switch` expression arm can be
+`default -> throw new IllegalArgumentException("unknown level: " + s);` with no value.
+
+That knowledge stops at the method boundary. A catalog moves its "unknown SKU" throw into a helper:
 
 ```java
-public static void methodWithExceptionChaining() throws CustomCheckedException {
+static void fail(String sku) {
+    throw new IllegalArgumentException("unknown SKU: " + sku);
+}
+
+static long price(String sku) {
+    Long p = PRICES.get(sku);
+    if (p != null) return p;
+    fail(sku);
+}
+```
+
+```text
+compile-errors/HelperFail.java:14: error: missing return statement
+```
+
+The compiler checks `price` against `fail`'s signature, `void`, not against its body. The usual
+patch, `return 0;` after the call, ships a price of zero the day someone changes `fail` to log
+instead of throw. Make the helper return the exception, and keep the `throw` at the call site:
+
+```java
+static IllegalArgumentException unknownSku(String sku) {
+    return new IllegalArgumentException("unknown SKU: " + sku);
+}
+
+static long price(String sku) {
+    Long p = PRICES.get(sku);
+    if (p != null) return p;
+    throw unknownSku(sku);
+}
+```
+
+```text
+java.lang.IllegalArgumentException: unknown SKU: BOOK-17
+	at Prices.unknownSku(Prices.java:7)
+	at Prices.price(Prices.java:13)
+	at Prices.main(Prices.java:18)
+```
+
+The first frame is the factory, because the trace is recorded when the exception is constructed,
+not when it is thrown (unit 3.1.1 shows what that does to a shared, pre-built instance). The
+frame below it is the line that threw.
+
+The operand is evaluated at run time, so it can be `null`. A class keeps a failure it found in a
+field and, later in `main`, throws it:
+
+```java
+static RuntimeException pending;               // set only when a check failed
+
+throw pending;
+```
+
+```text
+java.lang.NullPointerException: Cannot throw exception because "ThrowNull.pending" is null
+```
+
+When no check failed, the caller gets an exception about the `throw` itself, not about any failure.
+
+## A Checked Exception Can't Leave a `Function`: Wrap It in the Lambda, Unwrap It at Your Boundary
+
+A `throws` clause lists the checked exceptions a method may let escape, and the compiler checks
+every call against it. `Function.apply` declares none, so this does not compile, whatever the
+enclosing method declares:
+
+```java
+return files.stream().map(f -> Files.readString(f)).toList();
+```
+
+```text
+compile-errors/LambdaChecked.java:7: error: unreported exception IOException; must be caught or declared to be thrown
+```
+
+The lambda is the body of `apply`, not of the method that contains it. The usual way out is to
+catch the `IOException` in the lambda and throw an `UncheckedIOException` around it. Then a caller
+of the method that writes `catch (IOException e)` no longer compiles,
+
+```text
+compile-errors/CatchNeverThrown.java:21: error: exception IOException is never thrown in body of corresponding try statement
+```
+
+so it catches `RuntimeException` broadly, or nothing. Keep the wrapper inside the method that made
+it, and give the caller back the checked type:
+
+```java
+static List<String> loadAll(List<Path> files) throws IOException {
     try {
-        throw new IOException("Original IO exception");
-    } catch (IOException e) {
-        throw new CustomCheckedException("Wrapped exception", e); // e becomes getCause()
+        return files.stream().map(f -> {
+            try {
+                return Files.readString(f);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);       // the only way out of Function.apply
+            }
+        }).toList();
+    } catch (UncheckedIOException e) {
+        throw e.getCause();                             // back to the checked type at our boundary
     }
 }
 ```
 
-Passing `e` as the cause keeps the original message and stack trace; the stack trace printed for the new exception ends
-with a `Caused by: java.io.IOException: Original IO exception` section.
+```text
+caught IOException: java.nio.file.NoSuchFileException: reports/q3.txt
+lazy, escaped as: java.io.UncheckedIOException: java.nio.file.NoSuchFileException: reports/q4.txt
+```
 
-## Key Points to Remember
+The caller of `loadAll` catches the original `NoSuchFileException` by type. The second line comes from
+the same method returning the `Stream` without `toList()`: the lambda ran only in the caller's
+`forEach`, outside the `try`, and the wrapper escaped. For your own APIs, a functional interface that
+declares the exception, such as `R apply(T t) throws IOException`, needs no wrapper.
 
-1. `throw` needs a `Throwable`; `throw "error"` or `throw 42` does not compile.
-2. Statements directly after a `throw` in the same block are unreachable, and the compiler rejects them
-   ("unreachable statement").
-3. A checked exception thrown with `throw` must be caught or declared with `throws`; an unchecked one need not be.
-4. Throwing `null` (for example `throw someVariable;` when the variable is null) throws a `NullPointerException`
-   instead.
-5. The stack trace is captured when the exception object is **created**, not where it is thrown. Create the exception
-   at the `throw` site so the trace points there.
-6. When wrapping, pass the caught exception as the cause.
+<!-- practice 2 -->
 
-## Relevant Java Features
+## A Sneaky Throw Compiles, and Leaves Callers Unable to Name What It Throws
 
-- **Java 7**: precise rethrow. If a `catch (Exception e)` block rethrows `e` unchanged, and `e` is effectively final,
-  the compiler knows which checked exceptions the `try` block can actually throw, so the method only has to declare
-  those:
-
-  ```java
-  static void precise(boolean fail) throws IOException { // not "throws Exception"
-      try {
-          if (fail) throw new IOException("io");
-      } catch (Exception e) {
-          System.out.println("logging " + e.getMessage());
-          throw e; // the compiler knows e can only be an IOException (or an unchecked exception)
-      }
-  }
-  ```
-
-- **Java 14**: switch expressions (JEP 361) allow `throw` as the body of a case, which makes it easy to reject
-  unexpected values:
-
-  ```java
-  static int parseLevel(String s) {
-      return switch (s) {
-          case "low" -> 1;
-          case "high" -> 3;
-          default -> throw new IllegalArgumentException("Unknown level: " + s);
-      };
-  }
-  // parseLevel("high") returns 3; parseLevel("mid") throws IllegalArgumentException: Unknown level: mid
-  ```
-
-- **Java 14**: helpful `NullPointerException` messages (JEP 358) name the variable or expression that was null, which
-  makes an explicit `throw` for a null check less necessary than it used to be; `Objects.requireNonNull(value, "value")`
-  still documents intent and fails fast.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Losing the cause**: `throw new CustomCheckedException("Failed: " + e.getMessage());` keeps only the text. Pass
-   `e` as the cause.
-2. **Throwing from a lambda**: the standard functional interfaces (`Function`, `Consumer`, ...) declare no checked
-   exceptions, so a lambda body that throws a checked exception does not compile ("unreported exception IOException;
-   must be caught or declared to be thrown"). Catch it inside the lambda and wrap it in an unchecked exception, or use
-   a functional interface of your own that declares it.
-3. **Throwing a generic `Exception` or `RuntimeException`**: callers cannot catch it selectively. Throw the most
-   specific type that describes the problem.
-4. **Creating an exception far from the `throw`**: a pre-built exception stored in a field has the stack trace of the
-   place where it was created, which misleads anyone reading the logs.
-
-## Best Practices
-
-1. Validate arguments at the start of a method and throw immediately (fail fast), before any state has changed.
-2. Write messages that state what was wrong and with which value: `"Unknown level: mid"`, not `"Error"`.
-3. When translating an exception to a higher-level one, always chain the cause.
-4. Declare unchecked exceptions a public method throws in its Javadoc `@throws` tags, even though `throws` does not
-   require them.
-
-## Edge Cases and Their Handling
-
-1. **`throw` inside `finally`**: an exception thrown from `finally` replaces the one that was propagating, which is lost.
-   See [3.1.3](../11-try-catch/README_3.1.3.md); prefer try-with-resources, which records the second exception as
-   suppressed instead.
-2. **Rethrowing a caught exception unchanged**: `throw e;` keeps the original stack trace; it does not reset it to the
-   rethrow point.
-
-## Interview-specific Insights
-
-- Know the difference between `throw` and `throws` and be able to say which one is a statement.
-- Be able to explain what happens to control flow after `throw`, including `finally`.
-- Know precise rethrow (Java 7) and `throw` in switch expressions (Java 14).
-- Be ready to explain why wrapping should keep the cause.
-
-## Interview Q&A
-
-Q1: What is the difference between `throw` and `throws`?
-
-A1: `throw` is a statement that throws one exception object at that point in the code, for example
-`throw new IllegalStateException("closed")`. `throws` is a clause in a method or constructor declaration that lists the
-checked exceptions the method may propagate to its caller, for example `void read() throws IOException`. A method can
-use `throw` without `throws` (for unchecked exceptions, or checked ones it catches itself), and can declare `throws`
-without containing a `throw` (when it calls another method that throws).
-
-Q2: What happens when an exception is thrown and never caught?
-
-A2: The exception propagates up the call stack, running any `finally` blocks on the way. If no method on the stack
-catches it, the thread terminates. The thread's uncaught-exception handler is called; the default one prints
-`Exception in thread "main" ...` and the stack trace to standard error. When the `main` thread dies this way and no
-other non-daemon thread is running, the JVM exits with a non-zero status.
-
-Q3: Can you throw a checked exception from a method without declaring it?
-
-A3: Not with a plain `throw`: the compiler reports "unreported exception X; must be caught or declared to be thrown".
-The method must either catch it or declare it with `throws`. The usual alternative is to wrap it in an unchecked
-exception, passing the original as the cause.
-
-Q4: How can you preserve the original exception information when throwing a new custom exception?
-
-A4: Use exception chaining: pass the caught exception to the new exception's `(message, cause)` constructor.
+Some libraries skip the wrapper with a generic method:
 
 ```java
-try {
-    // Some code that may throw an IOException
-} catch (IOException e) {
-    throw new CustomCheckedException("A custom error occurred", e);
+@SuppressWarnings("unchecked")
+static <E extends Throwable> RuntimeException sneaky(Throwable t) throws E {
+    throw (E) t;                                         // the cast is erased: no check happens
 }
 ```
 
-The original exception is then available from `getCause()`, and the printed stack trace shows it in a `Caused by:`
-section.
+Called as `throw sneaky(e);` inside the lambda, it compiles with no `throws` anywhere. When a
+thrown type variable has nothing else to go on, Java infers `RuntimeException` for it. So the call
+declares nothing checked, and the erased cast lets the `IOException` itself out of the lambda. The
+caller tries `catch (RuntimeException e)`, then `catch (Exception e)`; then the same loader is
+called through a `java.lang.reflect.Proxy` of `Supplier`, the way an interface-based proxy calls it:
+
+```text
+catch (Exception):        java.nio.file.NoSuchFileException: reports/q3.txt
+through a proxy:          java.lang.reflect.UndeclaredThrowableException, cause: java.nio.file.NoSuchFileException: reports/q4.txt
+```
+
+The `IOException` arrives where no signature says it can, and `catch (RuntimeException e)` let it
+pass. A caller that writes `catch (IOException e)` gets the same `never thrown` compile error as
+above, whatever its own method declares, so it must catch `Exception` and test the type. A dynamic proxy wraps a checked exception
+its interface doesn't declare in an `UndeclaredThrowableException`, so behind a proxy the real
+failure is a cause one level down.
+
+## Translate Exceptions at a Layer Boundary, and Keep the Cause
+
+The account service reads from a JDBC store whose methods throw `SQLException`. Its callers, the
+web layer here, should not need to know about JDBC. The service translates at its boundary: a
+missing row becomes `UnknownAccountException`, and a failing store becomes
+`AccountsUnavailableException`, with the `SQLException` as its cause.
+
+```java
+static Account find(AccountStore store, String id) {
+    Account a;
+    try {
+        a = store.load(id);
+    } catch (SQLException e) {
+        throw new AccountsUnavailableException("cannot load account " + id, e);
+    }
+    if (a == null) throw new UnknownAccountException(id);
+    return a;
+}
+```
+
+A shorter version puts both lines in one `try` and catches `Exception`:
+
+```java
+static Account findBroad(AccountStore store, String id) {
+    try {
+        Account a = store.load(id);
+        if (a == null) throw new UnknownAccountException(id);
+        return a;
+    } catch (Exception e) {
+        throw new AccountsUnavailableException("cannot load account " + id, e);
+    }
+}
+```
+
+The web layer maps `UnknownAccountException` to `404` and `AccountsUnavailableException` to `503`:
+
+```text
+narrow  A-1, store up:   200 100000
+narrow  Z-9, store up:   404 unknown account: Z-9
+narrow  A-1, store down: 503 retry later
+broad   A-1, store up:   200 100000
+broad   Z-9, store up:   503 retry later
+broad   A-1, store down: 503 retry later
+```
+
+The broad catch translated the service's own `UnknownAccountException` too. A client asking for
+an account that doesn't exist is told to retry, and it does, against a store that is fine.
+Catch only the lower layer's own failure type, `SQLException` here, in a `try` that holds only
+the call to it. An unchecked exception from the store is usually a bug, and should reach the caller as one.
+
+The cause keeps what the web layer must not see but on-call needs. The log entry for the `503`:
+
+```text
+Translate$AccountsUnavailableException: cannot load account A-1
+	at Translate.find(Translate.java:27)
+	at Translate.main(Translate.java:69)
+Caused by: java.sql.SQLTransientConnectionException: connection refused
+	at Translate.lambda$main$0(Translate.java:59)
+	at Translate.find(Translate.java:25)
+	... 1 more
+```
+
+Without the cause, the log says only that the store was unavailable. Letting `SQLException` through instead ties every caller to JDBC: the
+day accounts move behind an HTTP client, each `catch (SQLException e)` stops compiling.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Throw where the bad value arrives, before anything changes.** A throw after a change leaves
+  the change behind, and a value nothing checks may not fail at all.
+- **The compiler knows a `throw` ends the block, not that a helper always throws.** Have the
+  helper return the exception and `throw` it at the call site. Throwing a `null` reference throws
+  a `NullPointerException`.
+- **A checked exception can't leave a `Function`.** Wrap it in the lambda, and unwrap it before
+  it leaves your method so callers can still catch the checked type.
+- **A sneaky throw compiles and hides the checked type.** Callers can't catch it by name, and a
+  proxy turns it into `UndeclaredThrowableException`.
+- **Translate at a layer boundary and keep the cause.** Translate only the lower layer's
+  exceptions, or your own become theirs.
+
+## Reference
+
+**`throw` and `throws` (Java 21):**
+
+| Code | Result |
+|---|---|
+| `throw "text";` | compile error: `String cannot be converted to Throwable` |
+| a statement after `throw` in the same block | compile error: `unreachable statement` |
+| `throw x;` with `x == null` | `NullPointerException` |
+| `default -> throw ...` in a `switch` expression | allowed; that arm needs no value |
+| a checked exception thrown, not caught, not in `throws` | compile error: `unreported exception X; must be caught or declared to be thrown` |
+| `catch (X e)` for a checked `X` the `try` body can't throw | compile error: `exception X is never thrown in body of corresponding try statement` |
+| an unchecked exception listed in `throws` | allowed; callers need not catch it |
+| an exception uncaught in `main` | the default handler prints `Exception in thread "main"` and the trace to standard error; exit status 1 |
+| a checked exception its interface doesn't declare, through a `java.lang.reflect.Proxy` | `UndeclaredThrowableException` with the exception as its cause |
+
+## Challenges
+
+1. Your service validates requests in a filter, then again in each method. Which checks belong
+   where, and what happens when the two disagree?
+2. A stream pipeline runs in parallel and three elements fail with `IOException`. Which one does
+   the caller see, and how would you report all three?
+3. Find a sneaky throw in a library you use. Which of your `catch` blocks would have to change if
+   it became a declared checked exception?
+
+## Design Note: Why the Checked Exception Stops at the Lambda
+
+Checked exceptions were designed for direct calls: the compiler reads each signature and makes
+the caller deal with what it lists. A lambda turns a call into a value that runs later, maybe on
+another thread, through an interface written long before your exception. `java.util.function`
+chose interfaces that declare nothing, so any lambda fits any stream. A checked exception then
+has to be wrapped, or hidden from the compiler, to get through. Either way the caller loses the
+one thing the checked exception gave it: a type it can catch by name. Unwrapping at your own
+boundary gives it back.
 
 ## Code Examples
 

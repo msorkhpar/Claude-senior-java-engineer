@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Give a checked exception the four standard constructors",
+  "title": "Get failed exports back to the coordinator",
   "blocks": [
     {
       "type": "heading",
@@ -19,41 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`Exception` offers four public constructors, and a custom exception usually mirrors them. Write the checked `ReportGenerationException` with all four, each handing its arguments to the matching superclass constructor:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`ReportGenerationException()`",
-        "`ReportGenerationException(String message)`",
-        "`ReportGenerationException(String message, Throwable cause)`",
-        "`ReportGenerationException(Throwable cause)`"
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "construction",
-        "`getMessage()`",
-        "`getCause()`"
-      ],
-      "rows": [
-        [
-          "`new ReportGenerationException(\"Report failed\", io)`",
-          "`\"Report failed\"`",
-          "`io`"
-        ],
-        [
-          "`new ReportGenerationException(io)` where `io` is `new IOException(\"disk full\")`",
-          "`\"java.io.IOException: disk full\"`",
-          "`io`"
-        ]
-      ]
+      "text": "The nightly customer export runs on a fleet of worker JVMs. When an export fails, the job framework serializes the failure with Java serialization and sends it to the coordinator, which logs it and schedules a retry for that customer. Since the last release, the coordinator logs `java.io.NotSerializableException` where the failures used to be, and no failed export has been retried."
     },
     {
       "type": "para",
-      "text": "Each form must behave exactly as the same form of `Exception` does, including what it leaves unset. `initCause` is a good way to find out whether a cause was set at all."
+      "text": "Workers and coordinators are upgraded on different days, so for a while a worker on one release talks to a coordinator on the other. The coordinators still run the previous release of `ExportFailedException`, which was declared with `serialVersionUID = 1L` and kept the customer's id in a `String` field named `customerId`. `Customer` comes from the CRM client library and you can't change it."
+    },
+    {
+      "type": "para",
+      "text": "Finish `ExportFailedException` in `src/main/java/practice/Exports.java`: its constructor and `getCustomerId()`, and whatever its fields need. When you're done, a failure written on either release reaches the coordinator with its message, its cause and the id of the customer to retry. About six lines in total."
     },
     {
       "type": "heading",
@@ -68,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class ReportGenerationException extends Exception {\n\n    public ReportGenerationException() {\n        super();\n    }\n\n    public ReportGenerationException(String message) {\n        super(message);\n    }\n\n    public ReportGenerationException(String message, Throwable cause) {\n        super(message, cause);\n    }\n\n    public ReportGenerationException(Throwable cause) {\n        super(cause);\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Nightly customer exports. Each export runs on a worker JVM; when one fails, the job framework\n * serializes the failure with Java serialization and sends it to the coordinator, which logs it\n * and schedules a retry for that customer.\n */\npublic class Exports {\n\n    /** A customer as the CRM client library returns it. Not Serializable, and not ours to change. */\n    public static final class Customer {\n        private final String id;\n        private final String region;\n        private final Object crmSession;              // the live session the record was loaded through\n\n        public Customer(String id, String region, Object crmSession) {\n            this.id = id;\n            this.region = region;\n            this.crmSession = crmSession;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public String region() {\n            return region;\n        }\n    }\n\n    /** An export that failed on a worker. */\n    public static class ExportFailedException extends Exception {\n        private static final long serialVersionUID = 1L;\n        private final String customerId;\n\n        public ExportFailedException(Customer customer, Throwable cause) {\n            super(\"export failed for customer \" + customer.id(), cause);\n            this.customerId = customer.id();\n        }\n\n        /** The customer whose export failed, for the coordinator's retry. */\n        public String getCustomerId() {\n            return customerId;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class ReportGenerationException extends Exception {\n\n    public ReportGenerationException() {\n        throw new UnsupportedOperationException(\"write ReportGenerationException()\");\n    }\n\n    public ReportGenerationException(String message) {\n        throw new UnsupportedOperationException(\"write ReportGenerationException(String)\");\n    }\n\n    public ReportGenerationException(String message, Throwable cause) {\n        throw new UnsupportedOperationException(\"write ReportGenerationException(String, Throwable)\");\n    }\n\n    public ReportGenerationException(Throwable cause) {\n        throw new UnsupportedOperationException(\"write ReportGenerationException(Throwable)\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Nightly customer exports. Each export runs on a worker JVM; when one fails, the job framework\n * serializes the failure with Java serialization and sends it to the coordinator, which logs it\n * and schedules a retry for that customer.\n */\npublic class Exports {\n\n    /** A customer as the CRM client library returns it. Not Serializable, and not ours to change. */\n    public static final class Customer {\n        private final String id;\n        private final String region;\n        private final Object crmSession;              // the live session the record was loaded through\n\n        public Customer(String id, String region, Object crmSession) {\n            this.id = id;\n            this.region = region;\n            this.crmSession = crmSession;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public String region() {\n            return region;\n        }\n    }\n\n    /** An export that failed on a worker. */\n    public static class ExportFailedException extends Exception {\n        private final Customer customer;\n\n        public ExportFailedException(Customer customer, Throwable cause) {\n            // TODO: Build the failure of this customer's export. It travels from the worker to the\n            //       coordinator, which may be running the previous release of this class.\n            super((String) null);\n            throw new IllegalStateException(\"TODO: ExportFailedException\");\n        }\n\n        /** The customer whose export failed, for the coordinator's retry. */\n        public String getCustomerId() {\n            // TODO: The id of the customer whose export failed, on the worker and on the coordinator.\n            throw new IllegalStateException(\"TODO: getCustomerId\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -88,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -99,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f072f3230c74fb04cecfbb42adef78968eede43673f73861cf98567b7f317dff",
-  "starting_code": "package practice;\n\npublic class ReportGenerationException extends Exception {\n\n    public ReportGenerationException() {\n        throw new UnsupportedOperationException(\"write ReportGenerationException()\");\n    }\n\n    public ReportGenerationException(String message) {\n        throw new UnsupportedOperationException(\"write ReportGenerationException(String)\");\n    }\n\n    public ReportGenerationException(String message, Throwable cause) {\n        throw new UnsupportedOperationException(\"write ReportGenerationException(String, Throwable)\");\n    }\n\n    public ReportGenerationException(Throwable cause) {\n        throw new UnsupportedOperationException(\"write ReportGenerationException(Throwable)\");\n    }\n}\n",
+  "content_sha256": "78d636b3d2ba4c7d29ded79916016ebc9437b6509fc00ed42028d67616baa609",
+  "starting_code": "package practice;\n\n/**\n * Nightly customer exports. Each export runs on a worker JVM; when one fails, the job framework\n * serializes the failure with Java serialization and sends it to the coordinator, which logs it\n * and schedules a retry for that customer.\n */\npublic class Exports {\n\n    /** A customer as the CRM client library returns it. Not Serializable, and not ours to change. */\n    public static final class Customer {\n        private final String id;\n        private final String region;\n        private final Object crmSession;              // the live session the record was loaded through\n\n        public Customer(String id, String region, Object crmSession) {\n            this.id = id;\n            this.region = region;\n            this.crmSession = crmSession;\n        }\n\n        public String id() {\n            return id;\n        }\n\n        public String region() {\n            return region;\n        }\n    }\n\n    /** An export that failed on a worker. */\n    public static class ExportFailedException extends Exception {\n        private final Customer customer;\n\n        public ExportFailedException(Customer customer, Throwable cause) {\n            // TODO: Build the failure of this customer's export. It travels from the worker to the\n            //       coordinator, which may be running the previous release of this class.\n            super((String) null);\n            throw new IllegalStateException(\"TODO: ExportFailedException\");\n        }\n\n        /** The customer whose export failed, for the coordinator's retry. */\n        public String getCustomerId() {\n            // TODO: The id of the customer whose export failed, on the worker and on the coordinator.\n            throw new IllegalStateException(\"TODO: getCustomerId\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-2/src/main/java/practice/ReportGenerationException.java",
-    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-2/src/test/java/practice/ReportGenerationExceptionTest.java",
+    "main_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-2/src/main/java/practice/Exports.java",
+    "test_path": "practice/03-exception-handling/12-custom-exception/prose/unit-01/practice-2/src/test/java/practice/ExportsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,34 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ReportGenerationExceptionTest#keepsTheMessageAndTheCause",
+        "id": "practice.ExportsTest#aFailureReachesTheCoordinatorWithItsMessageAndCause",
         "kind": "main",
-        "says": "The (message, cause) constructor keeps both, and the cause is the very object passed in."
+        "says": "a failure survives serialization with its message and its cause"
       },
       {
-        "id": "practice.ReportGenerationExceptionTest#theNoArgumentFormHasNeitherMessageNorCause",
-        "kind": "edge",
-        "says": "The no-argument constructor leaves the message and the cause null, as Exception() does."
+        "id": "practice.ExportsTest#theWorkerKnowsWhichCustomerFailed",
+        "kind": "main",
+        "says": "on the worker, the failure names the customer whose export failed"
       },
       {
-        "id": "practice.ReportGenerationExceptionTest#theCauseOnlyFormTakesTheCauseText",
+        "id": "practice.ExportsTest#theCoordinatorKnowsWhichCustomerToRetry",
         "kind": "edge",
-        "says": "The cause-only constructor's message is cause.toString(), class name included."
+        "says": "after serialization the failure still names the customer, so the context is kept as serializable data rather than dropped"
       },
       {
-        "id": "practice.ReportGenerationExceptionTest#theMessageOnlyFormLeavesTheCauseUnset",
+        "id": "practice.ExportsTest#aFailureFromAWorkerOnThePreviousReleaseCanBeRead",
         "kind": "edge",
-        "says": "The message-only constructor leaves the cause unset, so initCause can still set it once."
-      },
-      {
-        "id": "practice.ReportGenerationExceptionTest#aNullCauseGivesANullMessage",
-        "kind": "edge",
-        "says": "Like Exception(Throwable), the cause-only form accepts a null cause and then has a null message."
-      },
-      {
-        "id": "practice.ReportGenerationExceptionTest#theNoArgumentFormLeavesTheCauseUnset",
-        "kind": "edge",
-        "says": "The no-argument form leaves the cause unset too, so initCause can still set it once."
+        "says": "a failure serialized by the previous release of the class can be read by this one, because both declare the same serialVersionUID"
       }
     ],
     "report": {
@@ -160,11 +124,11 @@
     },
     "origin": {
       "path": "12-custom-exception/README_3.2.1.md",
-      "section": "The standard constructors"
+      "section": "Every Exception Is Serializable, So Its Fields Must Be Too"
     },
     "concepts": [
-      "initCause sets a missing cause once, and cannot replace a cause a constructor already set.",
-      "The four standard constructors take nothing, a message, a message and a cause, or a cause alone."
+      "Every exception is Serializable, so a non-serializable field makes serializing it fail, and transient loses the data.",
+      "An exception sent between releases declares its own serialVersionUID, or a change in the class's shape makes it unreadable."
     ]
   }
 }
