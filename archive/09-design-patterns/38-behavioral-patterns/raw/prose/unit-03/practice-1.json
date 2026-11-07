@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Insert and delete commands that can undo themselves",
+  "title": "Make undo of \"Archive column\" bring the board back",
   "blocks": [
     {
       "type": "heading",
@@ -19,55 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A command turns a request into an object: it holds its **receiver** and its parameters, and knows how to `execute()` and `undo()` it. The page's first pitfall is a delete that cannot be undone because nothing remembered the deleted text. **The text must be saved when `execute()` runs**, not when the command is built: the page's key point 7."
+      "text": "The team board has an \"Archive column\" button at the top of every column, and every edit on the board can be undone. Since archiving shipped, the bug reports say that undoing an archive sometimes empties the whole board, sometimes brings the columns back without their cards, and sometimes loses a card that was added just before the archive ran from the board's queue of pending edits."
     },
     {
       "type": "para",
-      "text": "`Command` and the receiver `TextEditor` are given (`insert(pos, text)`, `delete(pos, len)`, `getContent()`). Write:"
+      "text": "`Board`, `History` and the board's own `archiveColumn(...)` and `restore(...)` work. Finish the two `TODO`s of `ArchiveColumn` in `src/main/java/practice/BoardCommands.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`InsertCommand(editor, position, text)`: `execute()` inserts `text` at `position`; `undo()` removes that text **from that same position**. `description()` is `\"Insert '<text>' at position <position>\"`.",
-        "`DeleteCommand(editor, position, length)`: `execute()` saves the text it is about to delete, then deletes it; `undo()` puts that text back. **`undo()` before any `execute()` throws `IllegalStateException`** and changes nothing. `description()` is `\"Delete <length> chars at position <position>\"`.",
-        "Both constructors refuse a `null` editor (and `InsertCommand` a `null` text) with `IllegalArgumentException`."
+        "`execute()`: archive the column;",
+        "`undo()`: put the board back as it was just before `execute()` ran."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "text before",
-        "command",
-        "after `execute()`",
-        "after `undo()`"
-      ],
-      "rows": [
-        [
-          "`\"Hello\"`",
-          "`Insert(5, \" World\")`",
-          "`\"Hello World\"`",
-          "`\"Hello\"`"
-        ],
-        [
-          "`\"xyz\"`",
-          "`Insert(1, \"ab\")`",
-          "`\"xabyz\"`",
-          "`\"xyz\"`"
-        ],
-        [
-          "`\"Hello World\"`",
-          "`Delete(5, 6)`",
-          "`\"Hello\"`",
-          "`\"Hello World\"`"
-        ],
-        [
-          "`\"abc\"`",
-          "`Delete(0, 1)`, never executed",
-          "",
-          "`IllegalStateException`"
-        ]
-      ]
+      "type": "para",
+      "text": "The archive is kept sorted, so the order a column's cards had can't be read back from it. When you're done, undoing one archive, or several in turn, gives back every column with its cards in their order, and the archive as it was. About eight lines in total."
     },
     {
       "type": "heading",
@@ -82,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Editing {\n\n    private Editing() {\n    }\n\n    /** The receiver: a text buffer. */\n    public static final class TextEditor {\n        private final StringBuilder content = new StringBuilder();\n\n        public void insert(int position, String text) {\n            if (position < 0 || position > content.length()) {\n                throw new IndexOutOfBoundsException(\"Position \" + position + \" is out of bounds for length \" + content.length());\n            }\n            content.insert(position, text);\n        }\n\n        public void delete(int position, int length) {\n            if (position < 0 || length < 0 || position + length > content.length()) {\n                throw new IndexOutOfBoundsException(\"Cannot delete \" + length + \" chars at position \" + position);\n            }\n            content.delete(position, position + length);\n        }\n\n        public String getContent() {\n            return content.toString();\n        }\n\n        public int length() {\n            return content.length();\n        }\n    }\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public static final class InsertCommand implements Command {\n        private final TextEditor editor;\n        private final int position;\n        private final String text;\n\n        public InsertCommand(TextEditor editor, int position, String text) {\n            if (editor == null) {\n                throw new IllegalArgumentException(\"Editor cannot be null\");\n            }\n            if (text == null) {\n                throw new IllegalArgumentException(\"Text cannot be null\");\n            }\n            this.editor = editor;\n            this.position = position;\n            this.text = text;\n        }\n\n        @Override\n        public void execute() {\n            editor.insert(position, text);\n        }\n\n        @Override\n        public void undo() {\n            editor.delete(position, text.length());\n        }\n\n        @Override\n        public String description() {\n            return \"Insert '\" + text + \"' at position \" + position;\n        }\n    }\n\n    public static final class DeleteCommand implements Command {\n        private final TextEditor editor;\n        private final int position;\n        private final int length;\n        private String deletedText;\n\n        public DeleteCommand(TextEditor editor, int position, int length) {\n            if (editor == null) {\n                throw new IllegalArgumentException(\"Editor cannot be null\");\n            }\n            this.editor = editor;\n            this.position = position;\n            this.length = length;\n        }\n\n        @Override\n        public void execute() {\n            deletedText = editor.getContent().substring(position, position + length);\n            editor.delete(position, length);\n        }\n\n        @Override\n        public void undo() {\n            if (deletedText == null) {\n                throw new IllegalStateException(\"Cannot undo a command that was never executed\");\n            }\n            editor.insert(position, deletedText);\n        }\n\n        @Override\n        public String description() {\n            return \"Delete \" + length + \" chars at position \" + position;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Deque;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** The team board's edits, each one a command the board's history can undo. */\npublic class BoardCommands {\n\n    /**\n     * A kanban board: named columns of cards, in order, and an archive kept sorted by card id.\n     * Like the board service it models, it hands out its live map and lists.\n     */\n    public static class Board {\n        private final Map<String, List<String>> columns = new LinkedHashMap<>();\n        private final List<String> archive = new ArrayList<>();\n\n        public Map<String, List<String>> columns() { return columns; }\n\n        public List<String> archive() { return archive; }\n\n        public void addCard(String column, String card) {\n            columns.computeIfAbsent(column, c -> new ArrayList<>()).add(card);\n        }\n\n        /** Moves every card of the column to the archive, which stays sorted. */\n        public void archiveColumn(String column) {\n            List<String> cards = columns.get(column);\n            if (cards == null) return;\n            archive.addAll(cards);\n            archive.sort(null);\n            cards.clear();\n        }\n\n        /** Replaces the whole board with the cards of the given columns and archive. */\n        public void restore(Map<String, List<String>> savedColumns, List<String> savedArchive) {\n            columns.clear();\n            savedColumns.forEach((name, cards) -> columns.put(name, new ArrayList<>(cards)));\n            archive.clear();\n            archive.addAll(savedArchive);\n        }\n    }\n\n    public interface Command {\n        void execute();\n        void undo();\n    }\n\n    /** Runs commands and undoes them, most recent first. */\n    public static class History {\n        private final Deque<Command> done = new ArrayDeque<>();\n\n        public void run(Command command) {\n            command.execute();\n            done.push(command);\n        }\n\n        public boolean undo() {\n            if (done.isEmpty()) return false;\n            done.pop().undo();\n            return true;\n        }\n    }\n\n    /** \"Archive column\": the button at the top of every column. */\n    public static class ArchiveColumn implements Command {\n        private final Board board;\n        private final String column;\n        private Map<String, List<String>> savedColumns;\n        private List<String> savedArchive;\n\n        public ArchiveColumn(Board board, String column) {\n            this.board = board;\n            this.column = column;\n        }\n\n        @Override\n        public void execute() {\n            savedColumns = new LinkedHashMap<>();\n            board.columns().forEach((name, cards) -> savedColumns.put(name, new ArrayList<>(cards)));\n            savedArchive = new ArrayList<>(board.archive());\n            board.archiveColumn(column);\n        }\n\n        @Override\n        public void undo() {\n            board.restore(savedColumns, savedArchive);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -94,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Editing {\n\n    private Editing() {\n    }\n\n    /** The receiver: a text buffer. */\n    public static final class TextEditor {\n        private final StringBuilder content = new StringBuilder();\n\n        public void insert(int position, String text) {\n            if (position < 0 || position > content.length()) {\n                throw new IndexOutOfBoundsException(\"Position \" + position + \" is out of bounds for length \" + content.length());\n            }\n            content.insert(position, text);\n        }\n\n        public void delete(int position, int length) {\n            if (position < 0 || length < 0 || position + length > content.length()) {\n                throw new IndexOutOfBoundsException(\"Cannot delete \" + length + \" chars at position \" + position);\n            }\n            content.delete(position, position + length);\n        }\n\n        public String getContent() {\n            return content.toString();\n        }\n\n        public int length() {\n            return content.length();\n        }\n    }\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public static final class InsertCommand implements Command {\n\n        public InsertCommand(TextEditor editor, int position, String text) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n\n    public static final class DeleteCommand implements Command {\n\n        public DeleteCommand(TextEditor editor, int position, int length) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Deque;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** The team board's edits, each one a command the board's history can undo. */\npublic class BoardCommands {\n\n    /**\n     * A kanban board: named columns of cards, in order, and an archive kept sorted by card id.\n     * Like the board service it models, it hands out its live map and lists.\n     */\n    public static class Board {\n        private final Map<String, List<String>> columns = new LinkedHashMap<>();\n        private final List<String> archive = new ArrayList<>();\n\n        public Map<String, List<String>> columns() { return columns; }\n\n        public List<String> archive() { return archive; }\n\n        public void addCard(String column, String card) {\n            columns.computeIfAbsent(column, c -> new ArrayList<>()).add(card);\n        }\n\n        /** Moves every card of the column to the archive, which stays sorted. */\n        public void archiveColumn(String column) {\n            List<String> cards = columns.get(column);\n            if (cards == null) return;\n            archive.addAll(cards);\n            archive.sort(null);\n            cards.clear();\n        }\n\n        /** Replaces the whole board with the cards of the given columns and archive. */\n        public void restore(Map<String, List<String>> savedColumns, List<String> savedArchive) {\n            columns.clear();\n            savedColumns.forEach((name, cards) -> columns.put(name, new ArrayList<>(cards)));\n            archive.clear();\n            archive.addAll(savedArchive);\n        }\n    }\n\n    public interface Command {\n        void execute();\n        void undo();\n    }\n\n    /** Runs commands and undoes them, most recent first. */\n    public static class History {\n        private final Deque<Command> done = new ArrayDeque<>();\n\n        public void run(Command command) {\n            command.execute();\n            done.push(command);\n        }\n\n        public boolean undo() {\n            if (done.isEmpty()) return false;\n            done.pop().undo();\n            return true;\n        }\n    }\n\n    /** \"Archive column\": the button at the top of every column. */\n    public static class ArchiveColumn implements Command {\n        private final Board board;\n        private final String column;\n\n        public ArchiveColumn(Board board, String column) {\n            this.board = board;\n            this.column = column;\n        }\n\n        @Override\n        public void execute() {\n            // TODO: Archive the column, keeping what undo() will need to put the board back.\n            throw new IllegalStateException(\"TODO: execute\");\n        }\n\n        @Override\n        public void undo() {\n            // TODO: Put the columns and the archive back exactly as they were before execute().\n            throw new IllegalStateException(\"TODO: undo\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -102,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -113,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "dd4415a70c14511928d50861054e332929e3e1dc1524a09ea91c2ca8c915080c",
-  "starting_code": "package practice;\n\npublic final class Editing {\n\n    private Editing() {\n    }\n\n    /** The receiver: a text buffer. */\n    public static final class TextEditor {\n        private final StringBuilder content = new StringBuilder();\n\n        public void insert(int position, String text) {\n            if (position < 0 || position > content.length()) {\n                throw new IndexOutOfBoundsException(\"Position \" + position + \" is out of bounds for length \" + content.length());\n            }\n            content.insert(position, text);\n        }\n\n        public void delete(int position, int length) {\n            if (position < 0 || length < 0 || position + length > content.length()) {\n                throw new IndexOutOfBoundsException(\"Cannot delete \" + length + \" chars at position \" + position);\n            }\n            content.delete(position, position + length);\n        }\n\n        public String getContent() {\n            return content.toString();\n        }\n\n        public int length() {\n            return content.length();\n        }\n    }\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public static final class InsertCommand implements Command {\n\n        public InsertCommand(TextEditor editor, int position, String text) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n\n    public static final class DeleteCommand implements Command {\n\n        public DeleteCommand(TextEditor editor, int position, int length) {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void execute() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public void undo() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n\n        @Override\n        public String description() {\n            throw new UnsupportedOperationException(\"TODO\");\n        }\n    }\n}\n",
+  "content_sha256": "efedd285eb986f5ee8ce30ff874b00cc04d89d4745d78b75cf52df75b3a99107",
+  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.ArrayList;\nimport java.util.Deque;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** The team board's edits, each one a command the board's history can undo. */\npublic class BoardCommands {\n\n    /**\n     * A kanban board: named columns of cards, in order, and an archive kept sorted by card id.\n     * Like the board service it models, it hands out its live map and lists.\n     */\n    public static class Board {\n        private final Map<String, List<String>> columns = new LinkedHashMap<>();\n        private final List<String> archive = new ArrayList<>();\n\n        public Map<String, List<String>> columns() { return columns; }\n\n        public List<String> archive() { return archive; }\n\n        public void addCard(String column, String card) {\n            columns.computeIfAbsent(column, c -> new ArrayList<>()).add(card);\n        }\n\n        /** Moves every card of the column to the archive, which stays sorted. */\n        public void archiveColumn(String column) {\n            List<String> cards = columns.get(column);\n            if (cards == null) return;\n            archive.addAll(cards);\n            archive.sort(null);\n            cards.clear();\n        }\n\n        /** Replaces the whole board with the cards of the given columns and archive. */\n        public void restore(Map<String, List<String>> savedColumns, List<String> savedArchive) {\n            columns.clear();\n            savedColumns.forEach((name, cards) -> columns.put(name, new ArrayList<>(cards)));\n            archive.clear();\n            archive.addAll(savedArchive);\n        }\n    }\n\n    public interface Command {\n        void execute();\n        void undo();\n    }\n\n    /** Runs commands and undoes them, most recent first. */\n    public static class History {\n        private final Deque<Command> done = new ArrayDeque<>();\n\n        public void run(Command command) {\n            command.execute();\n            done.push(command);\n        }\n\n        public boolean undo() {\n            if (done.isEmpty()) return false;\n            done.pop().undo();\n            return true;\n        }\n    }\n\n    /** \"Archive column\": the button at the top of every column. */\n    public static class ArchiveColumn implements Command {\n        private final Board board;\n        private final String column;\n\n        public ArchiveColumn(Board board, String column) {\n            this.board = board;\n            this.column = column;\n        }\n\n        @Override\n        public void execute() {\n            // TODO: Archive the column, keeping what undo() will need to put the board back.\n            throw new IllegalStateException(\"TODO: execute\");\n        }\n\n        @Override\n        public void undo() {\n            // TODO: Put the columns and the archive back exactly as they were before execute().\n            throw new IllegalStateException(\"TODO: undo\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/src/main/java/practice/Editing.java",
-    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/src/test/java/practice/EditingTest.java",
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/src/main/java/practice/BoardCommands.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-1/src/test/java/practice/BoardCommandsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -138,24 +106,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EditingTest#executesAndUndoesInsertsAndDeletes",
+        "id": "practice.BoardCommandsTest#archivingMovesTheColumnsCardsToTheArchive",
         "kind": "main",
-        "says": "Two inserts build \"Hello World\", a delete removes \" World\", and undoing the delete and then the second insert gives \"Hello World\" and \"Hello\"."
+        "says": "archiving a column moves its cards into the sorted archive and leaves the other columns alone"
       },
       {
-        "id": "practice.EditingTest#aMiddleInsertUndoesAtItsOwnPosition",
-        "kind": "edge",
-        "says": "Undoing an insert made in the middle of the text removes exactly that text from that position, even when the same text also appears later."
+        "id": "practice.BoardCommandsTest#archivingTwoColumnsArchivesTheCardsOfBoth",
+        "kind": "main",
+        "says": "two archive commands in a row archive the cards of both columns"
       },
       {
-        "id": "practice.EditingTest#deleteSavesTheTextWhenItRuns",
+        "id": "practice.BoardCommandsTest#undoLeavesTheOtherColumnsAsTheyWere",
         "kind": "edge",
-        "says": "If the text changes between building a DeleteCommand and executing it, undo restores what execute() really deleted."
+        "says": "after an undo, the columns the command did not archive still hold their cards"
       },
       {
-        "id": "practice.EditingTest#undoBeforeExecuteIsRefused",
+        "id": "practice.BoardCommandsTest#undoPutsTheArchivedCardsBackInTheirColumn",
         "kind": "edge",
-        "says": "undo() on a DeleteCommand that never ran throws IllegalStateException and leaves the text as it was."
+        "says": "undo puts the archived cards back in their column, in order, and takes them out of the archive"
+      },
+      {
+        "id": "practice.BoardCommandsTest#anArchiveCreatedBeforeACardArrivedBringsThatCardBackToo",
+        "kind": "edge",
+        "says": "undo of an archive command created before a card was added to the column brings that card back too"
       }
     ],
     "report": {
@@ -164,12 +137,12 @@
     },
     "origin": {
       "path": "38-behavioral-patterns/README_9.3.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Undo Restores What the Command Saved, So It Must Save a Copy Taken When It Runs"
     },
     "concepts": [
-      "A command object holds its receiver and parameters and knows how to execute and undo the request it stands for.",
-      "A command saves the state its undo needs when execute() runs, not when it is constructed.",
-      "Undoing a command that never executed throws IllegalStateException instead of corrupting the receiver."
+      "Copying a collection does not copy its mutable elements, so the snapshot copies every mutable level.",
+      "The copy is taken in execute(), because a command built earlier may run after other changes.",
+      "A command that saves a reference to the receiver's live state restores the changed state on undo; it must save a copy."
     ]
   }
 }

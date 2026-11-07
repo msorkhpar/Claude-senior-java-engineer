@@ -1,29 +1,13 @@
-`ConcurrentHashMap` makes each single-key operation atomic, but not a group of them, and its
-iterators are only weakly consistent. When two keys must change together, or a snapshot must be
-exact, the page reaches for a `ReadWriteLock` around a plain `HashMap`:
+A chain of about thirty shops keeps one product in `StockLedger`: units per warehouse. Transfer
+threads move units between warehouses a few times a minute; nothing is ever added or sold here, so
+the chain's total never changes. The stock-take report prints one line per warehouse on a label
+printer, which takes about a second per line, and then the total.
 
-```java
-// Atomic multi-key operation -- not possible with ConcurrentHashMap
-public void transferValue(K fromKey, K toKey) {
-    lock.writeLock().lock();
-    try {
-        V value = map.remove(fromKey);
-        if (value != null) {
-            map.put(toKey, value);
-        }
-    } finally {
-        lock.writeLock().unlock();
-    }
-}
-```
+Last month's reports printed lines that didn't add up to the total the chain holds, and the
+auditors flagged every one. Someone suggested locking the ledger while the report prints, but a
+transfer must not wait half a minute for the printer.
 
-`StrictMap<K, V>` is given its map and its lock, and `get` and `put` are written. Write:
-
-- `transfer(fromKey, toKey)`: moves the value of `fromKey` to `toKey`. **The whole move holds
-  the write lock**: it takes the write lock once, and every access to the map it makes,
-  reading the old value included, happens under it, so no reader or writer ever sees the
-  value in both places or in neither. When `fromKey` is absent nothing moves, and `toKey` is
-  not created; `transfer(k, k)` leaves `k` holding its value;
-- `snapshot()`: a copy of every entry. **It is taken under the read lock**, not the write
-  lock, so readers may take snapshots side by side, and **a snapshot does not follow later
-  writes**.
+Finish `src/main/java/practice/StockLedger.java`: hold the stock however you need to (the
+`ConcurrentHashMap` is only where the team started), and write `move` and `report`. When you're
+done, every report's lines add up to a total the chain really held, even with transfers running
+during it, and a transfer never waits for the printer. About twelve lines in total.

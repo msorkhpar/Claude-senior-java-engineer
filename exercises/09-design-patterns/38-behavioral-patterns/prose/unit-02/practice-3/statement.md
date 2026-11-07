@@ -1,24 +1,10 @@
-A subject can **push** the data with each notification, or observers can
-**pull** what they need from the subject when told something changed. The
-page's property-change observer does both: listeners get the old and the new
-value, and may also read the property.
+A trading screen is made of widgets: charts, tickers, a blotter. Each one subscribes to a
+symbol's prices on `PriceFeed` when the trader opens it, usually with a lambda or a method
+reference, and closes what `subscribe` returned when the trader closes it. The blotter subscribes
+the same listener to several symbols.
 
-`PropertyChangeListener<T>` (given) has `void onChange(T oldValue, T newValue)`.
-Write `ObservableProperty<T>`:
-
-- `new ObservableProperty<>(initial)` holds `initial` (which may be `null`).
-- `setValue(v)` does nothing when `v` **equals** the current value (by
-  `equals`, not by `==`). Otherwise it stores `v` and calls
-  `onChange(old, v)` on every listener. **The new value is stored before any
-  listener runs**, so a listener that pulls with `getValue()` sees it.
-- **`null` is an ordinary value**: changing to or from `null` notifies, and
-  never throws.
-- `addListener(l)` (`null` throws `IllegalArgumentException`),
-  `removeListener(l)` and `listenerCount()`.
-
-| value now | `setValue(...)` | listeners get |
-|---|---|---|
-| `"red"` | `"blue"` | `onChange("red", "blue")` |
-| `"blue"` | another `"blue"` object | nothing |
-| `null` | `"x"` | `onChange(null, "x")` |
-| `"x"` | `null` | `onChange("x", null)` |
+Finish `subscribe(String symbol, DoubleConsumer listener)` in
+`src/main/java/practice/PriceFeed.java`. It registers the listener for that symbol and returns a
+`Subscription`; closing that subscription stops exactly that registration, whatever else the same
+listener or the same symbol is subscribed to, and lets the feed forget it. `tick` and the `Entry`
+class are written. About three lines in total.

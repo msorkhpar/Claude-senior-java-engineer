@@ -1,27 +1,16 @@
-The page's invoker keeps **two stacks**: executed commands on the undo
-stack, undone commands on the redo stack. Its critical rule: **a new
-command clears the redo stack**, or redo would replay a history that no
-longer exists. It also advises a size limit, because an unbounded undo stack
-keeps growing.
+The shop's back office sends refunds to the refund service over a link that sometimes loses a
+reply: the service did the work, but the answer never came back. Finance found orders refunded
+twice in the weeks the link was flaky. Support has the opposite complaint: a customer who
+returned two identical items got one refund. And the back office's screen sometimes shows
+"already processed" where agents expect a receipt number to give the customer.
 
-`Command` (given) has `execute()`, `undo()` and `description()`. Write
-`CommandHistory`:
+Finish the two `TODO`s in `src/main/java/practice/Refunds.java`:
 
-- `new CommandHistory(limit)` keeps at most `limit` commands to undo
-  (`limit < 1` throws `IllegalArgumentException`). When a new command would
-  go past the limit, **the oldest one is dropped**.
-- `executeCommand(c)` runs `c`, pushes it on the undo stack and clears the
-  redo stack (`null` throws `IllegalArgumentException`).
-- `undo()` pops the newest command, undoes it and pushes it on the redo
-  stack; `redo()` pops from the redo stack, executes it again and pushes it
-  back on the undo stack. **With nothing to undo (or redo), they return
-  `false`**; otherwise `true`.
-- `canUndo()`, `canRedo()`, `undoSize()`, `redoSize()`, and
-  `getUndoHistory()`: the descriptions on the undo stack, **newest first**.
+- `RefundService.handle(...)`: the service's side of one request;
+- `RefundClient.refund(...)`: the back office's side, sending and retrying.
 
-| calls (each command adds its number to a total) | total | `getUndoHistory()` |
-|---|---|---|
-| execute `add 1`, execute `add 20` | 21 | `["add 20", "add 1"]` |
-| then `undo()` | 1 | `["add 1"]` |
-| then `redo()` | 21 | `["add 20", "add 1"]` |
-| undo, then execute `add 300`, then `redo()` → `false` | 301 | `["add 300", "add 1"]` |
+When you're done, a refund is paid once however many times the link had to ask, two refunds the
+back office asked for separately are both paid, and the back office always gets the receipt of
+the refund that was paid. About twelve lines in total.
+
+The tests use a link that delivers every request and can drop the reply.

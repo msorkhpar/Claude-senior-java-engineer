@@ -1,27 +1,12 @@
-Changing a list while something traverses it is the fail-fast trap, and a stream is a traversal
-too. The page's pitfall and fix:
+Every request to the back office appends an event to `AuditLog`: who did what, numbered in order.
+By the end of a day the log holds tens of thousands of events. Compliance can start an export at
+any moment; it walks the log and writes each event to the archive, which takes a few
+milliseconds per event, while requests keep arriving.
 
-```java
-List<String> list = new ArrayList<>(List.of("a", "b", "c"));
-// WRONG -- modifying source during stream processing
-list.stream().forEach(item -> {
-    if ("b".equals(item)) list.remove(item); // ConcurrentModificationException (at the end)!
-});
+Ops wants three things from the log. Request latency must not creep up as the day's log grows.
+A request must never wait for an export that happens to be running. An export must finish, with
+every event that was in the log when it began, once each and in order; whether it also includes
+events appended while it runs doesn't matter.
 
-// FIX -- use removeIf or collect to new list
-list.removeIf(item -> item.equals("b"));
-```
-
-When other code still holds the source, the page prefers the second way, a new collection:
-"Streams offer a safe alternative to manual iteration + modification by collecting results into a
-new collection", and `Collectors.toUnmodifiableList()` "to produce safe results from streams".
-
-Write `longWords(List<String> source, int minLength)` in `Filters`. It returns the words of at
-least `minLength` characters, in their order:
-
-- `["a", "abc", "ab", "abcd"]` with `3` gives `["abc", "abcd"]`;
-- **the source is left untouched**, whatever it holds;
-- words are kept exactly as they are, duplicates and order included: nothing is trimmed,
-  sorted or de-duplicated, and every character counts towards the length;
-- **the result is a new list, and unmodifiable**: it is never the source itself, even when every
-  word qualifies, and `add`, `set` or `remove` on it throws `UnsupportedOperationException`.
+Finish `src/main/java/practice/AuditLog.java`: choose the collection in `newStore()`, and write
+`store` and `export`. About six lines in total.

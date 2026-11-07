@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Filter into a new list, never the source",
+  "title": "Keep the audit log fast all day and exportable at any time",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Changing a list while something traverses it is the fail-fast trap, and a stream is a traversal too. The page's pitfall and fix:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "List<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\n// WRONG -- modifying source during stream processing\nlist.stream().forEach(item -> {\n    if (\"b\".equals(item)) list.remove(item); // ConcurrentModificationException (at the end)!\n});\n\n// FIX -- use removeIf or collect to new list\nlist.removeIf(item -> item.equals(\"b\"));"
+      "text": "Every request to the back office appends an event to `AuditLog`: who did what, numbered in order. By the end of a day the log holds tens of thousands of events. Compliance can start an export at any moment; it walks the log and writes each event to the archive, which takes a few milliseconds per event, while requests keep arriving."
     },
     {
       "type": "para",
-      "text": "When other code still holds the source, the page prefers the second way, a new collection: \"Streams offer a safe alternative to manual iteration + modification by collecting results into a new collection\", and `Collectors.toUnmodifiableList()` \"to produce safe results from streams\"."
+      "text": "Ops wants three things from the log. Request latency must not creep up as the day's log grows. A request must never wait for an export that happens to be running. An export must finish, with every event that was in the log when it began, once each and in order; whether it also includes events appended while it runs doesn't matter."
     },
     {
       "type": "para",
-      "text": "Write `longWords(List<String> source, int minLength)` in `Filters`. It returns the words of at least `minLength` characters, in their order:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`[\"a\", \"abc\", \"ab\", \"abcd\"]` with `3` gives `[\"abc\", \"abcd\"]`;",
-        "**the source is left untouched**, whatever it holds;",
-        "words are kept exactly as they are, duplicates and order included: nothing is trimmed, sorted or de-duplicated, and every character counts towards the length;",
-        "**the result is a new list, and unmodifiable**: it is never the source itself, even when every word qualifies, and `add`, `set` or `remove` on it throws `UnsupportedOperationException`."
-      ]
+      "text": "Finish `src/main/java/practice/AuditLog.java`: choose the collection in `newStore()`, and write `store` and `export`. About six lines in total."
     },
     {
       "type": "heading",
@@ -57,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.stream.Collectors;\n\npublic final class Filters {\n\n    private Filters() {\n    }\n\n    /** Returns a new, unmodifiable list of the words at least minLength long. */\n    public static List<String> longWords(List<String> source, int minLength) {\n        return source.stream()\n                .filter(word -> word.length() >= minLength)\n                .collect(Collectors.toUnmodifiableList());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.concurrent.ConcurrentLinkedQueue;\nimport java.util.concurrent.atomic.AtomicLong;\nimport java.util.function.Consumer;\n\n/**\n * The day's audit trail. Every request thread appends to it; the compliance export walks it and\n * writes each event to the archive, while requests keep coming.\n */\npublic class AuditLog {\n\n    /** One audited action. Sequence numbers start at 1 and follow the order of appends. */\n    public record Event(long seq, String user, String action) {}\n\n    private final AtomicLong lastSeq = new AtomicLong();\n    private final Collection<Event> events = newStore();\n\n    /** Records an action and returns its event. Called by every request thread. */\n    public Event append(String user, String action) {\n        Event e = new Event(lastSeq.incrementAndGet(), user, action);\n        store(e);\n        return e;\n    }\n\n    /** The collection the events are kept in, in the order they are stored. */\n    Collection<Event> newStore() {\n        return new ConcurrentLinkedQueue<>();\n    }\n\n    /** Keeps one event. */\n    void store(Event e) {\n        events.add(e);\n    }\n\n    /** Hands the events to the archive in order and returns how many it handed over. */\n    public int export(Consumer<Event> archive) {\n        int handed = 0;\n        for (Event e : events) {\n            archive.accept(e);\n            handed++;\n        }\n        return handed;\n    }\n}\n"
         }
       ]
     },
@@ -69,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.stream.Collectors;\n\npublic final class Filters {\n\n    private Filters() {\n    }\n\n    /** Returns a new, unmodifiable list of the words at least minLength long. */\n    public static List<String> longWords(List<String> source, int minLength) {\n        throw new UnsupportedOperationException(\"write longWords\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Collection;\nimport java.util.concurrent.atomic.AtomicLong;\nimport java.util.function.Consumer;\n\n/**\n * The day's audit trail. Every request thread appends to it; the compliance export walks it and\n * writes each event to the archive, while requests keep coming.\n */\npublic class AuditLog {\n\n    /** One audited action. Sequence numbers start at 1 and follow the order of appends. */\n    public record Event(long seq, String user, String action) {}\n\n    private final AtomicLong lastSeq = new AtomicLong();\n    private final Collection<Event> events = newStore();\n\n    /** Records an action and returns its event. Called by every request thread. */\n    public Event append(String user, String action) {\n        Event e = new Event(lastSeq.incrementAndGet(), user, action);\n        store(e);\n        return e;\n    }\n\n    /** The collection the events are kept in, in the order they are stored. */\n    Collection<Event> newStore() {\n        // TODO: choose the collection. Every request thread appends; the export walks it meanwhile.\n        throw new IllegalStateException(\"TODO: newStore\");\n    }\n\n    /** Keeps one event. */\n    void store(Event e) {\n        // TODO: keep the event.\n        throw new IllegalStateException(\"TODO: store\");\n    }\n\n    /** Hands the events to the archive in order and returns how many it handed over. */\n    public int export(Consumer<Event> archive) {\n        // TODO: hand the events to the archive in order, while requests go on appending.\n        throw new IllegalStateException(\"TODO: export\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -88,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5358cbdd536174001a36521398b6eacfc438d28019deb41e83799cadb53b1bd0",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.stream.Collectors;\n\npublic final class Filters {\n\n    private Filters() {\n    }\n\n    /** Returns a new, unmodifiable list of the words at least minLength long. */\n    public static List<String> longWords(List<String> source, int minLength) {\n        throw new UnsupportedOperationException(\"write longWords\");\n    }\n}\n",
+  "content_sha256": "3fb7ad20524f17ad9af1e105e575ce37cf9c16407176743fe9ea38cf7610f89d",
+  "starting_code": "package practice;\n\nimport java.util.Collection;\nimport java.util.concurrent.atomic.AtomicLong;\nimport java.util.function.Consumer;\n\n/**\n * The day's audit trail. Every request thread appends to it; the compliance export walks it and\n * writes each event to the archive, while requests keep coming.\n */\npublic class AuditLog {\n\n    /** One audited action. Sequence numbers start at 1 and follow the order of appends. */\n    public record Event(long seq, String user, String action) {}\n\n    private final AtomicLong lastSeq = new AtomicLong();\n    private final Collection<Event> events = newStore();\n\n    /** Records an action and returns its event. Called by every request thread. */\n    public Event append(String user, String action) {\n        Event e = new Event(lastSeq.incrementAndGet(), user, action);\n        store(e);\n        return e;\n    }\n\n    /** The collection the events are kept in, in the order they are stored. */\n    Collection<Event> newStore() {\n        // TODO: choose the collection. Every request thread appends; the export walks it meanwhile.\n        throw new IllegalStateException(\"TODO: newStore\");\n    }\n\n    /** Keeps one event. */\n    void store(Event e) {\n        // TODO: keep the event.\n        throw new IllegalStateException(\"TODO: store\");\n    }\n\n    /** Hands the events to the archive in order and returns how many it handed over. */\n    public int export(Consumer<Event> archive) {\n        // TODO: hand the events to the archive in order, while requests go on appending.\n        throw new IllegalStateException(\"TODO: export\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-2/src/main/java/practice/Filters.java",
-    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-2/src/test/java/practice/FiltersTest.java",
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-2/src/main/java/practice/AuditLog.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-2/src/test/java/practice/AuditLogTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FiltersTest#keepsTheLongWords",
+        "id": "practice.AuditLogTest#theExportHandsOverEveryEventInOrder",
         "kind": "main",
-        "says": "[a, abc, ab, abcd] with 3 gives [abc, abcd]."
+        "says": "an export hands every appended event to the archive once, in the order of appends"
       },
       {
-        "id": "practice.FiltersTest#theSourceIsLeftUntouched",
+        "id": "practice.AuditLogTest#anAppendCostsTheSameWhateverTheLogHolds",
         "kind": "edge",
-        "says": "After the call, the caller's source still holds [a, abc, ab, abcd]."
+        "says": "an append to a log of 20,000 events allocates about what one stored event needs, not a copy of the log"
       },
       {
-        "id": "practice.FiltersTest#theResultIsNeverTheSource",
+        "id": "practice.AuditLogTest#anAppendDoesNotWaitForAnExport",
         "kind": "edge",
-        "says": "When every word qualifies, the result is still a separate list that does not follow the source."
+        "says": "an append from a request thread returns while an export is still writing to the archive"
       },
       {
-        "id": "practice.FiltersTest#theResultCannotBeChanged",
+        "id": "practice.AuditLogTest#anExportSurvivesAppendsMadeWhileItRuns",
         "kind": "edge",
-        "says": "add on the result throws UnsupportedOperationException."
-      },
-      {
-        "id": "practice.FiltersTest#wordsAreKeptAsTheyAre",
-        "kind": "edge",
-        "says": "Duplicates, order, a leading space and an apostrophe all survive: nothing is trimmed, sorted or de-duplicated."
+        "says": "an export that runs while events are appended completes, with every earlier event once and in order"
       }
     ],
     "report": {
@@ -144,11 +124,11 @@
     },
     "origin": {
       "path": "35-fail-fast-safe/README_8.5.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Weakly Consistent Walk Fits Work on One Element at a Time, Not a Total Across Elements"
     },
     "concepts": [
-      "Filtering by collecting into a new collection, for example with Collectors.toUnmodifiableList(), leaves the source untouched and avoids modifying it during a traversal.",
-      "Removing from the source inside stream().forEach trips the fail-fast check; removeIf or collecting to a new list is the fix."
+      "Every write to a CopyOnWriteArrayList copies the whole array, so time and allocation per write grow with the list's size.",
+      "A weakly consistent walk fits work that handles each element on its own: it takes no lock, never fails, and writers go on during it."
     ]
   }
 }

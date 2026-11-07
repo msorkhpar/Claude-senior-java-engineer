@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Notify from a snapshot, and survive a failing observer",
+  "title": "Keep one failing CI plug-in from silencing the rest",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's second pitfall: an observer that calls `removeObserver()` inside `update()` changes the list the subject is looping over, and the loop fails with `ConcurrentModificationException`. The fix is to **iterate a snapshot** of the list. Its edge cases add one more rule: **one observer that throws must not stop the others** from being notified."
+      "text": "This practice continues the previous one: `BuildEvents.publish` already walks the plug-ins safely when one of them unsubscribes itself, and now hands each build to each plug-in through `deliver(listener, buildId)`."
     },
     {
       "type": "para",
-      "text": "`Observer<T>` (given) has `void update(String event, T data)`. Write `SafeSubject<T>`:"
+      "text": "Plug-ins are written by other teams. Last night the artifact-cleaner plug-in threw on every build because an agent's disk was full. Every plug-in registered after it stopped hearing about builds, and the code that calls `publish` at the end of a build marked green builds as failed. Nobody running the server could tell which plug-in was at fault."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`addObserver(o)` registers `o` (`null` throws `IllegalArgumentException`); `removeObserver(o)` unregisters it.",
-        "`notifyObservers(event, data)` calls `update(event, data)` on **the observers registered when the notification starts**. An observer may add or remove observers (itself included) from inside `update()`: that changes who gets the *next* event, not this one.",
-        "If an observer throws a `RuntimeException`, the rest are still notified. `notifyObservers` returns the exceptions thrown, in the order they happened (an empty list when none)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "observers, in order",
-        "during `update`",
-        "first event reaches",
-        "second event reaches"
-      ],
-      "rows": [
-        [
-          "A, R, B",
-          "R removes R",
-          "A, R, B",
-          "A, B"
-        ],
-        [
-          "A, B",
-          "A adds N",
-          "A, B",
-          "A, B, N"
-        ],
-        [
-          "X, B",
-          "X throws",
-          "B, and X's exception is returned",
-          "B, and X's exception again"
-        ]
-      ]
+      "type": "para",
+      "text": "`BuildEvents` now takes an `onPluginFailure` handler in its constructor. Finish `deliver(listener, buildId)` in `src/main/java/practice/BuildEvents.java` so that a plug-in that throws costs no other plug-in its build, never makes `publish` fail, and is reported to that handler with the build id and the exception it threw. About five lines in total."
     },
     {
       "type": "heading",
@@ -76,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic final class SafeSubject<T> {\n\n    @FunctionalInterface\n    public interface Observer<T> {\n        void update(String event, T data);\n    }\n\n    private final List<Observer<T>> observers = new ArrayList<>();\n\n    public void addObserver(Observer<T> observer) {\n        if (observer == null) {\n            throw new IllegalArgumentException(\"Observer cannot be null\");\n        }\n        observers.add(observer);\n    }\n\n    public void removeObserver(Observer<T> observer) {\n        observers.remove(observer);\n    }\n\n    public List<RuntimeException> notifyObservers(String event, T data) {\n        List<RuntimeException> failures = new ArrayList<>();\n        List<Observer<T>> snapshot = new ArrayList<>(observers);\n        for (Observer<T> observer : snapshot) {\n            try {\n                observer.update(event, data);\n            } catch (RuntimeException e) {\n                failures.add(e);\n            }\n        }\n        return failures;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.BiConsumer;\nimport java.util.function.Consumer;\n\n/**\n * Tells the CI server's plug-ins about each finished build: the chat notifier, the dashboard,\n * the artifact cleaner. Plug-ins subscribe and unsubscribe at any time, including from inside\n * their own callback. Plug-ins are written by other teams, and some of them throw.\n */\npublic class BuildEvents {\n\n    private final List<Consumer<String>> listeners = new ArrayList<>();\n    private final BiConsumer<String, RuntimeException> onPluginFailure;\n\n    /** @param onPluginFailure told the build id and the exception whenever a plug-in fails */\n    public BuildEvents(BiConsumer<String, RuntimeException> onPluginFailure) {\n        this.onPluginFailure = onPluginFailure;\n    }\n\n    public void subscribe(Consumer<String> listener) {\n        listeners.add(listener);\n    }\n\n    public void unsubscribe(Consumer<String> listener) {\n        listeners.remove(listener);\n    }\n\n    public int listenerCount() {\n        return listeners.size();\n    }\n\n    /** Tells every subscribed plug-in that the build {@code buildId} finished. */\n    public void publish(String buildId) {\n        for (Consumer<String> listener : List.copyOf(listeners)) {\n            deliver(listener, buildId);\n        }\n    }\n\n    /** Hands one build to one plug-in. */\n    void deliver(Consumer<String> listener, String buildId) {\n        try {\n            listener.accept(buildId);\n        } catch (RuntimeException e) {\n            onPluginFailure.accept(buildId, e);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class SafeSubject<T> {\n\n    @FunctionalInterface\n    public interface Observer<T> {\n        void update(String event, T data);\n    }\n\n    public void addObserver(Observer<T> observer) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void removeObserver(Observer<T> observer) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public List<RuntimeException> notifyObservers(String event, T data) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.BiConsumer;\nimport java.util.function.Consumer;\n\n/**\n * Tells the CI server's plug-ins about each finished build: the chat notifier, the dashboard,\n * the artifact cleaner. Plug-ins subscribe and unsubscribe at any time, including from inside\n * their own callback. Plug-ins are written by other teams, and some of them throw.\n */\npublic class BuildEvents {\n\n    private final List<Consumer<String>> listeners = new ArrayList<>();\n    private final BiConsumer<String, RuntimeException> onPluginFailure;\n\n    /** @param onPluginFailure told the build id and the exception whenever a plug-in fails */\n    public BuildEvents(BiConsumer<String, RuntimeException> onPluginFailure) {\n        this.onPluginFailure = onPluginFailure;\n    }\n\n    public void subscribe(Consumer<String> listener) {\n        listeners.add(listener);\n    }\n\n    public void unsubscribe(Consumer<String> listener) {\n        listeners.remove(listener);\n    }\n\n    public int listenerCount() {\n        return listeners.size();\n    }\n\n    /** Tells every subscribed plug-in that the build {@code buildId} finished. */\n    public void publish(String buildId) {\n        for (Consumer<String> listener : List.copyOf(listeners)) {\n            deliver(listener, buildId);\n        }\n    }\n\n    /** Hands one build to one plug-in. */\n    void deliver(Consumer<String> listener, String buildId) {\n        // TODO: Plug-ins are written by other teams. One that throws must not cost the other\n        //       plug-ins this build or make publish fail, and whoever runs the CI server must\n        //       still hear about it.\n        throw new IllegalStateException(\"TODO: deliver\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -96,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -107,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "461fecd39baf6d9cd6928c64269201d5bde4b3a71050da3061ff808c78b2e2b3",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class SafeSubject<T> {\n\n    @FunctionalInterface\n    public interface Observer<T> {\n        void update(String event, T data);\n    }\n\n    public void addObserver(Observer<T> observer) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void removeObserver(Observer<T> observer) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public List<RuntimeException> notifyObservers(String event, T data) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "99f2ddb852ca953439daf3338128bc1706bbc9a32c34e089d6cb900f55e20160",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.BiConsumer;\nimport java.util.function.Consumer;\n\n/**\n * Tells the CI server's plug-ins about each finished build: the chat notifier, the dashboard,\n * the artifact cleaner. Plug-ins subscribe and unsubscribe at any time, including from inside\n * their own callback. Plug-ins are written by other teams, and some of them throw.\n */\npublic class BuildEvents {\n\n    private final List<Consumer<String>> listeners = new ArrayList<>();\n    private final BiConsumer<String, RuntimeException> onPluginFailure;\n\n    /** @param onPluginFailure told the build id and the exception whenever a plug-in fails */\n    public BuildEvents(BiConsumer<String, RuntimeException> onPluginFailure) {\n        this.onPluginFailure = onPluginFailure;\n    }\n\n    public void subscribe(Consumer<String> listener) {\n        listeners.add(listener);\n    }\n\n    public void unsubscribe(Consumer<String> listener) {\n        listeners.remove(listener);\n    }\n\n    public int listenerCount() {\n        return listeners.size();\n    }\n\n    /** Tells every subscribed plug-in that the build {@code buildId} finished. */\n    public void publish(String buildId) {\n        for (Consumer<String> listener : List.copyOf(listeners)) {\n            deliver(listener, buildId);\n        }\n    }\n\n    /** Hands one build to one plug-in. */\n    void deliver(Consumer<String> listener, String buildId) {\n        // TODO: Plug-ins are written by other teams. One that throws must not cost the other\n        //       plug-ins this build or make publish fail, and whoever runs the CI server must\n        //       still hear about it.\n        throw new IllegalStateException(\"TODO: deliver\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-2/src/main/java/practice/SafeSubject.java",
-    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-2/src/test/java/practice/SafeSubjectTest.java",
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-2/src/main/java/practice/BuildEvents.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-2/src/test/java/practice/BuildEventsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SafeSubjectTest#everyObserverGetsTheEvent",
+        "id": "practice.BuildEventsTest#everyPluginHearsEveryBuild",
         "kind": "main",
-        "says": "notifyObservers() calls update(event, data) on every registered observer and returns an empty list when none fails."
+        "says": "with no plug-in failing, every plug-in hears every build and nothing is reported"
       },
       {
-        "id": "practice.SafeSubjectTest#anObserverThatUnsubscribesDuringNotificationDoesNotBreakTheOthers",
+        "id": "practice.BuildEventsTest#pluginsAfterAFailingOneStillHearTheBuild",
         "kind": "edge",
-        "says": "An observer between two others that removes itself inside update() causes no exception; both others get this event, and it gets no later ones."
+        "says": "the plug-ins after one that throws still hear the build, and publish returns normally"
       },
       {
-        "id": "practice.SafeSubjectTest#anObserverAddedDuringNotificationWaitsForTheNextEvent",
+        "id": "practice.BuildEventsTest#theOperatorHearsWhichBuildAndWhatFailed",
         "kind": "edge",
-        "says": "An observer registered by another observer's update() does not get the event being delivered, only the next one."
+        "says": "every failure reaches the failure handler with the build id and the plug-in's own exception, in order"
       },
       {
-        "id": "practice.SafeSubjectTest#aFailingObserverDoesNotStopTheOthers",
+        "id": "practice.BuildEventsTest#aFailureInTheLastPluginDoesNotFailThePublish",
         "kind": "edge",
-        "says": "When the first observer throws, the ones after it are still notified, and the exception comes back in the returned list."
+        "says": "a failure in the last plug-in is reported and does not make publish throw"
       }
     ],
     "report": {
@@ -158,11 +124,11 @@
     },
     "origin": {
       "path": "38-behavioral-patterns/README_9.3.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "One Listener's Exception Skips the Listeners After It and Reaches the Publisher"
     },
     "concepts": [
-      "Wrapping each observer's call in try-catch keeps one throwing observer from stopping the others.",
-      "Notifying from a snapshot of the observer list lets an observer add or remove observers during update() without a ConcurrentModificationException."
+      "A listener that throws inside a plain loop ends the dispatch for every listener after it, and the exception reaches the publisher's caller.",
+      "The subject catches around each listener call and reports the failure where someone sees it, so the other listeners still run and the publisher returns normally."
     ]
   }
 }

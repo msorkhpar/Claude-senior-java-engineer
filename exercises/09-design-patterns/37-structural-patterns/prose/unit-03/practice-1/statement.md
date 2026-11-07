@@ -1,25 +1,15 @@
-The page's virtual proxy stands in for an expensive `RealImageService` and
-creates it only when it is really needed. The client sees the same
-`ImageService` interface either way. Its pitfalls section adds a warning: a
-lazy `if (service == null)` check is a race when threads share the proxy.
+The fare service wraps every fare listener in a metered proxy before subscribing it, so the
+dashboard can show how often each listener is called. Since metering went in, two things are
+wrong. Closing a price-alert screen calls `unsubscribe` with the same reference that subscribed,
+and the screen's listener keeps being told about fares. And the dashboard shows `toString`,
+`equals` and `hashCode` calls next to `fareChanged`.
 
-Given: `ImageService` (`display()`, `getFilename()`, `getSize()`). Write
-`VirtualImageProxy implements ImageService`. The constructor takes the filename
-and a `loader` (`Function<String, ImageService>`) that builds the real image,
-so the tests can count loads.
+`Metering.metered(...)` already counts calls and passes them to the listener. Finish the two
+`TODO`s in `src/main/java/practice/Metering.java`:
 
-- The constructor loads nothing, but **a blank filename is refused in the
-  constructor** with `IllegalArgumentException`.
-- **`getFilename` does not load the image**: the proxy already knows it.
-- `display()` and `getSize()` load the image on first use and delegate to it.
-  **The image is loaded once and reused**, and even when **racing first calls**
-  come from two threads, **they load the image once**.
-- `isLoaded()` says whether the real image exists yet.
+- `isObjectMethod(...)`: which calls the proxy answers itself instead of counting and passing on;
+- `objectMethod(...)`: what it answers.
 
-| calls | loads | answer |
-|---|---|---|
-| `new VirtualImageProxy("photo.png", loader)` | 0 | a proxy |
-| then `getFilename()` | 0 | `"photo.png"` |
-| then `display()` | 1 | `"Displaying image: photo.png"` |
-| then `getSize()`, `display()` | still 1 | the real image's answers |
-| `new VirtualImageProxy("  ", loader)` | 0 | `IllegalArgumentException` |
+When you're done, a metered listener can be unsubscribed with the reference that subscribed it,
+a log line that prints it names the listener it meters, and the counts hold only calls made
+through the `FareListener` interface. About six lines in total.

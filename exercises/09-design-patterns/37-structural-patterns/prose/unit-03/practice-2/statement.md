@@ -1,29 +1,12 @@
-The page's protection proxy guards a document service by role, and the
-client cannot tell it from the real service: it has the same
-`DocumentService` interface.
+The billing service gets exchange rates from a remote service through `Retrying.Rates`. The
+connection drops a few times an hour, so the client is wrapped in a proxy from `Retrying.wrap`
+that is meant to try a failed call again. The billing code catches `IOException` around every
+rate lookup and falls back to yesterday's rate; anything else fails the invoice run.
 
-| role | read | write | delete |
-|---|---|---|---|
-| `GUEST` | yes | no | no |
-| `USER` | yes | yes | no |
-| `ADMIN` | yes | yes | yes |
+`Retrying.wrap(...)` already builds the proxy. Finish the `TODO` in
+`src/main/java/practice/Retrying.java`: `call(...)`, which makes one call on the proxy happen.
 
-Given: `DocumentService` (`read`, `write`, `delete`, each returning a `String`),
-`Role` and `User(name, role)`. Write `ProtectionDocumentProxy(real, user)`:
-
-- An allowed call delegates to the real service and returns its answer.
-- A call the role may not make throws `SecurityException`, and **a refused call
-  never reaches the real service**. **Only `ADMIN` may delete.**
-- The proxy decides access, nothing else: **the real service's own exceptions
-  pass through unchanged** (the page: let `NoSuchElementException` propagate
-  rather than hide it).
-- `null` for either constructor argument throws `NullPointerException`.
-
-| user | call | result |
-|---|---|---|
-| `guest`, `GUEST` | `read("doc1")` | the real service's text |
-| `guest`, `GUEST` | `write("doc1", "x")` | `SecurityException`, real service untouched |
-| `bob`, `USER` | `write("doc1", "x")` | the real service's answer |
-| `bob`, `USER` | `delete("doc1")` | `SecurityException` |
-| `root`, `ADMIN` | `delete("doc1")` | the real service's answer |
-| anyone | `read("nope")` | `NoSuchElementException` from the real service |
+When you're done, a network failure (`IOException` or a subclass) is tried again, up to the
+number of attempts the proxy was built with. If the last attempt fails too, the billing code gets
+the rate service's own last exception, so its `catch (IOException e)` still runs. Any other
+failure reaches the billing code as itself, after one call. About six lines in total.

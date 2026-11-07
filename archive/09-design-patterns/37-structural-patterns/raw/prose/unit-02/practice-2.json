@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A logging decorator with a read-only log",
+  "title": "Meter the quote source without breaking its batch request",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A logging decorator adds behaviour **around** the call it delegates: one entry before, one after. The page's best practices also say to expose the log for testing, but unmodifiable, so nobody can rewrite it."
+      "text": "The pricing page shows a few dozen stock quotes and asks for them with one `quoteAll(...)` call. The remote quote service answers a whole list in one request. Last week a `Metered` decorator went in front of it, so the dashboard can show how many symbols are quoted, and since then the quote service's request count has jumped and its rate limit trips at lunchtime."
     },
     {
       "type": "para",
-      "text": "Given: `Notifier`. Write `LoggingDecorator implements Notifier`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        [
-          "`send(message)`:",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "logs `\"Sending: <message>\"`; **Sending is logged before the call is delegated**, so it stays in the log even when the wrapped notifier throws (the exception reaches the caller unchanged);",
-              "delegates, then logs `\"Sent: <result>\"`, where **the Sent entry records what the wrapped notifier returned**;",
-              "returns that result unchanged."
-            ]
-          }
-        ],
-        "`getDescription()` is `\"Logging(\" + wrapped description + \")\"`.",
-        "`getLog()` returns the entries in order; **the log cannot be changed through `getLog()`**."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "wrapped `send(\"hi\")`",
-        "`send(\"hi\")` returns",
-        "`getLog()`"
-      ],
-      "rows": [
-        [
-          "returns `\"Email: hi\"`",
-          "`\"Email: hi\"`",
-          "`[Sending: hi, Sent: Email: hi]`"
-        ],
-        [
-          "throws `IllegalStateException`",
-          "throws it",
-          "`[Sending: hi]`"
-        ]
-      ]
+      "text": "Finish `Metered.quoteAll(...)` in `src/main/java/practice/QuoteMetrics.java`: a page must still cost the remote service one request, and the dashboard must count every symbol quoted, whether it was asked for alone or as part of a page. About two lines in total."
     },
     {
       "type": "heading",
@@ -78,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\nimport java.util.Objects;\n\npublic final class Logging {\n\n    private Logging() {\n    }\n\n    public interface Notifier {\n        String send(String message);\n\n        String getDescription();\n    }\n\n    public static final class LoggingDecorator implements Notifier {\n\n        private final Notifier wrappee;\n        private final List<String> log = new ArrayList<>();\n\n        public LoggingDecorator(Notifier wrappee) {\n            this.wrappee = Objects.requireNonNull(wrappee, \"wrapped notifier must not be null\");\n        }\n\n        @Override\n        public String send(String message) {\n            log.add(\"Sending: \" + message);\n            String result = wrappee.send(message);\n            log.add(\"Sent: \" + result);\n            return result;\n        }\n\n        @Override\n        public String getDescription() {\n            return \"Logging(\" + wrappee.getDescription() + \")\";\n        }\n\n        /** The entries so far, oldest first. */\n        public List<String> getLog() {\n            return Collections.unmodifiableList(log);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** Quotes for the pricing page, and the decorator that feeds the dashboard's \"symbols quoted\" panel. */\npublic class QuoteMetrics {\n\n    public record Quote(String symbol, long priceCents) {}\n\n    /** Where the pricing page gets its quotes. */\n    public interface QuoteSource {\n\n        Quote quote(String symbol);\n\n        /**\n         * Quotes several symbols, in the order given. This default asks for them one at a time;\n         * a remote source overrides it to fetch them all in one request.\n         */\n        default Map<String, Quote> quoteAll(List<String> symbols) {\n            Map<String, Quote> quotes = new LinkedHashMap<>();\n            for (String symbol : symbols) quotes.put(symbol, quote(symbol));\n            return quotes;\n        }\n    }\n\n    /** Counts every symbol quoted through it, for the dashboard, and passes each request on. */\n    public static class Metered implements QuoteSource {\n        private final QuoteSource inner;\n        private final LongAdder symbolsQuoted = new LongAdder();\n\n        public Metered(QuoteSource inner) {\n            this.inner = inner;\n        }\n\n        @Override\n        public Quote quote(String symbol) {\n            symbolsQuoted.increment();\n            return inner.quote(symbol);\n        }\n\n        @Override\n        public Map<String, Quote> quoteAll(List<String> symbols) {\n            symbolsQuoted.add(symbols.size());\n            return inner.quoteAll(symbols);\n        }\n\n        /** The number the dashboard shows: symbols quoted through this source so far. */\n        public long symbolsQuoted() {\n            return symbolsQuoted.sum();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Logging {\n\n    private Logging() {\n    }\n\n    public interface Notifier {\n        String send(String message);\n\n        String getDescription();\n    }\n\n    public static final class LoggingDecorator implements Notifier {\n\n        public LoggingDecorator(Notifier wrappee) {\n        }\n\n        @Override\n        public String send(String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        @Override\n        public String getDescription() {\n            throw new UnsupportedOperationException(\"write getDescription\");\n        }\n\n        /** The entries so far, oldest first. */\n        public List<String> getLog() {\n            throw new UnsupportedOperationException(\"write getLog\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** Quotes for the pricing page, and the decorator that feeds the dashboard's \"symbols quoted\" panel. */\npublic class QuoteMetrics {\n\n    public record Quote(String symbol, long priceCents) {}\n\n    /** Where the pricing page gets its quotes. */\n    public interface QuoteSource {\n\n        Quote quote(String symbol);\n\n        /**\n         * Quotes several symbols, in the order given. This default asks for them one at a time;\n         * a remote source overrides it to fetch them all in one request.\n         */\n        default Map<String, Quote> quoteAll(List<String> symbols) {\n            Map<String, Quote> quotes = new LinkedHashMap<>();\n            for (String symbol : symbols) quotes.put(symbol, quote(symbol));\n            return quotes;\n        }\n    }\n\n    /** Counts every symbol quoted through it, for the dashboard, and passes each request on. */\n    public static class Metered implements QuoteSource {\n        private final QuoteSource inner;\n        private final LongAdder symbolsQuoted = new LongAdder();\n\n        public Metered(QuoteSource inner) {\n            this.inner = inner;\n        }\n\n        @Override\n        public Quote quote(String symbol) {\n            symbolsQuoted.increment();\n            return inner.quote(symbol);\n        }\n\n        @Override\n        public Map<String, Quote> quoteAll(List<String> symbols) {\n            // TODO: The pricing page asks for all its symbols in one call. Pass that call on so the\n            //       source behind this one handles it, and keep the dashboard's count right.\n            throw new IllegalStateException(\"TODO: quoteAll\");\n        }\n\n        /** The number the dashboard shows: symbols quoted through this source so far. */\n        public long symbolsQuoted() {\n            return symbolsQuoted.sum();\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -100,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -109,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a1202c3a40463c7c4b47e46eb9b5ad2034251bf40aa6bcaa866740144e07d75d",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Logging {\n\n    private Logging() {\n    }\n\n    public interface Notifier {\n        String send(String message);\n\n        String getDescription();\n    }\n\n    public static final class LoggingDecorator implements Notifier {\n\n        public LoggingDecorator(Notifier wrappee) {\n        }\n\n        @Override\n        public String send(String message) {\n            throw new UnsupportedOperationException(\"write send\");\n        }\n\n        @Override\n        public String getDescription() {\n            throw new UnsupportedOperationException(\"write getDescription\");\n        }\n\n        /** The entries so far, oldest first. */\n        public List<String> getLog() {\n            throw new UnsupportedOperationException(\"write getLog\");\n        }\n    }\n}\n",
+  "content_sha256": "14374a912619d3ac9e209fa1e19a173c41647cb553af7329eebf149eae9fac3b",
+  "starting_code": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.atomic.LongAdder;\n\n/** Quotes for the pricing page, and the decorator that feeds the dashboard's \"symbols quoted\" panel. */\npublic class QuoteMetrics {\n\n    public record Quote(String symbol, long priceCents) {}\n\n    /** Where the pricing page gets its quotes. */\n    public interface QuoteSource {\n\n        Quote quote(String symbol);\n\n        /**\n         * Quotes several symbols, in the order given. This default asks for them one at a time;\n         * a remote source overrides it to fetch them all in one request.\n         */\n        default Map<String, Quote> quoteAll(List<String> symbols) {\n            Map<String, Quote> quotes = new LinkedHashMap<>();\n            for (String symbol : symbols) quotes.put(symbol, quote(symbol));\n            return quotes;\n        }\n    }\n\n    /** Counts every symbol quoted through it, for the dashboard, and passes each request on. */\n    public static class Metered implements QuoteSource {\n        private final QuoteSource inner;\n        private final LongAdder symbolsQuoted = new LongAdder();\n\n        public Metered(QuoteSource inner) {\n            this.inner = inner;\n        }\n\n        @Override\n        public Quote quote(String symbol) {\n            symbolsQuoted.increment();\n            return inner.quote(symbol);\n        }\n\n        @Override\n        public Map<String, Quote> quoteAll(List<String> symbols) {\n            // TODO: The pricing page asks for all its symbols in one call. Pass that call on so the\n            //       source behind this one handles it, and keep the dashboard's count right.\n            throw new IllegalStateException(\"TODO: quoteAll\");\n        }\n\n        /** The number the dashboard shows: symbols quoted through this source so far. */\n        public long symbolsQuoted() {\n            return symbolsQuoted.sum();\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/main/java/practice/Logging.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/test/java/practice/LoggingTest.java",
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/main/java/practice/QuoteMetrics.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-02/practice-2/src/test/java/practice/QuoteMetricsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LoggingTest#returnsTheWrappedResultAndLogsTheSend",
+        "id": "practice.QuoteMetricsTest#aPageGetsAQuoteForEverySymbolInOrder",
         "kind": "main",
-        "says": "send returns exactly what the wrapped notifier returns, the log starts with \"Sending: <message>\", and the description is \"Logging(<wrapped description>)\"."
+        "says": "quoteAll through the decorator returns a quote for every symbol, in the order asked"
       },
       {
-        "id": "practice.LoggingTest#theSentEntryRecordsTheWrappedResult",
+        "id": "practice.QuoteMetricsTest#aPageCostsTheRemoteServiceOneRequest",
         "kind": "edge",
-        "says": "The second entry is \"Sent: \" followed by the wrapped notifier's result, not by the message."
+        "says": "a page quoted through the decorator reaches the remote service as one request, its own batch call"
       },
       {
-        "id": "practice.LoggingTest#sendingIsLoggedBeforeTheCall",
+        "id": "practice.QuoteMetricsTest#aOneSymbolPageIsCounted",
         "kind": "edge",
-        "says": "When the wrapped notifier throws, its exception reaches the caller and the log holds only the \"Sending\" entry."
+        "says": "symbols quoted through quoteAll are counted, not only those quoted one at a time"
       },
       {
-        "id": "practice.LoggingTest#theLogCannotBeChangedFromOutside",
+        "id": "practice.QuoteMetricsTest#theDashboardCountsEverySymbolOnEveryPage",
         "kind": "edge",
-        "says": "Clearing or adding to the list getLog() returned does not change the decorator's log."
+        "says": "the count is the number of symbols quoted, not the number of calls"
       }
     ],
     "report": {
@@ -160,10 +120,11 @@
     },
     "origin": {
       "path": "37-structural-patterns/README_9.2.2.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "A Decorator That Doesn't Override a Default Method Runs the Interface's Code, Not the Wrapped Object's"
     },
     "concepts": [
-      "A logging decorator records before and after it delegates, and exposes its log only as an unmodifiable view."
+      "A default method the decorator doesn't override runs the interface's code on the decorator, so the wrapped object's override, such as an atomic computeIfAbsent or a batch call, is never reached.",
+      "Overriding the default to forward straight to the wrapped object keeps its behaviour but skips the decorator's own work, so the override must forward and decorate."
     ]
   }
 }

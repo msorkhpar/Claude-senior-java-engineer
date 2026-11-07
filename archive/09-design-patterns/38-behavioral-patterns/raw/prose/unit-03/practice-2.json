@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Undo and redo with two stacks",
+  "title": "Make the refund retry pay each refund once",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's invoker keeps **two stacks**: executed commands on the undo stack, undone commands on the redo stack. Its critical rule: **a new command clears the redo stack**, or redo would replay a history that no longer exists. It also advises a size limit, because an unbounded undo stack keeps growing."
+      "text": "The shop's back office sends refunds to the refund service over a link that sometimes loses a reply: the service did the work, but the answer never came back. Finance found orders refunded twice in the weeks the link was flaky. Support has the opposite complaint: a customer who returned two identical items got one refund. And the back office's screen sometimes shows \"already processed\" where agents expect a receipt number to give the customer."
     },
     {
       "type": "para",
-      "text": "`Command` (given) has `execute()`, `undo()` and `description()`. Write `CommandHistory`:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/Refunds.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`new CommandHistory(limit)` keeps at most `limit` commands to undo (`limit < 1` throws `IllegalArgumentException`). When a new command would go past the limit, **the oldest one is dropped**.",
-        "`executeCommand(c)` runs `c`, pushes it on the undo stack and clears the redo stack (`null` throws `IllegalArgumentException`).",
-        "`undo()` pops the newest command, undoes it and pushes it on the redo stack; `redo()` pops from the redo stack, executes it again and pushes it back on the undo stack. **With nothing to undo (or redo), they return `false`**; otherwise `true`.",
-        "`canUndo()`, `canRedo()`, `undoSize()`, `redoSize()`, and `getUndoHistory()`: the descriptions on the undo stack, **newest first**."
+        "`RefundService.handle(...)`: the service's side of one request;",
+        "`RefundClient.refund(...)`: the back office's side, sending and retrying."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls (each command adds its number to a total)",
-        "total",
-        "`getUndoHistory()`"
-      ],
-      "rows": [
-        [
-          "execute `add 1`, execute `add 20`",
-          "21",
-          "`[\"add 20\", \"add 1\"]`"
-        ],
-        [
-          "then `undo()`",
-          "1",
-          "`[\"add 1\"]`"
-        ],
-        [
-          "then `redo()`",
-          "21",
-          "`[\"add 20\", \"add 1\"]`"
-        ],
-        [
-          "undo, then execute `add 300`, then `redo()` → `false`",
-          "301",
-          "`[\"add 300\", \"add 1\"]`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a refund is paid once however many times the link had to ask, two refunds the back office asked for separately are both paid, and the back office always gets the receipt of the refund that was paid. About twelve lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests use a link that delivers every request and can drop the reply."
     },
     {
       "type": "heading",
@@ -78,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\npublic final class CommandHistory {\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    private final Deque<Command> undoStack = new ArrayDeque<>();\n    private final Deque<Command> redoStack = new ArrayDeque<>();\n    private final int limit;\n\n    public CommandHistory(int limit) {\n        if (limit < 1) {\n            throw new IllegalArgumentException(\"Limit must be at least 1\");\n        }\n        this.limit = limit;\n    }\n\n    public void executeCommand(Command command) {\n        if (command == null) {\n            throw new IllegalArgumentException(\"Command cannot be null\");\n        }\n        command.execute();\n        pushUndo(command);\n        redoStack.clear();\n    }\n\n    public boolean undo() {\n        if (undoStack.isEmpty()) {\n            return false;\n        }\n        Command command = undoStack.pop();\n        command.undo();\n        redoStack.push(command);\n        return true;\n    }\n\n    public boolean redo() {\n        if (redoStack.isEmpty()) {\n            return false;\n        }\n        Command command = redoStack.pop();\n        command.execute();\n        pushUndo(command);\n        return true;\n    }\n\n    private void pushUndo(Command command) {\n        undoStack.push(command);\n        if (undoStack.size() > limit) {\n            undoStack.removeLast();\n        }\n    }\n\n    public boolean canUndo() {\n        return !undoStack.isEmpty();\n    }\n\n    public boolean canRedo() {\n        return !redoStack.isEmpty();\n    }\n\n    public int undoSize() {\n        return undoStack.size();\n    }\n\n    public int redoSize() {\n        return redoStack.size();\n    }\n\n    public List<String> getUndoHistory() {\n        return undoStack.stream().map(Command::description).toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.TimeoutException;\nimport java.util.function.Supplier;\n\n/** Refunds, sent by the shop's back office to the refund service over a link that can lose replies. */\npublic class Refunds {\n\n    /** One refund request. The key names the request; the shop creates one per refund. */\n    public record RefundCommand(String key, String orderId, long cents) {}\n\n    /** A refund the service paid out. */\n    public record Payout(String receipt, String orderId, long cents) {}\n\n    /** The link to the refund service. A TimeoutException means no reply came in time. */\n    public interface Link {\n        String send(RefundCommand command) throws TimeoutException;\n    }\n\n    /** Thrown when no attempt got a reply. */\n    public static class NoReplyException extends RuntimeException {\n        public NoReplyException(String message) {\n            super(message);\n        }\n    }\n\n    /** The refund service: pays refunds out of the shop's account. */\n    public static class RefundService {\n        private final List<Payout> payouts = new ArrayList<>();\n        private final Map<String, String> receipts = new ConcurrentHashMap<>();\n\n        /** Every refund paid out, oldest first. */\n        public synchronized List<Payout> payouts() {\n            return List.copyOf(payouts);\n        }\n\n        /** Pays the refund and returns its receipt. */\n        private synchronized String payOut(RefundCommand command) {\n            String receipt = \"rf-\" + (payouts.size() + 1);\n            payouts.add(new Payout(receipt, command.orderId(), command.cents()));\n            return receipt;\n        }\n\n        /** Handles one request from the link and returns the receipt the reply carries. */\n        public String handle(RefundCommand command) {\n            return receipts.computeIfAbsent(command.key(), k -> payOut(command));\n        }\n    }\n\n    /** The back office's side: asks for a refund and retries when the reply doesn't come. */\n    public static class RefundClient {\n        private final Link link;\n        private final Supplier<String> keys;\n        private final int maxAttempts;\n\n        public RefundClient(Link link, Supplier<String> keys, int maxAttempts) {\n            this.link = link;\n            this.keys = keys;\n            this.maxAttempts = maxAttempts;\n        }\n\n        /** Refunds the amount on the order and returns the receipt. */\n        public String refund(String orderId, long cents) {\n            RefundCommand command = new RefundCommand(keys.get(), orderId, cents);\n            for (int attempt = 1; attempt <= maxAttempts; attempt++) {\n                try {\n                    return link.send(command);\n                } catch (TimeoutException e) {\n                    // no reply: the refund may or may not have been paid, so ask again\n                }\n            }\n            throw new NoReplyException(\"no reply for a refund on \" + orderId);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class CommandHistory {\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public CommandHistory(int limit) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void executeCommand(Command command) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean undo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean redo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean canUndo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean canRedo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int undoSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int redoSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public List<String> getUndoHistory() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.TimeoutException;\nimport java.util.function.Supplier;\n\n/** Refunds, sent by the shop's back office to the refund service over a link that can lose replies. */\npublic class Refunds {\n\n    /** One refund request. The key names the request; the shop creates one per refund. */\n    public record RefundCommand(String key, String orderId, long cents) {}\n\n    /** A refund the service paid out. */\n    public record Payout(String receipt, String orderId, long cents) {}\n\n    /** The link to the refund service. A TimeoutException means no reply came in time. */\n    public interface Link {\n        String send(RefundCommand command) throws TimeoutException;\n    }\n\n    /** Thrown when no attempt got a reply. */\n    public static class NoReplyException extends RuntimeException {\n        public NoReplyException(String message) {\n            super(message);\n        }\n    }\n\n    /** The refund service: pays refunds out of the shop's account. */\n    public static class RefundService {\n        private final List<Payout> payouts = new ArrayList<>();\n\n        /** Every refund paid out, oldest first. */\n        public synchronized List<Payout> payouts() {\n            return List.copyOf(payouts);\n        }\n\n        /** Pays the refund and returns its receipt. */\n        private synchronized String payOut(RefundCommand command) {\n            String receipt = \"rf-\" + (payouts.size() + 1);\n            payouts.add(new Payout(receipt, command.orderId(), command.cents()));\n            return receipt;\n        }\n\n        /** Handles one request from the link and returns the receipt the reply carries. */\n        public String handle(RefundCommand command) {\n            // TODO: Pay the refund out (payOut does that) and return its receipt. The same request\n            //       can arrive more than once when a reply was lost on the way back.\n            throw new IllegalStateException(\"TODO: handle\");\n        }\n    }\n\n    /** The back office's side: asks for a refund and retries when the reply doesn't come. */\n    public static class RefundClient {\n        private final Link link;\n        private final Supplier<String> keys;\n        private final int maxAttempts;\n\n        public RefundClient(Link link, Supplier<String> keys, int maxAttempts) {\n            this.link = link;\n            this.keys = keys;\n            this.maxAttempts = maxAttempts;\n        }\n\n        /** Refunds the amount on the order and returns the receipt. */\n        public String refund(String orderId, long cents) {\n            // TODO: Send the refund over the link and return the receipt from the reply. When no\n            //       reply comes, try again, up to maxAttempts sends in all; after that, throw\n            //       NoReplyException. Keys come from the keys supplier.\n            throw new IllegalStateException(\"TODO: refund\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -109,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "ad70b7d29fd53244111418772ec2fa37bb8f873a475b397f423944292703ce6c",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class CommandHistory {\n\n    public interface Command {\n        void execute();\n\n        void undo();\n\n        String description();\n    }\n\n    public CommandHistory(int limit) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void executeCommand(Command command) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean undo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean redo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean canUndo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public boolean canRedo() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int undoSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int redoSize() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public List<String> getUndoHistory() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "6d455e98f0ba071b7ab3fd3467985d554e5a967306b6127794b87a00e5833503",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.TimeoutException;\nimport java.util.function.Supplier;\n\n/** Refunds, sent by the shop's back office to the refund service over a link that can lose replies. */\npublic class Refunds {\n\n    /** One refund request. The key names the request; the shop creates one per refund. */\n    public record RefundCommand(String key, String orderId, long cents) {}\n\n    /** A refund the service paid out. */\n    public record Payout(String receipt, String orderId, long cents) {}\n\n    /** The link to the refund service. A TimeoutException means no reply came in time. */\n    public interface Link {\n        String send(RefundCommand command) throws TimeoutException;\n    }\n\n    /** Thrown when no attempt got a reply. */\n    public static class NoReplyException extends RuntimeException {\n        public NoReplyException(String message) {\n            super(message);\n        }\n    }\n\n    /** The refund service: pays refunds out of the shop's account. */\n    public static class RefundService {\n        private final List<Payout> payouts = new ArrayList<>();\n\n        /** Every refund paid out, oldest first. */\n        public synchronized List<Payout> payouts() {\n            return List.copyOf(payouts);\n        }\n\n        /** Pays the refund and returns its receipt. */\n        private synchronized String payOut(RefundCommand command) {\n            String receipt = \"rf-\" + (payouts.size() + 1);\n            payouts.add(new Payout(receipt, command.orderId(), command.cents()));\n            return receipt;\n        }\n\n        /** Handles one request from the link and returns the receipt the reply carries. */\n        public String handle(RefundCommand command) {\n            // TODO: Pay the refund out (payOut does that) and return its receipt. The same request\n            //       can arrive more than once when a reply was lost on the way back.\n            throw new IllegalStateException(\"TODO: handle\");\n        }\n    }\n\n    /** The back office's side: asks for a refund and retries when the reply doesn't come. */\n    public static class RefundClient {\n        private final Link link;\n        private final Supplier<String> keys;\n        private final int maxAttempts;\n\n        public RefundClient(Link link, Supplier<String> keys, int maxAttempts) {\n            this.link = link;\n            this.keys = keys;\n            this.maxAttempts = maxAttempts;\n        }\n\n        /** Refunds the amount on the order and returns the receipt. */\n        public String refund(String orderId, long cents) {\n            // TODO: Send the refund over the link and return the receipt from the reply. When no\n            //       reply comes, try again, up to maxAttempts sends in all; after that, throw\n            //       NoReplyException. Keys come from the keys supplier.\n            throw new IllegalStateException(\"TODO: refund\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-2/src/main/java/practice/CommandHistory.java",
-    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-2/src/test/java/practice/CommandHistoryTest.java",
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-2/src/main/java/practice/Refunds.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-03/practice-2/src/test/java/practice/RefundsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,29 +110,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CommandHistoryTest#undoesAndRedoesInTurn",
+        "id": "practice.RefundsTest#aRefundIsPaidAndItsReceiptReturned",
         "kind": "main",
-        "says": "Executed commands can be undone newest first and redone in turn; undo() and redo() return true when they did something."
+        "says": "a refund whose reply arrives is paid once and its receipt returned"
       },
       {
-        "id": "practice.CommandHistoryTest#aNewCommandClearsTheRedoStack",
-        "kind": "edge",
-        "says": "After an undo, executing a new command leaves nothing to redo: redo() returns false and changes nothing."
+        "id": "practice.RefundsTest#refundsOnDifferentOrdersAreAllPaid",
+        "kind": "main",
+        "says": "refunds on different orders are each paid"
       },
       {
-        "id": "practice.CommandHistoryTest#undoWithNothingToUndoReturnsFalse",
-        "kind": "edge",
-        "says": "undo() on an empty history returns false instead of throwing, and redo() likewise."
+        "id": "practice.RefundsTest#aLinkThatNeverAnswersEndsInNoReplyAfterEveryAttempt",
+        "kind": "main",
+        "says": "when no attempt gets a reply, the client gives up with NoReplyException after its last attempt"
       },
       {
-        "id": "practice.CommandHistoryTest#historyListsTheNewestFirst",
+        "id": "practice.RefundsTest#aLostReplyIsRetriedWithoutPayingTwice",
         "kind": "edge",
-        "says": "getUndoHistory() lists the descriptions from the most recent command to the oldest."
+        "says": "a refund whose first reply is lost is asked for again and still paid once"
       },
       {
-        "id": "practice.CommandHistoryTest#aFullHistoryDropsTheOldest",
+        "id": "practice.RefundsTest#twoRefundsOfTheSameAmountOnOneOrderAreBothPaid",
         "kind": "edge",
-        "says": "With a limit of 2, a third command pushes out the oldest, so the two newest can still be undone."
+        "says": "two separate refunds of the same amount on the same order are both paid"
+      },
+      {
+        "id": "practice.RefundsTest#theRetryGetsTheReceiptOfTheRefundThatWasPaid",
+        "kind": "edge",
+        "says": "the retry after a lost reply returns the receipt of the refund that was paid"
       }
     ],
     "report": {
@@ -165,13 +146,12 @@
     },
     "origin": {
       "path": "38-behavioral-patterns/README_9.3.3.md",
-      "section": "Interview Q&A Section"
+      "section": "An Idempotency Key Created With the Command Makes the Retry Safe"
     },
     "concepts": [
-      "An undo history has a maximum size and discards the oldest commands when it is full.",
-      "Executing a new command clears the redo stack, so redo never replays a history that no longer exists.",
-      "The invoker only knows the Command interface, never the concrete command or its receiver.",
-      "An invoker implements undo and redo with two stacks, moving a command from one to the other, and reports an empty stack instead of failing."
+      "An idempotency key is created once per request and reused on every attempt; a key per attempt protects nothing.",
+      "Deduplicating by content merges two real requests that happen to be equal.",
+      "The receiver returns the stored result for a repeated key, because the caller retrying never saw the first answer."
     ]
   }
 }

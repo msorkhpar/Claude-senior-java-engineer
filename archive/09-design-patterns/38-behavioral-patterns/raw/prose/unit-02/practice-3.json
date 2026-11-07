@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A property that reports its changes",
+  "title": "Give each price-feed subscription its own off switch",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A subject can **push** the data with each notification, or observers can **pull** what they need from the subject when told something changed. The page's property-change observer does both: listeners get the old and the new value, and may also read the property."
+      "text": "A trading screen is made of widgets: charts, tickers, a blotter. Each one subscribes to a symbol's prices on `PriceFeed` when the trader opens it, usually with a lambda or a method reference, and closes what `subscribe` returned when the trader closes it. The blotter subscribes the same listener to several symbols."
     },
     {
       "type": "para",
-      "text": "`PropertyChangeListener<T>` (given) has `void onChange(T oldValue, T newValue)`. Write `ObservableProperty<T>`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`new ObservableProperty<>(initial)` holds `initial` (which may be `null`).",
-        "`setValue(v)` does nothing when `v` **equals** the current value (by `equals`, not by `==`). Otherwise it stores `v` and calls `onChange(old, v)` on every listener. **The new value is stored before any listener runs**, so a listener that pulls with `getValue()` sees it.",
-        "**`null` is an ordinary value**: changing to or from `null` notifies, and never throws.",
-        "`addListener(l)` (`null` throws `IllegalArgumentException`), `removeListener(l)` and `listenerCount()`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "value now",
-        "`setValue(...)`",
-        "listeners get"
-      ],
-      "rows": [
-        [
-          "`\"red\"`",
-          "`\"blue\"`",
-          "`onChange(\"red\", \"blue\")`"
-        ],
-        [
-          "`\"blue\"`",
-          "another `\"blue\"` object",
-          "nothing"
-        ],
-        [
-          "`null`",
-          "`\"x\"`",
-          "`onChange(null, \"x\")`"
-        ],
-        [
-          "`\"x\"`",
-          "`null`",
-          "`onChange(\"x\", null)`"
-        ]
-      ]
+      "text": "Finish `subscribe(String symbol, DoubleConsumer listener)` in `src/main/java/practice/PriceFeed.java`. It registers the listener for that symbol and returns a `Subscription`; closing that subscription stops exactly that registration, whatever else the same listener or the same symbol is subscribed to, and lets the feed forget it. `tick` and the `Entry` class are written. About three lines in total."
     },
     {
       "type": "heading",
@@ -78,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\n\npublic final class ObservableProperty<T> {\n\n    @FunctionalInterface\n    public interface PropertyChangeListener<T> {\n        void onChange(T oldValue, T newValue);\n    }\n\n    private final List<PropertyChangeListener<T>> listeners = new ArrayList<>();\n    private T value;\n\n    public ObservableProperty(T initialValue) {\n        this.value = initialValue;\n    }\n\n    public T getValue() {\n        return value;\n    }\n\n    public void setValue(T newValue) {\n        T oldValue = this.value;\n        if (Objects.equals(oldValue, newValue)) {\n            return;\n        }\n        this.value = newValue;\n        for (PropertyChangeListener<T> listener : new ArrayList<>(listeners)) {\n            listener.onChange(oldValue, newValue);\n        }\n    }\n\n    public void addListener(PropertyChangeListener<T> listener) {\n        if (listener == null) {\n            throw new IllegalArgumentException(\"Listener cannot be null\");\n        }\n        listeners.add(listener);\n    }\n\n    public void removeListener(PropertyChangeListener<T> listener) {\n        listeners.remove(listener);\n    }\n\n    public int listenerCount() {\n        return listeners.size();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.DoubleConsumer;\n\n/**\n * Pushes price ticks to the widgets of a trading screen. Each widget subscribes to one symbol\n * when it opens and closes its subscription when the trader closes it.\n */\npublic class PriceFeed {\n\n    /** Ends one subscription. */\n    public interface Subscription extends AutoCloseable {\n        @Override\n        void close();\n    }\n\n    /** One registration: which symbol, and whom to tell. */\n    static final class Entry {\n        final String symbol;\n        final DoubleConsumer listener;\n\n        Entry(String symbol, DoubleConsumer listener) {\n            this.symbol = symbol;\n            this.listener = listener;\n        }\n    }\n\n    private final List<Entry> entries = new CopyOnWriteArrayList<>();\n\n    /** Tells {@code listener} every price of {@code symbol} from now until the subscription is closed. */\n    public Subscription subscribe(String symbol, DoubleConsumer listener) {\n        Entry entry = new Entry(symbol, listener);\n        entries.add(entry);\n        return () -> entries.remove(entry);\n    }\n\n    public void tick(String symbol, double price) {\n        for (Entry e : entries) {\n            if (e.symbol.equals(symbol)) e.listener.accept(price);\n        }\n    }\n\n    public int subscriptionCount() {\n        return entries.size();\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class ObservableProperty<T> {\n\n    @FunctionalInterface\n    public interface PropertyChangeListener<T> {\n        void onChange(T oldValue, T newValue);\n    }\n\n    public ObservableProperty(T initialValue) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public T getValue() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void setValue(T newValue) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void addListener(PropertyChangeListener<T> listener) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void removeListener(PropertyChangeListener<T> listener) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int listenerCount() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.DoubleConsumer;\n\n/**\n * Pushes price ticks to the widgets of a trading screen. Each widget subscribes to one symbol\n * when it opens and closes its subscription when the trader closes it.\n */\npublic class PriceFeed {\n\n    /** Ends one subscription. */\n    public interface Subscription extends AutoCloseable {\n        @Override\n        void close();\n    }\n\n    /** One registration: which symbol, and whom to tell. */\n    static final class Entry {\n        final String symbol;\n        final DoubleConsumer listener;\n\n        Entry(String symbol, DoubleConsumer listener) {\n            this.symbol = symbol;\n            this.listener = listener;\n        }\n    }\n\n    private final List<Entry> entries = new CopyOnWriteArrayList<>();\n\n    /** Tells {@code listener} every price of {@code symbol} from now until the subscription is closed. */\n    public Subscription subscribe(String symbol, DoubleConsumer listener) {\n        // TODO: Register the listener for this symbol, and return what the widget will close when\n        //       the trader closes it. Closing it ends this subscription, and only this one.\n        throw new IllegalStateException(\"TODO: subscribe\");\n    }\n\n    public void tick(String symbol, double price) {\n        for (Entry e : entries) {\n            if (e.symbol.equals(symbol)) e.listener.accept(price);\n        }\n    }\n\n    public int subscriptionCount() {\n        return entries.size();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -100,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -109,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c78d93d28492c59601d25c1047d6e15c8d66d2f5ff0a5456dfe34d2c4c0767ea",
-  "starting_code": "package practice;\n\npublic final class ObservableProperty<T> {\n\n    @FunctionalInterface\n    public interface PropertyChangeListener<T> {\n        void onChange(T oldValue, T newValue);\n    }\n\n    public ObservableProperty(T initialValue) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public T getValue() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void setValue(T newValue) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void addListener(PropertyChangeListener<T> listener) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void removeListener(PropertyChangeListener<T> listener) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public int listenerCount() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "6fc9686d05d127fbadfe7bafda98f7d6ca5f42a4a68b116a39a891baec279500",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.DoubleConsumer;\n\n/**\n * Pushes price ticks to the widgets of a trading screen. Each widget subscribes to one symbol\n * when it opens and closes its subscription when the trader closes it.\n */\npublic class PriceFeed {\n\n    /** Ends one subscription. */\n    public interface Subscription extends AutoCloseable {\n        @Override\n        void close();\n    }\n\n    /** One registration: which symbol, and whom to tell. */\n    static final class Entry {\n        final String symbol;\n        final DoubleConsumer listener;\n\n        Entry(String symbol, DoubleConsumer listener) {\n            this.symbol = symbol;\n            this.listener = listener;\n        }\n    }\n\n    private final List<Entry> entries = new CopyOnWriteArrayList<>();\n\n    /** Tells {@code listener} every price of {@code symbol} from now until the subscription is closed. */\n    public Subscription subscribe(String symbol, DoubleConsumer listener) {\n        // TODO: Register the listener for this symbol, and return what the widget will close when\n        //       the trader closes it. Closing it ends this subscription, and only this one.\n        throw new IllegalStateException(\"TODO: subscribe\");\n    }\n\n    public void tick(String symbol, double price) {\n        for (Entry e : entries) {\n            if (e.symbol.equals(symbol)) e.listener.accept(price);\n        }\n    }\n\n    public int subscriptionCount() {\n        return entries.size();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-3/src/main/java/practice/ObservableProperty.java",
-    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-3/src/test/java/practice/ObservablePropertyTest.java",
+    "main_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-3/src/main/java/practice/PriceFeed.java",
+    "test_path": "practice/09-design-patterns/38-behavioral-patterns/prose/unit-02/practice-3/src/test/java/practice/PriceFeedTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,24 +94,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ObservablePropertyTest#aChangeReachesEveryListenerWithOldAndNew",
+        "id": "practice.PriceFeedTest#aWidgetHearsOnlyItsOwnSymbol",
         "kind": "main",
-        "says": "setValue() with a different value stores it and calls onChange(old, new) on every listener; a removed listener hears nothing more."
+        "says": "an open subscription hears every price of its symbol and none of other symbols"
       },
       {
-        "id": "practice.ObservablePropertyTest#anEqualValueIsNoChange",
+        "id": "practice.PriceFeedTest#aClosedWidgetHearsNothingMore",
         "kind": "edge",
-        "says": "Setting a value equal to the current one (a different String object with the same text) notifies nobody."
+        "says": "after its subscription is closed a widget hears no more prices and the feed no longer holds it"
       },
       {
-        "id": "practice.ObservablePropertyTest#nullIsAnOrdinaryValue",
+        "id": "practice.PriceFeedTest#closingOneSymbolOfAListenerKeepsItsOtherSymbols",
         "kind": "edge",
-        "says": "Starting at null, changing to a value and back to null each notify once, without a NullPointerException; null to null is no change."
+        "says": "closing one subscription of a listener subscribed to two symbols leaves the other subscription working"
       },
       {
-        "id": "practice.ObservablePropertyTest#listenersReadTheNewValue",
+        "id": "practice.PriceFeedTest#closingOneWidgetKeepsTheOthersOnTheSameSymbol",
         "kind": "edge",
-        "says": "A listener that calls getValue() inside onChange() already reads the new value."
+        "says": "closing one widget's subscription leaves other widgets on the same symbol subscribed"
+      },
+      {
+        "id": "practice.PriceFeedTest#aListenerSubscribedTwiceToOneSymbolKeepsTheSubscriptionNotClosed",
+        "kind": "edge",
+        "says": "when the same listener is subscribed twice to one symbol, closing one subscription, even twice, leaves the other working"
       }
     ],
     "report": {
@@ -160,10 +125,10 @@
     },
     "origin": {
       "path": "38-behavioral-patterns/README_9.3.2.md",
-      "section": "Key Points to Remember"
+      "section": "A Listener Is Removed by the Reference It Was Added With, and a Second Lambda Is Another Object"
     },
     "concepts": [
-      "A subject can push data with each notification or let observers pull it, and a property-change listener gets old and new values only when the value really changes."
+      "A subscribe that returns a handle owning its own entry removes exactly that registration on close, even when the same listener is subscribed more than once."
     ]
   }
 }

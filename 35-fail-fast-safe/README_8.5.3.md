@@ -1,520 +1,265 @@
 # 8.5.3. Choosing Between Fail-Fast and Fail-Safe Iterators
 
-## Concept Explanation
+A price-alert service threw `ConcurrentModificationException` in production: one thread was
+walking the `ArrayList` of alert listeners while a user's dashboard subscribed. The fix that
+shipped made every shared list a `CopyOnWriteArrayList`, the audit log included, which takes one
+append per request, 2,000 a second at peak, and passes 100,000 events within the first minute.
+Since then CPU and GC time climb the longer the service runs. The end-of-day stock report walks a `ConcurrentHashMap`; it has never thrown, and most
+nights its total is off by a few units.
 
-Choosing the right collection and iterator strategy is a design decision that directly impacts correctness, performance, and maintainability. This section covers two sub-topics:
+Each of the three needs a different kind of iterator. How fail-fast, snapshot and weakly
+consistent iterators behave is unit 6.5.3, and unit 8.5.2 goes further into weakly consistent
+walks. Every output is from Java 21 on one machine.
 
-1. **8.5.3.1. Considerations for concurrent modification** -- when and why concurrent modification happens, and how to handle it.
-2. **8.5.3.2. Trade-offs in performance and consistency** -- the cost of safety and how to balance it with throughput.
+## Once Another Thread Writes, a Fail-Fast Walk Fails at Random; a Small Listener List Needs a Snapshot
 
-**Real-world analogy**: Consider a shared document in an office. You have three strategies:
-- **Fail-fast (exclusive editing)**: Lock the document when someone is reading it. If anyone else tries to edit, the system raises an alert immediately. Fast for single users, but disruptive in collaborative settings.
-- **Snapshot (CopyOnWriteArrayList)**: Everyone gets a printed copy. When someone edits, a new version is printed and distributed. Reading is instant, but printing is expensive -- impractical for documents that change frequently.
-- **Weakly consistent (ConcurrentHashMap)**: Everyone works on a live Google Doc. Readers may see partial edits in progress, but the system never crashes. Edits are fast and concurrent, but readers might see stale data momentarily.
-
-### 8.5.3.1. Considerations for Concurrent Modification
-
-Concurrent modification arises in several scenarios:
-- **Single-threaded loops**: Modifying a collection inside a for-each loop.
-- **Multi-threaded access**: Multiple threads reading and writing to a shared collection without proper synchronization.
-- **Callback/listener patterns**: A listener modifies the collection that triggered the event.
-- **Recursive processing**: Processing elements that add more elements to the same collection.
-
-Decision factors:
-1. **Is concurrent modification a bug or a feature?** If it is a bug, fail-fast detection helps catch it early. If concurrent modification is expected (e.g., multi-threaded processing), use concurrent collections.
-2. **How many threads access the collection?** Single-threaded code can rely on fail-fast for bug detection. Multi-threaded code needs fail-safe collections.
-3. **Can you restructure the code to avoid modification during iteration?** Often the best solution is to eliminate the concurrent modification rather than tolerate it.
-
-### 8.5.3.2. Trade-offs in Performance and Consistency
-
-| Factor | Fail-Fast (ArrayList) | Snapshot (COWArrayList) | Weakly Consistent (ConcurrentHashMap) |
-|--------|----------------------|------------------------|--------------------------------------|
-| Read performance | O(1) | O(1) | O(1) average |
-| Write performance | O(1) amortized | O(n) per write | O(1) average |
-| Iteration safety | Throws on modification | Always safe (snapshot) | Always safe (weakly consistent) |
-| Memory overhead | Minimal | 2x during writes | Moderate (per-node overhead) |
-| Consistency | Strict (fail loudly) | Point-in-time snapshot | Eventual/weakly consistent |
-| Null support | Yes | Yes | No |
-| Thread safety | Not thread-safe | Fully thread-safe | Fully thread-safe |
-| Best for | Single-threaded, bug detection | Read-heavy, small lists | Balanced read/write, any size |
-
-## Key Points to Remember
-
-- **Default to fail-fast** (standard collections) unless you have a specific concurrent requirement.
-- **Fail-fast collections are faster** in single-threaded scenarios because they have no synchronization overhead.
-- **CopyOnWriteArrayList** should only be used for small lists where writes are infrequent. The O(n) copy cost per write makes it impractical for large, write-heavy lists.
-- **ConcurrentHashMap** is the go-to choice for concurrent map access -- it scales well with thread count.
-- **Streams offer a safe alternative** to manual iteration + modification by collecting results into a new collection.
-- **`removeIf()`** is the modern, preferred way to conditionally remove elements during traversal.
-- **Immutable collections** (`List.of()`, `List.copyOf()`) prevent modification entirely, avoiding the problem.
-- **Avoid premature optimization**: If your code is single-threaded, use `ArrayList` and `HashMap` -- they are the fastest and simplest.
-
-## Relevant Java 21 Features
-
-- **Sequenced Collections (JEP 431)**: `SequencedCollection`, `SequencedSet`, `SequencedMap` provide `reversed()` views. These views share the fail-fast/fail-safe contract of the underlying collection.
-- **Immutable Collections**: `List.of()`, `Set.of()`, `Map.of()` return truly immutable collections. They throw `UnsupportedOperationException` on any modification, which is a different strategy from fail-fast -- it prevents modification entirely rather than detecting it during iteration.
-- **Record Patterns and Pattern Matching**: Enable concise dispatching based on collection types when implementing adaptive strategies.
-- **Virtual Threads**: Make concurrent collection usage more common as applications scale to thousands of concurrent tasks.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Over-using CopyOnWriteArrayList for large, frequently-modified lists**
-   ```java
-   // WRONG -- O(n) copy on every write, terrible for large lists
-   CopyOnWriteArrayList<Record> records = new CopyOnWriteArrayList<>();
-   for (Record r : database.fetchAllRecords()) { // 1 million records
-       records.add(r); // Each add copies the entire array!
-   }
-   
-   // FIX -- build the list first, then wrap
-   List<Record> temp = new ArrayList<>();
-   for (Record r : database.fetchAllRecords()) {
-       temp.add(r);
-   }
-   CopyOnWriteArrayList<Record> records = new CopyOnWriteArrayList<>(temp);
-   
-   // OR -- use a different collection if writes are frequent
-   ConcurrentLinkedQueue<Record> records = new ConcurrentLinkedQueue<>();
-   ```
-
-2. **Using ConcurrentHashMap when a simple HashMap with external sync suffices**
-   ```java
-   // Unnecessary -- if only one thread accesses the map
-   ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>(); // Overhead!
-   
-   // BETTER for single-threaded access
-   HashMap<String, Integer> map = new HashMap<>(); // Faster, simpler
-   ```
-
-3. **Forgetting that stream terminal operations may trigger fail-fast**
-   ```java
-   List<String> list = new ArrayList<>(List.of("a", "b", "c"));
-   // WRONG -- modifying source during stream processing
-   list.stream().forEach(item -> {
-       if ("b".equals(item)) list.remove(item); // ConcurrentModificationException (at the end)!
-   });
-   // (With item.equals("b") you get a NullPointerException first: the stream keeps
-   // walking the shifted array and hands the vacated slot's null to the lambda.)
-   
-   // FIX -- use removeIf or collect to new list
-   list.removeIf(item -> item.equals("b"));
-   ```
-
-4. **Not batching writes to CopyOnWriteArrayList**
-   ```java
-   CopyOnWriteArrayList<String> list = new CopyOnWriteArrayList<>();
-   // WRONG -- 3 array copies
-   list.add("a");
-   list.add("b");
-   list.add("c");
-   
-   // BETTER -- 1 array copy
-   list.addAll(List.of("a", "b", "c"));
-   ```
-
-5. **Ignoring the consistency implications of weakly consistent iterators**
-   ```java
-   ConcurrentHashMap<String, Integer> scores = new ConcurrentHashMap<>();
-   // This sum may be inconsistent if other threads are modifying scores concurrently
-   int total = 0;
-   for (var entry : scores.entrySet()) {
-       total += entry.getValue(); // May include some new entries and miss others
-   }
-   
-   // NOT A FIX -- reduceValues is shorter, but bulk operations are weakly consistent too
-   // (and return null for an empty map)
-   Integer sum = scores.reduceValues(Long.MAX_VALUE, Integer::sum);
-
-   // FIX -- if an exact total matters, keep it next to the writes (e.g., update a
-   // LongAdder in the same place as each put/remove), or guard map and total with one lock
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Decision flowchart for choosing a collection**:
-   - Is the collection accessed by multiple threads? If no, use `ArrayList`/`HashMap`.
-   - Is the collection read-heavy (>95% reads)? If yes, consider `CopyOnWriteArrayList`.
-   - Do you need a concurrent map? Use `ConcurrentHashMap`.
-   - Do you need a sorted concurrent collection? Use `ConcurrentSkipListMap`/`ConcurrentSkipListSet`.
-   - Do you need a concurrent queue? Use `ConcurrentLinkedQueue` or `LinkedBlockingQueue`.
-
-2. **Prefer immutable collections for sharing data**:
-   ```java
-   // Create once, share safely
-   var config = Map.of("host", "localhost", "port", "8080");
-   ```
-
-3. **Use `Collectors.toUnmodifiableList()` (Java 10+)** to produce safe results from streams.
-
-4. **Profile before choosing concurrent collections** -- the overhead may not be worth it for low-contention scenarios.
-
-5. **Consider read-write lock (`ReadWriteLock`)** as an alternative to concurrent collections when you need strict consistency with good read concurrency.
-
-## Edge Cases and Their Handling
-
-1. **Iterator on an unmodifiable collection throws `UnsupportedOperationException` on remove**, not `ConcurrentModificationException`.
-2. **Empty collections**: All iterator strategies work correctly on empty collections -- no exceptions, no special handling needed.
-3. **Collections with a single element**: Fail-fast still applies -- removing the single element during for-each iteration throws `ConcurrentModificationException`.
-4. **Spliterator behavior**: `ArrayList`'s `Spliterator` is fail-fast. `ConcurrentHashMap`'s `Spliterator` is weakly consistent. This affects parallel stream correctness.
-5. **subList() iterators**: `list.subList(a, b).iterator()` is also fail-fast with respect to the parent list.
-
-## Interview-specific Insights
-
-Interviewers often ask scenario-based questions:
-- "Given this use case, which collection would you choose and why?"
-- "What are the performance implications of using CopyOnWriteArrayList for 10,000 elements with frequent writes?"
-- "How would you design a thread-safe cache with high read throughput?"
-
-Key insights to demonstrate:
-- Understanding that fail-fast is a debugging aid, not a security mechanism
-- Knowledge of the O(n) write cost of CopyOnWriteArrayList
-- Ability to articulate when `ConcurrentHashMap` is preferable to `Collections.synchronizedMap`
-- Understanding that immutable collections are often the best solution for shared data
-
-## Interview Q&A Section
-
-**Q1: You need to implement a thread-safe listener registry where listeners are added rarely but events are fired frequently. Which collection would you use and why?**
-
-```text
-A1: CopyOnWriteArrayList is the ideal choice for a listener registry because:
-
-1. Reads (event firing) vastly outnumber writes (listener registration/removal).
-2. Event firing iterates all listeners -- this must be fast and never throw exceptions.
-3. CopyOnWriteArrayList provides lock-free reads and iteration via snapshot semantics.
-4. Listener lists are typically small (tens of listeners, not thousands).
-5. The O(n) write cost is acceptable because registration happens infrequently.
-
-This is in fact a standard pattern in many frameworks and libraries:
-- Swing's EventListenerList (pre-concurrent era, but same principle: it copies its
-  listener array on every change)
-- Many observer/publish-subscribe implementations
-
-Alternative: If listeners can be dynamically prioritized or the list grows very large,
-consider using ConcurrentLinkedQueue with a separate copy for iteration.
-```
+Twenty listeners, one thread dispatching ticks to them, and a dashboard on another thread that
+subscribes and unsubscribes in a loop. The same code runs with an `ArrayList`, then with a
+`CopyOnWriteArrayList`:
 
 ```java
-public class EventBus<E> {
-    // CopyOnWriteArrayList for thread-safe listener management
-    private final CopyOnWriteArrayList<Consumer<E>> listeners = new CopyOnWriteArrayList<>();
-
-    public void subscribe(Consumer<E> listener) {
-        listeners.add(listener); // Rare -- O(n) but infrequent
-    }
-
-    public void unsubscribe(Consumer<E> listener) {
-        listeners.remove(listener); // Rare -- O(n) but infrequent
-    }
-
-    public void publish(E event) {
-        // Frequent -- lock-free iteration over snapshot
-        for (Consumer<E> listener : listeners) {
-            listener.accept(event); // No ConcurrentModificationException possible
-        }
+for (int i = 0; i < 20; i++) listeners.add(tick -> { });
+Consumer<String> dashboard = tick -> { };
+AtomicBoolean stop = new AtomicBoolean();
+Thread ui = new Thread(() -> {                    // a dashboard opens and closes
+    while (!stop.get()) { listeners.add(dashboard); listeners.remove(dashboard); }
+});
+ui.setDaemon(true);
+ui.start();
+int failed = 0, partial = 0;
+Map<String, Integer> kinds = new TreeMap<>();
+for (int d = 0; d < 100_000; d++) {
+    int called = 0;
+    try {
+        for (Consumer<String> l : listeners) { l.accept("tick"); called++; }
+    } catch (RuntimeException e) {
+        failed++;
+        kinds.merge(e.getClass().getSimpleName(), 1, Integer::sum);
+        if (called > 0) partial++;                 // some listeners already had the tick
     }
 }
 ```
 
-**Q2: How would you design a thread-safe cache with high read throughput and occasional writes?**
-
 ```text
-A2: For a thread-safe cache, ConcurrentHashMap is the best choice because:
-
-1. It provides O(1) average reads without locking (volatile reads; CAS is used for writes).
-2. It supports atomic compound operations like computeIfAbsent() for safe lazy loading.
-3. It scales well with increasing thread count due to per-bin locking.
-4. It supports approximate size tracking for eviction policies.
-
-For additional optimization:
-- Use computeIfAbsent() for cache loading to avoid the "thundering herd" problem.
-- Consider a bounded cache using a combination of ConcurrentHashMap and an eviction policy.
-- For read-heavy caches with infrequent eviction, consider wrapping with soft/weak references.
-
-For a simple cache:
-- ConcurrentHashMap with computeIfAbsent() for lazy loading
-- For TTL-based expiration, store timestamps and periodically clean expired entries
-
-For a production-grade cache:
-- Use Caffeine or Guava Cache, which are built on ConcurrentHashMap internally
-  but add eviction policies, statistics, and TTL support.
+ArrayList            95,090 of 100,000 dispatches threw {ConcurrentModificationException=95087, NoSuchElementException=1, NullPointerException=2}; 86,890 after some listeners had the tick
+CopyOnWriteArrayList      0 of 100,000 dispatches threw {}; 0 after some listeners had the tick
 ```
 
+This dashboard changes the list without pause; in production it subscribed a few times an hour,
+and the exception came about once a week. Most failed dispatches had already reached some
+listeners: a retry sends them the tick twice, and giving up never sends it to the rest. Not every
+failure was a `ConcurrentModificationException` either: the iterator handed back a `null`, which
+the call turned into the `NullPointerException`, and once found no next element after `hasNext()`
+had promised one. The counter and the array are plain fields, and nothing makes the dispatching
+thread see another thread's writes in order, so the check unit 6.5.3 calls best-effort promises
+nothing here. Over 16 runs, between 39 % and 99.7 % of dispatches threw. Fail-fast fits a
+collection one thread owns (unit 5.3.4), where its exception reports a bug in the loop.
+
+The copy-on-write list passed every run. A subscribe copies 20 references, and a dispatch walks
+the array that was current when it began, without a lock. A `synchronizedList` walked under its
+own lock (unit 6.5.2) is also correct, but then every subscribe waits for the whole dispatch in
+progress, every remaining listener included.
+
+<!-- practice 1 -->
+
+## Every Copy-on-Write Write Copies the Whole Array, So Its Cost Grows with the List
+
+The audit log got the same list type. This program keeps a list at size n and replaces one
+element per write, on one thread, with nothing competing; for comparison it also times a locked
+`ArrayList` and a `ConcurrentLinkedQueue` held at the same size:
+
 ```java
-public class SimpleCache<K, V> {
-    private final ConcurrentHashMap<K, V> cache = new ConcurrentHashMap<>();
+// i + 1_000 is never a cached Integer, so every set stores a new object and must copy
+double[] c = median(i -> cow.set(i % n, i + 1_000), writes);
+double[] s = median(i -> sync.set(i % n, i + 1_000), writes);
+double[] q = median(i -> { clq.offer(i + 1_000); clq.poll(); }, writes);
+```
 
-    // Thread-safe lazy loading with computeIfAbsent
-    public V getOrLoad(K key, Function<K, V> loader) {
-        return cache.computeIfAbsent(key, loader); // Atomic, prevents duplicate loading
-    }
+`median` runs three warm-up rounds, then five timed ones, and keeps the middle one; allocation
+comes from `ThreadMXBean.getThreadAllocatedBytes`. There is no JMH here, so read the times as
+orders of magnitude on one machine. One of three runs:
 
-    // Thread-safe put
-    public void put(K key, V value) {
-        cache.put(key, value);
-    }
+```text
+      n | COW set     | COW bytes/write | synchronizedList set | CLQ offer+poll
+     10 |       19 ns |              72 |                10 ns |          15 ns
+    100 |       25 ns |             432 |                11 ns |          19 ns
+  1,000 |      160 ns |           4,032 |                11 ns |          16 ns
+ 10,000 |    2,263 ns |          40,032 |                11 ns |          15 ns
+100,000 |   21,044 ns |         400,032 |                13 ns |          16 ns
+```
 
-    // Thread-safe removal
-    public void evict(K key) {
-        cache.remove(key);
-    }
+From 1,000 elements on, the copy-on-write time and allocation grow tenfold with each tenfold
+size, because every mutative operation makes "a fresh copy of the underlying array" (its
+javadoc): here 4 bytes per element, plus the array header and the boxed value. The other two stay flat. Between runs the times moved by up
+to a factor of three (2.2 to 7.3 µs at 10,000); the bytes didn't move.
 
-    // Safe iteration for cleanup
-    public void evictIf(Predicate<Map.Entry<K, V>> condition) {
-        cache.entrySet().removeIf(condition); // Safe on ConcurrentHashMap
-    }
+For the audit log at 100,000 events, each append copies 400 KB. At 2,000 requests a second that
+is 800 MB of garbage a second and about 4 % of a core spent copying, and both grow with every
+event appended. By the same table, a subscribe to the 20-listener list costs about 20 ns and
+100 bytes.
 
-    // Approximate size
-    public long size() {
-        return cache.mappingCount();
-    }
+> **Measuring it yourself.** `set` skips the copy when the new element is the same object as the
+> old one, and `Integer.valueOf` returns cached objects for -128 to 127. Our first version wrote
+> `i`, so each round stored the same cached objects for 0 to 127 into the same slots again, and
+> the 100,000 row showed 374,430 bytes instead of 400,032. Hence the `i + 1_000`.
+
+## A Weakly Consistent Walk Fits Work on One Element at a Time, Not a Total Across Elements
+
+The log needs an append that doesn't depend on its size, and an export that doesn't hold up
+requests. The log starts with 100,000 events; four threads append while an export walks it once:
+
+```java
+Queue<Event> clq = new ConcurrentLinkedQueue<>();
+run("ConcurrentLinkedQueue", clq, () -> {
+    for (Event e : clq) written += e.seq() % 7;          // stands in for writing a line
+});
+List<Event> sync = Collections.synchronizedList(new ArrayList<>());
+run("synchronizedList, walk under lock", sync, () -> {
+    synchronized (sync) { for (Event e : sync) written += e.seq() % 7; }
+});
+```
+
+```text
+ConcurrentLinkedQueue              export took   7 ms,    38,798 appends while it ran
+synchronizedList, walk under lock  export took   6 ms,       108 appends while it ran
+```
+
+The weakly consistent walk took no lock and threw nothing while the requests went on appending.
+Under the list's lock they waited for the whole walk; the 108 landed just before it took the lock
+or just after it let go. An export that writes each line to a file holds that lock as long as the
+file takes. Each event stands on its own, so it doesn't matter whether one appended mid-walk makes
+this export.
+
+The stock report is different. Stock moves between warehouses as a debit and a credit, so the
+total never changes, and the report adds up every warehouse. Each `merge` on a
+`ConcurrentHashMap` is atomic, and the walk takes no lock:
+
+```java
+public void move(String from, String to, int qty) {
+    map.merge(from, -qty, Integer::sum);
+    map.merge(to, qty, Integer::sum);
+}
+public long total() {
+    long t = 0;
+    for (int units : map.values()) t += units;
+    return t;
 }
 ```
 
-**Q3: What is the performance difference between ArrayList and CopyOnWriteArrayList for 10,000 elements with 50% read and 50% write operations?**
+One thread moves stock as fast as it can, and a report runs every 10 ms for a second:
 
 ```text
-A3: For a 50/50 read/write workload with 10,000 elements, the performance difference is dramatic:
-
-ArrayList (with external synchronization):
-- Read: O(1) + synchronization overhead
-- Write (add to end): O(1) amortized + synchronization overhead
-- Total for N operations: O(N) time + N lock acquisitions
-- Memory: one array of 10,000 elements
-
-CopyOnWriteArrayList:
-- Read: O(1), no synchronization needed
-- Write (add): O(10,000) because the entire array is copied on every write
-- Total for N mixed operations: ~O(N/2 * 10,000) for the write portion alone
-- Memory: two arrays of 10,000 elements during writes (old + new)
-
-For 10,000 operations (5,000 reads + 5,000 writes):
-- synchronized ArrayList: ~10,000 constant-time operations
-- CopyOnWriteArrayList: 5,000 constant-time reads + 5,000 array copies of ~10,000
-  elements each = ~50,000,000 element copies
-
-Each CopyOnWriteArrayList write copies ~10,000 elements instead of storing one, so writes
-do roughly 10,000 times more work in this scenario.
-
-Conclusion: CopyOnWriteArrayList is unsuitable for a 50/50 workload. It shines only when
-the read/write ratio is extremely high (99%+ reads). For balanced workloads, use:
-- ConcurrentLinkedQueue (if you need queue semantics)
-- Collections.synchronizedList (if you need random access)
-- A lock-based approach with ReadWriteLock (for fine-grained control)
+live         100 warehouses:  98 of 100 reports wrong, a report takes  0.03 ms | 14,612,998 moves
+live     100,000 warehouses: 100 of 100 reports wrong, a report takes  4.31 ms |  4,466,428 moves
 ```
+
+Almost every report was wrong, and none threw. The walk reads each warehouse at a different
+moment, so a report that reads one side of a move before it and the other side after it counts
+the units twice or not at all (unit 6.5.3 showed the same with account balances). Atomic
+single-key updates don't help: the report needs every warehouse at one moment, and no walk over a
+structure that changes under it gives that.
+
+<!-- practice 2 -->
+
+## A Total That Must Add Up Needs a Snapshot or a Lock, and Size Decides Which
+
+A snapshot gives the report one moment: each move builds a new map and publishes it in one atomic
+step, and the report walks whichever map was current when it began.
 
 ```java
-// Benchmark comparison (simplified)
-public void benchmarkComparison() {
-    int size = 10_000;
-
-    // ArrayList with synchronization
-    List<Integer> syncList = Collections.synchronizedList(new ArrayList<>());
-    long syncTime = measureMixedOps(syncList, size);
-
-    // CopyOnWriteArrayList
-    CopyOnWriteArrayList<Integer> cowList = new CopyOnWriteArrayList<>();
-    long cowTime = measureMixedOps(cowList, size);
-
-    // ConcurrentLinkedQueue (no random access, but fast for add/poll)
-    ConcurrentLinkedQueue<Integer> queue = new ConcurrentLinkedQueue<>();
-    long queueTime = measureQueueOps(queue, size);
-
-    // cowTime >> syncTime > queueTime (for balanced read/write)
-}
-```
-
-**Q4: How do immutable collections relate to the fail-fast/fail-safe discussion?**
-
-```text
-A4: Immutable collections (List.of(), Set.of(), Map.of(), and their copyOf variants) represent
-a third strategy that sidesteps the fail-fast/fail-safe choice entirely:
-
-1. They prevent ALL modification -- add, remove, set, clear, put all throw
-   UnsupportedOperationException.
-2. Since they cannot be modified, there is no need for fail-fast detection or fail-safe
-   semantics -- the iteration is always consistent because the data never changes.
-3. They are inherently thread-safe without any synchronization overhead.
-4. They have optimized internal representations (e.g., List.of(a, b) uses a specialized
-   two-element class, not an array).
-
-When to prefer immutable collections:
-- Configuration data that is set once at startup
-- Return values from methods (defensive copying)
-- Sharing data across threads without synchronization
-- Method parameters where you want to prevent caller modification
-
-Relationship to fail-fast/fail-safe:
-- Immutable collections make the entire discussion moot for their instances
-- They complement fail-fast collections by providing safe snapshots:
-  List<String> snapshot = List.copyOf(mutableList); // Safe to share
-- They are more restrictive than fail-safe -- fail-safe allows modification but tolerates it
-  during iteration, while immutable prevents modification entirely.
-
-Note: Collections.unmodifiableList() is NOT truly immutable -- it is an unmodifiable VIEW
-that reflects changes to the backing list. List.copyOf() creates a true independent copy.
-```
-
-```java
-// Immutable collections -- no fail-fast/fail-safe needed
-List<String> immutable = List.of("a", "b", "c");
-// immutable.add("d"); // UnsupportedOperationException
-
-// Safe to iterate from any thread without synchronization
-for (String s : immutable) {
-    System.out.println(s); // Always consistent
-}
-
-// Unmodifiable VIEW vs. immutable COPY
-List<String> mutable = new ArrayList<>(List.of("a", "b"));
-List<String> view = Collections.unmodifiableList(mutable);
-List<String> copy = List.copyOf(mutable);
-
-mutable.add("c");
-System.out.println(view); // [a, b, c] -- reflects change!
-System.out.println(copy); // [a, b] -- independent copy
-
-// Creating a snapshot for safe sharing
-public List<String> getItems() {
-    return List.copyOf(this.internalMutableList); // Safe defensive copy
-}
-```
-
-**Q5: In what situation would you choose a ReadWriteLock over a ConcurrentHashMap?**
-
-```text
-A5: You might prefer a ReadWriteLock with a standard HashMap over ConcurrentHashMap when:
-
-1. You need strict consistency across multiple operations:
-   - ConcurrentHashMap provides atomic individual operations but not atomic multi-operation
-     transactions. If you need to atomically read multiple keys or update several entries
-     as a group, a ReadWriteLock provides that guarantee.
-
-2. You need null key or null value support:
-   - ConcurrentHashMap prohibits nulls. If your domain requires null semantics, using a
-     HashMap with a ReadWriteLock is a valid alternative.
-
-3. You need to iterate with a point-in-time consistent snapshot of ALL entries:
-   - ConcurrentHashMap iterators are weakly consistent and may reflect partial updates.
-   - Under a read lock, you can iterate a HashMap with guaranteed consistency.
-
-4. Memory sensitivity:
-   - ConcurrentHashMap has higher memory overhead due to its internal structure (Node arrays,
-     tree bins, counter cells).
-
-5. Low-contention scenarios:
-   - If only 2-3 threads access the map and reads vastly outnumber writes, a ReadWriteLock
-     can be simpler and have comparable performance.
-
-However, ConcurrentHashMap should be preferred when:
-- Thread count is high (ReadWriteLock has writer starvation issues)
-- You need atomic compound operations (computeIfAbsent, merge)
-- You need bulk parallel operations (forEach, reduce)
-- Simplicity is desired (no explicit lock management)
-```
-
-```java
-// ReadWriteLock approach -- strict consistency for multi-operation transactions
-public class StrictlyConsistentMap<K, V> {
-    private final Map<K, V> map = new HashMap<>();
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-
-    public V get(K key) {
-        lock.readLock().lock();
-        try {
-            return map.get(key);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    // Atomic multi-key operation -- not possible with ConcurrentHashMap
-    public void transferValue(K fromKey, K toKey) {
-        lock.writeLock().lock();
-        try {
-            V value = map.remove(fromKey);
-            if (value != null) {
-                map.put(toKey, value);
-            }
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    // Consistent snapshot iteration
-    public List<Map.Entry<K, V>> snapshot() {
-        lock.readLock().lock();
-        try {
-            return new ArrayList<>(map.entrySet());
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-}
-```
-
-**Q6: How do you handle a situation where you need to filter and modify elements of a large ArrayList in a multi-threaded environment?**
-
-```text
-A6: There are several approaches, ranked by preference:
-
-1. Create a new filtered collection (best approach):
-   - Use streams to create a new list with only the desired elements.
-   - This avoids modification during iteration entirely.
-   - Thread-safe if the source is not modified during the stream operation.
-
-2. Partition the work and merge results:
-   - Split the list into chunks and process each chunk in a separate thread.
-   - Each thread works on its own copy/segment.
-   - Merge the results at the end.
-
-3. Use a concurrent collection:
-   - If the list must be shared and modified concurrently, convert to ConcurrentLinkedQueue
-     or use CopyOnWriteArrayList (if the list is small).
-
-4. Use synchronization with a ReadWriteLock:
-   - Acquire a write lock, perform all modifications, release.
-   - Other threads can read with read locks when no write is in progress.
-
-The key insight is that the best solution often involves eliminating shared mutable state
-rather than trying to manage it with concurrent collections.
-```
-
-```java
-// Approach 1: Stream to new collection (preferred)
-List<String> source = getSharedList();
-List<String> filtered = source.stream()
-    .filter(s -> s.length() > 5)
-    .collect(Collectors.toList());
-
-// Approach 2: Parallel stream with immutable result
-List<String> filtered = source.parallelStream()
-    .filter(s -> s.length() > 5)
-    .collect(Collectors.toUnmodifiableList());
-
-// Approach 3: Concurrent collection for ongoing modifications
-ConcurrentLinkedQueue<String> queue = new ConcurrentLinkedQueue<>(source);
-// Multiple threads can safely poll and process
-ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-for (int i = 0; i < 4; i++) {
-    executor.submit(() -> {
-        String item;
-        while ((item = queue.poll()) != null) {
-            if (item.length() > 5) {
-                processItem(item);
-            }
-        }
+public void move(String from, String to, int qty) {
+    current.updateAndGet(m -> {
+        Map<String, Integer> next = new HashMap<>(m);
+        next.merge(from, -qty, Integer::sum);
+        next.merge(to, qty, Integer::sum);
+        return Collections.unmodifiableMap(next);
     });
 }
-
-// Approach 4: ReadWriteLock for in-place modification
-ReadWriteLock lock = new ReentrantReadWriteLock();
-lock.writeLock().lock();
-try {
-    source.removeIf(s -> s.length() <= 5); // Safe under write lock
-} finally {
-    lock.writeLock().unlock();
+public long total() {
+    long t = 0;
+    for (int units : current.get().values()) t += units;
+    return t;
 }
 ```
+
+So does a lock: moves take the write lock of a `ReentrantReadWriteLock`, and the report walks a
+plain `HashMap` under the read lock, so no move lands mid-walk. The same run with both:
+
+```text
+snapshot     100 warehouses:   0 of 100 reports wrong, a report takes  0.08 ms |    890,483 moves
+RW lock      100 warehouses:   0 of 100 reports wrong, a report takes  0.07 ms | 11,714,501 moves
+snapshot 100,000 warehouses:   0 of 100 reports wrong, a report takes  3.08 ms |        366 moves
+RW lock  100,000 warehouses:   0 of 100 reports wrong, a report takes  2.03 ms |  3,387,651 moves
+```
+
+Every report added up. The snapshot copies the whole map on every move: with 100 warehouses the
+mover managed about a million moves in the second, against 14 million on the live map, and with
+100,000 warehouses it managed 366. The lock lets moves run between reports and stops them for the
+length of each walk: 2 ms per report at 100,000 warehouses, a fifth of the second at a hundred
+reports a second. Size and write rate decide between them.
+
+A lock that only `move` takes leaves the report walking a map that changes under it. A mutable map
+kept in the `AtomicReference` and changed in place is the live map again: `get()` hands every
+reader that one map, and nothing is copied.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Once another thread writes, a fail-fast walk fails at random**, and not only with
+  `ConcurrentModificationException`; a dispatch that fails has often reached some listeners
+  already. Fail-fast fits data one thread owns; a small, rarely written list that threads share
+  fits a `CopyOnWriteArrayList`.
+- **Every copy-on-write write copies the whole array.** Time and garbage per write grow with the
+  list: about 20 µs and 400 KB at 100,000 elements here, so a large or write-heavy list doesn't
+  fit.
+- **A weakly consistent walk fits work on one element at a time.** It never blocks writers, and a
+  total it adds up can be one the collection never held.
+- **A total that must add up needs a snapshot or a lock.** The snapshot charges each write a copy,
+  so it fits small or rarely written data; the lock makes writers wait out each read.
+
+## Reference
+
+**Choosing (each row shows where on this page or in which unit it was run):**
+
+| The data | One read must | Choose | Its iterator | Shown in |
+|---|---|---|---|---|
+| owned by one thread | see each element | `ArrayList`, `HashMap` | fail-fast; the exception is a bug in the loop | unit 6.5.3 |
+| shared, small, read far more than written | see each element | `CopyOnWriteArrayList` | snapshot | the listener run; the write-cost table |
+| shared, large or written often | handle each element on its own | `ConcurrentLinkedQueue` (`ConcurrentHashMap` for a map, unit 8.5.2) | weakly consistent | the write-cost table; the log-export run |
+| shared, small or written rarely | agree across elements | an unmodifiable map replaced through an `AtomicReference` | fail-fast, over a map nobody changes | the stock run, `snapshot` |
+| shared, large and written often | agree across elements | `HashMap` under a `ReentrantReadWriteLock` | fail-fast, walked under the read lock | the stock run, `RW lock` |
+
+**Copy-on-write writes (Java 21):**
+
+| Fact | Source |
+|---|---|
+| `add`, `set`, `remove` and every other mutative operation copy the array | `CopyOnWriteArrayList` javadoc |
+| `set` of the object already at that index doesn't copy | the side note's first run: 374,430 instead of 400,032 bytes per write |
+| a copy of 10,000 elements allocated 40,032 bytes: 4 per element, 16 of array header, 16 of the boxed value | the write-cost table |
+
+## Challenges
+
+1. Each websocket session registers a listener, so the list reaches 5,000, with 200 connects and
+   disconnects a second. Estimate from the write-cost table what a `CopyOnWriteArrayList` costs
+   there. What would you use instead, and what would a dispatch then see?
+2. The stock report runs once a night over 2 million items, while moves arrive 5,000 times a
+   second. Neither a copy per move nor a lock held for the whole walk is acceptable. What else
+   gives the report one moment?
+3. Run the write-cost measurement with four writer threads. Which column changes most, and why?
+
+## Design Note: Three Iteration Contracts and What Each Gives Up
+
+The JDK could have given every collection one iterator. It gives three, and each gives up
+something different. Fail-fast costs one counter and one comparison per step, and gives up
+correctness once a second thread writes. A snapshot iterator gives readers one moment without a
+lock, and makes every write copy everything. A weakly consistent iterator makes neither readers
+nor writers wait, and gives up the moment: a read that spans elements can mix before and after.
+
+None of the three gives a lock-free reader one moment of a structure that writers change in place
+without copying it, which is why the consistent report above cost either a copy or a lock. Unit
+8.5.1 uses "fail fast" in a wider sense, checking arguments in constructors and refusing bad
+configuration.
 
 ## Code Examples
 

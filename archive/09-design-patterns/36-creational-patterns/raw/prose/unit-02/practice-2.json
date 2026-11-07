@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A simple shape factory that refuses what it does not know",
+  "title": "Carry the request id into the pool's tasks",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,11 @@
     },
     {
       "type": "para",
-      "text": "A **Simple Factory** is one static method that picks the product from a parameter. The page's pitfall is a factory that hides a mistake: an **unknown type must throw a descriptive exception**, never fall back to some default product. Its products are records under a sealed interface."
+      "text": "Request handlers in the order service hand background work to `RequestPool`, and every log line the service writes is tagged with `RequestPool.REQUEST_ID`, the id of the request the current thread is serving. Lines written by pool tasks come out with no request id at all, so nobody can follow an order from its handler into the work it started. Handlers submit both `Callable`s and `Runnable`s, and housekeeping jobs, which serve no request, use `execute(...)`. When the pool and its queue are full, the handler's own thread runs the task, and carries on serving its request afterwards."
     },
     {
       "type": "para",
-      "text": "`Shape` (given) is sealed with the records `Circle(double radius)`, `Square(double side)` and `Triangle(double base, double height)`, each with `area()`. Write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Shapes.create(String type, double size)`: `\"circle\"` gives a circle of that radius, `\"square\"` a square of that side, `\"triangle\"` a triangle whose base and height are both `size`. Anything else throws `IllegalArgumentException` whose message contains the type.",
-        "`Shapes.describe(Shape shape)` with a pattern `switch`: `Round r=<radius>`, `Square s=<side>`, `Triangle b=<base> h=<height>`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`create(\"circle\", 2)`",
-          "`Circle[radius=2.0]`, area `12.566...`"
-        ],
-        [
-          "`create(\"square\", 3)`",
-          "`Square[side=3.0]`, area `9.0`"
-        ],
-        [
-          "`create(\"triangle\", 4)`",
-          "`Triangle[base=4.0, height=4.0]`, area `8.0`"
-        ],
-        [
-          "`create(\"hexagon\", 1)`",
-          "`IllegalArgumentException` mentioning `hexagon`"
-        ],
-        [
-          "`create(\"Circle\", 1)`",
-          "`IllegalArgumentException` mentioning `Circle`"
-        ],
-        [
-          "`describe(new Square(3))`",
-          "`Square s=3.0`"
-        ]
-      ]
+      "text": "Finish `RequestPool` in `src/main/java/practice/RequestPool.java` so that every task a handler submits logs under that handler's request id, and nothing else logs under it: not the housekeeping that runs on the same thread later, and not the handler, which keeps its own id. The handlers' code doesn't change. About fifteen lines in total."
     },
     {
       "type": "heading",
@@ -79,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Shapes {\n\n    private Shapes() {\n    }\n\n    public sealed interface Shape permits Circle, Square, Triangle {\n        double area();\n    }\n\n    public record Circle(double radius) implements Shape {\n        public double area() {\n            return Math.PI * radius * radius;\n        }\n    }\n\n    public record Square(double side) implements Shape {\n        public double area() {\n            return side * side;\n        }\n    }\n\n    public record Triangle(double base, double height) implements Shape {\n        public double area() {\n            return 0.5 * base * height;\n        }\n    }\n\n    /** Creates the shape named by {@code type}; an unknown type is refused. */\n    public static Shape create(String type, double size) {\n        return switch (type) {\n            case \"circle\" -> new Circle(size);\n            case \"square\" -> new Square(size);\n            case \"triangle\" -> new Triangle(size, size);\n            default -> throw new IllegalArgumentException(\"Unknown shape: \" + type);\n        };\n    }\n\n    /** Describes a shape: Round r=..., Square s=..., Triangle b=... h=... */\n    public static String describe(Shape shape) {\n        return switch (shape) {\n            case Circle c -> \"Round r=\" + c.radius();\n            case Square s -> \"Square s=\" + s.side();\n            case Triangle t -> \"Triangle b=\" + t.base() + \" h=\" + t.height();\n        };\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.ArrayBlockingQueue;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.FutureTask;\nimport java.util.concurrent.RunnableFuture;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * The pool the order service runs its background work on: request handlers submit tasks to it,\n * and housekeeping jobs hand it work through execute(). Every log line carries the id of the\n * request the current thread is serving, read from REQUEST_ID.\n */\npublic class RequestPool extends ThreadPoolExecutor {\n\n    /** The id of the request the current thread is serving, or null when it serves none. */\n    public static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();\n\n    /**\n     * A pool of {@code threads} threads and a queue of {@code queueCapacity} tasks. When both are\n     * full, the thread that submits a task runs it itself.\n     */\n    public RequestPool(int threads, int queueCapacity) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(queueCapacity), r -> {\n            Thread t = new Thread(r, \"request-pool\");\n            t.setDaemon(true);\n            return t;\n        }, new ThreadPoolExecutor.CallerRunsPolicy());\n    }\n\n    @Override\n    protected <T> RunnableFuture<T> newTaskFor(Callable<T> task) {\n        return carrying(task);\n    }\n\n    @Override\n    protected <T> RunnableFuture<T> newTaskFor(Runnable task, T value) {\n        return carrying(Executors.callable(task, value));\n    }\n\n    /** The task, made to run under the request id of the thread that submits it. */\n    <T> RunnableFuture<T> carrying(Callable<T> task) {\n        String id = REQUEST_ID.get();\n        return new FutureTask<>(() -> {\n            String previous = REQUEST_ID.get();\n            REQUEST_ID.set(id);\n            try {\n                return task.call();\n            } finally {\n                REQUEST_ID.set(previous);\n            }\n        });\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Shapes {\n\n    private Shapes() {\n    }\n\n    public sealed interface Shape permits Circle, Square, Triangle {\n        double area();\n    }\n\n    public record Circle(double radius) implements Shape {\n        public double area() {\n            return Math.PI * radius * radius;\n        }\n    }\n\n    public record Square(double side) implements Shape {\n        public double area() {\n            return side * side;\n        }\n    }\n\n    public record Triangle(double base, double height) implements Shape {\n        public double area() {\n            return 0.5 * base * height;\n        }\n    }\n\n    /** Creates the shape named by {@code type}; an unknown type is refused. */\n    public static Shape create(String type, double size) {\n        throw new UnsupportedOperationException(\"write create\");\n    }\n\n    /** Describes a shape: Round r=..., Square s=..., Triangle b=... h=... */\n    public static String describe(Shape shape) {\n        throw new UnsupportedOperationException(\"write describe\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.ArrayBlockingQueue;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.FutureTask;\nimport java.util.concurrent.RunnableFuture;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * The pool the order service runs its background work on: request handlers submit tasks to it,\n * and housekeeping jobs hand it work through execute(). Every log line carries the id of the\n * request the current thread is serving, read from REQUEST_ID.\n */\npublic class RequestPool extends ThreadPoolExecutor {\n\n    /** The id of the request the current thread is serving, or null when it serves none. */\n    public static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();\n\n    /**\n     * A pool of {@code threads} threads and a queue of {@code queueCapacity} tasks. When both are\n     * full, the thread that submits a task runs it itself.\n     */\n    public RequestPool(int threads, int queueCapacity) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(queueCapacity), r -> {\n            Thread t = new Thread(r, \"request-pool\");\n            t.setDaemon(true);\n            return t;\n        }, new ThreadPoolExecutor.CallerRunsPolicy());\n    }\n\n    @Override\n    protected <T> RunnableFuture<T> newTaskFor(Callable<T> task) {\n        return carrying(task);\n    }\n\n    /** The task, made to run under the request id of the thread that submits it. */\n    <T> RunnableFuture<T> carrying(Callable<T> task) {\n        // TODO: Log lines written by the task must carry the id of the request that submitted\n        //       it, and nothing the task changes may outlive it on the thread that ran it.\n        throw new IllegalStateException(\"TODO: carrying\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -110,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "9a613c6cda65715a089ff5ec87b2a274ee29bc112c40e0315116e3c2553535d1",
-  "starting_code": "package practice;\n\npublic final class Shapes {\n\n    private Shapes() {\n    }\n\n    public sealed interface Shape permits Circle, Square, Triangle {\n        double area();\n    }\n\n    public record Circle(double radius) implements Shape {\n        public double area() {\n            return Math.PI * radius * radius;\n        }\n    }\n\n    public record Square(double side) implements Shape {\n        public double area() {\n            return side * side;\n        }\n    }\n\n    public record Triangle(double base, double height) implements Shape {\n        public double area() {\n            return 0.5 * base * height;\n        }\n    }\n\n    /** Creates the shape named by {@code type}; an unknown type is refused. */\n    public static Shape create(String type, double size) {\n        throw new UnsupportedOperationException(\"write create\");\n    }\n\n    /** Describes a shape: Round r=..., Square s=..., Triangle b=... h=... */\n    public static String describe(Shape shape) {\n        throw new UnsupportedOperationException(\"write describe\");\n    }\n}\n",
+  "content_sha256": "62ea0dde2b707730034b70ea8a5a8d99e60ea99e3a71acbe7f30a0fb58b3243d",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.ArrayBlockingQueue;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.Executors;\nimport java.util.concurrent.FutureTask;\nimport java.util.concurrent.RunnableFuture;\nimport java.util.concurrent.ThreadPoolExecutor;\nimport java.util.concurrent.TimeUnit;\n\n/**\n * The pool the order service runs its background work on: request handlers submit tasks to it,\n * and housekeeping jobs hand it work through execute(). Every log line carries the id of the\n * request the current thread is serving, read from REQUEST_ID.\n */\npublic class RequestPool extends ThreadPoolExecutor {\n\n    /** The id of the request the current thread is serving, or null when it serves none. */\n    public static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();\n\n    /**\n     * A pool of {@code threads} threads and a queue of {@code queueCapacity} tasks. When both are\n     * full, the thread that submits a task runs it itself.\n     */\n    public RequestPool(int threads, int queueCapacity) {\n        super(threads, threads, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(queueCapacity), r -> {\n            Thread t = new Thread(r, \"request-pool\");\n            t.setDaemon(true);\n            return t;\n        }, new ThreadPoolExecutor.CallerRunsPolicy());\n    }\n\n    @Override\n    protected <T> RunnableFuture<T> newTaskFor(Callable<T> task) {\n        return carrying(task);\n    }\n\n    /** The task, made to run under the request id of the thread that submits it. */\n    <T> RunnableFuture<T> carrying(Callable<T> task) {\n        // TODO: Log lines written by the task must carry the id of the request that submitted\n        //       it, and nothing the task changes may outlive it on the thread that ran it.\n        throw new IllegalStateException(\"TODO: carrying\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-2/src/main/java/practice/Shapes.java",
-    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-2/src/test/java/practice/ShapesTest.java",
+    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-2/src/main/java/practice/RequestPool.java",
+    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-02/practice-2/src/test/java/practice/RequestPoolTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ShapesTest#createsEachKnownShape",
+        "id": "practice.RequestPoolTest#aSubmittedCallableLogsUnderTheRequestThatSubmittedIt",
         "kind": "main",
-        "says": "create(\"circle\", 2), create(\"square\", 3) and create(\"triangle\", 4) return the matching records with the right areas and descriptions."
+        "says": "a Callable submitted by a handler sees that handler's request id, and one submitted outside any request sees none"
       },
       {
-        "id": "practice.ShapesTest#anUnknownTypeIsRefusedByName",
+        "id": "practice.RequestPoolTest#aSubmittedRunnableLogsUnderTheRequestThatSubmittedIt",
         "kind": "edge",
-        "says": "create(\"hexagon\", 1) and create(\"Circle\", 1) throw IllegalArgumentException whose message names the type."
+        "says": "a Runnable submitted by a handler sees that handler's request id too"
       },
       {
-        "id": "practice.ShapesTest#aTypeBuiltAtRunTimeIsFound",
+        "id": "practice.RequestPoolTest#housekeepingAfterARequestTaskLogsUnderNoRequest",
         "kind": "edge",
-        "says": "A type name built at run time, not written as a literal, still selects its shape."
+        "says": "work handed to execute() after a request's task, on the same pool thread, sees no request id"
       },
       {
-        "id": "practice.ShapesTest#describesEachShape",
+        "id": "practice.RequestPoolTest#aHandlerThatRunsTheTaskItselfKeepsItsOwnRequestId",
         "kind": "edge",
-        "says": "describe() gives the shape's own wording for each of the three records."
+        "says": "a handler whose thread runs the task itself, because the pool is full, still has its own request id afterwards"
       }
     ],
     "report": {
@@ -161,11 +120,10 @@
     },
     "origin": {
       "path": "36-creational-patterns/README_9.1.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "The GoF Factory Method Is a Creation Hook That Base-Class Code Calls and a Subclass Overrides"
     },
     "concepts": [
-      "Products can be records under a sealed interface, and a switch over them with patterns needs no default.",
-      "A Simple Factory is one static method that picks the product from a parameter, and an unknown type gets a descriptive exception, never a default product."
+      "The GoF factory method is an overridable creation method that base-class code calls, so one override changes the product for every caller, and each overload callers reach must be overridden."
     ]
   }
 }

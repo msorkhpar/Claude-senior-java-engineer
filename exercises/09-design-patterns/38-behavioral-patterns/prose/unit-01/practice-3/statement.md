@@ -1,24 +1,9 @@
-A strategy interface with one method is a functional interface, so a lambda
-or a method reference can be the strategy, and `UnaryOperator<String>` is
-already the interface a text strategy needs. The page also keeps stateless
-strategies as `static final` constants.
+Every service sends its operational alerts through one channel, chosen in its config under
+`alerts.channel`: `email`, `sms`, `chat`, or whatever else the build provides. Services that don't
+set the key send by email. Last week a service was deployed with a misspelled channel name, and
+its disk-full alert was the first anyone heard of it, after the disk had filled.
 
-Write `TextProcessor`, a context holding a `UnaryOperator<String>`:
-
-- The constructor and `setStrategy(s)` keep the strategy and refuse `null`
-  with `IllegalArgumentException`.
-- `process(text)` returns the strategy applied to `text`; **`null` text is
-  refused** with `IllegalArgumentException` before the strategy runs.
-- Five constants: `UPPER_CASE`, `LOWER_CASE`, `REVERSE`, `TRIM_AND_UPPER`
-  and `REMOVE_WHITESPACE`. **Case changes use `Locale.ROOT`**, so they give
-  the same answer on every machine. **`REMOVE_WHITESPACE` removes every
-  whitespace character** (spaces, tabs, newlines).
-
-| strategy | text | answer |
-|---|---|---|
-| `UPPER_CASE` | `"hello"` | `"HELLO"` |
-| `REVERSE` | `"hello"` | `"olleh"` |
-| `TRIM_AND_UPPER` | `"  hello  "` | `"HELLO"` |
-| `REMOVE_WHITESPACE` | `"h e\tl\nlo"` | `"hello"` |
-| `s -> s.replaceAll("\\s+", "-")` | `"hello world"` | `"hello-world"` |
-| any | `null` | `IllegalArgumentException` |
+Write `choose` in `src/main/java/practice/AlertService.java`. The constructor calls it once, and
+`raise` sends every alert through the channel it returns. A misspelled name must be found when
+the service is deployed, by an `IllegalArgumentException` from the constructor, and must never
+send an alert anywhere else. About five lines in total.

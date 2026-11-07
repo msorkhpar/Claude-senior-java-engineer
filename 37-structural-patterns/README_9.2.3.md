@@ -1,485 +1,361 @@
 # 9.2.3. Proxy Pattern
 
-## Concept Explanation
+The order service wraps its inventory client in a retry proxy: one `InvocationHandler` that tries
+a call up to three times when it fails with `IOException`. Since the release, the warehouse logs
+show exactly one call per stock check, even during a network blip. The order code catches
+`IOException` and shows "unavailable", and it now fails those requests with
+`java.lang.reflect.UndeclaredThrowableException`, an exception nobody on the team throws.
 
-The Proxy Pattern is a structural design pattern that provides a substitute or placeholder for another object. A proxy controls access to the original object, allowing you to perform operations before or after the request reaches the real object.
+A proxy implements the same interface as the object it stands for and controls how calls reach
+it. `java.lang.reflect.Proxy` builds one at run time, with one handler for every call.
 
-**Real-world analogy**: Consider a credit card as a proxy for a bank account. When you use a credit card at a store, you do not hand over your actual bank account. Instead, the card acts as a proxy that authorizes the transaction, checks your credit limit, and logs the purchase. The store interacts with the card (proxy) the same way it would with cash (real subject), but the card adds access control, logging, and deferred payment. The Proxy pattern works the same way — the proxy stands in for the real object and adds control logic.
+## One InvocationHandler Receives Every Call on Every Method of the Proxied Interfaces
 
-The Proxy pattern is classified as structural because it controls how objects are accessed rather than how they are created or how they behave. The proxy and the real subject implement the same interface, so the client cannot distinguish between them.
-
-There are several types of proxies:
-- **Virtual Proxy**: Delays the creation of an expensive object until it is actually needed (lazy initialization).
-- **Protection Proxy**: Controls access based on permissions or roles.
-- **Remote Proxy**: Represents an object in a different address space (e.g., RMI stubs).
-- **Smart Reference / Caching Proxy**: Adds additional behavior like caching, reference counting, or logging.
-
-## Key Points to Remember
-
-- The proxy and the real subject implement the same interface — the client cannot tell them apart.
-- Virtual proxies delay expensive object creation until first use (lazy loading).
-- Protection proxies enforce access control rules before delegating to the real subject.
-- Caching proxies store results of expensive operations and return cached values on repeated calls.
-- Logging proxies record all interactions for auditing or debugging.
-- Java has built-in support for dynamic proxies via `java.lang.reflect.Proxy`.
-- Dynamic proxies can only proxy interfaces, not concrete classes (for classes, use CGLIB or ByteBuddy).
-- The Proxy pattern differs from Decorator: Proxy controls access, Decorator adds behavior.
-- Proxies often create/manage the real subject's lifecycle; Decorators receive the component from outside.
-
-## Relevant Java 21 Features
-
-- **Sealed interfaces**: Seal the subject interface to control which proxies are permitted at compile time.
-- **Records**: The `User` record with role-based access control demonstrates modern Java data carriers for proxy configuration.
-- **Pattern matching for `switch`**: Useful in protection proxies for matching user roles.
-- **Virtual threads**: Proxies can use virtual threads for async delegation without blocking platform threads.
-- **`java.lang.reflect.Proxy`**: Java's built-in dynamic proxy mechanism (since Java 1.3) creates proxy instances at runtime for interfaces.
-
-Evolution across Java versions:
-- **Java 1.3**: Introduced `java.lang.reflect.Proxy` for dynamic proxies.
-- **Java 5**: Generics improved type safety in proxy factories.
-- **Java 8**: Lambda expressions enabled lightweight proxy-like behavior for functional interfaces.
-- **Java 21**: Pattern matching and sealed classes enhance type-safe proxy dispatch.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Proxy becoming a god object**: A proxy that adds too many responsibilities (caching + logging + access control + lazy loading) violates SRP. Split into separate proxies or use a decorator chain.
-
-2. **Forgetting to delegate**: A proxy that overrides a method without delegating to the real subject silently breaks functionality.
-   ```java
-   // Problem: Lost the real behavior
-   @Override
-   public String display() {
-       return "Proxy display"; // forgot to delegate
-   }
-
-   // Solution: Always delegate
-   @Override
-   public String display() {
-       checkAccess(); // proxy logic
-       return realService.display(); // delegate to real subject
-   }
-   ```
-
-3. **Null real subject in virtual proxy**: If the virtual proxy creates the real subject lazily, ensure thread safety for the lazy initialization.
-   ```java
-   // Problem: Race condition in multi-threaded environment
-   private RealService getService() {
-       if (service == null) {
-           service = new RealService(); // not thread-safe
-       }
-       return service;
-   }
-
-   // Solution: Use synchronized or double-checked locking
-   private volatile RealService service;
-   private RealService getService() {
-       if (service == null) {
-           synchronized (this) {
-               if (service == null) {
-                   service = new RealService();
-               }
-           }
-       }
-       return service;
-   }
-   ```
-
-4. **Dynamic proxy limitations**: `java.lang.reflect.Proxy` only works with interfaces, not concrete classes. Use CGLIB or ByteBuddy for class-based proxying.
-
-5. **Performance overhead**: Each proxy call adds indirection. For hot code paths, measure whether the proxy overhead is acceptable.
-
-## Best Practices and Optimization Techniques
-
-1. **Use virtual proxies for expensive objects**: Defer creation until first actual use.
-2. **Keep proxy logic minimal**: The proxy should focus on its single concern (access control, caching, etc.) and delegate everything else.
-3. **Use `ConcurrentHashMap.computeIfAbsent`** for thread-safe caching proxies.
-4. **Validate all inputs** in both the proxy and the real subject (defense in depth).
-5. **Make access control rules configurable** rather than hard-coded in the proxy.
-6. **Use dynamic proxies** when you need to proxy many interfaces with the same cross-cutting concern (logging, metrics).
-7. **Consider using Spring AOP or AspectJ** for proxy-based concerns in enterprise applications — they handle proxy creation and management automatically.
-8. **Return unmodifiable collections** from logging proxies to prevent tampering with audit trails.
-
-## Edge Cases and Their Handling
-
-1. **Null inputs**: Both proxies and real subjects should validate arguments. The proxy should validate before delegating to catch errors early.
-2. **Non-existent resources**: Protection proxies should let `NoSuchElementException` propagate from the real subject rather than catching and hiding it.
-3. **Concurrent access to virtual proxy**: Lazy initialization must be thread-safe if the proxy is shared across threads.
-4. **Cache invalidation**: Caching proxies must handle cache staleness. Provide a `clearCache()` method or use time-based expiration.
-5. **Proxy chains**: Stacking multiple proxies (logging on top of caching on top of protection) is valid but increases call depth.
-6. **Dynamic proxy with null arguments**: `InvocationHandler.invoke` may receive a null `args` array for no-argument methods.
-
-## Interview-specific Insights
-
-Interviewers commonly ask about:
-- The difference between Proxy and Decorator patterns
-- Types of proxies and when to use each type
-- How `java.lang.reflect.Proxy` works and its limitations
-- How Spring Framework uses proxies for AOP, transactions, and security
-- Virtual proxy vs. lazy initialization in general
-- Thread safety of lazy-loading proxies
-
-Tricky points:
-- Spring creates JDK dynamic proxies for interface-based beans and CGLIB proxies for class-based beans
-- The Proxy pattern controls access; the Decorator pattern adds behavior
-- A proxy typically manages the lifecycle of the real subject; a decorator does not
-- Dynamic proxies can only proxy interfaces in standard Java — CGLIB generates subclasses for class proxying
-- `InvocationHandler.invoke` must handle `Object` methods (toString, equals, hashCode) properly
-
-## Interview Q&A Section
-
-**Q1: What is the Proxy pattern and what types of proxies exist?**
-
-```text
-A1: The Proxy pattern provides a surrogate or placeholder for another object to control
-access to it. The proxy and the real subject implement the same interface, making them
-interchangeable from the client's perspective.
-
-Main types of proxies:
-
-1. Virtual Proxy (Lazy Proxy):
-   - Delays creation of an expensive object until first use
-   - Example: Loading a large image only when display() is called
-   - Useful when the object may never be needed
-
-2. Protection Proxy (Authorization Proxy):
-   - Controls access based on permissions, roles, or credentials
-   - Example: Document service that checks user roles before allowing write/delete
-   - Enforces security policies
-
-3. Remote Proxy:
-   - Represents an object in a different address space (different JVM, server)
-   - Example: Java RMI stubs, gRPC generated classes
-   - Hides network communication details
-
-4. Smart Reference (Caching/Logging Proxy):
-   - Adds supplementary operations when accessing the real object
-   - Examples: caching results, counting references, logging access
-   - Improves performance or observability
-
-5. Firewall Proxy:
-   - Controls network access to a set of resources
-   - Protects subjects from bad clients
-```
+The hand-written metrics decorator of unit 8.4.3 repeats the same `try`/`finally` in each of its
+four methods. A dynamic proxy writes it once:
 
 ```java
-// Virtual Proxy — lazy loading
-ImageService proxy = new VirtualImageProxy("heavy-image.png");
-// Real image NOT loaded yet
-proxy.getFilename(); // Still not loaded — cheap operation
-proxy.display();     // NOW the real image is loaded
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
 
-// Protection Proxy — access control
-DocumentService proxy = new ProtectionDocumentProxy(realService,
-    new User("guest", Role.GUEST));
-proxy.read("doc1");   // OK
-proxy.write("doc1", "new"); // throws SecurityException
-
-// Caching Proxy — smart reference
-DataLookupService proxy = new CachingDataLookupProxy(realService);
-proxy.lookup("key1"); // hits real service, caches result
-proxy.lookup("key1"); // returns cached result
-```
-
-**Q2: How does the Proxy pattern differ from the Decorator pattern?**
-
-```text
-A2: While both Proxy and Decorator wrap another object and implement the same interface,
-they have fundamentally different intents:
-
-Proxy:
-- Intent: CONTROL ACCESS to the real subject
-- The proxy often manages the lifecycle of the real subject
-- The client may not know the proxy exists
-- Types: virtual, protection, caching, remote
-- The proxy decides WHETHER to delegate
-
-Decorator:
-- Intent: ADD BEHAVIOR to the wrapped component
-- The decorator receives the component from outside (dependency injection)
-- The client knows it is composing behaviors
-- The decorator always delegates to the wrapped component
-- Multiple decorators are commonly stacked
-
-Structural differences:
-- Proxy may create the real subject internally (virtual proxy)
-- Decorator always receives the component through its constructor
-- Proxy focuses on a single subject; Decorator is reusable across components
-- Proxy can refuse to delegate (protection); Decorator always delegates
-
-In practice, the line can blur — a caching proxy looks similar to a caching decorator.
-The key question is: does the wrapper control access (proxy) or add behavior (decorator)?
-```
-
-```java
-// Proxy: controls access, manages lifecycle
-class VirtualImageProxy implements ImageService {
-    private RealImageService real; // creates internally
-    public String display() {
-        if (real == null) real = new RealImageService(filename); // controls creation
-        return real.display();
-    }
-}
-
-// Decorator: adds behavior, receives component
-class LoggingNotifier implements Notifier {
-    private final Notifier wrapped; // received from outside
-    LoggingNotifier(Notifier wrapped) { this.wrapped = wrapped; }
-    public String send(String msg) {
-        log("Sending: " + msg);
-        return wrapped.send(msg); // always delegates
-    }
-}
-```
-
-**Q3: How does `java.lang.reflect.Proxy` work and what are its limitations?**
-
-```text
-A3: Java's dynamic proxy mechanism creates proxy instances at runtime that implement
-one or more interfaces. The proxy routes all method calls through an InvocationHandler.
-
-How it works:
-1. You define an InvocationHandler that intercepts all method calls
-2. Proxy.newProxyInstance() creates a class at runtime that implements the target interfaces
-3. When any method on the proxy is called, it invokes handler.invoke(proxy, method, args)
-4. The handler can perform logic before/after delegating to the real object
-
-Limitations:
-1. INTERFACES ONLY: Can only proxy interfaces, not concrete classes
-   - For classes, use CGLIB (generates subclasses) or ByteBuddy
-2. Performance: Reflection-based invocation is slower than direct calls
-   - JIT compiler can partially optimize this
-3. Object methods: toString(), equals(), hashCode() are also routed through the handler
-   - You must handle them explicitly
-4. No constructor parameters: The proxy is created without parameters
-5. Return type boxing: Primitive return types are auto-boxed/unboxed
-6. Checked exceptions: If the handler throws a checked exception that the interface method does not
-   declare, the caller receives an UndeclaredThrowableException wrapping it. Method.invoke() wraps
-   whatever the target throws in an InvocationTargetException (a checked exception), so a handler
-   should unwrap it with getCause() and rethrow the cause
-```
-
-```java
-// Creating a dynamic proxy
-DataLookupService real = new RealDataLookupService();
-LoggingInvocationHandler handler = new LoggingInvocationHandler(real);
-
-DataLookupService proxy = (DataLookupService) Proxy.newProxyInstance(
-    DataLookupService.class.getClassLoader(),
-    new Class<?>[]{DataLookupService.class},
-    handler
-);
-
-proxy.lookup("key1"); // routed through handler.invoke()
-
-// The handler:
-class LoggingInvocationHandler implements InvocationHandler {
-    private final Object target;
-
-    @Override
-    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-        System.out.println("Calling: " + method.getName());
-        Object result;
-        try {
-            result = method.invoke(target, args); // delegate via reflection
-        } catch (InvocationTargetException e) {
-            throw e.getCause(); // rethrow the target's own exception, not the reflective wrapper
-        }
-        System.out.println("Returned: " + result);
-        return result;
-    }
-}
-```
-
-**Q4: How does Spring Framework use the Proxy pattern?**
-
-```text
-A4: Spring Framework uses proxies extensively for cross-cutting concerns:
-
-1. AOP (Aspect-Oriented Programming):
-   - Spring AOP creates proxies around beans to apply aspects (logging, security, etc.)
-   - For interface-based beans: uses JDK dynamic proxies
-   - For class-based beans: uses CGLIB to create a subclass proxy
-   - @Aspect + @Around annotations define the proxy behavior
-
-2. @Transactional:
-   - Spring wraps the bean in a proxy that manages database transactions
-   - The proxy begins a transaction before the method, commits after, rolls back on exception
-   - This is why @Transactional does not work on private methods or self-invocation
-
-3. @Cacheable:
-   - Spring creates a caching proxy that checks the cache before invoking the method
-   - If cached, returns the cached result; otherwise, invokes and caches the result
-
-4. @Secured / @PreAuthorize:
-   - Protection proxies that check user permissions before allowing method execution
-
-5. @Lazy:
-   - Virtual proxy that defers bean creation until first access
-
-Common gotcha: Spring proxies do not intercept self-invocation (calling this.method()).
-The call bypasses the proxy because it goes directly to the target object.
-```
-
-```java
-// Spring's @Transactional creates a proxy:
-@Service
-public class OrderService {
-    @Transactional
-    public void placeOrder(Order order) {
-        // Spring proxy: BEGIN TRANSACTION
-        orderRepository.save(order);
-        paymentService.charge(order);
-        // Spring proxy: COMMIT (or ROLLBACK on exception)
-    }
-
-    // GOTCHA: self-invocation bypasses the proxy!
-    public void processOrders(List<Order> orders) {
-        for (Order order : orders) {
-            this.placeOrder(order); // NOT proxied! Calls target directly.
-        }
-    }
-}
-
-// Equivalent proxy structure:
-class OrderServiceProxy extends OrderService {
-    private final OrderService target;
-    private final TransactionManager txManager;
-
-    @Override
-    public void placeOrder(Order order) {
-        txManager.begin();
-        try {
-            target.placeOrder(order);
-            txManager.commit();
-        } catch (Exception e) {
-            txManager.rollback();
-            throw e;
-        }
-    }
-}
-```
-
-**Q5: How do you ensure thread safety in a virtual proxy?**
-
-```text
-A5: Virtual proxies that lazily initialize the real subject face a classic
-thread-safety challenge when accessed from multiple threads simultaneously.
-
-Approaches (from simplest to most efficient):
-
-1. Synchronized method: Simple but may cause contention
-2. Double-checked locking with volatile: Best balance of safety and performance
-3. Initialization-on-demand holder idiom: If the proxy is a singleton
-4. AtomicReference with compareAndSet: Lock-free but may create multiple instances
-
-The double-checked locking pattern is most commonly used:
-- First check without locking (fast path for already-initialized case)
-- Synchronize only if not yet initialized
-- Second check inside the synchronized block (prevents double creation)
-- The volatile keyword ensures visibility across threads
-
-For simple cases, making the method synchronized is often good enough.
-Premature optimization of lazy initialization is a common anti-pattern.
-```
-
-```java
-// Approach 1: Synchronized (simple, may contend)
-public class SyncVirtualProxy implements ImageService {
-    private RealImageService real;
-    public synchronized String display() {
-        if (real == null) real = new RealImageService(filename);
-        return real.display();
-    }
-}
-
-// Approach 2: Double-checked locking (preferred)
-public class DCLVirtualProxy implements ImageService {
-    private volatile RealImageService real;
-    public String display() {
-        if (real == null) {                        // first check (no lock)
-            synchronized (this) {
-                if (real == null) {                 // second check (with lock)
-                    real = new RealImageService(filename);
-                }
+/** One handler that times every call on any interface. */
+final class Timing {
+    static <T> T timed(T target, Class<T> type) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            long start = System.nanoTime();
+            try {
+                return method.invoke(target, args);
+            } finally {
+                System.out.printf("  %s.%s took %d µs%n", type.getSimpleName(), method.getName(),
+                        (System.nanoTime() - start) / 1_000);
             }
-        }
-        return real.display();
-    }
-}
-
-// Approach 3: Using AtomicReference (lock-free)
-public class AtomicVirtualProxy implements ImageService {
-    private final AtomicReference<RealImageService> ref = new AtomicReference<>();
-    public String display() {
-        if (ref.get() == null) {
-            // Without this check, every call would construct a new RealImageService
-            ref.compareAndSet(null, new RealImageService(filename));
-        }
-        return ref.get().display();
-        // Note: threads racing on the first call may each create an instance; only one is kept
+        };
+        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler));
     }
 }
 ```
 
-**Q6: When should you use a proxy vs. a simple null check or lazy initialization?**
-
-```text
-A6: Use a proxy when you need to encapsulate the control logic and keep it separate
-from the client code. Use a simple null check when the laziness is internal to a class.
-
-Use a Proxy when:
-1. The client should not know about the lazy loading / access control
-2. You want to swap implementations (real vs. proxy) without changing client code
-3. Multiple clients need the same control behavior
-4. You are applying cross-cutting concerns (logging, caching, security)
-5. You want to test the control logic independently
-
-Use a simple null check / lazy field when:
-1. The laziness is purely an internal optimization
-2. Only one class uses the lazy field
-3. There is no access control or cross-cutting concern
-4. Adding a proxy class would be over-engineering
-
-Rule of thumb: if the control logic is a single line (null check), inline it.
-If it involves complex logic (permissions, caching, logging), extract to a proxy.
-```
+`Inventory` has `int stock(String sku)` and `void reserve(String sku, int qty)`, both declaring
+`IOException`. `timed` wraps it, and also a `String` seen as a `CharSequence`:
 
 ```java
-// Simple case: just use a lazy field (no proxy needed)
-class Report {
-    private List<String> data;
-    public List<String> getData() {
-        if (data == null) {
-            data = loadExpensiveData(); // internal concern
+Inventory inventory = Timing.timed(new WarehouseInventory(0), Inventory.class);
+inventory.stock("A-100");
+inventory.stock("A-100");
+inventory.reserve("A-100", 2);
+
+CharSequence sku = Timing.timed("B-200", CharSequence.class);   // String is final
+System.out.println("length " + sku.length() + ", first " + sku.charAt(0));
+
+System.out.println("class: " + inventory.getClass().getName()
+        + ", instanceof WarehouseInventory: " + (inventory instanceof WarehouseInventory));
+try {
+    Proxy.newProxyInstance(String.class.getClassLoader(), new Class<?>[] {String.class},
+            (p, m, args) -> null);
+} catch (IllegalArgumentException e) {
+    System.out.println("proxy of String: " + e);
+}
+```
+
+```text
+  Inventory.stock took 2154 µs
+  Inventory.stock took 25 µs
+  Inventory.reserve took 3615 µs
+  CharSequence.length took 613 µs
+  CharSequence.charAt took 714 µs
+length 5, first B
+class: $Proxy0, instanceof WarehouseInventory: false
+proxy of String: java.lang.IllegalArgumentException: java.lang.String is not an interface
+```
+
+`newProxyInstance` generates a class (`$Proxy0`) implementing the listed interfaces. Each of its
+methods passes `invoke` the proxy, the `Method` and the arguments (`null` when there are none).
+The handler names no interface, so it works for any, the JDK's included. The first call to each method was slow because `Method.invoke` sets itself up on first
+use.
+
+The proxy is not a subclass of the target: `type.cast` to the interface succeeds, a cast to
+`WarehouseInventory` throws `ClassCastException`, and `Proxy` refuses a class outright. Proxying a class takes a subclass
+generated as bytecode, which is what CGLIB (copied inside Spring) and Byte Buddy's subclassing do,
+and a final class such as `String` can't have one. Unit 10.3.3 covers `Method` and reflection
+itself.
+
+## equals, hashCode and toString Reach the Handler Too, So the Handler Decides the Proxy's Identity
+
+The timing proxy now wraps a stock listener, `timed = Timing.timed(new ReorderListener(),
+StockListener.class)`, whose `toString` is `reorder-listener`. It is registered in an `ArrayList`,
+printed in a log line, and removed when its screen closes:
+
+```java
+List<StockListener> listeners = new ArrayList<>();
+listeners.add(timed);
+System.out.println("registered " + timed);
+boolean removed = listeners.remove(timed);
+System.out.println("removed: " + removed + ", still registered: " + listeners.size());
+```
+
+Once through `Timing`, once through `TimingFixed`, whose handler begins with the `switch` shown
+further down:
+
+```text
+forwards everything:
+  StockListener.toString took 277 µs
+registered reorder-listener
+  StockListener.equals took 905 µs
+removed: false, still registered: 1
+answers Object's methods:
+registered timed reorder-listener
+removed: true, still registered: 0
+```
+
+The proxy sends `equals`, `hashCode` and `toString` to `invoke`, with `Object` as the method's
+declaring class; `getClass` and `Object`'s other methods it doesn't. The first handler forwards
+them like any call. `remove(timed)` asked the proxy `equals(timed)`, the handler asked the target,
+and the target, whose `equals` is `Object`'s identity check, said no. The screen is gone and its
+listener stays registered, receiving every stock change.
+
+The second handler answers the three methods before timing anything:
+
+```java
+if (method.getDeclaringClass() == Object.class) {
+    return switch (method.getName()) {
+        case "equals" -> proxy == args[0];
+        case "hashCode" -> System.identityHashCode(proxy);
+        default -> "timed " + target;                 // toString
+    };
+}
+```
+
+Identity by reference makes a proxy equal to itself and to nothing else. A handler may choose
+otherwise, say two proxies over one target being equal, as long as `hashCode` agrees.
+
+The `proxy` argument is the proxy, so whatever the handler does with it comes back through
+`invoke`. A handler that logs `"calling " + method.getName() + " on " + proxy` calls `toString`
+on the proxy, which calls the handler again:
+
+```text
+printing proxy inside invoke: java.lang.StackOverflowError
+```
+
+<!-- practice 1 -->
+
+## Method.invoke Wraps Whatever the Target Throws, So the Handler Must Unwrap It
+
+The retry handler from the opening compiles without a warning. Find why it never retries:
+
+```java
+InvocationHandler handler = (proxy, method, args) -> {
+    for (int attempt = 1; ; attempt++) {
+        try {
+            return method.invoke(target, args);
+        } catch (Exception e) {
+            if (!(e instanceof IOException) || attempt == ATTEMPTS) throw e;
+            System.out.println("  retrying after: " + e.getMessage());
         }
-        return data;
     }
+};
+```
+
+The order code calls `stock` through it and prints the result, or the exception and its cause
+chain, then how many calls reached the warehouse. `WarehouseInventory(2)` fails its first two
+calls with `IOException("connection reset")`, and a blank SKU fails with
+`IllegalArgumentException`:
+
+```text
+naive, 2 resets: java.lang.reflect.UndeclaredThrowableException
+    caused by java.lang.reflect.InvocationTargetException
+    caused by java.io.IOException: connection reset
+    calls reaching the warehouse: 1
+naive, blank sku: java.lang.reflect.UndeclaredThrowableException
+    caused by java.lang.reflect.InvocationTargetException
+    caused by java.lang.IllegalArgumentException: blank sku
+    calls reaching the warehouse: 1
+```
+
+`Method.invoke` wraps anything the target throws, checked or not, in
+`InvocationTargetException`. So `e` is never an `IOException`, and the first failure ends the
+loop. `catch (IOException e)` doesn't compile ("exception IOException is never thrown in body of
+corresponding try statement"), and `catch (Exception e)` is the quick way to silence the error.
+The fix unwraps:
+
+```java
+} catch (InvocationTargetException e) {
+    Throwable cause = e.getCause();            // what the target threw
+    if (!(cause instanceof IOException) || attempt == ATTEMPTS) throw cause;
+    System.out.println("  retrying after: " + cause.getMessage());
+}
+```
+
+```text
+  retrying after: connection reset
+  retrying after: connection reset
+unwrapping, 2 resets: stock 42
+    calls reaching the warehouse: 3
+  retrying after: connection reset
+  retrying after: connection reset
+unwrapping, 5 resets: unavailable (connection reset)
+    calls reaching the warehouse: 3
+unwrapping, blank sku: java.lang.IllegalArgumentException: blank sku
+    calls reaching the warehouse: 1
+```
+
+Two resets are absorbed. After five, the caller gets the last `IOException`, which `stock`
+declares, and its own `catch` shows "unavailable". The blank SKU is not retried and arrives as
+itself. The timing handler of the first section has the same flaw: every exception the warehouse
+throws through it reaches the caller wrapped twice.
+
+## A Checked Exception the Interface Method Doesn't Declare Reaches the Caller as UndeclaredThrowableException
+
+`invoke` is declared `throws Throwable`, so the compiler lets a handler throw anything, and the
+proxy checks what comes out against the interface method. An unchecked exception, or a checked
+one the method declares, passes through unchanged. Any other checked exception is wrapped in
+`UndeclaredThrowableException`, a `RuntimeException`, because a caller compiled against
+`int stock(String) throws IOException` can't be handed a checked exception it was never told
+about. The leaked `InvocationTargetException` above was one. The retry library's own checked
+exception, thrown when it gives up, is another:
+
+```java
+if (!(cause instanceof IOException)) throw cause;
+if (attempt == ATTEMPTS) throw new RetriesExhaustedException(ATTEMPTS, cause);   // extends Exception
+```
+
+```text
+givingUp, 5 resets: java.lang.reflect.UndeclaredThrowableException
+    caused by Retry$RetriesExhaustedException: gave up after 3 attempts
+    caused by java.io.IOException: connection reset
+    calls reaching the warehouse: 3
+```
+
+Every caller's `catch (IOException e)` is skipped, and in a web service the request fails with
+a server error instead of showing "unavailable". A handler throws the target's own exception, one
+the called method declares (`method.getExceptionTypes()` lists them), or an unchecked one. A retry
+library that wants a type of its own, and can't know what each interface declares, makes it a
+`RuntimeException`.
+
+<!-- practice 2 -->
+
+## A Call the Target Makes on this Never Reaches the Proxy
+
+A handler opens a transaction around each method marked `@Tx`, a runtime-retained annotation
+it finds on the interface method the proxy passes it. Only `place` is marked. A batch method on
+the same class places several orders:
+
+```java
+interface Orders {
+    void placeAll(List<String> ids);
+    @Tx void place(String id);
 }
 
-// Complex case: use a proxy (multiple concerns, client transparency)
-interface ReportService {
-    Report getReport(String id);
-}
-
-class CachingReportProxy implements ReportService {
-    private final ReportService real;
-    private final Map<String, Report> cache = new ConcurrentHashMap<>();
-
-    public Report getReport(String id) {
-        return cache.computeIfAbsent(id, real::getReport);
+static final class OrderService implements Orders {
+    public void placeAll(List<String> ids) {
+        for (String id : ids) place(id);           // this.place(id)
     }
-}
-
-class AuthReportProxy implements ReportService {
-    private final ReportService real;
-    private final User user;
-
-    public Report getReport(String id) {
-        if (!user.canAccess(id)) throw new SecurityException();
-        return real.getReport(id);
+    public void place(String id) {
+        System.out.println("    placing " + id);
     }
 }
 ```
+
+`orders` is the proxy over an `OrderService`, and the handler prints `BEGIN` and `COMMIT` around
+each transaction. `orders.placeAll(List.of("O-7", "O-8"))` prints:
+
+```text
+placeAll on the proxy:
+    placing O-7
+    placing O-8
+```
+
+The proxy saw `placeAll`, which isn't marked, and passed it on. Inside the
+target, `place(id)` means `this.place(id)`, and `this` is the `OrderService`, which knows nothing
+of the proxy. A proxy intercepts only calls made on the proxy reference. For the same reason,
+Spring's `@Transactional` on a method called from another method of the same bean is ignored in
+Spring's default proxy mode.
+
+The fix is to call `place` through the proxy. The loop moves to an object that holds it:
+
+```java
+static final class OrderBatch {
+    private final Orders orders;
+    OrderBatch(Orders orders) { this.orders = orders; }
+    void placeAll(List<String> ids) {
+        for (String id : ids) orders.place(id);
+    }
+}
+```
+
+```text
+OrderBatch over the proxy:
+  BEGIN  place
+    placing O-7
+  COMMIT place
+  BEGIN  place
+    placing O-8
+  COMMIT place
+```
+
+A default method run with `InvocationHandler.invokeDefault` is different: the target never runs,
+`this` inside its body is the proxy, and its calls to other interface methods come back through
+`invoke`.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **One handler receives every call on the proxied interfaces**, for any interface but only
+  interfaces: the proxy is no instance of the target's class, and a class needs a generated
+  subclass.
+- **`equals`, `hashCode` and `toString` reach the handler.** Forwarding `equals` to a target with
+  identity `equals` makes the proxy unequal to itself, so a list can't remove it; printing `proxy`
+  inside the handler recurses until `StackOverflowError`.
+- **`Method.invoke` wraps the target's exception in `InvocationTargetException`.** A handler that
+  doesn't unwrap it retries nothing and changes the type of every failure.
+- **A checked exception the method doesn't declare becomes `UndeclaredThrowableException`**, which
+  skips the caller's `catch`. Throw what the method declares, or something unchecked.
+- **A call on `this` bypasses the proxy.** Calls that must be intercepted go through the proxy
+  reference, which is why a self-call in Spring ignores the called method's `@Transactional`.
+
+## Reference
+
+**What reaches `invoke` (Java 21; `Proxy` and `InvocationHandler` javadoc, and this page's runs):**
+
+| Call on the proxy | Reaches `invoke` | Notes |
+|---|---|---|
+| an interface method | yes | `args` is `null` when the method has no parameters |
+| a default method | yes | `InvocationHandler.invokeDefault` (Java 16) runs its body |
+| `equals`, `hashCode`, `toString` | yes | `method.getDeclaringClass()` is `Object` |
+| `getClass` and `Object`'s other methods | no | |
+| a call the target makes on `this` | no | |
+
+**What the caller gets from the handler:**
+
+| The handler | The caller gets |
+|---|---|
+| throws an unchecked exception or an error | the same object |
+| throws a checked exception the interface method declares | the same object |
+| throws any other checked exception, `InvocationTargetException` included | `UndeclaredThrowableException` with it as the cause |
+| returns `null` for a primitive return type | `NullPointerException` |
+| returns a value of another type | `ClassCastException` |
+
+## Challenges
+
+1. The retry proxy wraps an interface whose `reserve` is not idempotent. Which methods should it
+   retry, and how would the handler know? Compare an annotation with a list of method names.
+2. Put the timing proxy and the retry proxy around the same `Inventory`, in both orders. What does
+   the timing line measure in each, and which order do you want on a dashboard?
+3. A listener is wrapped and registered twice by mistake, as two proxies. With identity-based
+   `equals`, can the second registration be detected? Design an `equals` that can, and say what
+   it costs.
+
+## Design Note: Why the JDK Proxies Interfaces Only
+
+`Proxy` arrived in Java 1.3. The class it generates extends `java.lang.reflect.Proxy` and
+implements the interfaces you list. Since it extends `Proxy`, it can't extend your class, and an
+interface has no state and no constructor, so the proxy only has to answer calls. A subclass-based proxy can't intercept final or private methods, carries the
+parent's fields unused, and must either run one of the parent's constructors or skip them,
+which takes a library such as Objenesis.
+
+The JDK can wrap an object only for callers that depend on
+its interface, the dependency unit 8.1.5 argues for on other grounds. Code that names the class
+can't be handed the proxy at all.
 
 ## Code Examples
 

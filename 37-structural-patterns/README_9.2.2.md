@@ -1,392 +1,276 @@
 # 9.2.2. Decorator Pattern
 
-## Concept Explanation
-
-The Decorator Pattern is a structural design pattern that lets you dynamically attach new behaviors to objects by placing them inside special wrapper objects (decorators). Decorators provide a flexible alternative to subclassing for extending functionality at runtime.
-
-**Real-world analogy**: Think of ordering a coffee. You start with a base espresso, then you can add decorations: whipped cream, caramel syrup, extra shot, oat milk. Each addition wraps the previous order, adding to its description and price, but the core is still an espresso. You can combine any decorations in any order, and each one knows how to delegate to the thing it wraps. The Decorator pattern works exactly this way — each decorator wraps a component and adds its own behavior before or after delegating to the wrapped object.
-
-The pattern is classified as structural because it composes objects to achieve new functionality. Unlike inheritance, which is static and applies to an entire class, decoration is dynamic and applies to individual objects at runtime.
-
-Key participants:
-- **Component** (interface): Defines the common interface for both concrete components and decorators.
-- **Concrete Component**: The original object being wrapped.
-- **Base Decorator**: Abstract class that implements the component interface and holds a reference to a wrapped component.
-- **Concrete Decorators**: Add specific behaviors before or after delegating to the wrapped component.
-
-## Key Points to Remember
-
-- Decorators implement the same interface as the object they decorate.
-- Decorators hold a reference to a component object and delegate all base operations to it.
-- Multiple decorators can be stacked (chained) on a single object.
-- Decorators add behavior transparently — the client works with the component interface, unaware of decoration.
-- The pattern follows the Open/Closed Principle — you can add new behaviors without modifying existing classes.
-- The pattern follows the Single Responsibility Principle — each decorator handles one concern.
-- Order of decoration matters — `Logging(Encryption(data))` is different from `Encryption(Logging(data))`.
-- Java I/O streams (`InputStream`, `OutputStream`, `Reader`, `Writer`) are the classic example of the Decorator pattern.
-- Decorators should not change the fundamental contract of the component interface.
-
-## Relevant Java 21 Features
-
-- **Sealed interfaces**: You can seal the component interface to control which decorators are permitted.
-- **Records**: While decorators typically have mutable state or behavior, the base decorator reference can be stored in a record if the decorator is stateless.
-- **Pattern matching for `instanceof`**: Useful for unwrapping or inspecting decorator chains at runtime.
-- **Default methods**: Can reduce boilerplate in decorator base classes by providing default pass-through behavior.
-
-Evolution across Java versions:
-- **Java 1.0**: The I/O streams library (`java.io`) was designed around the Decorator pattern from the start.
-- **Java 8**: Functional interfaces and lambdas enable lightweight inline decorators via method wrapping.
-- **Java 17+**: Sealed classes allow compile-time control of the decorator hierarchy.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting to delegate to the wrapped component**: The most common mistake is overriding a method without calling `super.send(message)` or `wrappee.send(message)`.
-   ```java
-   // Problem: Lost the behavior of the wrapped component
-   @Override
-   public String send(String message) {
-       return "SMS: " + message; // forgot to call wrappee.send()
-   }
-
-   // Solution: Always delegate first
-   @Override
-   public String send(String message) {
-       String base = wrappee.send(message); // delegate
-       return base + " | SMS: " + message;  // then add behavior
-   }
-   ```
-
-2. **Identity comparisons breaking**: Since the decorator wraps the original object, `==` and identity-based checks will fail. Use `equals()` that respects the wrapper chain.
-   ```java
-   Notifier original = new EmailNotifier("a@example.org");
-   Notifier decorated = new SmsDecorator(original, "+1");
-   // original == decorated is FALSE
-   // original.equals(decorated) depends on equals() implementation
-   ```
-
-3. **Decorator explosion**: Creating too many fine-grained decorators makes the system hard to understand. Group related behaviors into a single decorator when they always go together.
-
-4. **Null wrappee**: Always validate the wrapped component is not null in the constructor.
-   ```java
-   protected NotifierDecorator(Notifier wrappee) {
-       this.wrappee = Objects.requireNonNull(wrappee, "Wrapped notifier must not be null");
-   }
-   ```
-
-5. **Confusing with inheritance**: Subclassing creates a fixed hierarchy; decoration is dynamic. If you find yourself creating many subclass combinations (EmailSmsNotifier, EmailSlackNotifier, SmsSlackNotifier...), switch to decorators.
-
-## Best Practices and Optimization Techniques
-
-1. **Keep decorators focused**: Each decorator should add exactly one responsibility.
-2. **Use an abstract base decorator**: It handles delegation boilerplate, so concrete decorators only override what they need.
-3. **Make decorators interchangeable**: All decorators should implement the same interface so they can be freely composed.
-4. **Document decoration order sensitivity**: If order matters, document it clearly.
-5. **Prefer decorators over inheritance** when you need to combine behaviors in multiple ways.
-6. **Consider lambdas for simple decorators**: For functional interfaces, a lambda can serve as a lightweight decorator.
-7. **Make the log or state in decorators accessible** for testing and debugging (e.g., expose an unmodifiable log).
-8. **Thread safety**: If decorators maintain state (like a log), consider synchronization or use concurrent data structures.
-
-## Edge Cases and Their Handling
-
-1. **Null messages/inputs**: Validate all method arguments, not just constructor parameters.
-2. **Empty decoration chain**: A component without any decorators should work identically — the base component is always a valid standalone object.
-3. **Double decoration**: Applying the same decorator twice should be supported and produce the expected cumulative effect.
-4. **Removing a decorator**: The pattern does not natively support removing decorators from a chain. If you need this, consider using a different pattern (like Chain of Responsibility or a list of handlers).
-5. **Serialization**: Decorator chains can be difficult to serialize. Consider flattening or recreating the chain on deserialization.
-
-## Interview-specific Insights
-
-Interviewers commonly ask about:
-- The difference between Decorator and inheritance (subclassing)
-- How Java I/O streams use the Decorator pattern
-- When to use Decorator vs. Strategy vs. Chain of Responsibility
-- How to stack multiple decorators and whether order matters
-- The relationship between Decorator and the Open/Closed Principle
-
-Tricky points:
-- The Decorator pattern is a form of composition — it composes behavior at runtime
-- Java I/O is the textbook example: `new BufferedReader(new InputStreamReader(new FileInputStream("file")))`
-- Decorators can be tested independently since each one adds only one behavior
-- The pattern can be implemented with lambdas for functional interfaces
-
-## Interview Q&A Section
-
-**Q1: What is the Decorator pattern and how does it differ from subclassing?**
-
-```text
-A1: The Decorator pattern dynamically attaches new behaviors to an object by wrapping it
-inside a decorator object that implements the same interface. The decorator delegates to
-the wrapped object and adds its own behavior before or after delegation.
-
-Key differences from subclassing:
-
-1. Dynamic vs. Static:
-   - Decorator: Behavior is added at RUNTIME, per-instance
-   - Subclass: Behavior is fixed at COMPILE TIME, per-class
-
-2. Combinatorial explosion:
-   - Subclassing: 3 behaviors = 7 subclass combinations (A, B, C, AB, AC, BC, ABC)
-   - Decorator: 3 behaviors = 3 decorator classes, compose as needed
-
-3. Open/Closed Principle:
-   - Decorator: Add new behaviors without modifying existing classes
-   - Subclass: Often requires modifying the hierarchy
-
-4. Single Responsibility:
-   - Each decorator class handles one concern
-   - Subclasses often accumulate multiple responsibilities
-
-5. Flexibility:
-   - Decorators can be stacked in any order
-   - Inheritance hierarchies are rigid
-```
+The nightly orders export reaches a partner as `orders.csv.gz`, and since Tuesday their import
+fails with `Unexpected end of ZLIB input stream`. The writer:
 
 ```java
-// Subclassing approach — combinatorial explosion
-class EmailNotifier { }
-class SmsNotifier extends EmailNotifier { }
-class SlackNotifier extends EmailNotifier { }
-class SmsSlackNotifier extends EmailNotifier { } // need all combinations!
-
-// Decorator approach — compose freely
-Notifier notifier = new EmailNotifier("a@example.org");
-notifier = new SmsDecorator(notifier, "+1234");
-notifier = new SlackDecorator(notifier, "#alerts");
-// Any combination, any order, at runtime
-```
-
-**Q2: How does the Java I/O library use the Decorator pattern?**
-
-```text
-A2: Java I/O streams are the classic textbook example of the Decorator pattern.
-
-The hierarchy:
-- InputStream (Component — an abstract class, not an interface)
-- FileInputStream, ByteArrayInputStream (Concrete Components)
-- FilterInputStream (Base Decorator — holds a reference to another InputStream)
-- BufferedInputStream, DataInputStream, etc. (Concrete Decorators)
-
-Each decorator adds a specific capability:
-- BufferedInputStream: adds buffering for performance
-- DataInputStream: adds ability to read primitive types
-- GZIPInputStream: adds decompression
-- CipherInputStream: adds decryption
-
-These can be stacked in any combination:
-```
-
-```java
-// Stacking I/O decorators
-InputStream raw = new FileInputStream("data.gz");         // concrete component
-InputStream buffered = new BufferedInputStream(raw);       // add buffering
-InputStream decompressed = new GZIPInputStream(buffered);  // add decompression
-DataInputStream data = new DataInputStream(decompressed);  // add type reading
-
-int value = data.readInt(); // reads through the entire decorator chain:
-// DataInputStream -> GZIPInputStream -> BufferedInputStream -> FileInputStream
-
-// Similarly for writers:
-Writer writer = new BufferedWriter(
-    new OutputStreamWriter(
-        new FileOutputStream("output.txt"),
-        StandardCharsets.UTF_8
-    )
-);
-```
-
-**Q3: When should you use Decorator vs. Strategy vs. Chain of Responsibility?**
-
-```text
-A3: These patterns are related but serve different purposes:
-
-Decorator:
-- Adds behavior to an existing object transparently
-- The client uses the same interface regardless of decoration
-- Decorators are stacked (nested wrappers)
-- Best when: you want to combine behaviors dynamically
-- Example: adding logging, caching, encryption to a data source
-
-Strategy:
-- Encapsulates interchangeable algorithms
-- The client selects one strategy at a time
-- Strategies are alternatives, not cumulative
-- Best when: you need to switch between different algorithms
-- Example: choosing a sorting algorithm or compression scheme
-
-Chain of Responsibility:
-- Passes a request along a chain of handlers
-- Each handler decides whether to process or pass along
-- The request may be handled by zero, one, or multiple handlers
-- Best when: you don't know in advance which handler should process a request
-- Example: event handling, middleware chains, approval workflows
-
-Key difference: Decorator ALWAYS delegates to the next wrapper. Chain of Responsibility
-MAY stop at any handler. Strategy selects ONE algorithm from many options.
-```
-
-```java
-// Decorator: all layers always execute
-Notifier n = new SlackDecorator(new SmsDecorator(new EmailNotifier("a@example.org"), "+1"), "#ch");
-n.send("alert"); // Email + SMS + Slack — ALL execute
-
-// Strategy: one algorithm selected
-interface CompressionStrategy { byte[] compress(byte[] data); }
-class GzipStrategy implements CompressionStrategy { /* ... */ }
-class ZipStrategy implements CompressionStrategy { /* ... */ }
-// Client picks ONE strategy
-
-// Chain of Responsibility: handlers may or may not process
-interface Handler { void handle(Request req); }
-class AuthHandler implements Handler { /* may pass to next or reject */ }
-class LoggingHandler implements Handler { /* logs and passes to next */ }
-```
-
-**Q4: Can you implement a decorator using functional interfaces and lambdas?**
-
-```text
-A4: Yes! When the component interface is a functional interface (single abstract method),
-you can use lambdas and method composition to create lightweight decorators without
-dedicated wrapper classes.
-
-Java's Function interface provides andThen() and compose() methods that enable
-decorator-like chaining. UnaryOperator<T> is particularly useful for same-type
-transformations.
-
-This approach is best for:
-- Simple behavior additions (logging, validation, transformation)
-- Stateless decorators
-- When you don't need a full class hierarchy
-
-For stateful decorators or multi-method interfaces, traditional classes are still needed.
-```
-
-```java
-import java.util.function.Function;
-import java.util.function.UnaryOperator;
-
-// Traditional class-based decorator
-class UpperCaseDecorator implements Formatter {
-    private final Formatter wrapped;
-    UpperCaseDecorator(Formatter w) { this.wrapped = w; }
-    public String format(String s) { return wrapped.format(s).toUpperCase(); }
+try (FileOutputStream file = new FileOutputStream(p.toFile())) {
+    OutputStream o = new BufferedOutputStream(new GZIPOutputStream(file));
+    write(o);                                      // 20,000 order lines
 }
-
-// Lambda-based decorator using Function composition
-Function<String, String> base = s -> s.trim();
-Function<String, String> withUpper = base.andThen(String::toUpperCase);
-Function<String, String> withPrefix = withUpper.andThen(s -> "[LOG] " + s);
-
-String result = withPrefix.apply("  hello  "); // "[LOG] HELLO"
-
-// UnaryOperator chaining
-UnaryOperator<String> trim = String::trim;
-UnaryOperator<String> upper = String::toUpperCase;
-UnaryOperator<String> pipeline = s -> upper.apply(trim.apply(s));
 ```
 
-**Q5: Does the order of decorators matter? Give an example.**
+The test checks that the file exists and isn't empty, and it passes. Before reading on, work out
+which part of the export never reached the disk.
 
-```text
-A5: Yes, the order of decorators can significantly affect the outcome. Each decorator
-adds its behavior relative to the previous decorator in the chain.
+A decorator implements the same type as the object it wraps, passes calls on to it and adds
+something on the way. `java.io` is built from them: `BufferedOutputStream` adds a buffer to any
+`OutputStream`, `GZIPOutputStream` adds compression, and each holds the next stream in its `out`
+field.
 
-Consider a data source with encryption and compression decorators:
-- Compress then Encrypt: Data is compressed first (smaller), then encrypted.
-  The encrypted data cannot be compressed further. This is efficient.
-- Encrypt then Compress: Data is encrypted first (looks random), then
-  compressed. Random data compresses poorly. This is wasteful.
+## Each Layer Can Hold Bytes, So Only Closing the Outermost Stream Writes Them All
 
-The order also matters for logging and caching:
-- Log then Cache: Every request is logged, but only cache misses hit the
-  real service.
-- Cache then Log: Only cache misses are logged, missing visibility into
-  cache hits.
-
-Rule of thumb: think about the data flow direction. The outermost decorator
-executes first on the way in and last on the way out.
-```
+We wrote the same 20,000 lines through the same three layers, ended them three ways, and read
+each file back with a `GZIPInputStream`. The first run closes the outermost stream:
 
 ```java
-// Order matters: Compression + Encryption
-DataSource source = new InMemoryDataSource();
-
-// The outermost decorator's write() runs first, so the outer one is applied first on write.
-
-// Option 1: Compress then Encrypt (preferred)
-DataSource compressThenEncrypt = new CompressionDecorator(
-    new EncryptionDecorator(source, key)
-);
-// Write: data -> compress -> encrypt -> store
-// Read: store -> decrypt -> decompress -> data
-
-// Option 2: Encrypt then Compress (wasteful)
-DataSource encryptThenCompress = new EncryptionDecorator(
-    new CompressionDecorator(source), key
-);
-// Write: data -> encrypt -> compress -> store
-// Encrypted data is random and compresses poorly!
+OutputStream out = new BufferedOutputStream(new GZIPOutputStream(new FileOutputStream(p.toFile())));
+write(out);
+out.close();
 ```
-
-**Q6: What are the disadvantages of the Decorator pattern?**
 
 ```text
-A6: Despite its flexibility, the Decorator pattern has several disadvantages:
-
-1. Complexity: Deep decorator chains can be hard to debug and understand.
-   new A(new B(new C(new D(base)))) — which layer caused the bug?
-
-2. Identity issues: The decorated object is not the same instance as the
-   original. Code that relies on object identity (==) will break.
-
-3. Difficult to remove decorators: Once wrapped, there is no standard way
-   to unwrap or remove a specific decorator from the chain.
-
-4. Configuration complexity: Creating the right decorator chain requires
-   careful setup, often handled by a factory or builder.
-
-5. Many small classes: Each behavior requires its own decorator class,
-   which can lead to many small classes in the codebase.
-
-6. Method proliferation: If the component interface has many methods, each
-   decorator must implement all of them (even if most just delegate).
-
-7. Ordering sensitivity: Wrong order can produce incorrect results or
-   poor performance.
-
-Mitigation strategies:
-- Use a builder or factory to construct decorator chains
-- Use an abstract base decorator to handle delegation boilerplate
-- Document the expected decoration order
-- Keep the component interface small (Interface Segregation Principle)
+close the outer stream         54947 bytes, read back 20000 lines
+close the file only            44444 bytes, read back failed: java.io.EOFException: Unexpected end of ZLIB input stream
+flush the outer, close file    44444 bytes, read back failed: java.io.EOFException: Unexpected end of ZLIB input stream
 ```
 
+When the file was closed, two layers above it still held data. The `BufferedOutputStream` had up
+to 8 KB of lines it hadn't passed on. The `GZIPOutputStream`'s `Deflater` held compressed data
+it hadn't written out, and the GZIP trailer, a CRC-32 and the length, is written only by `finish()`.
+Closing the file wrote none of that: the file has no reference to the layers above it.
+
+`close()` on a decorator empties it into the stream it wraps (`BufferedOutputStream` flushes,
+`GZIPOutputStream` calls `finish()`), then closes that stream. So closing the outermost stream
+empties every layer from the top down. `flush()` goes down too, but `GZIPOutputStream` doesn't
+flush its compressor on `flush()` unless it was built with `syncFlush` set, and even then it
+writes no trailer. Make the outermost stream the resource of the `try`, or declare every layer as
+a resource: they close in reverse order, closing these streams a second time does nothing, and
+the file is still closed if a constructor above it throws (`GZIPOutputStream`'s writes the header).
+
+Closing also closes streams you didn't open: closing a `PrintStream` built over `System.out`
+closes `System.out`, and every later `System.out.println` prints nothing.
+
+## finish() Completes the GZIP Data Without Closing, but Only What Has Reached the Compressor
+
+Sometimes the stream below isn't yours to close: a `ZipOutputStream` with more entries to come,
+or a connection that carries more messages. `GZIPOutputStream.finish()` compresses what it holds
+and writes the trailer without closing the stream it wraps. Three stacks, each ended with
+`finish()` before try-with-resources closes the file. The first puts a buffer over the compressor:
+
 ```java
-// Problem: Many methods in the interface, decorator must handle all
-interface DataService {
-    String read(String id);
-    void write(String id, String data);
-    void delete(String id);
-    List<String> list();
-    boolean exists(String id);
-    // ... 10 more methods
+try (FileOutputStream file = new FileOutputStream(p.toFile())) {
+    GZIPOutputStream gz = new GZIPOutputStream(file);
+    OutputStream o = new BufferedOutputStream(gz);
+    write(o);
+    gz.finish();
 }
+```
 
-// Solution: Abstract base decorator handles delegation
-abstract class DataServiceDecorator implements DataService {
-    protected final DataService wrapped;
+```text
+Buffered(GZIP): finish()       54269 bytes, read back 19742 lines
+GZIP(Buffered): finish()       48028 bytes, read back failed: java.io.EOFException: Unexpected end of ZLIB input stream
+Buffered(GZIP): flush, finish   54947 bytes, read back 20000 lines
+```
 
-    DataServiceDecorator(DataService wrapped) {
-        this.wrapped = wrapped;
+The first file is valid GZIP data that reads back without an error and lacks 258 orders. `finish()` completed the data it had received, and the last lines were
+still in the buffer above it. The second stack, `new GZIPOutputStream(new BufferedOutputStream(file))`,
+has the buffer below: `finish()` wrote the end of the data and the trailer into it, and nobody
+flushed it. Before `finish()`, flush every layer above the compressor, as the third run does with
+the first stack; after it, flush every layer below, which the second stack needed.
+
+<!-- practice 1 -->
+
+## Buffer Above the Compressor: the Order Decides How Many Calls Reach Each Layer
+
+Closed properly, both orders write the same file, at different cost. A counting decorator placed
+just above the `GZIPOutputStream` and another just above the file count the `write` calls each
+receives, for an export of 200,000 lines written one line per call:
+
+```text
+Buffered(GZIP(file))           writes into GZIP     582   writes into file  1,120     28 ms
+GZIP(Buffered(file))           writes into GZIP 200,000   writes into file     71     49 ms
+GZIP(file)                     writes into GZIP 200,000   writes into file  1,120     53 ms
+Buffered(GZIP(Buffered(file))) writes into GZIP     582   writes into file     71     30 ms
+```
+
+Each `write` into the `GZIPOutputStream` hands its bytes to the native `Deflater` and runs it,
+which passes its output on in pieces of at most 512 bytes. So
+a buffer above it turns 200,000 calls of about 24 bytes into 582 calls of up to 8 KB, and halves
+the time on this machine. A buffer below it only collects the compressor's output, and turns its
+1,120 small file writes into 71. Each file write is a system call, which costs more on a network
+file system or a socket than on this local disk. The last stack does both. Place each decorator where
+the calls it should change pass through.
+
+## A Decorator That Doesn't Override a Default Method Runs the Interface's Code, Not the Wrapped Object's
+
+A rates cache is a `ConcurrentHashMap`. Callers load a missing rate with `computeIfAbsent`,
+which `ConcurrentHashMap` runs atomically, so each pair is fetched once (unit 8.4.2). Then someone
+adds a metrics decorator. `AbstractMap` builds the rest of `Map` on `entrySet()` and `put`, so
+forwarding four methods looks like enough:
+
+```java
+import java.util.AbstractMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.LongAdder;
+
+/** Counts cache lookups and misses; every Map call it implements goes to the wrapped map. */
+class MeteredMap<K, V> extends AbstractMap<K, V> {
+    final Map<K, V> inner;
+    final LongAdder lookups = new LongAdder();
+    final LongAdder misses = new LongAdder();
+
+    MeteredMap(Map<K, V> inner) { this.inner = inner; }
+
+    @Override public V get(Object key) {
+        lookups.increment();
+        V v = inner.get(key);
+        if (v == null) misses.increment();
+        return v;
     }
-
-    @Override public String read(String id) { return wrapped.read(id); }
-    @Override public void write(String id, String data) { wrapped.write(id, data); }
-    @Override public void delete(String id) { wrapped.delete(id); }
-    @Override public List<String> list() { return wrapped.list(); }
-    @Override public boolean exists(String id) { return wrapped.exists(id); }
-    // delegates all methods — concrete decorators only override what they need
+    @Override public V put(K key, V value) { return inner.put(key, value); }
+    @Override public V remove(Object key) { return inner.remove(key); }
+    @Override public Set<Entry<K, V>> entrySet() { return inner.entrySet(); }
 }
 ```
+
+Two threads ask for `EUR/JPY` at the same moment. Each fetch is numbered, and the fetch function
+waits up to 500 ms for the other caller to reach it too, standing in for a slow rates service:
+
+```text
+ConcurrentHashMap                  fetches: 1, the two callers got the rate from fetch 1 and fetch 1
+MeteredMap over ConcurrentHashMap  fetches: 2, the two callers got the rate from fetch 1 and fetch 2
+  metrics: lookups 2, misses 2
+```
+
+`computeIfAbsent` is a default method of `Map`, and `MeteredMap` doesn't override it, so the
+call runs `Map`'s version on the decorator: `get`, call the function, `put`. Both threads missed,
+both fetched, and the second `put` replaced the first. Each `get` and each `put` is atomic on
+the `ConcurrentHashMap`; the loss is in the gap between them. `ConcurrentHashMap`'s own `computeIfAbsent`
+was never called. The javadoc of the default says it "makes no guarantees about synchronization
+or atomicity", and that an implementation providing them must override it. Every default
+the decorator doesn't override bypasses the wrapped object's own version the same way: `merge`,
+`compute`, `putIfAbsent`. Unit 8.1.4
+shows the same with `removeIf` running outside a lock.
+
+Forwarding it straight to `inner` would keep the fetch atomic but skip the metrics, because
+`inner.computeIfAbsent` never calls the decorator's `get`. The override has to do both:
+
+```java
+@Override
+public V computeIfAbsent(K key, Function<? super K, ? extends V> loader) {
+    lookups.increment();
+    return inner.computeIfAbsent(key, k -> {
+        misses.increment();
+        return loader.apply(k);
+    });
+}
+```
+
+```text
+forwarding computeIfAbsent         fetches: 1, the two callers got the rate from fetch 1 and fetch 1
+  metrics: lookups 2, misses 1
+```
+
+A decorator over an interface with default methods decides, for each one, whether the default
+running on the decorator is right. A default added to the interface in a later release is never
+reviewed: the decorator still compiles and runs the new default, whatever the wrapped class
+overrides.
+
+<!-- practice 2 -->
+
+## A Decorator Is Another Object: equals Is Forwarded Only Where the Interface Defines It
+
+Two JDK decorators of the same `ArrayList`:
+
+```java
+List<String> tags = new ArrayList<>(List.of("java", "jvm"));
+List<String> asList = Collections.unmodifiableList(tags);
+Collection<String> asCollection = Collections.unmodifiableCollection(tags);
+```
+
+```text
+unmodifiableList(tags).equals(tags):       true
+unmodifiableCollection(tags).equals(tags): false
+tags.equals(unmodifiableCollection(tags)): false
+two unmodifiableCollection(tags) equal:    false
+published.contains(another view of tags):  false
+same with unmodifiableList:                true
+```
+
+`List` defines equality: same elements in the same order. `unmodifiableList` forwards `equals`
+and `hashCode` to the list it wraps, so it equals any list with the same elements.
+`Collection` defines no equality of its own, since a `List` and a `Set` with the same elements
+must not be equal. A `Collection` decorator can't know which rule its contents follow, so
+`unmodifiableCollection` keeps `Object`'s identity `equals`, as its javadoc says, and
+`ArrayList.equals` accepts only a `List`. Each call returns a new wrapper, so two
+views of one list are two unequal objects, and a `HashSet` of published views never finds the second.
+`synchronizedCollection` does the same.
+
+For your own decorator, forward `equals` and `hashCode` when the interface defines them (`List`,
+`Set`, `Map`; unit 8.4.1 shows what breaks when a forwarding `Set` doesn't). Otherwise keep
+identity. Either way the wrapper and the object inside are two objects: a `synchronizedList`
+locks on the wrapper, so code that synchronizes on the inner list doesn't exclude the wrapper's
+callers (units 6.5.2 and 8.4.3).
+
+<!-- practice 3 -->
+
+## Summary
+
+- **Only closing the outermost stream writes every layer's bytes.** Closing the file under a
+  `BufferedOutputStream` and a `GZIPOutputStream` leaves a truncated, unreadable file.
+- **`finish()` ends the GZIP data without closing, for what has reached it.** Flush the layers
+  above it first and the layers below it after, or the file is invalid or silently short.
+- **The order of decorators decides what each one sees.** A buffer above the compressor cuts its
+  calls; a buffer below it cuts writes to the file.
+- **A default method the decorator doesn't override runs on the decorator.** The wrapped object's
+  override, such as an atomic `computeIfAbsent`, is never called.
+- **A decorator is a different object.** It is equal to what it wraps only if it forwards
+  `equals`, which the JDK does where the interface defines equality.
+
+## Reference
+
+**What a `java.io` decorator call passes on (JDK 21 javadoc and source):**
+
+| Call | What reaches the wrapped stream |
+|---|---|
+| `FilterOutputStream.close()`, `BufferedOutputStream.close()` | `flush()`, then `out.close()`; a second call does nothing |
+| `GZIPOutputStream.close()` | `finish()`, then `out.close()`; no `flush()`; a second call does nothing |
+| `BufferedOutputStream.flush()` | the buffered bytes, then `out.flush()` |
+| `GZIPOutputStream.flush()` | `out.flush()` only, unless built with `syncFlush` `true` |
+| `GZIPOutputStream.finish()` | the rest of the compressed data and the trailer; no flush, no close |
+| `FilterOutputStream.write(byte[], int, int)` | one `write(int)` call on this object per byte |
+| `FilterInputStream.read(byte[], int, int)` | `in.read(b, off, len)`, bypassing this object's `read()` |
+
+**JDK collection decorators and `equals` (Java 21):**
+
+| Decorator | `equals` and `hashCode` |
+|---|---|
+| `unmodifiableList`, `unmodifiableSet`, `unmodifiableMap`, `synchronizedList`, `synchronizedSet`, `synchronizedMap` | forwarded to the wrapped collection |
+| `unmodifiableCollection`, `synchronizedCollection` | `Object`'s identity |
+
+## Challenges
+
+1. A `DataOutputStream` writes 4-byte integers into a stack with a `CipherOutputStream` and a
+   socket. Where do buffers go, and how many calls reach the cipher and the socket for 100,000
+   integers in each order?
+2. Write a `CountingInputStream` that extends `FilterInputStream`. Which of its methods must you
+   override so that `readAllBytes()` and `transferTo()` are counted, and how do you check you
+   found them all?
+3. A library interface gains a default method in its next release. Your decorators of it compile
+   unchanged. What check in your build would tell you a decorator needs a decision?
+
+## Design Note: Why java.io Stacks Decorators Instead of Offering One Class per Combination
+
+A buffered, compressed, encrypted file stream could be one class, and `java.io` would then need
+one for every combination of buffering, compression, encryption and data encoding, over every
+source and sink. Decorators make each feature one class that takes any stream, and the
+combinations are built at the call site. The price is what this page shows: the caller assembles
+the stack and must know which layer holds data, which order keeps the layers cheap, and which
+reference to close. An adapter (unit 9.2.1) changes the interface it wraps instead of keeping it;
+a proxy (unit 9.2.3) keeps it too, but decides whether and how a call reaches the object behind
+it.
 
 ## Code Examples
 

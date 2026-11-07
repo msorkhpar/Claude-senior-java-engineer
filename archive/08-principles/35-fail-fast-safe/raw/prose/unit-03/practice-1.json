@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A snapshot or a live view, and neither writable",
+  "title": "Keep price alerts working while users add and remove them",
   "blocks": [
     {
       "type": "heading",
@@ -19,25 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Immutable collections sidestep the fail-fast and fail-safe choice: nothing can change them, so there is nothing to detect. The page warns that the two ways to hand one out are not alike:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Unmodifiable VIEW vs. immutable COPY\nList<String> mutable = new ArrayList<>(List.of(\"a\", \"b\"));\nList<String> view = Collections.unmodifiableList(mutable);\nList<String> copy = List.copyOf(mutable);\n\nmutable.add(\"c\");\nSystem.out.println(view); // [a, b, c] -- reflects change!\nSystem.out.println(copy); // [a, b] -- independent copy"
+      "text": "The trading screen lets each user set price alerts: \"tell me when NOVA goes above 182.50\". The market feed publishes every tick on its own thread, a few thousand a second, to the alerts held in `AlertRegistry`; users add and remove alerts from the UI threads whenever they like, a few times an hour each. A screen has a few dozen alerts at most."
     },
     {
       "type": "para",
-      "text": "`Roster` keeps its names in a private `ArrayList`, and `add` is written. Write:"
+      "text": "The first version failed in production twice: once a tick was lost for half the alerts with an exception in the feed thread, just as someone added an alert, and once adding an alert froze a user's screen for four seconds while one alert was slow to send its e-mail."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`snapshot()`: the names as they are now. **A snapshot keeps its contents**: names added later do not appear in it;",
-        "`liveView()`: a read-only window on the names. **A live view follows the roster**: names added later appear in it;",
-        "**neither can be changed by its holder**: every change on either, `add`, `remove` by index or by value, `set` or `clear`, throws `UnsupportedOperationException`, and the roster itself is unchanged."
-      ]
+      "type": "para",
+      "text": "Finish `src/main/java/practice/AlertRegistry.java`: decide how the alerts are held, and write `subscribe`, `unsubscribe` and `publish`. When you're done, a tick reaches every alert that was subscribed when the publish began, a publish never fails because of what the UI threads do, and adding or removing an alert never waits for a publish. About eight lines in total."
     },
     {
       "type": "heading",
@@ -52,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\n/** A roster that hands out either a frozen snapshot or a read-only live view of its names. */\npublic class Roster {\n\n    private final List<String> names = new ArrayList<>();\n\n    public void add(String name) {\n        names.add(name);\n    }\n\n    public List<String> snapshot() {\n        return List.copyOf(names);\n    }\n\n    public List<String> liveView() {\n        return Collections.unmodifiableList(names);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.CopyOnWriteArrayList;\nimport java.util.function.Consumer;\n\n/**\n * Price alerts for the trading screen. The market feed calls {@link #publish} on its own thread\n * for every tick; users add and remove alerts from the UI threads at any moment.\n */\npublic class AlertRegistry {\n\n    /** One price update from the feed. */\n    public record Tick(String symbol, long priceCents) {}\n\n    // TODO: decide how the alerts are held.\n    private final List<Consumer<Tick>> alerts = new CopyOnWriteArrayList<>();\n\n    /** Adds an alert; it gets every tick published from now on. Called from UI threads. */\n    public void subscribe(Consumer<Tick> alert) {\n        alerts.add(alert);\n    }\n\n    /** Removes an alert. Called from UI threads. */\n    public void unsubscribe(Consumer<Tick> alert) {\n        alerts.remove(alert);\n    }\n\n    /** Hands the tick to every alert and returns how many alerts it reached. Called by the feed. */\n    public int publish(Tick tick) {\n        int reached = 0;\n        for (Consumer<Tick> alert : alerts) {\n            alert.accept(tick);\n            reached++;\n        }\n        return reached;\n    }\n}\n"
         }
       ]
     },
@@ -64,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\n/** A roster that hands out either a frozen snapshot or a read-only live view of its names. */\npublic class Roster {\n\n    private final List<String> names = new ArrayList<>();\n\n    public void add(String name) {\n        names.add(name);\n    }\n\n    public List<String> snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n\n    public List<String> liveView() {\n        throw new UnsupportedOperationException(\"write liveView\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Price alerts for the trading screen. The market feed calls {@link #publish} on its own thread\n * for every tick; users add and remove alerts from the UI threads at any moment.\n */\npublic class AlertRegistry {\n\n    /** One price update from the feed. */\n    public record Tick(String symbol, long priceCents) {}\n\n    // TODO: decide how the alerts are held.\n    private final List<Consumer<Tick>> alerts = new ArrayList<>();\n\n    /** Adds an alert; it gets every tick published from now on. Called from UI threads. */\n    public void subscribe(Consumer<Tick> alert) {\n        // TODO: add the alert, so that it can come and go while the feed publishes.\n        throw new IllegalStateException(\"TODO: subscribe\");\n    }\n\n    /** Removes an alert. Called from UI threads. */\n    public void unsubscribe(Consumer<Tick> alert) {\n        // TODO: remove the alert.\n        throw new IllegalStateException(\"TODO: unsubscribe\");\n    }\n\n    /** Hands the tick to every alert and returns how many alerts it reached. Called by the feed. */\n    public int publish(Tick tick) {\n        // TODO: hand the tick to every alert, whatever the UI threads do meanwhile.\n        throw new IllegalStateException(\"TODO: publish\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -72,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -83,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "75ab537b452f737777a2d3c67abb946aeb60a3367af725a5b7581cefbb87822e",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\n/** A roster that hands out either a frozen snapshot or a read-only live view of its names. */\npublic class Roster {\n\n    private final List<String> names = new ArrayList<>();\n\n    public void add(String name) {\n        names.add(name);\n    }\n\n    public List<String> snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n\n    public List<String> liveView() {\n        throw new UnsupportedOperationException(\"write liveView\");\n    }\n}\n",
+  "content_sha256": "ffb806eedba05806ac3ad3fea202047bf6c0a0227633e9acfdbc285e845163c5",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Price alerts for the trading screen. The market feed calls {@link #publish} on its own thread\n * for every tick; users add and remove alerts from the UI threads at any moment.\n */\npublic class AlertRegistry {\n\n    /** One price update from the feed. */\n    public record Tick(String symbol, long priceCents) {}\n\n    // TODO: decide how the alerts are held.\n    private final List<Consumer<Tick>> alerts = new ArrayList<>();\n\n    /** Adds an alert; it gets every tick published from now on. Called from UI threads. */\n    public void subscribe(Consumer<Tick> alert) {\n        // TODO: add the alert, so that it can come and go while the feed publishes.\n        throw new IllegalStateException(\"TODO: subscribe\");\n    }\n\n    /** Removes an alert. Called from UI threads. */\n    public void unsubscribe(Consumer<Tick> alert) {\n        // TODO: remove the alert.\n        throw new IllegalStateException(\"TODO: unsubscribe\");\n    }\n\n    /** Hands the tick to every alert and returns how many alerts it reached. Called by the feed. */\n    public int publish(Tick tick) {\n        // TODO: hand the tick to every alert, whatever the UI threads do meanwhile.\n        throw new IllegalStateException(\"TODO: publish\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-1/src/main/java/practice/Roster.java",
-    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-1/src/test/java/practice/RosterTest.java",
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-1/src/main/java/practice/AlertRegistry.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-03/practice-1/src/test/java/practice/AlertRegistryTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -108,24 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RosterTest#bothShowTheCurrentNames",
+        "id": "practice.AlertRegistryTest#everySubscribedAlertGetsEachTickOnce",
         "kind": "main",
-        "says": "With ada and bo added, the snapshot and the view both read [ada, bo]."
+        "says": "a published tick reaches every subscribed alert once, and an unsubscribed alert not at all"
       },
       {
-        "id": "practice.RosterTest#aSnapshotKeepsItsContents",
+        "id": "practice.AlertRegistryTest#aPublishSurvivesASubscribeFromAnotherThreadWhileItRuns",
         "kind": "edge",
-        "says": "A snapshot taken before bo is added still reads [ada]."
+        "says": "a publish still reaches the remaining alerts when another thread subscribes while it runs"
       },
       {
-        "id": "practice.RosterTest#aLiveViewFollowsTheRoster",
+        "id": "practice.AlertRegistryTest#aSubscribeDoesNotWaitForASlowAlert",
         "kind": "edge",
-        "says": "A view taken before bo is added reads [ada, bo] afterwards."
-      },
-      {
-        "id": "practice.RosterTest#neitherCanBeChanged",
-        "kind": "edge",
-        "says": "add, remove and clear on the snapshot or the view throw UnsupportedOperationException."
+        "says": "a subscribe from another thread returns while an alert is still handling a tick"
       }
     ],
     "report": {
@@ -134,11 +119,10 @@
     },
     "origin": {
       "path": "35-fail-fast-safe/README_8.5.3.md",
-      "section": "Interview Q&A Section"
+      "section": "Once Another Thread Writes, a Fail-Fast Walk Fails at Random; a Small Listener List Needs a Snapshot"
     },
     "concepts": [
-      "Immutable and unmodifiable collections throw UnsupportedOperationException on any change: they prevent modification instead of detecting it during iteration.",
-      "Collections.unmodifiableList is a view that follows its backing list, while List.copyOf is an independent snapshot."
+      "A small list that threads share, read far more often than it is written, fits CopyOnWriteArrayList: a walk never fails and takes no lock, so a write never waits for it."
     ]
   }
 }

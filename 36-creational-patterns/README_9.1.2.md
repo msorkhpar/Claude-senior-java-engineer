@@ -1,430 +1,300 @@
 # 9.1.2. Factory Method Pattern
 
-## Concept Explanation
+A metrics library ships `public Tag(String name)`, and every service calls `new Tag("region")` on
+each request. A heap histogram of one service shows about a million `Tag` objects carrying three
+distinct names. The maintainers want one shared object per name. A constructor can't give them
+that: `new` always allocates, so the fix is a method in its place, and every call site in every
+service has to change.
 
-The Factory Method pattern is a creational design pattern that provides an interface for creating objects in a superclass,
-but allows subclasses to alter the type of objects that will be created. Instead of calling a constructor directly, the
-client code calls a **factory method** that returns an instance of a product. The exact type of that product is determined
-by the subclass that overrides the factory method.
+Java has two things called a factory method: a **static factory** returns an instance in place of
+a constructor, and the **GoF Factory Method** is an overridable method that base-class code calls
+to create an object, so a subclass decides what gets created.
 
-**Real-world analogy**: Consider a logistics company that originally shipped everything by truck. As the company grows,
-it adds sea logistics. Rather than rewriting the entire logistics code, each logistics type (road, sea) overrides a
-`createTransport()` method to return the appropriate transport object (Truck, Ship). The planning code works with the
-abstract `Transport` interface and never needs to know the concrete type.
+## new Always Allocates; a Static Factory Can Hand Back an Object It Already Made
 
-### The Problem It Solves
-
-Without the Factory Method pattern, client code is tightly coupled to concrete classes:
+The library's fix keeps one instance per declared name and makes the constructor private:
 
 ```java
-// Tight coupling -- adding a new type requires changing this code
-if (type.equals("truck")) {
-    transport = new Truck();
-} else if (type.equals("ship")) {
-    transport = new Ship();
+import java.util.Map;
+
+public final class Tag {
+    private static final Map<String, Tag> DECLARED = Map.of(
+            "http.method", new Tag("http.method"),
+            "http.status", new Tag("http.status"),
+            "region", new Tag("region"));
+
+    private final String name;
+
+    private Tag(String name) {
+        this.name = name;
+    }
+
+    /** One shared Tag per declared name; any other name gets a new one each time. */
+    public static Tag of(String name) {
+        Tag shared = DECLARED.get(name);
+        return shared != null ? shared : new Tag(name);
+    }
+
+    public String name() {
+        return name;
+    }
 }
-// Adding "airplane" requires modifying this code (violates OCP)
 ```
 
-With the Factory Method, subclasses decide which concrete class to instantiate, and the client code depends only on
-the abstract product type.
-
-### Structure
-
-1. **Product** -- the interface or abstract class that defines what the factory method returns.
-2. **ConcreteProduct** -- specific implementations of the Product.
-3. **Creator** -- the abstract class or interface declaring the factory method.
-4. **ConcreteCreator** -- subclasses that override the factory method to return a specific ConcreteProduct.
-
-## Key Points to Remember
-
-1. Factory Method is about **delegating instantiation to subclasses**, not just moving `new` into a static method.
-2. The pattern promotes loose coupling between the creator and the products it creates.
-3. It follows the **Open/Closed Principle** -- you can add new product types without modifying existing code.
-4. A "Simple Factory" (static factory method) is NOT the same as the Factory Method pattern -- it is a simpler idiom,
-   not a GoF pattern.
-5. Factory methods can return cached instances (like `Integer.valueOf()`) rather than always creating new objects.
-6. The pattern is often combined with other patterns like Template Method, Abstract Factory, or Prototype.
-7. In Java, `java.util.Collection.iterator()` is a classic example of the Factory Method pattern.
-
-## Relevant Java 21 Features
-
-- **Sealed interfaces**: The Product interface can be sealed to restrict which ConcreteProducts are permitted, enabling
-  exhaustive `switch` pattern matching over products.
-- **Records**: Lightweight ConcreteProduct types can be records when they are simple data carriers.
-- **Pattern matching for switch**: Clients can use `switch` with pattern matching to handle different product types
-  returned by the factory method, with compile-time exhaustiveness checks on sealed types.
-- **Static factory methods**: Java conventions like `List.of()`, `Map.of()`, and `Optional.of()` are static factory
-  methods (a related but simpler concept).
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Confusing Simple Factory with Factory Method**:
-   ```java
-   // This is a Simple Factory (static method), NOT the Factory Method pattern
-   public static Shape createShape(String type) {
-       return switch (type) {
-           case "circle" -> new Circle();
-           case "square" -> new Square();
-           default -> throw new IllegalArgumentException("Unknown: " + type);
-       };
-   }
-   ```
-   **Solution**: The true Factory Method pattern uses inheritance -- a subclass overrides the factory method.
-
-2. **Over-engineering simple cases**: If you only have one product type and no foreseeable extensions, a simple
-   constructor call is fine.
-   **Solution**: Apply the pattern only when you anticipate new product types or need to decouple creation from usage.
-
-3. **Exposing concrete types in the factory method return type**:
-   ```java
-   // BAD: Returns concrete type, defeating the purpose
-   public Truck createTransport() { return new Truck(); }
-   ```
-   **Solution**: Always return the abstract Product type.
-
-4. **Not providing a default implementation**: If the base Creator is abstract, every subclass must implement the factory
-   method. This can lead to unnecessary boilerplate.
-   **Solution**: Provide a default implementation in the Creator that returns a common product.
-
-5. **Parallel class hierarchies explosion**: Each new product requires a new creator subclass.
-   **Solution**: Consider parameterized factory methods, lambda-based factories, or the Abstract Factory pattern.
-
-## Best Practices and Optimization Techniques
-
-1. **Use sealed interfaces** for the Product hierarchy to enable exhaustive pattern matching.
-2. **Combine with functional interfaces**: In modern Java, factory methods can be `Supplier<Product>` lambdas, avoiding
-   the need for separate Creator subclasses.
-3. **Cache results** when the factory creates immutable or expensive objects (flyweight pattern).
-4. **Use generic factory methods** to provide type safety:
-   ```java
-   public <T extends Product> T create(Class<T> type) { ... }
-   ```
-5. **Prefer composition over inheritance**: Instead of requiring a Creator subclass, accept a factory function as a
-   parameter.
-6. **Name factory methods clearly**: `of()`, `from()`, `create()`, `newInstance()`, `valueOf()`.
-7. **Document the contract**: Specify what the factory method is expected to return and under what conditions.
-
-## Edge Cases and Their Handling
-
-1. **Null product type**: The factory method should throw `IllegalArgumentException` or `NullPointerException` for null
-   input, not silently return null.
-2. **Unknown product type**: Throw a descriptive exception rather than returning a default product that might mask bugs.
-3. **Concurrent factory calls**: If the factory maintains state (e.g., a counter), ensure thread safety.
-4. **Factory returning null**: This is almost always a design error. Use Optional or throw an exception instead.
-5. **Circular dependencies**: A factory that needs its own product as a dependency should use lazy initialization.
-
-## Interview-specific Insights
-
-Interviewers often focus on:
-
-- The difference between Simple Factory, Factory Method, and Abstract Factory
-- How Factory Method follows the Open/Closed Principle
-- Real-world examples in the JDK (`Collection.iterator()`, `URLStreamHandlerFactory`, `ThreadFactory`), and in
-  libraries (SLF4J's `LoggerFactory`, which is not part of the JDK)
-- When to use Factory Method vs. direct instantiation
-- How to combine Factory Method with modern Java features (sealed types, records, lambdas)
-
-Common tricky questions:
-
-- "What is the difference between Factory Method and Abstract Factory?"
-- "Can you give a real example of Factory Method in the JDK?"
-- "How does Factory Method relate to the Dependency Inversion Principle?"
-- "When would you NOT use Factory Method?"
-
-## Interview Q&A Section
-
-**Q1: What is the Factory Method pattern and how does it differ from a Simple Factory?**
+A million calls with the three names, each built with `new String(...)` so that no two are the
+same string object, counting distinct objects:
 
 ```text
-A1: The Factory Method pattern defines an interface for creating objects but lets subclasses decide which class to
-instantiate. It uses inheritance: a base Creator class declares the factory method, and ConcreteCreator subclasses
-override it.
-
-Simple Factory is just a static method that creates objects based on a parameter. It does NOT use inheritance or
-polymorphism for the creation logic.
-
-Key differences:
-1. Factory Method uses inheritance (subclass overrides) -- Simple Factory uses a single static method with conditionals.
-2. Factory Method follows OCP (add new Creator subclass) -- Simple Factory requires modifying the static method.
-3. Factory Method is a GoF design pattern -- Simple Factory is a programming idiom.
-4. Factory Method supports polymorphic creation -- Simple Factory centralizes creation logic.
-
-When to use which:
-- Simple Factory: Few product types, unlikely to change, straightforward creation logic.
-- Factory Method: Product types will grow, creation logic varies by context, you need polymorphic behavior.
+new Tag(...):  1000000 objects
+Tag.of(...):   3 objects
 ```
 
+Sharing is safe only because a `Tag` can't change: if one caller could rename a shared tag, every
+other caller would see it. Names that aren't declared get a fresh object and aren't remembered.
+A tag name can come from a request header, and a cache keyed by caller input grows with every new
+value until the heap is full.
+
+The JDK made the same move for the wrappers. `Integer.valueOf` caches -128 to 127 (unit 1.1.1),
+and the constructor is now marked for removal:
+
+```text
+Boxes.java:3: warning: [removal] Integer(int) in Integer has been deprecated and marked for removal
+        Integer a = new Integer(1000), b = new Integer(1000);
+                    ^
+```
+
+The same program, run as is and then with `-XX:AutoBoxCacheMax=1000`:
+
+```text
+new Integer(1000) == new Integer(1000):         false
+Integer.valueOf(1000) == Integer.valueOf(1000): false
+```
+
+```text
+new Integer(1000) == new Integer(1000):         false
+Integer.valueOf(1000) == Integer.valueOf(1000): true
+```
+
+The class files are the same; whether `valueOf(1000)` returns a shared object was decided when the
+JVM started. A constructor's result is fixed by the language; a factory's only by its javadoc, which for `valueOf` promises -128 to 127 and says it "may cache other values". Code
+that compares a factory's results with `==` relies on whatever the javadoc leaves open.
+
+<!-- practice 1 -->
+
+## A Static Factory Picks the Class From Its Input, So the Class Can Change Without Callers Noticing
+
+`EnumSet.noneOf` declares that it returns an `EnumSet`, an abstract class. Here it is called for
+an enum of 64 permissions and one of 65:
+
 ```java
-// Simple Factory (NOT the GoF Factory Method pattern)
-public class SimpleShapeFactory {
-    public static Shape create(String type) {
-        return switch (type) {
-            case "circle" -> new Circle(1.0);
-            case "square" -> new Square(1.0);
-            default -> throw new IllegalArgumentException("Unknown shape: " + type);
+EnumSet<Perm64> a = EnumSet.noneOf(Perm64.class);
+EnumSet<Perm65> b = EnumSet.noneOf(Perm65.class);
+System.out.println("64 constants: " + a.getClass().getName());
+System.out.println("65 constants: " + b.getClass().getName());
+```
+
+```text
+64 constants: java.util.RegularEnumSet
+65 constants: java.util.JumboEnumSet
+```
+
+`RegularEnumSet` keeps the set in one `long`, one bit per constant, which caps it at 64.
+`JumboEnumSet` keeps a `long[]`. Both are package-private, so no caller can name either; the
+factory chooses by the enum's size, at every call. Once a 65th permission is deployed, every
+`EnumSet` of that enum is a `JumboEnumSet`, and no caller's source changes. Had `EnumSet` exposed
+`new RegularEnumSet<>(Perm.class)`, each call site would be compiled against the 64-bit class, and
+adding a constant would mean editing all of them. `List.of` picks by size the same way (unit
+2.1.2).
+
+The price falls on code that looks at the class: a `getClass()` check, a cast to a concrete type
+or a serializer keyed by class name breaks when the factory picks another one. A factory promises
+its declared type, and the class behind it can change between inputs and between JDK releases.
+
+## A Constructor Can't Say How It Reads Its Arguments; a Factory's Name Can
+
+`BigDecimal` has a constructor and a static factory that both take a `double`:
+
+```java
+BigDecimal byConstructor = new BigDecimal(0.1);
+BigDecimal byFactory = BigDecimal.valueOf(0.1);
+System.out.println("new BigDecimal(0.1):     " + byConstructor);
+System.out.println("BigDecimal.valueOf(0.1): " + byFactory);
+BigDecimal limit = new BigDecimal("0.1");
+System.out.println("constructor over the 0.1 limit: " + (byConstructor.compareTo(limit) > 0));
+System.out.println("factory over the 0.1 limit:     " + (byFactory.compareTo(limit) > 0));
+System.out.println("new BigDecimal(2.675) to cents:     " + new BigDecimal(2.675).setScale(2, RoundingMode.HALF_UP));
+System.out.println("BigDecimal.valueOf(2.675) to cents: " + BigDecimal.valueOf(2.675).setScale(2, RoundingMode.HALF_UP));
+```
+
+```text
+new BigDecimal(0.1):     0.1000000000000000055511151231257827021181583404541015625
+BigDecimal.valueOf(0.1): 0.1
+constructor over the 0.1 limit: true
+factory over the 0.1 limit:     false
+new BigDecimal(2.675) to cents:     2.67
+BigDecimal.valueOf(2.675) to cents: 2.68
+```
+
+The constructor reads the exact binary value of the `double`, which is not 0.1 (unit 1.1.1).
+`valueOf` reads the `double` the way `Double.toString` prints it, which is the shortest decimal
+that reads back as the same `double`, so a `double` written as 0.1 prints as 0.1. A fee of 0.1 built with `new` is
+over a limit of 0.1, and a price of 2.675 rounded half-up comes out a cent short. Both readings
+have uses, and both take one `double`, so only one of them could be a constructor: constructors
+have no names of their own, so two with the same parameter list can't coexist (unit 2.1.2 shows
+the compile error). For amounts, use the `String` constructor or `valueOf(long, int)`;
+`valueOf(double)` is right only when the `double` came straight from a decimal literal.
+
+## The GoF Factory Method Is a Creation Hook That Base-Class Code Calls and a Subclass Overrides
+
+A listener task waits in `ServerSocket.accept()`, and on shutdown we cancel its `Future`. Unit
+6.1.3 showed that a platform thread in `accept()` isn't woken by `interrupt()`, so `cancel(true)`
+returns `true` and the worker stays where it is. Closing the socket would end the wait, but
+`cancel` belongs to the `Future`, and `submit` creates the `Future` by wrapping the task in a
+`FutureTask` (unit 6.4.1). It does that through a protected method, `newTaskFor`, which a subclass
+can override:
+
+```java
+import java.util.concurrent.*;
+
+/** A task that waits on something interrupt() can't reach, and knows how to close it. */
+interface Closing<T> extends Callable<T> {
+    void close();
+}
+
+class ClosingExecutor extends ThreadPoolExecutor {
+    ClosingExecutor(int threads) {
+        super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+    }
+
+    @Override
+    protected <T> RunnableFuture<T> newTaskFor(Callable<T> task) {    // submit() calls this
+        if (!(task instanceof Closing<T> closing)) return super.newTaskFor(task);
+        return new FutureTask<>(task) {
+            @Override
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                closing.close();                                      // what interrupt() can't do
+                return super.cancel(mayInterruptIfRunning);
+            }
         };
     }
 }
-
-// Factory Method pattern (GoF)
-public abstract class ShapeFactory {
-    public abstract Shape createShape();
-
-    public double calculateArea() {
-        Shape shape = createShape(); // Delegates to subclass
-        return shape.area();
-    }
-}
-
-public class CircleFactory extends ShapeFactory {
-    @Override
-    public Shape createShape() {
-        return new Circle(1.0);
-    }
-}
 ```
 
-**Q2: How does the Factory Method pattern support the Open/Closed Principle?**
+The listener is a `Closing<String>` whose `close()` closes its server socket. The caller's code
+is the same for both pools: `Future<String> f = pool.submit(listener)`, then,
+once the listener is in `accept()`, `f.cancel(true)`, `shutdown()` and a 500 ms
+`awaitTermination`:
 
 ```text
-A2: The Open/Closed Principle states that software entities should be open for extension but closed for modification.
-
-The Factory Method pattern supports this by:
-
-1. The Creator class is CLOSED for modification -- its template logic (e.g., a method that calls createProduct(),
-   processes it, and returns a result) never changes.
-
-2. The system is OPEN for extension -- adding a new product type requires only creating a new ConcreteProduct class
-   and a new ConcreteCreator that overrides the factory method. No existing code changes.
-
-Contrast with non-OCP code:
-- Without Factory Method, adding a new product type means modifying a conditional (if/else or switch) in the creation
-  code. This is a violation of OCP because existing code must be changed.
-
-Example: A notification system originally supports Email. When SMS is needed:
-- Without Factory Method: Modify the send() method to add an "sms" branch.
-- With Factory Method: Create SmsNotification (product) and SmsNotificationFactory (creator). Existing code is untouched.
+Executors.newFixedThreadPool(1): cancel=true, worker ended within 500 ms: false
+  Executors.newFixedThreadPool(1) accept() ended: java.net.SocketException: Socket closed
+  new ClosingExecutor(1) accept() ended: java.net.SocketException: Socket closed
+new ClosingExecutor(1)        : cancel=true, worker ended within 500 ms: true
 ```
 
-```java
-// Adding a new product type without modifying existing code
+The first pool's worker left `accept()` only when the program closed the socket itself after the
+wait; in the subclass, `cancel` closed it. `submit`, `invokeAll` and `invokeAny` are written once,
+in `AbstractExecutorService`, and call `newTaskFor`; the subclass changed the product without
+touching them or any caller. The base class owns the code that uses the object, and a subclass
+owns the choice of object, where a static factory makes that choice inside one method.
 
-// Existing code (never modified):
-// Not sealed: a sealed interface would have to list PushNotification in its permits clause,
-// so adding a product would mean modifying this existing code.
-public interface Notification {
-    String send(String message);
-}
+`submit(Runnable)` goes through the other overload, `newTaskFor(Runnable, T)`. In a pool whose
+override of the `Callable` overload returns its own product for every task, `submit(() -> "x")`
+got that product and `submit(() -> { })` a plain `FutureTask`. A subclass overrides every overload
+its callers can reach. A creation hook called from the base class's constructor runs before the subclass's fields
+are assigned (unit 2.1.1); `newTaskFor` runs at each `submit`, after construction.
 
-public abstract class NotificationFactory {
-    public abstract Notification createNotification();
+<!-- practice 2 -->
 
-    public String notify(String message) {
-        Notification notification = createNotification();
-        return notification.send(message);
-    }
-}
+## Each Product Costs a Subclass, and the Hook Reaches Only Objects Built From It
 
-// Extension (new code only):
-public record PushNotification() implements Notification {
-    @Override
-    public String send(String message) {
-        return "Push: " + message;
-    }
-}
-
-public class PushNotificationFactory extends NotificationFactory {
-    @Override
-    public Notification createNotification() {
-        return new PushNotification();
-    }
-}
-```
-
-**Q3: Can you give real-world examples of Factory Method in the JDK?**
+The service gets its pools from `Executors`, and the next release moves the listeners to virtual
+threads. Each pool's class, and whether it is a `ClosingExecutor` (the column `hook overridden`):
 
 ```text
-A3: The JDK contains many examples of the Factory Method pattern:
-
-1. Collection.iterator(): Each Collection implementation (ArrayList, HashSet, TreeMap.keySet()) returns its own
-   Iterator implementation. The client code works with Iterator interface only.
-
-2. URLStreamHandlerFactory.createURLStreamHandler(): Returns protocol-specific handlers (HTTP, FTP, etc.).
-
-3. javax.xml.parsers.DocumentBuilderFactory.newDocumentBuilder(): An abstract method; each parser implementation's
-   factory subclass returns its own DocumentBuilder.
-
-4. java.nio.charset.Charset.newDecoder(): Each Charset subclass returns its own CharsetDecoder.
-
-5. java.util.concurrent.ThreadFactory.newThread(Runnable): Each implementation decides how the Thread is created
-   (name, daemon status, priority).
-
-Static factory methods (a simpler related concept):
-- List.of(), Set.of(), Map.of()
-- Optional.of(), Optional.empty()
-- Integer.valueOf()
-- EnumSet.of()
-- DocumentBuilderFactory.newInstance(), ResourceBundle.getBundle(), NumberFormat.getInstance() -- each returns an
-  implementation chosen at runtime, but through a static method, not a subclass override
-
-These are technically Simple Factory (static methods), not the full Factory Method pattern, but they demonstrate
-the principle of abstracting object creation.
+java.util.concurrent.ThreadPoolExecutor          hook overridden: false
+java.util.concurrent.ThreadPoolExecutor          hook overridden: false
+java.util.concurrent.ThreadPerTaskExecutor       hook overridden: false
+ClosingExecutor                                  hook overridden: true
 ```
 
-```java
-// JDK Factory Method in action
-import java.util.*;
+`Executors.newFixedThreadPool` and `newCachedThreadPool` build a plain `ThreadPoolExecutor`, which
+calls its own `newTaskFor`, not the override. `newVirtualThreadPerTaskExecutor()` returns
+`ThreadPerTaskExecutor`, which doesn't extend `AbstractExecutorService` and has no `newTaskFor` at
+all. The listener code compiles against all of them unchanged. On the two `ThreadPoolExecutor`s,
+`cancel` again leaves the worker in `accept()`. On virtual threads the worker ends anyway: Java 21
+closes the socket on an interrupt there (unit 6.1.3). But `close()` never runs, so any other
+cleanup in it is skipped.
 
-public class JdkFactoryMethodExamples {
-    public static void main(String[] args) {
-        // Collection.iterator() -- each collection returns its own Iterator type
-        List<String> arrayList = new ArrayList<>(List.of("a", "b", "c"));
-        Iterator<String> arrayIter = arrayList.iterator(); // Returns ArrayList$Itr
+The count grows too. A second product, say a task that carries the request id into its logs, is
+a second subclass with its own `newTaskFor`. A pool that needs both is a third that merges the two
+overrides, since a class extends one superclass.
 
-        Set<String> hashSet = new HashSet<>(Set.of("x", "y", "z"));
-        Iterator<String> hashIter = hashSet.iterator();    // Returns HashMap$KeyIterator
+The same JDK class shows the other choice. `ThreadPoolExecutor` makes its threads through a
+`ThreadFactory` passed to its constructor, and most `Executors` methods have an overload that takes
+one: `Executors.newFixedThreadPool(4, Thread.ofPlatform().name("listener-", 0).factory())` names
+the threads with no subclass. It can't change the `Future`, which is Challenge 3. A factory passed
+in works with any creator that accepts it, and can be a lambda (unit 4.1.3). It sees only what the creator hands it, where an override can use the
+subclass's fields. Keep the hook where the subclass exists for other reasons: every collection must
+supply its own `iterator()`, and `AbstractCollection` builds `contains`, `remove` and `toString` on
+it. Choosing an implementation from the class or module path is `ServiceLoader` (unit 8.1.5); one
+shared instance is unit 9.1.1, and step-by-step construction is unit 9.1.3.
 
-        // Client code works with Iterator interface -- doesn't know the concrete type
-        while (arrayIter.hasNext()) {
-            System.out.println(arrayIter.next());
-        }
-    }
-}
-```
+<!-- practice 3 -->
 
-**Q4: How can you implement Factory Method using modern Java features like sealed interfaces and records?**
+## Summary
 
-```text
-A4: Modern Java features make the Factory Method pattern more concise and type-safe:
+- **`new` always allocates; a static factory can hand back an object it already made.** Share
+  only immutable objects, never cache by caller input, and use `==` on the results only where the
+  javadoc promises identity.
+- **A static factory picks the class from its input.** `EnumSet` switches from `RegularEnumSet`
+  to `JumboEnumSet` at 65 constants with no caller changed; code that checks the class breaks.
+- **A factory's name says how it reads its arguments.** `new BigDecimal(0.1)` and
+  `BigDecimal.valueOf(0.1)` take the same `double` and return different numbers.
+- **The GoF factory method is a creation hook.** `submit` calls `newTaskFor`, so one override
+  changes the `Future` for every caller; every overload callers reach must be overridden.
+- **Each product costs a subclass, and the hook reaches only objects of that subclass.** Pools
+  from `Executors` aren't your subclass, and the virtual-thread executor has no `newTaskFor` at
+  all; a factory passed in reaches any creator that accepts it.
 
-1. Sealed interfaces restrict which product types can exist, enabling compile-time exhaustiveness checks.
-2. Records provide concise, immutable product implementations.
-3. Pattern matching for switch allows elegant product handling without instanceof chains.
-4. Functional interfaces (Supplier<Product>) can replace Creator subclasses in simple cases.
+## Reference
 
-The combination of sealed interfaces with records creates a "closed" product hierarchy where the compiler
-enforces that all cases are handled.
-```
+**Static factories in the JDK, Java 21:**
 
-```java
-// Modern Factory Method with sealed interfaces and records
-public sealed interface Shape permits Circle, Rectangle, Triangle {
-    double area();
-    String describe();
-}
+| Call | Returns |
+|---|---|
+| `Integer.valueOf(int)` | a cached instance for -128 to 127 (javadoc); on HotSpot, up to `-XX:AutoBoxCacheMax` |
+| `EnumSet.noneOf(type)` | `RegularEnumSet` for up to 64 constants, `JumboEnumSet` above (JDK source, not javadoc) |
+| `List.of(...)` | an unmodifiable list; class not specified |
+| `BigDecimal.valueOf(double)` | the value `Double.toString(d)` prints; `new BigDecimal(double)` is the exact binary value |
 
-public record Circle(double radius) implements Shape {
-    public double area() { return Math.PI * radius * radius; }
-    public String describe() { return "Circle with radius " + radius; }
-}
+**Creation hooks in the JDK:**
 
-public record Rectangle(double width, double height) implements Shape {
-    public double area() { return width * height; }
-    public String describe() { return "Rectangle " + width + "x" + height; }
-}
+| Hook | Called by | Product |
+|---|---|---|
+| `AbstractExecutorService.newTaskFor(Callable)` | `submit(Callable)`, `invokeAll`, `invokeAny` | `RunnableFuture` |
+| `AbstractExecutorService.newTaskFor(Runnable, T)` | `submit(Runnable)`, `submit(Runnable, T)` | `RunnableFuture` |
+| `Collection.iterator()` | `AbstractCollection.contains`, `remove`, `toString`, ... | `Iterator` |
 
-public record Triangle(double base, double height) implements Shape {
-    public double area() { return 0.5 * base * height; }
-    public String describe() { return "Triangle base=" + base + " height=" + height; }
-}
+## Challenges
 
-// Pattern matching over sealed products
-public String formatShape(Shape shape) {
-    return switch (shape) {
-        case Circle c    -> "Round shape: " + c.describe();
-        case Rectangle r -> "Rectangular: " + r.describe();
-        case Triangle t  -> "Triangular: " + t.describe();
-    };  // Exhaustive -- compiler enforces all cases
-}
-```
+1. Your `Money.of(amount, currency)` could cache zero for every currency. Measure what that saves
+   in a service you know, and decide whether callers may then compare with `==` against a
+   `Money.ZERO`.
+2. A library you can't change exposes a public constructor for a class you'd like to share. What
+   can your own code do, and what can't it?
+3. Rewrite `ClosingExecutor` so that it works for any `ExecutorService`, the virtual-thread one
+   included. What does the caller have to change, and what does `invokeAll` lose?
 
-**Q5: What is the difference between Factory Method and Abstract Factory?**
+## Design Note: Why the Hook and the Parameter Both Survive
 
-```text
-A5: Both patterns abstract object creation, but they differ in scope and mechanism:
-
-Factory Method:
-- Creates ONE product.
-- Uses inheritance: a subclass overrides a single factory method.
-- The Creator class has other logic that depends on the product.
-- Example: A Document class with a createPage() method -- subclasses return different Page types.
-
-Abstract Factory:
-- Creates a FAMILY of related products.
-- Uses composition: the factory object is passed to client code.
-- Each factory provides methods for creating each product in the family.
-- Example: A UIFactory with createButton(), createTextField(), createMenu() -- WindowsUIFactory and MacUIFactory
-  each return platform-specific widgets.
-
-When to use which:
-- Factory Method: Single product, creation logic varies by subclass.
-- Abstract Factory: Multiple related products that must be used together (e.g., ensuring all UI widgets match the
-  same platform theme).
-
-Abstract Factory often uses Factory Methods internally -- each createXxx() method in the Abstract Factory is a
-Factory Method.
-```
-
-```java
-// Factory Method -- single product
-public abstract class PageCreator {
-    public abstract Page createPage();
-}
-
-// Abstract Factory -- family of related products
-public interface UIComponentFactory {
-    Button createButton();
-    TextField createTextField();
-    Menu createMenu();
-}
-
-public class WindowsUIFactory implements UIComponentFactory {
-    @Override public Button createButton() { return new WindowsButton(); }
-    @Override public TextField createTextField() { return new WindowsTextField(); }
-    @Override public Menu createMenu() { return new WindowsMenu(); }
-}
-```
-
-**Q6: When should you NOT use the Factory Method pattern?**
-
-```text
-A6: The Factory Method pattern adds complexity. Avoid it when:
-
-1. Only one product type exists and there is no foreseeable need for variation. A direct constructor call is simpler.
-
-2. The product creation logic is trivial (no conditional logic, no configuration, no polymorphism needed).
-
-3. The pattern leads to a parallel class hierarchy explosion -- every new product requires a new creator subclass.
-   In this case, consider lambda-based factories or a registry pattern.
-
-4. You are already using a dependency injection framework (Spring, Guice) that handles object creation and wiring.
-
-5. Performance-critical code where the indirection of a virtual method call matters (rare in practice).
-
-6. The code is a simple script or utility where design pattern overhead is not justified.
-
-The key question to ask: "Will I ever need to substitute different product implementations?" If the answer is
-"probably not," skip the pattern.
-```
-
-```java
-// Over-engineering: Factory Method for a single, simple type
-// BAD -- unnecessary complexity
-public abstract class StringProcessorFactory {
-    public abstract StringProcessor create();
-}
-public class DefaultStringProcessorFactory extends StringProcessorFactory {
-    @Override
-    public StringProcessor create() { return new DefaultStringProcessor(); }
-}
-
-// GOOD -- just use the constructor
-StringProcessor processor = new DefaultStringProcessor();
-
-// Or use a Supplier if you need deferred creation
-Supplier<StringProcessor> factory = DefaultStringProcessor::new;
-```
+GoF's Factory Method comes from the application frameworks of the early 1990s, where the
+framework's base class ran the algorithm and an application subclassed it to plug in its own
+objects. Before lambdas, passing a creation object meant an anonymous class, so a subclass hook
+cost about the same; `newTaskFor` dates from Java 6. Since Java 8 a creation function is cheap to pass, and newer JDK code takes one:
+`Collectors.toCollection(Supplier)`, `ThreadLocal.withInitial`, `Thread.Builder.factory()`. The
+hook stays where the creator and the product change together, as a collection and its iterator
+do. Where the products vary on their own, a parameter saves a creator subclass per product.
 
 ## Code Examples
 
