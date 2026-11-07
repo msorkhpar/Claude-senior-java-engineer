@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Produce, execute and aggregate in three classes",
+  "title": "Make the web shop quote what the ticket machine charges",
   "blocks": [
     {
       "type": "heading",
@@ -19,29 +19,15 @@
     },
     {
       "type": "para",
-      "text": "When one class produces tasks, runs them **and** aggregates their results, each concern's synchronization is mixed with the others. The page's pitfall is a class that owns its own thread pool next to its business logic:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class DataProcessor {\n    private final ExecutorService pool = Executors.newFixedThreadPool(4);\n    double computeAverage(List<Integer> data) { /* ... */ }\n    void shutdown() { pool.shutdown(); }\n}"
+      "text": "A ferry operator sells tickets at a machine on the quay and, from next month, in a web shop. Finance owns the fares, and its rules are written as small step classes in `src/main/java/practice/Fares.java`: the base fare, a group discount, a peak surcharge. The ticket machine puts them together and has charged correctly for years."
     },
     {
       "type": "para",
-      "text": "Its fix is to **inject the `ExecutorService`**. Write the three classes nested in `Squares`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`TaskProducer.createTasks(count)` returns `count` tasks; task `i` (from 0) computes `i * i` as a `long`. A count of 0 gives an empty list; a negative count throws `IllegalArgumentException`.",
-        "`TaskExecutor(ExecutorService)` runs tasks on the executor it is given, never on one of its own. `submitAll(tasks)` submits every task and returns their futures in order, and `shutdown()` shuts that executor down in the orderly way, letting tasks already submitted finish. However many tasks there are, every one goes to that executor.",
-        "`ResultAggregator.sumResults(futures)` adds up the results."
-      ]
+      "text": "Two things are wanted before the web shop opens. The web shop must quote exactly what the machine will charge for the same trip, or customers dispute the difference at the quay. And finance wants the group discount's threshold to change with the season, through the `FarePolicy` it is building: a machine and a web shop given a policy must both charge that policy's fares."
     },
     {
       "type": "para",
-      "text": "For example, the 5 tasks `0, 1, 4, 9, 16` sum to `30`, and 100 000 tasks sum to `333328333350000`, which needs a `long`."
+      "text": "Finish the two `TODO`s, `FarePolicy.price(...)` and `WebShop.quote(...)`, and change anything else in the file you need to. About six lines in total."
     },
     {
       "type": "heading",
@@ -56,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\npublic final class Squares {\n\n    private Squares() {\n    }\n\n    /** Single responsibility: producing tasks. Stateless, so thread-safe by default. */\n    public static final class TaskProducer {\n        public List<Callable<Long>> createTasks(int count) {\n            if (count < 0) {\n                throw new IllegalArgumentException(\"Count must be non-negative\");\n            }\n            List<Callable<Long>> tasks = new ArrayList<>();\n            for (int i = 0; i < count; i++) {\n                final long taskId = i;\n                tasks.add(() -> taskId * taskId);\n            }\n            return tasks;\n        }\n    }\n\n    /** Single responsibility: running tasks on the pool it is given. */\n    public static final class TaskExecutor {\n        private final ExecutorService executorService;\n\n        public TaskExecutor(ExecutorService executorService) {\n            this.executorService = Objects.requireNonNull(executorService);\n        }\n\n        public List<Future<Long>> submitAll(List<Callable<Long>> tasks) {\n            List<Future<Long>> futures = new ArrayList<>();\n            for (Callable<Long> task : tasks) {\n                futures.add(executorService.submit(task));\n            }\n            return futures;\n        }\n\n        public void shutdown() {\n            executorService.shutdown();\n        }\n    }\n\n    /** Single responsibility: aggregating results. */\n    public static final class ResultAggregator {\n        public long sumResults(List<Future<Long>> futures) throws ExecutionException, InterruptedException {\n            long sum = 0;\n            for (Future<Long> future : futures) {\n                sum += future.get();\n            }\n            return sum;\n        }\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Ferry fares. Finance owns the fare rules; the ticket machine at the quay and the new web shop\n * both sell tickets. Amounts are in cents.\n */\npublic class Fares {\n\n    public record Trip(int adults, int children, boolean car, boolean peak) {}\n\n    /** Finance: adults 12.00, children 6.00, a car 35.00. */\n    static class BaseFare {\n        long of(Trip t) {\n            return t.adults() * 1_200L + t.children() * 600L + (t.car() ? 3_500L : 0L);\n        }\n    }\n\n    /** Finance: 10% off from a threshold. */\n    static class GroupDiscount {\n        private final long fromCents;\n\n        GroupDiscount(long fromCents) {\n            this.fromCents = fromCents;\n        }\n\n        long apply(long cents) {\n            return cents >= fromCents ? cents * 90 / 100 : cents;\n        }\n    }\n\n    /** Finance: 20% more on peak sailings. */\n    static class PeakSurcharge {\n        long apply(long cents, boolean peak) {\n            return peak ? cents * 120 / 100 : cents;\n        }\n    }\n\n    /** Finance's fare for a trip, with the group discount starting at the given amount. */\n    public static class FarePolicy {\n        private final BaseFare base = new BaseFare();\n        private final GroupDiscount discount;\n        private final PeakSurcharge surcharge = new PeakSurcharge();\n\n        public FarePolicy(long groupDiscountFromCents) {\n            this.discount = new GroupDiscount(groupDiscountFromCents);\n        }\n\n        /** What a trip costs. */\n        public long price(Trip t) {\n            return surcharge.apply(discount.apply(base.of(t)), t.peak());\n        }\n    }\n\n    /** The ticket machine at the quay. It has charged correctly for years. */\n    public static class TicketMachine {\n        private final FarePolicy policy;\n\n        public TicketMachine(FarePolicy policy) {\n            this.policy = policy;\n        }\n\n        public long charge(Trip t) {\n            return policy.price(t);\n        }\n    }\n\n    /** The new web shop: its quote is what the customer pays at the quay. */\n    public static class WebShop {\n        private final FarePolicy policy;\n\n        public WebShop(FarePolicy policy) {\n            this.policy = policy;\n        }\n\n        public long quote(Trip t) {\n            return policy.price(t);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -68,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\npublic final class Squares {\n\n    private Squares() {\n    }\n\n    /** Single responsibility: producing tasks. */\n    public static final class TaskProducer {\n        public List<Callable<Long>> createTasks(int count) {\n            throw new UnsupportedOperationException(\"write createTasks\");\n        }\n    }\n\n    /** Single responsibility: running tasks on the pool it is given. */\n    public static final class TaskExecutor {\n\n        public TaskExecutor(ExecutorService executorService) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public List<Future<Long>> submitAll(List<Callable<Long>> tasks) {\n            throw new UnsupportedOperationException(\"write submitAll\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n\n    /** Single responsibility: aggregating results. */\n    public static final class ResultAggregator {\n        public long sumResults(List<Future<Long>> futures) throws ExecutionException, InterruptedException {\n            throw new UnsupportedOperationException(\"write sumResults\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Ferry fares. Finance owns the fare rules; the ticket machine at the quay and the new web shop\n * both sell tickets. Amounts are in cents.\n */\npublic class Fares {\n\n    public record Trip(int adults, int children, boolean car, boolean peak) {}\n\n    /** Finance: adults 12.00, children 6.00, a car 35.00. */\n    static class BaseFare {\n        long of(Trip t) {\n            return t.adults() * 1_200L + t.children() * 600L + (t.car() ? 3_500L : 0L);\n        }\n    }\n\n    /** Finance: 10% off from a threshold. */\n    static class GroupDiscount {\n        private final long fromCents;\n\n        GroupDiscount(long fromCents) {\n            this.fromCents = fromCents;\n        }\n\n        long apply(long cents) {\n            return cents >= fromCents ? cents * 90 / 100 : cents;\n        }\n    }\n\n    /** Finance: 20% more on peak sailings. */\n    static class PeakSurcharge {\n        long apply(long cents, boolean peak) {\n            return peak ? cents * 120 / 100 : cents;\n        }\n    }\n\n    /** Finance's fare for a trip, with the group discount starting at the given amount. */\n    public static class FarePolicy {\n        private final BaseFare base = new BaseFare();\n        private final GroupDiscount discount;\n        private final PeakSurcharge surcharge = new PeakSurcharge();\n\n        public FarePolicy(long groupDiscountFromCents) {\n            this.discount = new GroupDiscount(groupDiscountFromCents);\n        }\n\n        /** What a trip costs. */\n        public long price(Trip t) {\n            // TODO: Finance's fare for the trip, the one the ticket machine has always charged.\n            throw new IllegalStateException(\"TODO: price\");\n        }\n    }\n\n    /** The ticket machine at the quay. It has charged correctly for years. */\n    public static class TicketMachine {\n        private final FarePolicy policy;\n\n        public TicketMachine(FarePolicy policy) {\n            this.policy = policy;\n        }\n\n        public long charge(Trip t) {\n            BaseFare base = new BaseFare();\n            GroupDiscount discount = new GroupDiscount(10_000);\n            PeakSurcharge surcharge = new PeakSurcharge();\n            return surcharge.apply(discount.apply(base.of(t)), t.peak());\n        }\n    }\n\n    /** The new web shop: its quote is what the customer pays at the quay. */\n    public static class WebShop {\n        private final FarePolicy policy;\n\n        public WebShop(FarePolicy policy) {\n            this.policy = policy;\n        }\n\n        public long quote(Trip t) {\n            // TODO: The price of the trip, as the customer will be charged for it at the quay.\n            throw new IllegalStateException(\"TODO: quote\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -77,9 +63,9 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -87,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e8bcd935c5f59e6349482bb8ebb5b44445f272dedcbdedc876c98d0340f8382b",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.concurrent.Callable;\nimport java.util.concurrent.ExecutionException;\nimport java.util.concurrent.ExecutorService;\nimport java.util.concurrent.Future;\n\npublic final class Squares {\n\n    private Squares() {\n    }\n\n    /** Single responsibility: producing tasks. */\n    public static final class TaskProducer {\n        public List<Callable<Long>> createTasks(int count) {\n            throw new UnsupportedOperationException(\"write createTasks\");\n        }\n    }\n\n    /** Single responsibility: running tasks on the pool it is given. */\n    public static final class TaskExecutor {\n\n        public TaskExecutor(ExecutorService executorService) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        public List<Future<Long>> submitAll(List<Callable<Long>> tasks) {\n            throw new UnsupportedOperationException(\"write submitAll\");\n        }\n\n        public void shutdown() {\n            throw new UnsupportedOperationException(\"write shutdown\");\n        }\n    }\n\n    /** Single responsibility: aggregating results. */\n    public static final class ResultAggregator {\n        public long sumResults(List<Future<Long>> futures) throws ExecutionException, InterruptedException {\n            throw new UnsupportedOperationException(\"write sumResults\");\n        }\n    }\n}\n",
+  "content_sha256": "40f5a7244cef88a1549076d73324b5b189708d2cf0b7311a3c02450fa60c2eb4",
+  "starting_code": "package practice;\n\n/**\n * Ferry fares. Finance owns the fare rules; the ticket machine at the quay and the new web shop\n * both sell tickets. Amounts are in cents.\n */\npublic class Fares {\n\n    public record Trip(int adults, int children, boolean car, boolean peak) {}\n\n    /** Finance: adults 12.00, children 6.00, a car 35.00. */\n    static class BaseFare {\n        long of(Trip t) {\n            return t.adults() * 1_200L + t.children() * 600L + (t.car() ? 3_500L : 0L);\n        }\n    }\n\n    /** Finance: 10% off from a threshold. */\n    static class GroupDiscount {\n        private final long fromCents;\n\n        GroupDiscount(long fromCents) {\n            this.fromCents = fromCents;\n        }\n\n        long apply(long cents) {\n            return cents >= fromCents ? cents * 90 / 100 : cents;\n        }\n    }\n\n    /** Finance: 20% more on peak sailings. */\n    static class PeakSurcharge {\n        long apply(long cents, boolean peak) {\n            return peak ? cents * 120 / 100 : cents;\n        }\n    }\n\n    /** Finance's fare for a trip, with the group discount starting at the given amount. */\n    public static class FarePolicy {\n        private final BaseFare base = new BaseFare();\n        private final GroupDiscount discount;\n        private final PeakSurcharge surcharge = new PeakSurcharge();\n\n        public FarePolicy(long groupDiscountFromCents) {\n            this.discount = new GroupDiscount(groupDiscountFromCents);\n        }\n\n        /** What a trip costs. */\n        public long price(Trip t) {\n            // TODO: Finance's fare for the trip, the one the ticket machine has always charged.\n            throw new IllegalStateException(\"TODO: price\");\n        }\n    }\n\n    /** The ticket machine at the quay. It has charged correctly for years. */\n    public static class TicketMachine {\n        private final FarePolicy policy;\n\n        public TicketMachine(FarePolicy policy) {\n            this.policy = policy;\n        }\n\n        public long charge(Trip t) {\n            BaseFare base = new BaseFare();\n            GroupDiscount discount = new GroupDiscount(10_000);\n            PeakSurcharge surcharge = new PeakSurcharge();\n            return surcharge.apply(discount.apply(base.of(t)), t.peak());\n        }\n    }\n\n    /** The new web shop: its quote is what the customer pays at the quay. */\n    public static class WebShop {\n        private final FarePolicy policy;\n\n        public WebShop(FarePolicy policy) {\n            this.policy = policy;\n        }\n\n        public long quote(Trip t) {\n            // TODO: The price of the trip, as the customer will be charged for it at the quay.\n            throw new IllegalStateException(\"TODO: quote\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/src/main/java/practice/Squares.java",
-    "test_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/src/test/java/practice/SquaresTest.java",
+    "main_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/src/main/java/practice/Fares.java",
+    "test_path": "practice/08-principles/31-solid-principles/prose/unit-01/practice-2/src/test/java/practice/FaresTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -112,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SquaresTest#sumsTheSquaresOnAThreadPool",
+        "id": "practice.FaresTest#offPeakTripsAreQuotedWhatTheMachineCharges",
         "kind": "main",
-        "says": "5 tasks sum to 30 and 100 000 tasks to 333328333350000, run on a two-thread pool."
+        "says": "off-peak trips below and above the group threshold are quoted what the machine charges"
       },
       {
-        "id": "practice.SquaresTest#tasksRunOnTheInjectedExecutor",
-        "kind": "edge",
-        "says": "Every task is submitted to the executor passed to the constructor."
+        "id": "practice.FaresTest#aPeakGroupAboveTheThresholdGetsBothTheDiscountAndTheSurcharge",
+        "kind": "main",
+        "says": "a peak group whose base fare reaches the threshold gets the discount and the surcharge in both channels"
       },
       {
-        "id": "practice.SquaresTest#shutdownStopsTheInjectedExecutor",
+        "id": "practice.FaresTest#aPeakTripThatOnlyTheSurchargeLiftsOverTheThresholdIsQuotedWhatTheMachineCharges",
         "kind": "edge",
-        "says": "shutdown() shuts down the executor passed to the constructor."
+        "says": "a peak trip whose surcharge alone would cross the threshold is quoted the machine's price, without the discount"
       },
       {
-        "id": "practice.SquaresTest#aNegativeCountIsRejectedAndZeroIsEmpty",
+        "id": "practice.FaresTest#aPolicyWithAnotherThresholdPricesBothChannels",
         "kind": "edge",
-        "says": "createTasks(0) is empty and createTasks(-1) throws IllegalArgumentException."
-      },
-      {
-        "id": "practice.SquaresTest#shutdownLetsQueuedTasksFinish",
-        "kind": "edge",
-        "says": "shutdown() is an orderly shutdown: a task already queued behind a running one still runs."
+        "says": "a fare policy built with another threshold sets the price at the machine and in the web shop"
       }
     ],
     "report": {
@@ -143,10 +124,10 @@
     },
     "origin": {
       "path": "31-solid-principles/README_8.1.1.md",
-      "section": "8.1.1.2. Applying SRP in Concurrent Programming"
+      "section": "Splitting by Verb Instead of by Actor Moves the Rule into Every Caller"
     },
     "concepts": [
-      "In concurrent code, producing tasks, executing them on an injected thread pool and aggregating their results are three separate classes."
+      "Splitting one actor's rules into a class per step leaves the way the steps combine to each caller, so two callers can compute different results from correct steps; one class for the actor's steps gives every caller the same result."
     ]
   }
 }

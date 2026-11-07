@@ -1,20 +1,16 @@
-The page's key point about escapes in a text block is the **order** of the
-compiler's steps: line terminators are normalized to `\n` first, incidental
-whitespace (and trailing whitespace) is removed second, and escape sequences
-are interpreted **last**. Until that last step, `\s` or a backslash at the end
-of a line is just ordinary characters.
+The shelf-label printer in warehouse 3 has started printing labels whose fields drift to the
+left, and some labels come out blank. Its manual is strict about the job it receives: a setup
+command on one line, then the label's body, where every line is a field exactly 24 characters wide,
+padded with spaces on the right, and every line ends with a line break.
 
-Write `TextBlockContent.value(String raw)`. `raw` is the source between the
-opening `"""`'s line terminator and the closing `"""`: its last line is the
-whitespace before a closing delimiter on its own line, or the last content
-line. Return the text block's value. The JDK has one method for each step:
-`stripIndent()` does the first two, `translateEscapes()` the last.
+For the label on aisle B, shelf 07, the setup command is
 
-| raw (`·` is a space, `⏎` a source line break) | answer |
-|---|---|
-| `········Tab:\there⏎········Quote: \"` | `"Tab:\there\nQuote: \""` |
-| `········Hello⏎········` | `"Hello\n"` |
-| `········Text···\s` | `"Text    "` (four spaces) |
-| `········Hello \⏎········World` | `"Hello World"` |
-| `········C:\\⏎········D:` | `"C:\\\nD:"` (a backslash, then a newline) |
-| `········Line 1\r` then `\r\n` then `········Line 2` | `"Line 1\r\nLine 2"` |
+```text
+^XA^PW406^LL203^LH0,0^MD10^PR4^FO20,20^A0N,28,28^FDAISLE B^FS^XZ
+```
+
+and the body's three fields are `AISLE B / SHELF 07`, `SKU 44-1093` and `QTY 12`.
+
+The team's style rule allows 60 columns per source line, so the setup command can't sit on one
+line. Write both `TODO` methods of `src/main/java/practice/ShelfLabel.java` as text blocks: when
+you're done, `job()` returns the exact characters the manual asks for. About eight lines in total.

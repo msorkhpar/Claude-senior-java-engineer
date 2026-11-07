@@ -1,34 +1,15 @@
-A text block needs far fewer escapes than a traditional literal, but not none.
-The page lists what is left: a backslash is still an escape character, **three
-quotes in a row** would close the block, **trailing spaces** are stripped
-unless fenced with `\s`, and **a quote just before the closing delimiter**
-would run into it.
+The team's test generator records what a service returns and writes it into a generated JUnit
+test as a Java text block, so the next run is compared with exactly that string. Most generated
+tests work. A few don't compile, and a few fail on the very first run although the service hasn't
+changed: the string javac reads back from the block isn't the one that was recorded.
 
-Write `TextBlockSource.of(String value)`. It returns Java source for a text
-block whose value is `value` (which holds no `\r` and no tab):
+`FixtureWriter.textBlock(value)` in `src/main/java/practice/FixtureWriter.java` already writes the
+delimiters, the indentation and the line breaks between lines. Finish its `TODO`, `line(text)`:
+what to write for one line of the value so that javac reads that line back exactly. Leave alone
+whatever needs no change, so the generated fixtures stay readable. Recorded values hold printable
+ASCII characters, spaces, carriage returns and line feeds.
 
-- the opening `"""`, then `\n`;
-- each line of `value` (split on `\n`), indented by eight spaces, followed by
-  `\n`, except that an empty line other than the last is written with no
-  indentation at all;
-- the closing `"""` right after the last line, so a value ending in `\n` ends
-  with an empty last line: the closing delimiter on its own line.
+When you're done, any such value written by `textBlock` compiles, and javac reads it back
+unchanged. About twelve lines in total.
 
-Inside a line, escape only what must be escaped:
-
-- a backslash `\` is written `\\`;
-- in each run of consecutive `"`, every third quote is written `\"`, so `"""`
-  is written `""\"`;
-- if the line ends with a space, that last space is written `\s`;
-- on the last line, if the value's final character is a `"` not already
-  written `\"`, it is written `\"`.
-
-| value (as it prints) | answer (`·` is a space, `⏎` is `\n`) |
-|---|---|
-| `Hello`, newline, `World` | `"""⏎········Hello⏎········World"""` |
-| `He said "Hello" to her.` | `"""⏎········He said "Hello" to her."""` |
-| `Hello`, newline | `"""⏎········Hello⏎········"""` |
-| `C:\Users` | `"""⏎········C:\\Users"""` |
-| `The delimiter is """ here` | `"""⏎········The delimiter is ""\" here"""` |
-| `Name··` then newline, `Bob` | `"""⏎········Name·\s⏎········Bob"""` |
-| `say "hi"` | `"""⏎········say "hi\""""` |
+The tests compile each generated block with the JDK's own compiler and compare the value it holds.

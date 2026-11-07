@@ -1,564 +1,348 @@
 # 7.4.4. Escape Sequences and Special Characters
 
-## Concept Explanation
+The nightly settlement file goes to the bank as fixed-width records of 21 characters plus CR LF. Since its template moved into a text block, the bank rejects every file with
+`record 1: 15 characters, expected 21`. The source looks right: the padding is typed after the
+company name, and the developer's editor saves files with CRLF line endings.
 
-Java text blocks support all the escape sequences available in traditional string literals, plus two new escape sequences
-introduced specifically for text blocks in Java 14/15. Understanding how escape sequences work within text blocks is
-crucial because text blocks process escapes **after** incidental whitespace removal, which affects the final result.
-
-**Real-world analogy**: Think of escape sequences as special instructions embedded in a letter. The postman
-(incidental whitespace removal) handles the envelope and packaging first, then the recipient reads the letter and
-follows the embedded instructions (escape sequence processing). The order matters - the instructions are interpreted
-only after the packaging has been removed.
-
-The two new escape sequences specific to text blocks are:
-
-1. **`\s`** (space escape): Translates to a single space character (`\u0020`). Its primary purpose is to prevent
-   trailing whitespace stripping on a line.
-2. **`\` (line continuation)**: When a backslash appears at the end of a line, it suppresses the line terminator,
-   effectively joining the current line with the next one.
-
-## Key Points to Remember
-
-1. Text blocks support all traditional escape sequences: `\n`, `\t`, `\\`, `\"`, `\'`, `\b`, `\f`, `\r`, octal
-   escapes.
-2. Double quotes (`"`) generally do NOT need escaping in text blocks (unlike traditional strings).
-3. Three consecutive double quotes (`"""`) inside a text block require at least one to be escaped (`\"""`).
-4. The `\s` escape preserves trailing whitespace and translates to a space character.
-5. The `\` (line continuation) at end of line suppresses the newline, joining adjacent lines.
-6. Escape sequences are processed in Step 3, AFTER line normalization and whitespace removal.
-7. Unicode escapes (`\uXXXX`) are processed by the lexer BEFORE text block processing begins.
-8. The `\0` (null character) escape works in text blocks just as in traditional strings.
-
-## Relevant Java 21 Features
-
-- The `\s` and `\` (line continuation) escapes were introduced in JEP 368 (Java 14, Second Preview) and standardized in
-  JEP 378 (Java 15).
-- In Java 21, these escapes are fully standard and widely used.
-- `String.translateEscapes()` (Java 15) can process escape sequences at runtime.
-- `\s` also works in traditional string and char literals (since Java 15); `\<line-terminator>` is only meaningful in
-  text blocks, because a traditional literal cannot contain a line terminator.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Assuming double quotes always need escaping**:
-   ```java
-   // In traditional strings, quotes must be escaped
-   String traditional = "He said \"Hello\""; // Required
-
-   // In text blocks, quotes don't need escaping
-   String textBlock = """
-           He said "Hello" """; // Works fine!
-   
-   // Exception: three consecutive quotes need escaping
-   String tripleQuote = """
-           The delimiter is \""" """;
-   ```
-
-2. **Forgetting that `\s` is a full space character, not just a marker**:
-   ```java
-   // \s adds an actual space to the output
-   String block = """
-           Hello\s""";
-   // Result: "Hello " (5 chars + 1 space = 6 chars)
-   // Not just "Hello" with trailing whitespace preserved
-   ```
-
-3. **Using `\n` when a natural line break would suffice**:
-   ```java
-   // Unnecessary: using \n inside a text block
-   String bad = """
-           Line 1\nLine 2""";
-   // Result: "Line 1\nLine 2" - works but defeats the purpose of text blocks
-   
-   // Better: use natural line breaks
-   String good = """
-           Line 1
-           Line 2""";
-   ```
-
-4. **Line continuation producing unexpected results with indentation**:
-   ```java
-   // Escapes are processed AFTER whitespace removal, so the next line's
-   // incidental indentation is already gone when the lines are joined
-   String block = """
-           Hello \
-           World""";
-   // Result: "Hello World" (newline suppressed, next line's indent removed by Step 2)
-   ```
-
-5. **Confusing `\` (line continuation) with `\\` (literal backslash)**:
-   ```java
-   // Line continuation: suppresses newline
-   String continuation = """
-           Hello \
-           World""";
-   // Result: "Hello World"
-   
-   // Literal backslash at end of line
-   String literal = """
-           Hello \\
-           World""";
-   // Result: "Hello \\\nWorld" -- a literal backslash, then a newline, then "World"
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `\s` only when trailing whitespace is meaningful**:
-   ```java
-   // Good: preserving alignment in table formatting
-   String table = """
-           Name  \s
-           Alice \s
-           Bob   \s""";
-   
-   // Bad: using \s unnecessarily
-   String unnecessary = """
-           Hello\s
-           World\s""";
-   // If trailing space doesn't matter, leave it off
-   ```
-
-2. **Use line continuation for very long single-line strings**:
-   ```java
-   String longLine = """
-           This is a very long string that would exceed \
-           the line length limit in your IDE, so we break \
-           it across multiple source lines for readability.""";
-   // Result is a single line
-   ```
-
-3. **Let text blocks handle quote escaping naturally**:
-   ```java
-   // Text blocks shine with JSON, SQL, etc. that use quotes
-   String json = """
-           {"key": "value", "nested": {"inner": "data"}}""";
-   // No escaping needed for the double quotes!
-   ```
-
-4. **Be explicit about backslashes**:
-   ```java
-   // Always double backslashes for literal backslashes
-   String path = """
-           C:\\Users\\admin\\Documents""";
-   // Even in text blocks, backslash is still an escape character
-   ```
-
-## Edge Cases and Their Handling
-
-1. **Two consecutive double quotes at end of text block**: Requires escaping to avoid ambiguity with closing delimiter.
-2. **Empty line with `\s`**: The `\s` creates a line with a single space.
-3. **Line continuation on the last content line**: Joins with the closing delimiter, which is unusual.
-4. **Multiple `\s` on the same line**: Each `\s` adds one space; they can be chained.
-5. **`\s` followed by other whitespace**: The `\s` prevents stripping of the whitespace before it.
-6. **Unicode escapes in text blocks**: Processed before the text block is parsed, so `\u000A` becomes a real line
-   break in the source: the text after it starts a new content line at column 0, which changes the incidental
-   whitespace calculation.
-
-## Interview-specific Insights
-
-Interviewers often test:
-
-- Knowledge of the two new escape sequences (`\s` and `\`)
-- Understanding of when escaping is needed vs. not needed in text blocks
-- The order of processing (line normalization -> whitespace removal -> escape processing)
-- How `\s` prevents trailing whitespace stripping
-- The behavior of unicode escapes vs. regular escapes in text blocks
-- Edge cases with consecutive quotes near the closing delimiter
-
-Common tricky questions:
-
-- "Do you need to escape double quotes in text blocks?"
-- "What does `\s` do and why was it introduced?"
-- "What happens if you put `\u000A` in a text block?"
-- "How does line continuation interact with indentation?"
-
-## Interview Q&A Section
-
-**Q1: What new escape sequences were introduced with text blocks, and why were they needed?**
-
-```text
-A1: Two new escape sequences were introduced in Java 14 (JEP 368) alongside text blocks:
-
-1. \s (space escape):
-   - Translates to a single space character (U+0020)
-   - Primary purpose: prevent trailing whitespace stripping
-   - Without \s, the compiler strips all trailing whitespace from each line
-   - Placing \s at the end of a line acts as a "fence" - it and everything before
-     it on that line are preserved
-   - Use case: aligning columns, preserving significant trailing spaces
-
-2. \ (line continuation / line terminator escape):
-   - When placed at the end of a line, it suppresses the newline character
-   - The current line is joined with the next line
-   - Use case: writing very long strings that should be a single line in the output
-     while keeping the source code readable
-   - Similar to line continuation in shell scripts and some other languages
-
-Why they were needed:
-- \s solves the problem of meaningful trailing whitespace being silently removed
-- \ solves the problem of very long single-line strings being unreadable in source code
-- Both issues are specific to text blocks because traditional strings don't have
-  automatic trailing whitespace stripping or multi-line content
-```
+The compiler builds a text block's value in steps: it translates Unicode escapes in the whole
+file, turns every line break into LF, strips indentation and trailing spaces (unit 7.4.3), and only
+then interprets escapes. The examples print values through this helper, since a terminal hides
+trailing spaces and carriage returns:
 
 ```java
-public class NewEscapeSequences {
-    // \s example: preserving trailing whitespace
-    String withTrailing = """
-            First \s
-            Second\s""";
-    // Result: "First  \nSecond " (trailing spaces preserved)
-
-    // Without \s, trailing spaces would be stripped
-    String withoutTrailing = """
-            First   
-            Second""";
-    // Result: "First\nSecond" (trailing spaces gone!)
-
-    // \ example: line continuation for long strings
-    String longUrl = """
-            https://www.example.com\
-            /api/v2\
-            /users\
-            ?active=true""";
-    // Result: "https://www.example.com/api/v2/users?active=true"
-
-    // Combining both: long line with trailing space
-    String combined = """
-            This is a long line that continues \
-            and ends with a significant space\s""";
-    // Result: "This is a long line that continues and ends with a significant space "
+/** Writes a space as a middle dot and a tab, CR or LF as [TAB], [CR], [LF], which a terminal hides. */
+static String show(String s) {
+    return s.replace(" ", "\u00b7").replace("\t", "[TAB]").replace("\r", "[CR]").replace("\n", "[LF]");
 }
 ```
 
-**Q2: Do double quotes need to be escaped in text blocks?**
+## \s Is a Space the Stripping Can't See, So the Spaces Before It Stay
 
-```text
-A2: In most cases, NO - double quotes do NOT need escaping in text blocks.
-This is one of the key advantages of text blocks over traditional strings.
-
-Rules:
-1. Single double quotes (") - never need escaping
-2. Two consecutive double quotes ("") - never need escaping
-3. Three consecutive double quotes (""") - at least ONE must be escaped
-   because """ is the text block closing delimiter
-
-The three-quote rule:
-- The compiler scans for the first unescaped """ to find the closing delimiter
-- If your content needs """, escape at least one: \"""  or "\"" or ""\""
-- Four or more quotes: escape as needed to avoid any unescaped """
-
-This makes text blocks ideal for JSON, HTML, and SQL where double quotes
-appear frequently but three consecutive quotes are rare.
-```
+The header record with its padding typed, and again with the last space written as `\s`:
 
 ```java
-public class QuoteEscaping {
-    // Single quotes - no escaping needed
-    String single = """
-            He said "Hello" to her.""";
-    // Result: He said "Hello" to her.
+String typed = """
+        H|20261106|ACME      
+        """;                    // six spaces typed after ACME
+String fenced = """
+        H|20261106|ACME     \s
+        """;
+System.out.println(show(typed) + "  length " + typed.length());
+System.out.println(show(fenced) + "  length " + fenced.length());
+```
 
-    // Double consecutive quotes - no escaping needed
-    String doubleQuote = """
-            The value is ""empty"".""";
-    // Result: The value is ""empty"".
+```text
+H|20261106|ACME[LF]  length 16
+H|20261106|ACME······[LF]  length 22
+```
 
-    // Triple quotes - must escape at least one
-    String tripleQuote = """
-            Text block delimiter: \""" """;
-    // Result: Text block delimiter: """
+The compiler strips trailing spaces from every line, so the typed padding is gone. When it strips,
+`\s` is still two characters, a backslash and an `s`, and neither is whitespace, so the five spaces
+before it aren't trailing. Escapes are interpreted afterwards, and `\s` becomes the sixth space.
 
-    // Alternative escaping for triple quotes
-    String alt1 = """
-            Delimiter: \"\"\" """;  // Each quote escaped individually
-    // Result: Delimiter: """
+Trailing spaces are stripped because editors add and remove them silently and no reviewer sees
+them. A space that matters is therefore written visibly: one `\s` at the end keeps every space on the
+line. Markdown's two-space line break loses its padding otherwise.
 
-    // JSON example - Java needs no quote escaping, but JSON itself still
-    // requires \" for a quote inside a JSON string, written \\" in Java
-    String json = """
-            {
-                "name": "Alice",
-                "greeting": "She said, \\"Hello!\\""
-            }""";
-    // Result: "greeting": "She said, \"Hello!\"" -- valid JSON
+## A Backslash at the End of a Line Removes the Line Break and Nothing Else
 
-    // Contrast with traditional string
-    String traditional = "{\"name\": \"Alice\", \"greeting\": \"She said, \\\"Hello!\\\"\"}";
-    // Much harder to read!
+A `\` as the last character of a line joins that line to the next, so a long one-line value can be
+written over several source lines. Before reading the output, decide what stands between `orders`
+and `WHERE`, and between the `;` and `DB_CLOSE_DELAY`:
+
+```java
+String query = """
+        SELECT id FROM orders\
+        WHERE status = 'OPEN' \
+        AND total > 100""";
+String config = """
+        url=jdbc:h2:mem:orders;\
+            DB_CLOSE_DELAY=-1
+        """;
+System.out.println(show(query));
+System.out.println(show(config));
+```
+
+```text
+SELECT·id·FROM·ordersWHERE·status·=·'OPEN'·AND·total·>·100
+url=jdbc:h2:mem:orders;····DB_CLOSE_DELAY=-1[LF]
+```
+
+The escape removes the line break and adds no space, so `ordersWHERE` reaches the database, and H2
+answers `Table "ORDERSWHERE" not found` at run time: the missing-space seam of unit 7.4.1 is back. The continued line
+loses only the indentation common to all lines, so the four extra columns before `DB_CLOSE_DELAY`
+stay inside the URL. Indentation is removed while the two lines are still separate; the join comes
+last. Put the space at the seam before the `\`, and indent continued
+lines like the others.
+
+The backslash must really be the last character. One invisible space after it, and the file doesn't
+compile:
+
+```text
+SpaceAfter.java:3: error: illegal escape character
+            SELECT id FROM orders \   
+                                   ^
+1 error
+```
+
+The compiler checks each backslash as it reads the literal, before stripping, and a backslash
+followed by a space is no escape.
+
+<!-- practice 1 -->
+
+## Line Breaks in the Source Become \n Whatever the File Uses; Only an Escape Puts \r in the Value
+
+A script writes this class with CRLF line endings, as the developer's editor or a git checkout
+with `core.autocrlf` would. `file` confirms the endings, and the class prints each `char` of its
+two blocks in hex:
+
+```java
+String plain = """
+        H|20261106
+        T|0001
+        """;
+String escaped = """
+        H|20261106\r
+        T|0001\r
+        """;
+System.out.println("plain:   " + hex(plain));
+System.out.println("escaped: " + hex(escaped));
+```
+
+```text
+Crlf.java: Java source, ASCII text, with CRLF line terminators
+plain:   48 7c 32 30 32 36 31 31 30 36 0a 54 7c 30 30 30 31 0a
+escaped: 48 7c 32 30 32 36 31 31 30 36 0d 0a 54 7c 30 30 30 31 0d 0a
+```
+
+Every CR LF of the file became a lone `0a`. The compiler turns each line terminator inside a text
+block, whether CR LF, CR or LF, into LF before anything else, so the value doesn't depend on who
+saved the file. A format that requires CR LF, such as this bank file, HTTP headers or SMTP, gets it
+only from the `\r` escape: it is interpreted after the normalisation, and the real line break after
+it supplies the `0a`.
+
+## Quotes Need No Escape Until Three Stand in a Row or One Meets the Closing Delimiter
+
+A text block ends at the first `"""`, so a quote needs an escape only where it would help form one.
+This line about Python contains three:
+
+```java
+class Triple {
+    String doc = """
+            Python docstrings start with """ and end with it.
+            """;
 }
 ```
 
-**Q3: How does the order of text block processing affect escape sequences?**
-
 ```text
-A3: The order of the three processing steps is critical because each step
-operates on the result of the previous step:
-
-Step 1: Line terminator normalization (CR, CRLF -> LF)
-- Happens first
-- All line endings become \n
-- This does NOT affect escape sequences in the content
-
-Step 2: Incidental whitespace removal
-- Happens second
-- Removes common leading whitespace
-- Strips trailing whitespace from each line
-- The \s escape is still the two characters backslash and s at this point
-- Those are not whitespace, so any spaces before \s are not "trailing" and are kept
-
-Step 3: Escape sequence interpretation
-- Happens last
-- \s becomes a space character (it was never at risk in step 2, because it was
-  not whitespace yet)
-- \<newline> suppresses the newline (line continuation)
-- \n, \t, \\, \" etc. are all processed
-- Invalid escape sequences cause a compilation error
-
-Important detail about \s and step 2:
-- The compiler needs no special rule for \s during trailing whitespace stripping
-- Because backslash and s are ordinary characters in step 2, \s acts as a
-  "fence" that stops the stripping
-- Characters before \s on the same line are preserved
-- Then in step 3, \s is translated to a space
-
-This ordering means escape sequences in text blocks are predictable
-and consistent with their behavior in traditional strings.
+Triple.java:3: error: ';' expected
+            Python docstrings start with """ and end with it.
+                                            ^
+Triple.java:3: error: ';' expected
+            Python docstrings start with """ and end with it.
+                                                    ^
+Triple.java:3: error: ';' expected
+            Python docstrings start with """ and end with it.
+                                                            ^
+Triple.java:4: error: illegal text block open delimiter sequence, missing line terminator
+            """;
+               ^
+4 errors
 ```
 
+The block closed mid-line, and javac reports the rest as broken Java without mentioning quotes. Escaping any one of the three is enough. The second trap is a quote at the end
+of a value whose closing delimiter is on the same line:
+
 ```java
-public class ProcessingOrder {
-    // Step 2 removes indentation, Step 3 processes escapes
-    String example = """
-            Hello\tWorld""";
-    // After Step 1: (normalized line endings)
-    // After Step 2: "Hello\tWorld" (indentation removed; \t is still literal)
-    // After Step 3: "Hello\tWorld" (but now \t is an actual tab character)
-
-    // \s interacts with Step 2
-    String spaceExample = """
-            Text   \s""";
-    // After Step 2: "Text   \s" (trailing whitespace preserved because of \s fence)
-    // After Step 3: "Text    " (the \s becomes a space, so 4 trailing spaces total)
-
-    // Line continuation interacts with Step 2
-    String continuation = """
-            Hello \
-            World""";
-    // After Step 2: "Hello \\\nWorld" (indentation removed, \ is still literal)
-    // After Step 3: "Hello World" (\ suppresses newline, lines joined)
-    // Note: "World" has no leading space because Step 2 removed the indentation
+class EndQuote {
+    String reply = """
+            she said "yes"""";
 }
 ```
 
-**Q4: How do you handle backslashes in text blocks, especially for regex patterns and file paths?**
-
 ```text
-A4: Backslashes in text blocks work exactly the same as in traditional strings -
-they are escape characters and must be doubled for a literal backslash.
-
-Common scenarios:
-
-1. File paths (Windows):
-   - Traditional: "C:\\Users\\admin"
-   - Text block: the same C:\\Users\\admin on a text block content line
-   - Text blocks do NOT help with backslash escaping
-
-2. Regular expressions:
-   - Regex \d+ in traditional: "\\d+"
-   - Regex \d+ in text block: \\d+ on a text block content line
-   - Same double-escaping is required
-
-3. JSON with backslashes:
-   - Same escaping rules apply
-
-Why text blocks don't help with backslashes:
-- Text blocks process escape sequences (Step 3)
-- A single backslash starts an escape sequence
-- To get a literal backslash in the output, you MUST use \\
-- This was a deliberate design choice to maintain consistency
-  with traditional strings
-
-Alternative for regex:
-- Consider Pattern.compile() with named constants
-- Use character classes where possible to avoid escaping
-- Java has no "raw string" feature (unlike Kotlin or Python)
+EndQuote.java:3: error: unclosed string literal
+            she said "yes"""";
+                            ^
+1 error
 ```
 
+Three of the four quotes close the block, and the fourth opens a string literal that never ends.
+With one quote escaped in each:
+
 ```java
-public class BackslashHandling {
-    // File paths - same escaping as traditional strings
-    String windowsPath = """
-            C:\\Users\\admin\\Documents\\file.txt""";
-    // Result: C:\Users\admin\Documents\file.txt
+String doc = """
+        Python docstrings start with \""" and end with it.
+        """;
+String reply = """
+        she said "yes\"""";
+System.out.print(doc);
+System.out.println(reply);
+```
 
-    // Unix paths - no escaping needed (no backslashes)
-    String unixPath = """
-            /home/user/documents/file.txt""";
+```text
+Python docstrings start with """ and end with it.
+she said "yes"
+```
 
-    // Regex patterns - still need double escaping
-    String emailRegex = """
-            ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$""";
-    // Result: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+<!-- practice 2 -->
 
-    // Complex regex - text blocks help with readability but not escaping
-    String complexRegex = """
-            (?x)           # Enable comments mode
-            ^              # Start of string
-            [a-zA-Z0-9]+   # Alphanumeric characters
-            @              # Literal @
-            [a-zA-Z0-9.-]+ # Domain
-            \\.            # Literal dot
-            [a-zA-Z]{2,}   # TLD
-            $              # End of string""";
+## Unicode Escapes Are Translated Before the Compiler Sees the Text Block
 
-    // JSON with escaped characters
-    String jsonWithBackslash = """
-            {"path": "C:\\\\Users\\\\admin"}""";
-    // Result: {"path": "C:\\Users\\admin"}
-    // Four backslashes in source -> two in output (JSON requires its own escaping)
+`\u0022` is a double quote, so it looks like a way around the previous section:
+
+```java
+class UnicodeQuotes {
+    String doc = """
+            Python docstrings start with \u0022\u0022\u0022 and end with it.
+            """;
 }
 ```
 
-**Q5: What happens with unicode escapes in text blocks?**
-
 ```text
-A5: Unicode escapes (\uXXXX) are handled differently from all other escape sequences
-in text blocks. They are processed by the Java LEXER, not by the text block compiler.
-
-Processing timeline:
-1. Lexer processes \uXXXX escapes (very early, before parsing)
-2. Parser identifies the text block
-3. Step 1: Line terminator normalization
-4. Step 2: Incidental whitespace removal
-5. Step 3: Regular escape sequence processing
-
-Implications:
-- \u000A (newline) creates an actual line break in the SOURCE CODE before the
-  text block is even identified: the text after it becomes a new content line
-  at column 0, which silently changes the incidental whitespace removal
-- \u0022 (double quote) creates an actual quote character in the source; next
-  to other quotes it can form """ and terminate the text block prematurely
-- Other unicode escapes (like \u0041 for 'A') work fine because they don't
-  affect the text block structure
-
-Best practice:
-- Avoid \u000A and \u000D in text blocks
-- Use \n and \r instead (processed in Step 3, safely)
-- Non-structural unicode escapes work fine (\u263A for smiley, etc.)
-- For problematic unicode values, use the actual Unicode character in source
-  (modern editors support this)
+UnicodeQuotes.java:3: error: ';' expected
+            Python docstrings start with \u0022\u0022\u0022 and end with it.
+                                                           ^
+UnicodeQuotes.java:3: error: ';' expected
+            Python docstrings start with \u0022\u0022\u0022 and end with it.
+                                                                   ^
+UnicodeQuotes.java:3: error: ';' expected
+            Python docstrings start with \u0022\u0022\u0022 and end with it.
+                                                                           ^
+UnicodeQuotes.java:4: error: illegal text block open delimiter sequence, missing line terminator
+            """;
+               ^
+4 errors
 ```
+
+These are the four errors of the unescaped `"""`. The compiler translates every `\uXXXX` in the file
+into its character first, before it divides the source into tokens, so when it looks for the end
+of the block, the line holds three ordinary quotes. Every
+other escape on this page belongs to the literal and is interpreted last; a unicode escape belongs
+to the source text.
+
+A `\u000A` is therefore a real line break. The text after it starts a new line at column 0, which
+brings the block's minimum indentation down to zero (this block sits inside a method):
 
 ```java
-public class UnicodeEscapes {
-    // Safe unicode escapes - non-structural characters
-    String safe = """
-            Smiley: \u263A
-            Heart: \u2665
-            Copyright: \u00A9""";
-    // Result: "Smiley: ☺\nHeart: ♥\nCopyright: ©"
-
-    /* DANGEROUS: \u000A is a newline - processed before parsing!
-       (In a // line comment it would even end the comment early, which is
-       why this example sits in a block comment.)
-       String surprising = """
-               Hello\u000AWorld""";
-       This compiles, but "World" becomes a separate line at column 0, so the
-       minimum indentation is 0 and "Hello" keeps its source indentation:
-       "            Hello\nWorld" */
-
-    // DANGEROUS: \u0022 is a double quote - processed by lexer!
-    // String alsobroken = """
-    //         Quote: \u0022""";
-    // This fails to compile: the \u0022 plus the closing """ form four quotes
-
-    // Safe alternative: use regular escape sequences
-    String safeNewline = """
-            Hello\nWorld""";
-    // Result: "Hello\nWorld" (actual newline)
-
-    String safeQuote = """
-            Quote: \"""";
-    // Result: "Quote: \""
-}
+        String greeting = """
+                Hello\u000AWorld
+                """;
+        System.out.println(show(greeting));
 ```
-
-**Q6: How does the line continuation escape (`\`) work and when should you use it?**
 
 ```text
-A6: The line continuation escape (\) at the end of a line suppresses the line
-terminator, joining the current line with the next.
-
-How it works:
-1. Write content on a line
-2. End the line with \ (backslash)
-3. The newline after \ is suppressed
-4. The next line's content is appended directly
-5. Leading whitespace on the next line (incidental) is still removed
-
-Key behaviors:
-- The \ must be the last character on the line (before the line terminator)
-- Whitespace after \ but before the line terminator is NOT allowed
-  (the compiler would see it as an invalid escape sequence)
-- The joined result has no space between the lines unless you explicitly add one
-- Incidental whitespace from the next line is removed (Step 2 happens first)
-
-When to use:
-1. Very long single-line strings (URLs, queries, messages)
-2. When you want readable source code but a single-line output
-3. Long format strings where line breaks in source improve readability
-
-When NOT to use:
-1. When the content naturally has line breaks (use actual line breaks)
-2. When it makes the source harder to read
-3. For short strings that fit on one line
+················Hello[LF]World[LF]
 ```
+
+Write `\n`, which is interpreted last, and keep
+`\u` escapes for characters that play no part in the syntax, such as `\u2022` for a bullet.
+
+<!-- practice 4 -->
+
+## translateEscapes() Interprets Escapes in a String That Arrives at Run Time
+
+Support staff typed `\n` and `\t` into a notification template stored in a database column. The
+application reads two characters for each, and `String.translateEscapes()` (Java 15) interprets
+them as the compiler would have:
 
 ```java
-public class LineContinuation {
-    // Basic line continuation
-    String singleLine = """
-            This is one \
-            continuous \
-            line.""";
-    // Result: "This is one continuous line."
-
-    // Long URL
-    String url = """
-            https://api.example.com\
-            /v2/users\
-            ?active=true\
-            &limit=100""";
-    // Result: "https://api.example.com/v2/users?active=true&limit=100"
-
-    // Long SQL (but usually you want line breaks in SQL)
-    String sql = """
-            SELECT u.name, u.email, d.name \
-            FROM users u \
-            JOIN departments d ON u.dept_id = d.id""";
-    // Result: one line - usually NOT what you want for SQL
-
-    // Better: keep SQL with natural line breaks
-    String betterSql = """
-            SELECT u.name, u.email, d.name
-            FROM users u
-            JOIN departments d ON u.dept_id = d.id""";
-
-    // Adding explicit space before continuation
-    String withSpace = """
-            Hello\s\
-            World""";
-    // Result: "Hello World" (\s adds space, \ suppresses newline)
-
-    // Without space, lines are directly joined
-    String noSpace = """
-            Hello\
-            World""";
-    // Result: "HelloWorld"
-}
+String stored = "Dear %s,\\nyour order shipped.\\tRef:\\s%s";   // as read from a database column
+System.out.println(show(stored));
+System.out.println(show(stored.translateEscapes()));
 ```
+
+```text
+Dear·%s,\nyour·order·shipped.\tRef:\s%s
+Dear·%s,[LF]your·order·shipped.[TAB]Ref:·%s
+```
+
+It accepts every escape of a literal, `\s` and `\<line-terminator>` included, and throws
+`IllegalArgumentException` on anything else. That includes `\u`, since unicode escapes are not
+escapes of a literal: `"Caf\\u00e9 %s".translateEscapes()` fails with
+`Invalid escape sequence: \u \\u0075`.
+
+To give a file holding a text block's body the value the compiler would, apply the steps in the
+compiler's order, `stripIndent()` (unit 7.4.3) and then `translateEscapes()`. A receipt body saved
+to a file, both ways round:
+
+```java
+String body = Files.readString(file);   // a text block's body, saved to a file
+System.out.println(show(body));
+System.out.println(show(body.stripIndent().translateEscapes()));
+System.out.println(show(body.translateEscapes().stripIndent()));
+```
+
+```text
+····TOTAL····\s\r[LF]····PAID\r[LF]····
+TOTAL·····[CR][LF]PAID[CR][LF]
+TOTAL[LF]PAID[LF]
+```
+
+Translated first, `\s` became a space that `stripIndent()` then stripped as trailing, and `\r`
+became a CR that formed a CR LF with the real line break, which `stripIndent()` normalised to LF.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **`\s` keeps a trailing space**, because it is not whitespace when trailing spaces are stripped.
+  Typed padding is lost.
+- **A line-ending `\` removes the line break and nothing else.** It adds no space, a deeper next
+  line keeps its extra spaces, and a space after the `\` doesn't compile.
+- **Source line breaks are LF in the value, whatever the file uses.** CR LF comes only from `\r`.
+- **A quote needs an escape only where three would stand in a row or one meets the closing
+  delimiter.** The errors don't mention quotes.
+- **Unicode escapes are source text, translated first.** `\u0022` counts as a quote, `\u000A` as a
+  line break.
+- **`translateEscapes()` interprets escapes in run-time strings.** It rejects `\u`, and on a text
+  block's body it comes after `stripIndent()`.
+
+## Reference
+
+**How the compiler builds a text block's value:**
+
+| Step | Works on | Consequence |
+|---|---|---|
+| unicode escapes translated | the whole source file | `\u0022\u0022\u0022` closes the block |
+| line terminators normalised | the block's content | CR LF, CR and LF all become LF |
+| incidental indentation and trailing whitespace stripped | each line | typed padding is lost; `\s` is kept |
+| escapes interpreted | the content | `\s`, `\r`, `\t` become characters; `\<line-terminator>` is removed |
+
+**Escapes and quotes in a text block (Java 21):**
+
+| In the source | In the value |
+|---|---|
+| `C:\\` at the end of a line | `C:\` and LF: an escaped backslash, not a continuation |
+| last content line ending in `\`, closing delimiter on its own line | no trailing LF |
+| `"""` in the content | write `\"""` or `""\"` |
+| `""` right before a closing `"""` | closes early; escape the last quote |
+| `\"` | `"`; a quote escaped for JSON is written `\\"` (unit 7.4.5) |
+| `\u005Ct` | a tab: `\u005C` is a backslash, which then starts `\t` |
+| `\\u0041` | the six characters `\u0041`: an escaped backslash starts no unicode escape |
+
+**`String.translateEscapes()` (Java 15):** translates `\b \t \n \f \r \s \" \' \\`, octal `\0` to
+`\377`, and discards `\<line-terminator>`; throws `IllegalArgumentException` on a malformed escape;
+does not translate unicode escapes.
+
+## Challenges
+
+1. Find text blocks in a codebase you know with spaces at the end of a line and no `\s`. Which did
+   the author mean, and which check would catch the next one?
+2. A test needs an HTTP request with CR LF after every line. Compare `\r` on every line with
+   `.replace("\n", "\r\n")` on a plain block: which is easier to review, and which survives someone
+   adding a line?
+3. Your team moves its SQL from text blocks into `.sql` resource files. Which of this page's rules
+   still apply, and which disappear?
+
+## Design Note: Why Unicode Escapes Come Before Everything Else
+
+Java translates `\uXXXX` before it reads tokens, so that a program kept in ASCII can still contain
+any character, in a name as well as in a string. The translation can't know where it is, so it
+applies everywhere: a `\u000A` in a `//` comment ends the comment, and whatever follows on that
+line compiles as code. Text blocks inherited the rule unchanged. `translateEscapes()` leaves
+unicode escapes out, since, in its documentation's words, they "are not part of the string literal
+specification", and a string read at run time never went through the compiler's first step.
 
 ## Code Examples
 

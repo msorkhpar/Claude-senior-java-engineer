@@ -1,32 +1,17 @@
-The page's best practice for a very long single-line string is the line
-continuation escape: a `\` at the end of a text block line suppresses the line
-break, so the source reads well and the value stays one line. Its example:
+The integration tests of the catalogue service kept their expected responses as text blocks, two
+hundred of them, and the test classes became unreadable. The team moved each block's body into a
+fixture file, byte for byte: everything after the line of the opening `"""`, up to the closing
+`"""`. Some bodies hold escapes, some hold Unicode escapes such as `\u00e9` that their authors used
+to keep the sources in ASCII, and the files are checked out with CRLF line endings on Windows.
 
-```java
-String singleLine = """
-        This is one \
-        continuous \
-        line.""";
-// "This is one continuous line."
-```
+A fixture is only useful if it loads as exactly the string the text block had. Finish the two
+`TODO`s in `src/main/java/practice/FixtureLoader.java`:
 
-Write `LongLine.source(String sentence, int width)`. `sentence` is words
-separated by single spaces (no quote, no backslash, no leading or trailing
-space). Return the text block source for it:
+- `unicodeEscapes(text)`: the text with each Unicode escape replaced by its character, as javac
+  does when it reads a source file;
+- `load(body)`: the string javac made of a text block with this body.
 
-- the opening `"""`, then `\n`;
-- the sentence split into pieces, filled greedily: each piece takes as many
-  whole words as fit in `width` characters, a word longer than `width` takes a
-  piece of its own and is **never cut**;
-- the space where the sentence breaks stays at the end of the piece before
-  it, and **counts** towards its width (a piece of exactly `width` characters fits);
-- each piece indented by eight spaces; every piece but the last ends with `\`
-  and `\n`, the last ends with the closing `"""`.
+When you're done, every fixture loads as the value javac gave its block, on Linux and on Windows.
+About fifteen lines in total.
 
-| sentence | width | answer (`·` is a space, `⏎` is `\n`) |
-|---|---|---|
-| `This is one continuous line.` | `15` | `"""⏎········This·is·one·\⏎········continuous·\⏎········line."""` |
-| `This is one continuous line.` | `12` | the same |
-| `This is one continuous line.` | `11` | `"""⏎········This·is·\⏎········one·\⏎········continuous·\⏎········line."""` |
-| `a supercalifragilistic word` | `8` | `"""⏎········a·\⏎········supercalifragilistic·\⏎········word"""` |
-| `short` | `20` | `"""⏎········short"""` |
+The tests compare with values that javac 21 produced from the same bodies.

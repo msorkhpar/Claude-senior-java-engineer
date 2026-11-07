@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Re-indent a pasted snippet",
+  "title": "Embed shell scripts in a generated pipeline file",
   "blocks": [
     {
       "type": "heading",
@@ -19,65 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page offers two methods that bring the text block rules to any string: `stripIndent()` applies the compiler's incidental whitespace algorithm (where a blank last line counts, like a closing delimiter on its own line), and `indent(n)` adds `n` spaces to every line. Its best practices use them together to place generated code at the right depth."
+      "text": "The pipeline file of the monorepo is generated: each step runs a shell script kept in `ci/`, and the generator copies the script into the step's YAML `run: |` block. The generated file is checked in and compared byte for byte with the previous one, and a YAML linter that rejects any line ending in whitespace runs before every merge. The scripts are edited by many people, on Linux, macOS and Windows, some pasted from indented documentation. Each edit made the generated file change in ways nobody intended."
     },
     {
       "type": "para",
-      "text": "Write `Snippet.nest(String code, int level)`. `code` is a snippet pasted with any indentation and any line endings. Return it re-based at `level`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "the snippet's common indentation is removed, its inner indentation kept, and spaces at the end of each line are removed;",
-        "a **blank** line (empty, or only spaces, the last line included) takes no part in the common indentation;",
-        "every non-blank line is then indented by `4 * level` spaces, and a blank line stays **empty**;",
-        "every line ends with `\\n`, the last one included, and line endings are `\\n` only."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "code (`⏎` is `\\n`)",
-        "level",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`··a⏎····b`",
-          "`1`",
-          "`····a⏎······b⏎`"
-        ],
-        [
-          "`··a⏎⏎··b`",
-          "`1`",
-          "`····a⏎⏎····b⏎`"
-        ],
-        [
-          "`··a⏎··b`",
-          "`0`",
-          "`a⏎b⏎`"
-        ],
-        [
-          "`····a⏎··⏎····b`",
-          "`0`",
-          "`a⏎⏎b⏎`"
-        ],
-        [
-          "`··a\\r\\n··b`",
-          "`1`",
-          "`····a⏎····b⏎`"
-        ],
-        [
-          "`··a···⏎··b`",
-          "`1`",
-          "`····a⏎····b⏎`"
-        ]
-      ]
+      "text": "Finish `runBlock(...)` in `src/main/java/practice/PipelineStep.java`. `render(...)` already puts what it returns under `run: |`."
     },
     {
       "type": "para",
-      "text": "(`·` is a space.) `level` is never negative, and `code` has at least one non-blank line."
+      "text": "When you're done, every script line sits six spaces in, keeping its indentation relative to the script's other lines; the result is the same whether or not the file ends with a line break and whichever line endings it uses; and nothing the linter rejects reaches the file. Every line of the result, the last one included, ends with `\\n`. About four lines in total."
     },
     {
       "type": "heading",
@@ -92,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.stream.Collectors;\n\npublic final class Snippet {\n\n    private Snippet() {\n    }\n\n    /** Returns {@code code} with its common indentation replaced by four spaces per level. */\n    public static String nest(String code, int level) {\n        List<String> lines = code.lines().map(String::stripTrailing).toList();\n        int margin = lines.stream()\n                .filter(line -> !line.isEmpty())\n                .mapToInt(line -> line.length() - line.stripLeading().length())\n                .min().orElse(0);\n        String prefix = \" \".repeat(4 * level);\n        return lines.stream()\n                .map(line -> line.isEmpty() ? line : prefix + line.substring(margin))\n                .collect(Collectors.joining(\"\\n\", \"\", \"\\n\"));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.stream.Collectors;\n\n/**\n * Generates one step of the CI pipeline file from a shell script kept in the repository's ci/\n * directory. The generated file is checked in, compared byte for byte with the previous one, and\n * linted before every merge.\n */\npublic class PipelineStep {\n\n    /** Renders a step that runs the script as a YAML literal block. */\n    public static String render(String name, String script) {\n        return \"\"\"\n                  - name: %s\n                    run: |\n                %s\"\"\".formatted(name, runBlock(script));\n    }\n\n    /**\n     * The script as the body of the step's run: block. The script is a file's content: it may or\n     * may not end with a line break, and it was written on whatever machine its author uses.\n     */\n    static String runBlock(String script) {\n        return script.stripTrailing().stripIndent().lines()\n                .map(line -> line.isEmpty() ? \"\" : \"      \" + line)\n                .collect(Collectors.joining(\"\\n\", \"\", \"\\n\"));\n    }\n}\n"
         }
       ]
     },
@@ -104,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Snippet {\n\n    private Snippet() {\n    }\n\n    /** Returns {@code code} with its common indentation replaced by four spaces per level. */\n    public static String nest(String code, int level) {\n        throw new UnsupportedOperationException(\"write nest\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Generates one step of the CI pipeline file from a shell script kept in the repository's ci/\n * directory. The generated file is checked in, compared byte for byte with the previous one, and\n * linted before every merge.\n */\npublic class PipelineStep {\n\n    /** Renders a step that runs the script as a YAML literal block. */\n    public static String render(String name, String script) {\n        return \"\"\"\n                  - name: %s\n                    run: |\n                %s\"\"\".formatted(name, runBlock(script));\n    }\n\n    /**\n     * The script as the body of the step's run: block. The script is a file's content: it may or\n     * may not end with a line break, and it was written on whatever machine its author uses.\n     */\n    static String runBlock(String script) {\n        // TODO: Return the script's lines as the body of the run: block, so that the generated\n        //       file is the same whoever edited the script, and passes the YAML linter.\n        throw new IllegalStateException(\"TODO: runBlock\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -114,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -123,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7261190dccd7b02da25fda88577f1a61322b665558e09b50fc6bd4055913f8fb",
-  "starting_code": "package practice;\n\npublic final class Snippet {\n\n    private Snippet() {\n    }\n\n    /** Returns {@code code} with its common indentation replaced by four spaces per level. */\n    public static String nest(String code, int level) {\n        throw new UnsupportedOperationException(\"write nest\");\n    }\n}\n",
+  "content_sha256": "664598611682addb2104b03520549f57b1d7cd85124d8de19ea3abdf6f6a11dd",
+  "starting_code": "package practice;\n\n/**\n * Generates one step of the CI pipeline file from a shell script kept in the repository's ci/\n * directory. The generated file is checked in, compared byte for byte with the previous one, and\n * linted before every merge.\n */\npublic class PipelineStep {\n\n    /** Renders a step that runs the script as a YAML literal block. */\n    public static String render(String name, String script) {\n        return \"\"\"\n                  - name: %s\n                    run: |\n                %s\"\"\".formatted(name, runBlock(script));\n    }\n\n    /**\n     * The script as the body of the step's run: block. The script is a file's content: it may or\n     * may not end with a line break, and it was written on whatever machine its author uses.\n     */\n    static String runBlock(String script) {\n        // TODO: Return the script's lines as the body of the run: block, so that the generated\n        //       file is the same whoever edited the script, and passes the YAML linter.\n        throw new IllegalStateException(\"TODO: runBlock\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-2/src/main/java/practice/Snippet.java",
-    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-2/src/test/java/practice/SnippetTest.java",
+    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-2/src/main/java/practice/PipelineStep.java",
+    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-2/src/test/java/practice/PipelineStepTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -148,34 +98,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SnippetTest#rebasesTheSnippet",
+        "id": "practice.PipelineStepTest#rendersAStepWithTheScriptUnderRun",
         "kind": "main",
-        "says": "The snippet loses its common indentation, keeps its inner indentation, and every line is indented four spaces per level and ends with \\n."
+        "says": "a step's script appears under run: at six spaces, keeping its own nesting, and the step ends with a line break"
       },
       {
-        "id": "practice.SnippetTest#blankLinesStayEmpty",
-        "kind": "edge",
-        "says": "A blank line in the snippet stays an empty line, with no spaces added to it."
+        "id": "practice.PipelineStepTest#aScriptIndentedAsAWholeIsNotIndentedFurther",
+        "kind": "main",
+        "says": "indentation common to every line of the script is replaced, not added to"
       },
       {
-        "id": "practice.SnippetTest#blankLinesTakeNoPart",
+        "id": "practice.PipelineStepTest#aScriptFileThatEndsWithALineBreakIsNotIndentedFurther",
         "kind": "edge",
-        "says": "A line of only spaces is blank and takes no part in the common indentation, even with fewer spaces than the others."
+        "says": "a script file that ends with a line break loses its common indentation too"
       },
       {
-        "id": "practice.SnippetTest#levelZeroStillEndsEveryLine",
+        "id": "practice.PipelineStepTest#blankLinesOfTheScriptStayEmpty",
         "kind": "edge",
-        "says": "At level 0 the snippet is only re-based, and its last line still ends with \\n."
+        "says": "blank lines of the script are empty in the generated file, with no indentation on them"
       },
       {
-        "id": "practice.SnippetTest#windowsLineEndingsAreNormalized",
+        "id": "practice.PipelineStepTest#aScriptWithWindowsLineEndingsGivesTheSameFile",
         "kind": "edge",
-        "says": "A snippet with \\r\\n line endings comes out with \\n only."
+        "says": "a script saved with Windows line endings gives the same file, with no carriage returns"
       },
       {
-        "id": "practice.SnippetTest#trailingSpacesAreDropped",
+        "id": "practice.PipelineStepTest#noLineEndsWithWhitespace",
         "kind": "edge",
-        "says": "Spaces at the end of a line are removed, as the text block algorithm does."
+        "says": "whitespace at the end of a script line does not reach the generated file"
       }
     ],
     "report": {
@@ -184,12 +134,11 @@
     },
     "origin": {
       "path": "30-text-blocks/README_7.4.3.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "At Run Time, Indentation Is Your Job: indent() and stripIndent()"
     },
     "concepts": [
-      "indent(n) adds n spaces to every line, blank ones included, normalizes line endings and always ends the result with \\n, even for indent(0).",
-      "stripIndent() applies the text block algorithm to any string: common indentation and trailing whitespace go, line terminators become \\n.",
-      "Trailing whitespace on each line is stripped by default."
+      "indent(n) adds n spaces to every line, blank lines included, normalises line terminators to \\n and ends the result with one.",
+      "stripIndent() counts the last line even if blank, so text that ends with a line break keeps its common indentation."
     ]
   }
 }

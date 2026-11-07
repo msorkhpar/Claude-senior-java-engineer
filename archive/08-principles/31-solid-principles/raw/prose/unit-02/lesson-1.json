@@ -18,297 +18,290 @@
       "text": "8.1.2. Open/Closed Principle (OCP)"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The payments service adds wallet payments. The ticket asks for a 1.5 % fee, so the developer adds a `Wallet` record and one branch to `feeCents()`, and the fee tests pass. Two weeks later finance reports wallet money booked a day before the provider pays it out, receipts that say only \"payment\", and a customer whose wallet refund failed with an exception. Three other methods had their own copy of the same type check, and nothing told anyone they existed."
     },
     {
       "type": "para",
-      "text": "The Open/Closed Principle states that **software entities (classes, modules, functions) should be open for extension but closed for modification**. You should be able to add new behavior to a system without changing existing, tested, working code."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of a power strip. It is \"closed\" in the sense that its internal wiring is sealed and you never modify it. But it is \"open\" for extension -- you can plug in any appliance (lamp, computer, toaster) without rewiring the strip. The strip works with any device that conforms to the plug interface."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.2.1. Definition and Purpose of OCP"
-    },
-    {
-      "type": "para",
-      "text": "Bertrand Meyer coined OCP in 1988. The principle recognizes that requirements change constantly, and modifying existing code introduces risk of breaking what already works. Instead, design systems so new requirements are met by adding new code (new classes, new implementations) rather than editing old code."
-    },
-    {
-      "type": "para",
-      "text": "The purpose:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Protect working, tested code from modification",
-        "Enable new features through extension rather than editing",
-        "Reduce regression risk when requirements evolve",
-        "Support plug-in architectures and frameworks"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.2.2. Applying OCP in Concurrent Programming"
-    },
-    {
-      "type": "para",
-      "text": "In concurrent systems, OCP manifests through strategy patterns and pipeline designs:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "A `ConcurrentPipeline` accepts any `TaskProcessor` implementation",
-        "New processing strategies can be added without touching the pipeline code",
-        "Thread-safety logic in the pipeline remains stable as new processors are created"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.2.3. Extending Behavior Without Modifying Existing Code"
-    },
-    {
-      "type": "para",
-      "text": "The key mechanisms for OCP in Java:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Polymorphism**: Define interfaces/abstract classes; add new implementations",
-        "**Decorator pattern**: Wrap existing objects to add behavior",
-        "**Strategy pattern**: Inject different algorithms at runtime",
-        "**Sealed classes with permits**: Controlled extension in Java 17+"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "8.1.2.4. OCP and Thread Safety"
-    },
-    {
-      "type": "para",
-      "text": "When OCP is applied correctly, thread-safety code is written once in the base framework and never modified:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The pipeline/executor handles synchronization",
-        "New task processors only implement business logic",
-        "Decorators can add thread-safe caching or logging without touching the decorated class"
-      ]
+      "text": "A module is open for extension and closed for modification when a new case is added as new code and the code that already works isn't edited. All output below is from Java 21."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A Type Check Copied Into Several Methods Still Compiles When One Copy Is Missed"
+    },
+    {
+      "type": "para",
+      "text": "The service decides each payment's fee, settlement delay, receipt text and refund route in four methods, each with its own `instanceof` chain:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.List;\n\npublic class Chains {\n    interface Payment {}\n    record Card(String last4) implements Payment {}\n    record BankTransfer(String iban) implements Payment {}\n    record Wallet(String provider) implements Payment {}          // new this sprint\n\n    static long feeCents(Payment p, long amountCents) {\n        if (p instanceof Card) return 30 + amountCents * 29 / 1000;\n        if (p instanceof BankTransfer) return 25;\n        if (p instanceof Wallet) return amountCents * 15 / 1000;   // the ticket's one change\n        throw new IllegalArgumentException(\"unknown payment: \" + p);\n    }\n\n    static int settlementDays(Payment p) {\n        if (p instanceof BankTransfer) return 3;\n        return 1;                                                  // cards settle next day\n    }\n\n    static String receiptLine(Payment p) {\n        if (p instanceof Card c) return \"card ending \" + c.last4();\n        if (p instanceof BankTransfer b) return \"transfer from \" + b.iban();\n        return \"payment\";\n    }\n\n    static String refund(Payment p, long amountCents) {\n        if (p instanceof Card c) return \"reverse \" + amountCents + \" to card \" + c.last4();\n        if (p instanceof BankTransfer b) return \"send \" + amountCents + \" to \" + b.iban();\n        throw new IllegalArgumentException(\"cannot refund \" + p);\n    }\n\n    public static void main(String[] args) {\n        for (Payment p : List.of(new Card(\"4242\"), new BankTransfer(\"DE89-0000\"), new Wallet(\"PayCo\"))) {\n            System.out.printf(\"%-28s fee %3d, settles in %d day(s), receipt: %s%n\",\n                    p, feeCents(p, 10_000), settlementDays(p), receiptLine(p));\n        }\n        System.out.println(refund(new Wallet(\"PayCo\"), 10_000));\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Before reading the output: which of the four methods are wrong for a wallet, and which of them says so?"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Card[last4=4242]             fee 320, settles in 1 day(s), receipt: card ending 4242\nBankTransfer[iban=DE89-0000] fee  25, settles in 3 day(s), receipt: transfer from DE89-0000\nWallet[provider=PayCo]       fee 150, settles in 1 day(s), receipt: payment\nException in thread \"main\" java.lang.IllegalArgumentException: cannot refund Wallet[provider=PayCo]\n\tat Chains.refund(Chains.java:30)\n\tat Chains.main(Chains.java:38)"
+    },
+    {
+      "type": "para",
+      "text": "Three are wrong, and all compile. Each chain ends in a fallback or a `throw`, and both hide the missed case. A fallback answer (`return 1`, `return \"payment\"`) is wrong without a sound: the wallet provider pays out after two days, so for a day the books show money that isn't there. A `throw` waits until the path runs, which for refunds is weeks later, in front of a customer."
+    },
+    {
+      "type": "para",
+      "text": "The knowledge \"what a wallet is\" is spread over every method that asks. The only list of those methods is a text search for `instanceof`, which also finds every unrelated type check, and `settlementDays()` never mentions `Card` at all."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Put the Behaviour on the Type, and a New Type Is One New Class That javac Checks"
+    },
+    {
+      "type": "para",
+      "text": "Each type answers the four questions itself:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public interface PaymentMethod {\n    long feeCents(long amountCents);\n    int settlementDays();\n    String receiptLine();\n    String refund(long amountCents);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public record Card(String last4) implements PaymentMethod {\n    public long feeCents(long amountCents) { return 30 + amountCents * 29 / 1000; }\n    public int settlementDays() { return 1; }\n    public String receiptLine() { return \"card ending \" + last4; }\n    public String refund(long amountCents) { return \"reverse \" + amountCents + \" to card \" + last4; }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`BankTransfer` has the same shape, and the code that uses them asks only the interface:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public final class Checkout {\n    public static String summary(PaymentMethod p, long amountCents) {\n        return String.format(\"fee %3d, settles in %d day(s), receipt: %s\",\n                p.feeCents(amountCents), p.settlementDays(), p.receiptLine());\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "We compile `PaymentMethod`, `Card`, `BankTransfer` and `Checkout` first. Then we compile a `Wallet` that forgets the settlement delay, against the compiled classes only:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Wallet.java:1: error: Wallet is not abstract and does not override abstract method settlementDays() in PaymentMethod\npublic record Wallet(String provider) implements PaymentMethod {\n       ^\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "The missed copy is now a compile error in the new class. javac names one missing method at a time, so a class missing three needs three rounds, but it doesn't build until all are written. With `settlementDays()` returning 2 and the receipt `\"wallet \" + provider`, `Wallet` compiles. A small `Demo`, compiled with it, calls `Checkout.summary` and `refund` through the old `Checkout.class`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "== Checkout.class before Wallet:\nc6c5cb95973471a3\nfee 150, settles in 2 day(s), receipt: wallet PayCo\nrefund 10000 via PayCo\n== Checkout.class after:\nc6c5cb95973471a3"
+    },
+    {
+      "type": "para",
+      "text": "The caller's class file is byte for byte the one that was tested. The Strategy and Decorator patterns (unit 9.x) are this same move: a caller written against an interface takes implementations it has never seen."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Interface Is Closed to a New Operation: Adding One Edits Every Implementation"
+    },
+    {
+      "type": "para",
+      "text": "Disputes now need each payment type's chargeback window. That is a new question, not a new type. Adding `int chargebackDays();` to `PaymentMethod` and recompiling our sources (error lines only):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "BankTransfer.java:1: error: BankTransfer is not abstract and does not override abstract method chargebackDays() in PaymentMethod\nCard.java:1: error: Card is not abstract and does not override abstract method chargebackDays() in PaymentMethod\nWallet.java:1: error: Wallet is not abstract and does not override abstract method chargebackDays() in PaymentMethod\n3 errors"
+    },
+    {
+      "type": "para",
+      "text": "A partner team also ships a `GiftCard implements PaymentMethod`, compiled in its own build against the old interface. We update our three classes (a wallet has no chargebacks: 0) and run the disputes report with the partner's class file as shipped:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Card[last4=4242] chargeback window: 120 days\nBankTransfer[iban=DE89-0000] chargeback window: 0 days\nGiftCard[code=GC-77] -> java.lang.AbstractMethodError: Receiver class GiftCard does not define or inherit an implementation of the resolved method 'abstract int chargebackDays()' of interface PaymentMethod."
+    },
+    {
+      "type": "para",
+      "text": "The usual way out is `default int chargebackDays() { return 120; }`. It compiles with nothing else edited, and answers for everyone:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Card[last4=4242] chargeback window: 120 days\nBankTransfer[iban=DE89-0000] chargeback window: 120 days\nGiftCard[code=GC-77] chargeback window: 120 days"
+    },
+    {
+      "type": "para",
+      "text": "A bank transfer has no chargebacks, so this is the silent fallback of `settlementDays()` in the first section, moved into the interface. Unit 8.1.4 covers what default methods cost an interface's design."
+    },
+    {
+      "type": "para",
+      "text": "An interface is open only to new types. A new operation, or a new parameter on an existing one, edits every implementation, and the ones you don't own fail when the new method is called. In the chain layout of the first section, the chargeback window would have been one new method."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "When the Types Are Fixed and the Operations Grow, Seal the Hierarchy and Let javac List the Switches"
+    },
+    {
+      "type": "para",
+      "text": "Card, transfer and wallet are a set the payments team owns and changes a few times a year, while finance, disputes and reporting keep adding questions about them. For that shape the first section's layout, one method per question, is right, written as switches over a sealed type (unit 2.5.3):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class Payments {\n    sealed interface Payment permits Card, BankTransfer {}\n    record Card(String last4) implements Payment {}\n    record BankTransfer(String iban) implements Payment {}\n\n    static long feeCents(Payment p, long amountCents) {\n        return switch (p) {\n            case Card c -> 30 + amountCents * 29 / 1000;\n            case BankTransfer b -> 25;\n        };\n    }\n\n    static int settlementDays(Payment p) {\n        return switch (p) {\n            case Card c -> 1;\n            case BankTransfer b -> 3;\n        };\n    }\n\n    static String receiptLine(Payment p) {\n        return switch (p) {\n            case Card c -> \"card ending \" + c.last4();\n            case BankTransfer b -> \"transfer from \" + b.iban();\n        };\n    }\n\n    static String refund(Payment p, long amountCents) {\n        return switch (p) {\n            case Card c -> \"reverse \" + amountCents + \" to card \" + c.last4();\n            case BankTransfer b -> \"send \" + amountCents + \" to \" + b.iban();\n        };\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The wallet ticket again: `Wallet` goes into `permits`, and a case goes into `feeCents()` only."
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Payments.java:16: error: the switch expression does not cover all possible input values\n        return switch (p) {\n               ^\nPayments.java:23: error: the switch expression does not cover all possible input values\n        return switch (p) {\n               ^\nPayments.java:30: error: the switch expression does not cover all possible input values\n        return switch (p) {\n               ^\n3 errors"
+    },
+    {
+      "type": "para",
+      "text": "These are the three methods that went wrong in the first section, found by the compiler instead of by finance. The chargeback window is now one new method with a switch, and no record changes. With both done:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Card[last4=4242] fee 320, 1 day(s), card ending 4242, chargeback 120 days\nBankTransfer[iban=DE89-0000] fee 25, 3 day(s), transfer from DE89-0000, chargeback 0 days\nWallet[provider=PayCo] fee 150, 2 day(s), wallet PayCo, chargeback 0 days"
+    },
+    {
+      "type": "para",
+      "text": "A `default` branch would have switched the check off for that switch; unit 1.5.4 shows that, and what a caller compiled against the old `permits` list gets at run time."
+    },
+    {
+      "type": "para",
+      "text": "So the hierarchy is closed to new types and open to new operations, where the interface is the reverse. Choose by who adds what. Types added by other teams or plug-ins need the interface: they can't edit your switches. A set of types you own, with questions that keep coming, needs the sealed type."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Closed Pipeline Still Runs Every Extension on Its Own Threads"
+    },
+    {
+      "type": "para",
+      "text": "The module's `ConcurrentPipeline` is closed code with an extension point: it takes any `TaskProcessor<T, R>`, whose one method is `R process(T input)`, runs each item on a virtual thread, and guards its result list with a lock. A team plugs in a processor that counts the orders it sees:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final class CountingProcessor implements TaskProcessor<Integer, Integer> {\n    long seen;\n    public Integer process(Integer order) { seen++; return order; }\n}\n\nstatic final class AdderProcessor implements TaskProcessor<Integer, Integer> {\n    final LongAdder seen = new LongAdder();\n    public Integer process(Integer order) { seen.increment(); return order; }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each runs through `new ConcurrentPipeline<>(processor).processAll(orders)` with 100,000 orders, three times:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "orders 100000: plain field saw 89322, LongAdder saw 100000\norders 100000: plain field saw 93320, LongAdder saw 100000\norders 100000: plain field saw 88538, LongAdder saw 100000"
+    },
+    {
+      "type": "para",
+      "text": "The pipeline calls `process()` outside its lock, from many threads at once, so `seen++` loses updates (unit 6.2.1). The pipeline itself is correct, but nothing in `R process(T input)` tells an implementation that it is called concurrently. Closed code still shares its threads with every extension, so the extension point's contract has to state them."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "OCP is enabled by **abstraction**: program to interfaces, not implementations",
-        "Adding a new feature should mean adding a new class, not editing an existing one",
-        "OCP does not mean you never modify code -- it means core abstractions are stable",
-        "In Java, interfaces, abstract classes, and sealed classes are the primary OCP tools",
-        "The Decorator, Strategy, and Template Method patterns are classic OCP enablers",
-        "OCP reduces the need for extensive regression testing when adding features"
+        "**A type check copied into several methods compiles when one copy is missed.** A fallback answer is silently wrong; a `throw` fails when the path first runs.",
+        "**Behaviour on the type makes a new type one new class.** javac refuses it until every operation is written, and the callers' class files don't change.",
+        "**An interface is closed to a new operation.** Every implementation is edited; one you don't own fails with `AbstractMethodError`, and a `default` method brings back the silent fallback.",
+        "**A sealed type with exhaustive switches is the mirror image.** A new type is a compile error at every switch, and a new operation is one method. Pick the axis by who adds what.",
+        "**An extension runs on the framework's threads.** The extension point's contract says whether calls are concurrent, and the implementation holds its state accordingly."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Sealed classes and interfaces**: Provide controlled extension -- you define which classes can implement an interface, enabling exhaustive pattern matching while still being open for new permitted types",
-        "**Records**: Ideal for creating new data-carrying implementations of interfaces",
-        "**Pattern matching for switch**: Works well with sealed hierarchies to handle all subtypes without a `default` branch; when a new permitted type is added, every switch that is no longer exhaustive becomes a compile error, so the compiler points at each place that must be updated",
-        "**Virtual threads**: Enable creating lightweight concurrent pipelines that are open for extension"
-      ]
+      "type": "para",
+      "text": "What each layout makes javac do, from the runs above:"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Change",
+        "`instanceof` chain in each method",
+        "Interface, behaviour on the type",
+        "Sealed type, switch in each method"
+      ],
+      "rows": [
         [
-          "**Switch/if-else on type**: Adding a new type requires modifying every switch statement.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: closed for extension\ndouble calculateArea(String type, double... dims) {\n    return switch (type) {\n        case \"circle\" -> Math.PI * dims[0] * dims[0];\n        case \"rect\" -> dims[0] * dims[1];\n        default -> throw new IllegalArgumentException(\"Unknown: \" + type);\n    };\n}"
-          },
-          "**Fix**: Use polymorphism -- each shape computes its own area."
+          "Add a type",
+          "edit every chain; javac silent; a missed copy falls back or throws",
+          "one new class; javac refuses it while a method is missing",
+          "`permits` and every switch; javac lists each switch without `default`"
         ],
         [
-          "**Modifying existing classes to add features**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: editing existing validator to add new rule\nclass Validator {\n    boolean isValid(String s) {\n        return s != null && !s.isEmpty() && s.length() >= 5; // keep adding conditions\n    }\n}"
-          },
-          "**Fix**: Use the Decorator pattern -- chain validators."
+          "Add an operation",
+          "one new method",
+          "edit every implementation; javac lists them; an implementation compiled against the old interface throws `AbstractMethodError` when the method is called",
+          "one new method; javac checks it covers every type"
         ],
-        "**Premature abstraction**: Creating interfaces before you have two implementations leads to over-engineering. **Fix**: Follow the \"Rule of Three\" -- abstract after the second or third concrete need."
+        [
+          "Types written outside your code",
+          "accepted; they fall back or throw",
+          "yes",
+          "no: only the listed `permits`"
+        ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Use interfaces to define extension points: `Shape`, `TaskProcessor`, `Validator`",
-        "Use the Decorator pattern to extend behavior without subclassing",
-        "Use factory methods or dependency injection to create implementations",
-        "Sealed interfaces provide a middle ground: open for extension within a defined set",
-        "Write unit tests against the interface, not the implementation -- tests remain valid as new implementations are added",
-        "In concurrent code, keep synchronization in the framework (pipeline/executor) and let extensions be pure logic"
+        "Your `PaymentMethod` interface is implemented by four partner jars. Disputes need `chargebackDays()`. Compare a `default` method, a separate `Disputable` interface checked with `instanceof`, and a lookup table in the disputes module. Which one fails loudest when a partner adds a new type?",
+        "A rules engine has 40 rule types and 3 operations; another codebase has 3 message types and 40 operations. Pick a layout for each and count the files a typical change touches.",
+        "Rewrite `CountingProcessor` so that it is correct without `LongAdder`. What does each choice cost the pipeline's throughput?",
+        "Find a type switch in code you work on. What would have told you about the next case?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null inputs to calculators**: Validate collections before processing (`if (shapes == null) throw ...`)",
-        "**Empty collections**: `totalArea` of zero shapes should return `0.0`, not throw",
-        "**Zero-dimension shapes**: A circle with radius 0 is valid and has area 0",
-        "**Negative dimensions**: Validate in constructors; reject invalid shapes at creation time",
-        "**New shape types**: If using sealed classes, adding a new permitted type will cause compile errors in pattern-matching switches that no longer cover every case (and have no `default`) -- this is a feature, not a bug"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Closed to What"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Asking you to refactor a type-switching method into a polymorphic design",
-        "Understanding the relationship between OCP and the Strategy/Decorator patterns",
-        "Discussing real-world OCP applications (plugin systems, middleware chains, event handlers)",
-        "Trade-offs: OCP vs. simplicity for small codebases"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"How do sealed classes relate to OCP? Don't they restrict extension?\"",
-        "\"Is OCP always desirable? When might you choose to modify existing code?\"",
-        "\"How does OCP apply to database schemas and APIs?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the Open/Closed Principle and how do you implement it in Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The Open/Closed Principle states that software entities should be open for \nextension but closed for modification. In Java, this is primarily achieved through:\n\n1. Interfaces and abstract classes: Define contracts that can have new implementations\n2. Polymorphism: Code against interfaces so new types work automatically\n3. Decorator pattern: Wrap existing objects to add behavior\n4. Strategy pattern: Inject different algorithms via interfaces\n\nThe key insight is that when a new requirement arrives, you should be able to meet \nit by ADDING new code (a new class implementing an existing interface) rather than \nEDITING existing code.\n\nThis reduces regression risk, preserves existing tests, and allows parallel \ndevelopment -- one developer adds a new shape while another adds a new validator, \nwith no merge conflicts."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// OCP with interfaces\ninterface Shape {\n    double area();\n}\n\nrecord Circle(double radius) implements Shape {\n    public double area() { return Math.PI * radius * radius; }\n}\n\nrecord Rectangle(double w, double h) implements Shape {\n    public double area() { return w * h; }\n}\n\n// Calculator is CLOSED for modification -- works with any Shape\nclass AreaCalculator {\n    double totalArea(List<Shape> shapes) {\n        return shapes.stream().mapToDouble(Shape::area).sum();\n    }\n}\n\n// OPEN for extension: add Triangle without touching Calculator or existing shapes\nrecord Triangle(double base, double height) implements Shape {\n    public double area() { return 0.5 * base * height; }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does the Decorator pattern support OCP?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: The Decorator pattern supports OCP by allowing you to add behavior to objects \nwithout modifying their source code. Each decorator implements the same interface as \nthe object it wraps, adding its own behavior before or after delegating to the \nwrapped object.\n\nBenefits for OCP:\n1. Each decorator is a new class (open for extension)\n2. The original class is never modified (closed for modification)\n3. Decorators can be composed in any combination\n4. Each decorator is independently testable\n5. New validation rules, logging, caching, etc., are added as new decorators\n\nThis is how java.io works: a BufferedInputStream wraps a FileInputStream (both are \nInputStreams) -- the wrapper adds buffering without modifying the wrapped stream."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface Validator<T> {\n    boolean isValid(T value);\n}\n\n// Base validator -- never modified\nclass NonNullValidator implements Validator<String> {\n    public boolean isValid(String value) { return value != null; }\n}\n\n// Decorator 1 -- extends validation without modifying NonNullValidator\nclass NonEmptyValidator implements Validator<String> {\n    private final Validator<String> delegate;\n    NonEmptyValidator(Validator<String> delegate) { this.delegate = delegate; }\n    public boolean isValid(String value) {\n        return delegate.isValid(value) && !value.isEmpty();\n    }\n}\n\n// Decorator 2 -- further extends without modifying anything\nclass MinLengthValidator implements Validator<String> {\n    private final Validator<String> delegate;\n    private final int min;\n    MinLengthValidator(Validator<String> delegate, int min) {\n        this.delegate = delegate;\n        this.min = min;\n    }\n    public boolean isValid(String value) {\n        return delegate.isValid(value) && value.length() >= min;\n    }\n}\n\n// Compose: NonNull + NonEmpty + MinLength(5) -- no existing code modified\nValidator<String> validator = new MinLengthValidator(\n    new NonEmptyValidator(new NonNullValidator()), 5);"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does OCP apply in concurrent programming?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: In concurrent programming, OCP is crucial because concurrent code is \nnotoriously hard to modify safely. Once a thread-safe pipeline or executor is \nworking correctly, you should avoid modifying its synchronization logic.\n\nOCP in concurrency:\n1. Define a TaskProcessor interface for business logic\n2. The pipeline/executor handles thread management and synchronization (closed)\n3. New processing strategies implement TaskProcessor (open for extension)\n4. The pipeline doesn't know or care what the processor does\n\nThis separation means:\n- Thread-safety bugs in the pipeline are fixed once\n- New processors are pure business logic -- no synchronization needed\n- Testing is simpler: test processors without threads, test pipeline with \n  simple mock processors"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Strategy interface -- open for extension\ninterface TaskProcessor<T, R> {\n    R process(T input);\n}\n\n// Thread-safe pipeline -- closed for modification\nclass ConcurrentPipeline<T, R> {\n    private final TaskProcessor<T, R> processor;\n    private final ReentrantLock lock = new ReentrantLock();\n    private final List<R> results = new ArrayList<>();\n\n    ConcurrentPipeline(TaskProcessor<T, R> processor) {\n        this.processor = processor;\n    }\n\n    R processItem(T input) {\n        R result = processor.process(input);\n        lock.lock();\n        try { results.add(result); }\n        finally { lock.unlock(); }\n        return result;\n    }\n}\n\n// Extension 1: square numbers\nclass SquareProcessor implements TaskProcessor<Integer, Long> {\n    public Long process(Integer input) { return (long) input * input; }\n}\n\n// Extension 2: cube numbers -- no pipeline modification needed\nclass CubeProcessor implements TaskProcessor<Integer, Long> {\n    public Long process(Integer input) { return (long) input * input * input; }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do sealed classes relate to OCP?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Sealed classes seem to contradict OCP because they restrict which classes \ncan extend them. However, they actually support a controlled form of OCP:\n\n1. Within the sealed hierarchy, the set of subtypes is fixed and exhaustive\n2. This enables the compiler to verify exhaustive pattern matching\n3. New behavior can be added to existing types without modifying them (via \n   external visitors or pattern matching)\n4. The sealed set can be expanded by adding new permitted types (though this \n   requires modifying the sealed declaration)\n\nSealed classes trade unlimited extension for safety guarantees:\n- The compiler ensures all cases are handled\n- Refactoring is safer because missing cases are caught at compile time\n- Domain modeling is more precise (a Shape is ONLY Circle, Rectangle, or Triangle)\n\nWhen to use sealed vs. open interfaces:\n- Sealed: when the set of types is inherently bounded (HTTP methods, AST nodes)\n- Open: when new types are expected (plugins, user-defined strategies)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Sealed hierarchy -- controlled extension\nsealed interface Shape permits Circle, Rectangle, Triangle {\n    double area();\n}\n\nrecord Circle(double r) implements Shape { public double area() { return Math.PI * r * r; } }\nrecord Rectangle(double w, double h) implements Shape { public double area() { return w * h; } }\nrecord Triangle(double b, double h) implements Shape { public double area() { return 0.5 * b * h; } }\n\n// Pattern matching with exhaustive check -- compiler ensures all cases handled\nString describe(Shape s) {\n    return switch (s) {\n        case Circle c -> \"Circle with radius \" + c.r();\n        case Rectangle r -> \"Rectangle \" + r.w() + \"x\" + r.h();\n        case Triangle t -> \"Triangle base=\" + t.b();\n        // No default needed -- compiler knows all cases are covered\n    };\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: When should you NOT apply OCP?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: OCP should not be applied in every situation:\n\n1. Simple, stable code: If a class is small, well-understood, and rarely changes, \n   adding abstraction layers for OCP is over-engineering\n2. Early development: During prototyping, modifying code is faster and cheaper \n   than building extension points that may not be needed\n3. Performance-critical paths: Polymorphic dispatch (virtual method calls) has \n   small overhead that matters in tight loops\n4. One-off scripts: Throwaway code doesn't benefit from extension points\n5. When abstractions are unclear: Creating the wrong abstraction is worse than \n   no abstraction -- wait until patterns emerge\n\nRule of thumb: Apply OCP when you've seen the same class modified for the same \nkind of reason more than twice. The third time, refactor to be open for extension.\n\nRemember: OCP is about minimizing risk of breaking working code. If the code \nisn't working yet or is changing rapidly, direct modification may be appropriate."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Over-engineering with OCP for simple code\n// BAD: unnecessary abstraction for a one-liner\ninterface Greeter { String greet(String name); }\nclass EnglishGreeter implements Greeter {\n    public String greet(String name) { return \"Hello, \" + name; }\n}\nclass GreeterFactory {\n    Greeter create(String lang) { return new EnglishGreeter(); }\n}\n\n// BETTER: just write the simple code\nString greet(String name) { return \"Hello, \" + name; }\n\n// Refactor to OCP later IF you actually need multiple languages:\n// Map<String, Function<String, String>> greeters = Map.of(\n//     \"en\", name -> \"Hello, \" + name,\n//     \"es\", name -> \"Hola, \" + name\n// );"
+      "text": "Every design in this unit is closed to one axis of change and open to the other. The chain is cheap to add operations to and unsafe to add types to; the interface reverses that; the sealed type keeps the chain's layout and adds the compiler's check. Making code \"open for extension\" before a second case exists picks an axis without evidence. If the first change comes on the other axis, as the chargeback window did, it edits every implementation of the abstraction instead of adding one method."
     },
     {
       "type": "heading",
@@ -328,17 +321,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 14,
-    "code": 10,
-    "tables": 0,
-    "lists": 12,
+    "headings": 11,
+    "paras": 26,
+    "code": 15,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "676876b74a6aee70f3313d69ca2347041cea6a7fefdb9d0bfe19520205f34b47"
+  "content_sha256": "bf8991ed1b463691c3b9a45d43bf44abe05bb214065a8d0111ffa4be40d8544d"
 }

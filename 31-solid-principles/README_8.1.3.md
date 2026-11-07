@@ -1,381 +1,337 @@
 # 8.1.3. Liskov Substitution Principle (LSP)
 
-## Concept Explanation
-
-The Liskov Substitution Principle states that **objects of a superclass should be replaceable with objects of a subclass without altering the correctness of the program**. If `S` is a subtype of `T`, then objects of type `T` can be replaced with objects of type `S` without breaking any desirable property of the program.
-
-**Real-world analogy**: Think of a rental car company. You reserve a "sedan." When you arrive, they give you a Toyota Camry, a Honda Accord, or a Hyundai Sonata. Each is a different subtype of "sedan," but you can drive any of them the same way -- same steering, pedals, and gear shift. If they gave you a vehicle where the brake pedal accelerated, that would violate LSP, even though it's technically still a "vehicle."
-
-### 8.1.3.1. Definition and Purpose of LSP
-
-Barbara Liskov introduced the idea in her 1987 keynote "Data Abstraction and Hierarchy"; she and Jeannette Wing formalized it in 1994 ("A Behavioral Notion of Subtyping"). The formal definition includes:
-- **Preconditions cannot be strengthened**: A subtype cannot require more than the base type
-- **Postconditions cannot be weakened**: A subtype must deliver at least what the base type promises
-- **Invariants must be preserved**: Properties guaranteed by the base type must hold in the subtype
-- **History constraint**: Subtypes cannot allow state changes that the base type would not allow
-
-### 8.1.3.2. Applying LSP in Concurrent Programming
-
-In concurrent systems, LSP applies to thread-safe data structures:
-- If `TaskQueue` promises that `offer()` never blocks and `poll()` returns `null` when empty, all subtypes must honor these contracts
-- A `BoundedTaskQueue` may return `false` from `offer()` when full (which is allowed -- the contract says `offer` returns a boolean)
-- An `UnboundedTaskQueue` always returns `true` from `offer()` -- also valid
-
-### 8.1.3.3. Subtype Behavioral Consistency
-
-The key test: write code that uses the base type, then substitute any subtype. If the code breaks or behaves unexpectedly, LSP is violated.
-
-### 8.1.3.4. LSP and Thread Safety in Inheritance Hierarchies
-
-When a base class promises thread safety, all subtypes must maintain that guarantee. A common violation: a subclass that overrides a synchronized method without proper synchronization.
-
-## Key Points to Remember
-
-- LSP is about **behavioral subtyping**, not just structural (implements the interface)
-- The classic violation is `Square extends Rectangle` -- setting width independently of height breaks the rectangle contract
-- LSP violations often manifest as `instanceof` checks or type-casting in client code
-- In Java, `sealed` classes and `record` types help prevent LSP violations by making types immutable and exhaustive
-- LSP is tested by substituting subtypes in existing code and verifying nothing breaks
-- Composition (has-a) is often safer than inheritance (is-a) for LSP compliance
-
-## Relevant Java 21 Features
-
-- **Sealed interfaces**: Define bounded hierarchies where each permitted type has a clear, distinct contract
-- **Records**: Immutable by default, preventing the mutable-state LSP violations common with inheritance
-- **Pattern matching for switch**: Enables handling each subtype explicitly, making behavioral differences visible
-- **Virtual threads**: LSP applies to thread-safe interfaces -- virtual thread implementations must honor the same contracts as platform thread implementations
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Square extends Rectangle**:
-   ```java
-   class Rectangle {
-       void setWidth(int w) { this.width = w; }
-       void setHeight(int h) { this.height = h; }
-   }
-   class Square extends Rectangle {
-       void setWidth(int w) { this.width = w; this.height = w; } // Violates postcondition!
-   }
-   ```
-   **Fix**: Use a sealed interface with distinct `Rectangle` and `Square` record types.
-
-2. **Subclass throwing UnsupportedOperationException**:
-   ```java
-   class ReadOnlyList extends ArrayList {
-       @Override public boolean add(Object o) {
-           throw new UnsupportedOperationException(); // Violates LSP
-       }
-   }
-   ```
-   **Fix**: Don't extend `ArrayList`; implement a read-only interface instead.
-
-3. **Strengthening preconditions**:
-   ```java
-   class Base { void process(int n) { /* works for any int */ } }
-   class Sub extends Base {
-       void process(int n) {
-           if (n < 0) throw new IllegalArgumentException(); // Strengthened precondition!
-       }
-   }
-   ```
-   **Fix**: Subtypes should accept at least the same range of inputs as the base type.
-
-## Best Practices and Optimization Techniques
-
-1. Prefer composition over inheritance -- it avoids most LSP issues
-2. Use `sealed` interfaces with `record` implementations for type hierarchies
-3. Write contract tests: test suites that run against the interface and can be parameterized with any implementation
-4. Avoid mutable state in type hierarchies -- immutable objects trivially satisfy LSP
-5. Document contracts explicitly: preconditions, postconditions, and invariants
-6. Use the "can I substitute this?" mental test before creating inheritance relationships
-
-## Edge Cases and Their Handling
-
-1. **Null inputs**: Both bounded and unbounded queues should reject null items consistently
-2. **Empty collections**: `totalArea` of an empty shape list should return 0, `largestByArea` should throw
-3. **Zero-value shapes**: A shape with zero dimensions is valid and has zero area -- all subtypes must handle this
-4. **Boundary capacity**: A bounded queue at capacity returns `false` from `offer()`; an unbounded queue always returns `true` -- both honor the `boolean offer(T)` contract
-
-## Interview-specific Insights
-
-Interviewers often focus on:
-- The Rectangle/Square problem -- be ready to explain why it violates LSP
-- Asking you to identify LSP violations in code
-- Understanding the formal properties (preconditions, postconditions, invariants)
-- Relating LSP to real-world APIs (Collections framework, I/O streams)
-
-Common tricky questions:
-- "Does `ArrayList` implement `List` in an LSP-compliant way?" (Yes, because the `List` interface doesn't promise constant-time access -- that's an implementation detail)
-- "Is `Collections.unmodifiableList()` an LSP violation?" (Controversial -- it implements `List` but throws on mutation. The Java community generally considers it acceptable because `List.add()` is documented as optional)
-- "How does LSP relate to the Liskov substitution in the context of covariant return types?"
-
-## Interview Q&A Section
-
-**Q1: What is the Liskov Substitution Principle and why does Square-extends-Rectangle violate it?**
-
-```text
-A1: The Liskov Substitution Principle states that objects of a base type should be 
-replaceable with objects of any subtype without breaking program correctness.
-
-The Square-extends-Rectangle violation:
-- Rectangle's contract: setWidth changes only width, setHeight changes only height
-- Square's override: setWidth also changes height (and vice versa)
-- Client code that sets width=5 and height=3 expects area=15
-- With a Square substituted, area becomes 9 (both dimensions set to 3)
-
-This breaks the postcondition of setWidth: "after setWidth(w), getWidth() == w 
-AND getHeight() is unchanged."
-
-The fix is to use a common Shape interface with separate Rectangle and Square 
-implementations, rather than having Square extend Rectangle.
-```
+The catalog service has a helper with a green test suite:
 
 ```java
-// LSP violation
-class Rectangle {
-    protected int width, height;
-    void setWidth(int w) { this.width = w; }
-    void setHeight(int h) { this.height = h; }
-    int area() { return width * height; }
-}
-
-class Square extends Rectangle {
-    @Override void setWidth(int w) { this.width = w; this.height = w; }
-    @Override void setHeight(int h) { this.width = h; this.height = h; }
-}
-
-// Client code breaks with Square
-void resize(Rectangle r) {
-    r.setWidth(5);
-    r.setHeight(3);
-    assert r.area() == 15; // FAILS with Square! area = 9
-}
-
-// LSP-compliant solution
-sealed interface Shape permits LspRectangle, LspSquare {
-    double area();
-}
-record LspRectangle(double width, double height) implements Shape {
-    public double area() { return width * height; }
-}
-record LspSquare(double side) implements Shape {
-    public double area() { return side * side; }
-}
-```
-
-**Q2: How does LSP apply to concurrent data structures?**
-
-```text
-A2: LSP is critical for concurrent data structures because client code must be 
-able to swap implementations without changing synchronization assumptions.
-
-For example, a TaskQueue interface with these contracts:
-- offer(item): adds item, returns true if successful, false if full
-- poll(): returns and removes head, or null if empty
-- size(): returns current count
-
-Both BoundedTaskQueue and UnboundedTaskQueue must honor these contracts:
-- Bounded: offer returns false when at capacity (valid per contract)
-- Unbounded: offer always returns true (also valid -- exceeds the minimum guarantee)
-- Both: poll returns null when empty
-- Both: size returns accurate count
-
-A consumer that processes items from any TaskQueue will work correctly with either 
-implementation, which is the essence of LSP.
-```
-
-```java
-interface TaskQueue<T> {
-    boolean offer(T item);  // Returns false if can't accept
-    T poll();               // Returns null if empty
-    int size();
-}
-
-class BoundedTaskQueue<T> implements TaskQueue<T> {
-    private final ArrayBlockingQueue<T> queue;
-    BoundedTaskQueue(int cap) { queue = new ArrayBlockingQueue<>(cap); }
-    public boolean offer(T item) { return queue.offer(item); } // false when full
-    public T poll() { return queue.poll(); }
-    public int size() { return queue.size(); }
-}
-
-class UnboundedTaskQueue<T> implements TaskQueue<T> {
-    private final ConcurrentLinkedQueue<T> queue = new ConcurrentLinkedQueue<>();
-    public boolean offer(T item) { queue.offer(item); return true; } // always true
-    public T poll() { return queue.poll(); }
-    public int size() { return queue.size(); }
-}
-
-// Client works with any TaskQueue -- LSP in action
-class TaskConsumer<T> {
-    void drainAll(TaskQueue<T> queue) {
-        T item;
-        while ((item = queue.poll()) != null) { process(item); }
+static List<String> normalizeTags(List<String> tags) {
+    tags.replaceAll(t -> t.trim().toLowerCase());
+    tags.sort(null);
+    for (int i = tags.size() - 1; i > 0; i--) {
+        if (tags.get(i).equals(tags.get(i - 1))) tags.remove(i);
     }
+    return tags;
 }
 ```
 
-**Q3: What are the formal properties that LSP requires?**
+A cleanup in the import job replaces `new ArrayList<>(Arrays.asList(csv.split(",")))` with
+`List.of(csv.split(","))`,
+and the next import fails with `UnsupportedOperationException`. The method takes a `List`, and
+`List.of` returns a `List`. The Liskov substitution principle says code written against a type
+must keep working with every subtype of it. Which of the two broke it?
 
-```text
-A3: LSP requires four formal properties:
+## javac Checks an Override's Signature; Only a Caller Run on Every Subtype Checks Its Contract
 
-1. Precondition rule: A subtype cannot STRENGTHEN preconditions
-   - If base accepts any integer, subtype cannot reject negatives
-   - Subtype can WEAKEN preconditions (accept more inputs)
-
-2. Postcondition rule: A subtype cannot WEAKEN postconditions
-   - If base guarantees sorted output, subtype must also guarantee it
-   - Subtype can STRENGTHEN postconditions (guarantee more)
-
-3. Invariant rule: All invariants of the base type must hold in the subtype
-   - If base guarantees size >= 0, subtype must also maintain this
-
-4. History constraint: Subtypes cannot introduce state changes that the base 
-   type would not allow
-   - If base is immutable, subtype cannot add mutating methods
-
-These rules ensure that any code written against the base type's contract 
-continues to work correctly when a subtype is substituted.
-```
+javac enforces the part of a contract it can read. An override that wants to report a disk error
+through a method that declares none doesn't compile:
 
 ```java
-// Demonstrating the four properties
-interface SortedCollection<T extends Comparable<T>> {
-    void add(T item);           // Precondition: item != null
-    List<T> getAll();           // Postcondition: returned list is sorted
-    int size();                 // Invariant: size() >= 0
+import java.io.IOException;
+import java.util.List;
+
+interface Exporter {
+    Object export(List<String> rows);
 }
 
-// Correct subtype: honors all properties
-class SortedArrayList<T extends Comparable<T>> implements SortedCollection<T> {
-    private final List<T> items = new ArrayList<>();
-
+class FileExporter implements Exporter {
     @Override
-    public void add(T item) {
-        Objects.requireNonNull(item);    // Same precondition (not strengthened)
-        items.add(item);
-        items.sort(Comparator.naturalOrder());
-    }
-
-    @Override
-    public List<T> getAll() {
-        return Collections.unmodifiableList(items); // Postcondition: sorted
-    }
-
-    @Override
-    public int size() {
-        return items.size(); // Invariant: always >= 0
+    public String export(List<String> rows) throws IOException {   // wants to report a disk error
+        throw new IOException("disk full");
     }
 }
 ```
 
-**Q4: How do you detect LSP violations in existing code?**
+```text
+Exporter.java:10: error: export(List<String>) in FileExporter cannot implement export(List<String>) in Exporter
+    public String export(List<String> rows) throws IOException {   // wants to report a disk error
+                  ^
+  overridden method does not throw IOException
+1 error
+```
+
+javac accepts the narrower return type, `String` for `Object`, and an `UncheckedIOException` in
+place of the checked one (unit 2.1.4 shows what such an override does to its callers). Which inputs
+a method accepts, what it returns for them and which unchecked exceptions it throws are written
+only in the javadoc. The one executable check is a caller written against the supertype and run
+on every implementation. The runs below use this helper:
+
+```java
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+/** Runs one caller, written against a supertype, on every implementation and prints what each did. */
+public final class Substitute {
+
+    public static <T> void check(String caller, Map<String, Supplier<T>> impls, Function<T, ?> call) {
+        System.out.println(caller);
+        impls.forEach((name, make) -> {
+            String outcome;
+            try {
+                outcome = String.valueOf(call.apply(make.get()));
+            } catch (RuntimeException e) {
+                outcome = e.getClass().getSimpleName();
+            }
+            System.out.printf("  %-30s %s%n", name, outcome);
+        });
+    }
+}
+```
+
+Here it runs `normalizeTags` on `"web", " Java", "java", "api"`, built the five ways the
+service's callers build a `List<String>`:
 
 ```text
-A4: LSP violations manifest through these code smells:
+normalizeTags
+  new ArrayList<>(...)           [api, java, web]
+  Arrays.asList(...)             UnsupportedOperationException
+  List.of(...)                   UnsupportedOperationException
+  unmodifiableList(...)          UnsupportedOperationException
+  stream().toList()              UnsupportedOperationException
+```
 
-1. instanceof checks in client code:
-   if (shape instanceof Square) { /* special handling */ }
-   This means the subtype cannot be treated uniformly.
+The test suite built its input with `new ArrayList<>`, the one row that works. `Arrays.asList` is
+a fixed-size view of the array: it sorts in place and fails at `remove`. The others fail at the
+first change.
 
-2. Empty or throwing method overrides:
-   @Override public void add(E e) { throw new UnsupportedOperationException(); }
-   The subtype refuses to fulfill the base type's contract.
+## List's Mutators Are Optional Operations, So the Caller That Changes Its Argument Is in Breach
 
-3. Defensive null checks after calling subtype methods:
-   Result r = processor.process(input);
-   if (r == null) { /* shouldn't happen per contract, but... */ }
+`List.add`, `remove` and `set` are each marked "(optional operation)" in the javadoc, and
+`Collection` says what that means: an implementation that doesn't support one throws
+`UnsupportedOperationException`. Throwing is part of `List`'s contract, so `List.of` keeps it.
+`normalizeTags` is the code in breach: it relies on a promise `List` never made, so its signature
+hides a precondition, "pass a modifiable list". The fix builds a new list and leaves the argument
+alone:
 
-4. Subclass methods that silently change behavior:
-   Base.setX() only sets X, but Sub.setX() also sets Y.
+```java
+static List<String> normalizeTags(List<String> tags) {
+    return tags.stream().map(t -> t.trim().toLowerCase()).distinct().sorted().toList();
+}
+```
 
-5. Tests that need different assertions for different subtypes:
-   If your test says "if BoundedQueue, expect X; if UnboundedQueue, expect Y" 
-   for the SAME operation, there's likely an LSP issue.
+```text
+normalizeTags, fixed
+  new ArrayList<>(...)           [api, java, web]
+  Arrays.asList(...)             [api, java, web]
+  List.of(...)                   [api, java, web]
+  unmodifiableList(...)          [api, java, web]
+  stream().toList()              [api, java, web]
+```
 
-Prevention:
-- Write "contract tests" that run against the interface
-- Use abstract test classes parameterized with different implementations
-- Prefer composition over inheritance
-- Use sealed interfaces with records for type safety
+Read methods have optional clauses too. `Collection.contains` may throw `NullPointerException` "if
+the specified element is null and this collection does not permit null elements (optional)". A
+gateway forwards a header if its name is on an allow-list, and a request arrives without the
+header:
+
+```java
+static boolean forwarded(List<String> allowed, String header) {
+    return allowed.contains(header);
+}
+```
+
+```text
+forwarded(allowed, null)
+  new ArrayList<>(...)           false
+  Arrays.asList(...)             false
+  List.of(...)                   NullPointerException
+  unmodifiableList(...)          false
+  stream().toList()              false
+```
+
+Moving the allow-list from `Arrays.asList` to `List.of` passes every test that sends the header
+and fails on the first request that doesn't. `Set.of` rejects a null query the same way.
+
+The JDK made these subtypes legal by weakening the supertype: `List` promises so little that an
+unmodifiable list keeps the contract. The cost moved to every caller, which must copy before
+changing a list it was given and check for null before asking.
+
+<!-- practice 1 -->
+
+## Timestamp Breaks the Symmetry Object.equals Promises, So a Set of Dates Depends on Arrival Order
+
+`Object.equals` makes a promise with no optional clause: `x.equals(y)` should be true exactly
+when `y.equals(x)` is. `java.sql.Timestamp` extends `java.util.Date` and breaks it. An audit job counts
+distinct event times; some come from `new Date()` in the service, others from
+`rs.getTimestamp(...)`, held as `Date`:
+
+```java
+static int distinctTimes(List<Date> times) {
+    return new HashSet<>(times).size();
+}
 ```
 
 ```java
-// LSP violation detection: instanceof smell
-void processShape(Shape shape) {
-    if (shape instanceof Square s) {
-        // Special handling for Square -- LSP violation indicator!
-        System.out.println("Square side: " + s.side());
-    } else if (shape instanceof Rectangle r) {
-        System.out.println("Rectangle: " + r.width() + "x" + r.height());
+long millis = Instant.parse("2026-03-15T09:00:00.250Z").toEpochMilli();
+Date fromApp = new Date(millis);              // new Date() in the service
+Date fromDb = new Timestamp(millis);          // rs.getTimestamp("created_at")
+```
+
+```text
+fromApp.equals(fromDb): true
+fromDb.equals(fromApp): false
+same hashCode:          true
+distinctTimes, app first: 2, db first: 1
+```
+
+`Date.equals` compares milliseconds and accepts any `Date`. `Timestamp.equals` returns false for
+anything that isn't a `Timestamp`, even at the same millisecond: its javadoc gives the reason that
+a `Date`'s nanoseconds are unknown. A `HashSet` calls
+`equals` on the element being added, and the same moment counts once or twice depending on which
+source answered first. Timestamp's javadoc admits it: the inheritance "really denotes
+implementation inheritance, and not type inheritance", and code should not treat a `Timestamp` as
+a `Date`. The fix follows that advice and converts at the boundary, keying by `Instant`:
+
+```java
+static int distinctTimesFixed(List<Date> times) {
+    Set<Instant> seen = new HashSet<>();
+    for (Date d : times) seen.add(d.toInstant());
+    return seen.size();
+}
+```
+
+```text
+fixed,         app first: 1, db first: 1
+```
+
+The same reuse through `extends` gave `java.sql.Date` overrides that throw (unit 7.3.1) and
+`Properties` an inherited `put` its own methods can't read back (unit 2.3.1).
+
+<!-- practice 2 -->
+
+## A Subtype May Accept More and Promise More, Never Less
+
+In your own hierarchy, the supertype's javadoc is the contract, and the caller test is written
+against the interface, next to that javadoc. Checkout takes any `Discount`:
+
+```java
+/** A discount on a cart. */
+interface Discount {
+    /**
+     * @param subtotalCents the cart's subtotal: any value from 0 (an empty cart) up
+     * @return the discount in cents, from 0 to subtotalCents
+     */
+    long discountCents(long subtotalCents);
+}
+
+record PercentOff(int percent) implements Discount {
+    public long discountCents(long subtotalCents) {
+        return subtotalCents * percent / 100;
     }
 }
 
-// LSP-compliant: uniform handling through the interface
-void processShape(Shape shape) {
-    System.out.println(shape.description()); // Each shape describes itself
-    System.out.println("Area: " + shape.area());
-    System.out.println("Perimeter: " + shape.perimeter());
+/** "5 euros off". */
+record FlatCoupon(long cents) implements Discount {
+    public long discountCents(long subtotalCents) {
+        return cents;
+    }
+}
+
+/** "5 euros off orders over 20 euros". */
+record MinimumSpendCoupon(long cents, long minimumCents) implements Discount {
+    public long discountCents(long subtotalCents) {
+        if (subtotalCents < minimumCents) {
+            throw new IllegalArgumentException("subtotal below minimum spend");
+        }
+        return cents;
+    }
 }
 ```
 
-**Q5: How does LSP relate to the `Collections.unmodifiableList()` in Java?**
-
-```text
-A5: This is a well-known LSP gray area in Java:
-
-Collections.unmodifiableList() returns a List that throws 
-UnsupportedOperationException for add(), remove(), set(), etc.
-
-Arguments that it VIOLATES LSP:
-- The List interface defines add(), remove(), etc.
-- Client code using List expects these operations to work
-- The unmodifiable wrapper breaks this expectation
-
-Arguments that it does NOT violate LSP:
-- The List interface documents add() as an "optional operation"
-- The Javadoc explicitly states that implementations may throw 
-  UnsupportedOperationException
-- The contract includes the possibility of failure
-
-Java's approach is pragmatic:
-- The "optional operations" pattern is documented in the Collection interface
-- Real-world code handles this via convention (defensive programming)
-- Newer Java adds List.of() and List.copyOf(), which return truly unmodifiable 
-  lists (not views of a mutable list) and are clearly documented as such -- 
-  but they are still List implementations whose add()/remove() throw 
-  UnsupportedOperationException
-
-Best practice: Use List.of() / List.copyOf() for unmodifiable lists, so the 
-intent is visible where the list is created. This reduces the LSP ambiguity; 
-it cannot remove it, because the static type is still List.
-```
+Each coupon passed its own unit test, written with a cart big enough for it. The contract is
+checked once, against the interface:
 
 ```java
-// The LSP gray area
-List<String> mutable = new ArrayList<>(List.of("a", "b", "c"));
-List<String> unmodifiable = Collections.unmodifiableList(mutable);
-
-// This works
-String first = unmodifiable.get(0); // OK
-
-// This throws -- potential LSP violation
-try {
-    unmodifiable.add("d"); // UnsupportedOperationException
-} catch (UnsupportedOperationException e) {
-    // Expected if you know it's unmodifiable, but surprising if you only see List<String>
-}
-
-// Better approach in modern Java -- clearer intent at the creation site
-List<String> immutable = List.of("a", "b", "c");
-// immutable.add("d"); // Also throws, but List.of() is documented as unmodifiable
-
-// Best practice: use specific return types when possible
-public List<String> getItems() {
-    return List.copyOf(internalList); // Caller knows this is an unmodifiable snapshot
+static String contract(Discount d) {
+    StringBuilder broken = new StringBuilder();
+    for (long subtotal : new long[] {0, 300, 2_500, 90_000}) {
+        try {
+            long off = d.discountCents(subtotal);
+            if (off < 0 || off > subtotal) broken.append(" ").append(subtotal).append("->").append(off);
+        } catch (RuntimeException e) {
+            broken.append(" ").append(subtotal).append("->").append(e.getClass().getSimpleName());
+        }
+    }
+    return broken.isEmpty() ? "keeps the contract" : "breaks it at" + broken;
 }
 ```
+
+```text
+Discount contract
+  PercentOff(10)                 keeps the contract
+  FlatCoupon(500)                breaks it at 0->500 300->500
+  MinimumSpendCoupon(500, 2000)  breaks it at 0->IllegalArgumentException 300->IllegalArgumentException
+```
+
+`FlatCoupon` weakens the postcondition: a 3-euro cart checks out at minus 2 euros.
+`MinimumSpendCoupon` strengthens the precondition: it rejects carts the interface says every
+discount accepts, so the cart page throws for an empty cart with a coupon applied. The fixes cap
+both coupons with `Math.min(cents, subtotalCents)`, and the minimum-spend one returns 0 below its
+minimum. The same check passes:
+
+```text
+Discount contract, fixed
+  PercentOff(10)                 keeps the contract
+  FlatCoupon(500)                keeps the contract
+  MinimumSpendCoupon(500, 2000)  keeps the contract
+```
+
+The opposite changes pass. `PercentOff(10)` promises more than the interface, never above a tenth
+of the subtotal, and keeps the contract. A discount that also accepted a negative subtotal would
+break no caller, since none written against the interface sends one. An implementation that can't
+serve every input the interface allows needs an interface of its own (unit 8.1.4).
+
+<!-- practice 3 -->
+
+<!-- practice 4 -->
+
+## Summary
+
+- **javac checks an override's signature, not its contract.** Accepted inputs, results and
+  unchecked exceptions are checked only by a caller test run on every implementation.
+- **`List`'s mutators are optional operations.** `List.of` keeps the contract by throwing; a
+  method that changes the list it was given is the code in breach, and copies instead.
+- **`Timestamp` breaks `equals` symmetry with `Date`.** Mixed in one collection, the count of
+  duplicates depends on arrival order; convert to `Instant` at the boundary.
+- **A subtype may accept more and promise more, never less.** Rejecting an input the supertype
+  accepts, or returning outside its range, breaks every caller that trusted the supertype.
+
+## Reference
+
+**What javac enforces on an override (Java 21):**
+
+| Change in the override | javac |
+|---|---|
+| return type narrowed (`String` for `Object`) | accepted |
+| a checked exception the overridden method doesn't declare | error: "overridden method does not throw" |
+| access narrowed (`public` to package-private) | error: "attempting to assign weaker access privileges" |
+| a new unchecked exception | accepted |
+
+**JDK subtypes and the contract they keep (Java 21):**
+
+| Case | Behaviour | Contract |
+|---|---|---|
+| `List.of`, `List.copyOf`, `stream().toList()`, `Collections.unmodifiableList` | every mutator throws `UnsupportedOperationException` | kept: mutators are optional |
+| `Arrays.asList` | `set` and `sort` work; `add` and `remove` throw | kept: fixed-size |
+| `List.of(...).contains(null)`, `Set.of(...).contains(null)` | `NullPointerException` | kept: marked optional |
+| `ArrayList.contains(null)`, `stream().toList().contains(null)` | `false` | kept |
+| `Timestamp.equals(Date)` | `false` where `Date.equals(Timestamp)` is `true` | broken: javadoc says not symmetric |
+| `TreeSet<Date>` given a `Date` and a `Timestamp` of the same millisecond with extra nanoseconds | 2 elements or 1, by insertion order | broken: `compareTo` disagrees in the same way |
+
+## Challenges
+
+1. A library method takes `Collection<String>` and must return it sorted without duplicates. Would
+   you change the parameter type, copy, or document a precondition? What does each cost a caller?
+2. Write the contract test for `Map.get` as your service uses it. Which of `HashMap`,
+   `ConcurrentHashMap`, `Map.of` and `TreeMap` pass it with a null key?
+3. Your team's `Repository` interface has a `delete` that one read-only implementation can't
+   support. List the options and which callers each one breaks.
+
+## Design Note: Why the Collection Interfaces Have Optional Operations
+
+The collections framework could have given each kind of collection several interfaces: modifiable,
+fixed-size, unmodifiable, null-tolerant, each for `List`, `Set` and `Map`. It kept one type per kind
+and marked the mutators optional, so one interface covers every list. The type then no longer
+says which calls will work, and a caller finds out at run time. Splitting an interface by what its
+clients need is unit 8.1.4.
 
 ## Code Examples
 

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Measure the incidental whitespace",
+  "title": "Show reviewers the value of a text block",
   "blocks": [
     {
       "type": "heading",
@@ -19,60 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page splits a text block's leading whitespace in two. The **incidental** whitespace is the common indentation that comes from where the block sits in the source; the compiler removes it. Anything beyond it is **essential** and stays in the value."
+      "text": "Twice this quarter a text block passed review and then produced the wrong string in production: once a padded record that came out short, once a message whose every line had gained four spaces. A diff can't show either. The team's review bot will now post, under every text block a pull request changes, the exact string the compiler makes of it."
     },
     {
       "type": "para",
-      "text": "Write `Incidental.width(List<String> lines, String closing)`. `lines` are the content lines of a text block as they appear in the source (spaces only, no tabs). `closing` is the whitespace before the closing `\"\"\"` when the delimiter sits on its own line, or `null` when it sits at the end of the last content line. Return how many leading whitespace characters are incidental:"
+      "text": "`TextBlockPreview.value(...)` in `src/main/java/practice/TextBlockPreview.java` receives the block's source lines exactly as they are in the file: everything after the opening delimiter's line, up to and including the line with the closing `\"\"\"`. It already splits off the closing delimiter and joins the lines. Finish the two `TODO`s:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "the smallest number of leading spaces among the content lines,",
-        "where a **blank** line (empty, or only spaces) takes no part,",
-        "and where the closing delimiter's line, when it is on its own line, takes part too."
+        "`margin(...)`: how many leading characters javac removes from every line of the block;",
+        "`strip(...)`: what is left of one source line in the value."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "lines",
-        "closing",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`\"        root\"`, `\"            child\"`",
-          "`null`",
-          "`8`"
-        ],
-        [
-          "`\"    Hello\"`, `\"    World\"`",
-          "`\"    \"`",
-          "`4`"
-        ],
-        [
-          "`\"        a\"`, `\"\"`, `\"        b\"`",
-          "`null`",
-          "`8`"
-        ],
-        [
-          "`\"        a\"`, `\"   \"`, `\"        b\"`",
-          "`null`",
-          "`8`"
-        ],
-        [
-          "`\"            Hello\"`",
-          "`\"        \"`",
-          "`8`"
-        ],
-        [
-          "`\"    Hello\"`",
-          "`\"            \"`",
-          "`4`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, `value(...)` returns exactly the string javac produces for any block of spaces, tabs and text, without escape sequences. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests compare with values that javac 21 produced from the same lines."
     },
     {
       "type": "heading",
@@ -87,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Incidental {\n\n    private Incidental() {\n    }\n\n    /** Returns how many leading whitespace characters of the text block are incidental. */\n    public static int width(List<String> lines, String closing) {\n        int width = Integer.MAX_VALUE;\n        for (String line : lines) {\n            if (!line.isBlank()) {\n                width = Math.min(width, leading(line));\n            }\n        }\n        if (closing != null) {\n            width = Math.min(width, closing.length());\n        }\n        return width == Integer.MAX_VALUE ? 0 : width;\n    }\n\n    private static int leading(String line) {\n        int n = 0;\n        while (n < line.length() && Character.isWhitespace(line.charAt(n))) {\n            n++;\n        }\n        return n;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Part of the team's code-review bot. For every text block a pull request changes, the bot posts\n * the string the compiler will make of it, with its whitespace made visible, because the diff\n * can't show it.\n */\npublic class TextBlockPreview {\n\n    /**\n     * Returns the value javac gives a text block.\n     *\n     * @param source the block's lines after the opening delimiter's line, up to and including the\n     *               line that holds the closing delimiter, exactly as they are in the file. They\n     *               contain no escape sequences and no other triple quotes.\n     */\n    public static String value(List<String> source) {\n        String last = source.get(source.size() - 1);\n        String beforeClosing = last.substring(0, last.lastIndexOf(\"\\\"\\\"\\\"\"));\n        boolean closingOnItsOwnLine = beforeClosing.isBlank();\n        List<String> content = new ArrayList<>(source.subList(0, source.size() - 1));\n        if (!closingOnItsOwnLine) {\n            content.add(beforeClosing);\n        }\n        int margin = margin(content, closingOnItsOwnLine ? beforeClosing : null);\n        StringBuilder value = new StringBuilder();\n        for (int i = 0; i < content.size(); i++) {\n            if (i > 0) {\n                value.append('\\n');\n            }\n            value.append(strip(content.get(i), margin));\n        }\n        if (closingOnItsOwnLine) {\n            value.append('\\n');\n        }\n        return value.toString();\n    }\n\n    /**\n     * How many leading characters the compiler removes from the lines of this block.\n     *\n     * @param content       the content lines, the last one included when the closing delimiter\n     *                      follows it on the same line\n     * @param closingIndent the whitespace in front of the closing delimiter when it is on a line of\n     *                      its own, or null when it follows the last content line\n     */\n    static int margin(List<String> content, String closingIndent) {\n        int margin = closingIndent == null ? Integer.MAX_VALUE : closingIndent.length();\n        for (String line : content) {\n            if (!line.isBlank()) {\n                margin = Math.min(margin, line.length() - line.stripLeading().length());\n            }\n        }\n        return margin == Integer.MAX_VALUE ? 0 : margin;\n    }\n\n    /** One content line as it appears in the value, without its line terminator. */\n    static String strip(String line, int margin) {\n        return line.isBlank() ? \"\" : line.substring(margin).stripTrailing();\n    }\n}\n"
         }
       ]
     },
@@ -99,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Incidental {\n\n    private Incidental() {\n    }\n\n    /** Returns how many leading whitespace characters of the text block are incidental. */\n    public static int width(List<String> lines, String closing) {\n        throw new UnsupportedOperationException(\"write width\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Part of the team's code-review bot. For every text block a pull request changes, the bot posts\n * the string the compiler will make of it, with its whitespace made visible, because the diff\n * can't show it.\n */\npublic class TextBlockPreview {\n\n    /**\n     * Returns the value javac gives a text block.\n     *\n     * @param source the block's lines after the opening delimiter's line, up to and including the\n     *               line that holds the closing delimiter, exactly as they are in the file. They\n     *               contain no escape sequences and no other triple quotes.\n     */\n    public static String value(List<String> source) {\n        String last = source.get(source.size() - 1);\n        String beforeClosing = last.substring(0, last.lastIndexOf(\"\\\"\\\"\\\"\"));\n        boolean closingOnItsOwnLine = beforeClosing.isBlank();\n        List<String> content = new ArrayList<>(source.subList(0, source.size() - 1));\n        if (!closingOnItsOwnLine) {\n            content.add(beforeClosing);\n        }\n        int margin = margin(content, closingOnItsOwnLine ? beforeClosing : null);\n        StringBuilder value = new StringBuilder();\n        for (int i = 0; i < content.size(); i++) {\n            if (i > 0) {\n                value.append('\\n');\n            }\n            value.append(strip(content.get(i), margin));\n        }\n        if (closingOnItsOwnLine) {\n            value.append('\\n');\n        }\n        return value.toString();\n    }\n\n    /**\n     * How many leading characters the compiler removes from the lines of this block.\n     *\n     * @param content       the content lines, the last one included when the closing delimiter\n     *                      follows it on the same line\n     * @param closingIndent the whitespace in front of the closing delimiter when it is on a line of\n     *                      its own, or null when it follows the last content line\n     */\n    static int margin(List<String> content, String closingIndent) {\n        // TODO: Work out how many leading characters javac removes from every line of this block.\n        throw new IllegalStateException(\"TODO: margin\");\n    }\n\n    /** One content line as it appears in the value, without its line terminator. */\n    static String strip(String line, int margin) {\n        // TODO: Return what is left of this source line in the block's value.\n        throw new IllegalStateException(\"TODO: strip\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -107,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -118,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "227e995d6d9a0090fdba7c92e94034499377bf503034ad6c94465ae7f768b92d",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Incidental {\n\n    private Incidental() {\n    }\n\n    /** Returns how many leading whitespace characters of the text block are incidental. */\n    public static int width(List<String> lines, String closing) {\n        throw new UnsupportedOperationException(\"write width\");\n    }\n}\n",
+  "content_sha256": "db342ff6fa919f73fb2fc84a74e71bf45bf6389d9a036989c382724db7b7a62c",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Part of the team's code-review bot. For every text block a pull request changes, the bot posts\n * the string the compiler will make of it, with its whitespace made visible, because the diff\n * can't show it.\n */\npublic class TextBlockPreview {\n\n    /**\n     * Returns the value javac gives a text block.\n     *\n     * @param source the block's lines after the opening delimiter's line, up to and including the\n     *               line that holds the closing delimiter, exactly as they are in the file. They\n     *               contain no escape sequences and no other triple quotes.\n     */\n    public static String value(List<String> source) {\n        String last = source.get(source.size() - 1);\n        String beforeClosing = last.substring(0, last.lastIndexOf(\"\\\"\\\"\\\"\"));\n        boolean closingOnItsOwnLine = beforeClosing.isBlank();\n        List<String> content = new ArrayList<>(source.subList(0, source.size() - 1));\n        if (!closingOnItsOwnLine) {\n            content.add(beforeClosing);\n        }\n        int margin = margin(content, closingOnItsOwnLine ? beforeClosing : null);\n        StringBuilder value = new StringBuilder();\n        for (int i = 0; i < content.size(); i++) {\n            if (i > 0) {\n                value.append('\\n');\n            }\n            value.append(strip(content.get(i), margin));\n        }\n        if (closingOnItsOwnLine) {\n            value.append('\\n');\n        }\n        return value.toString();\n    }\n\n    /**\n     * How many leading characters the compiler removes from the lines of this block.\n     *\n     * @param content       the content lines, the last one included when the closing delimiter\n     *                      follows it on the same line\n     * @param closingIndent the whitespace in front of the closing delimiter when it is on a line of\n     *                      its own, or null when it follows the last content line\n     */\n    static int margin(List<String> content, String closingIndent) {\n        // TODO: Work out how many leading characters javac removes from every line of this block.\n        throw new IllegalStateException(\"TODO: margin\");\n    }\n\n    /** One content line as it appears in the value, without its line terminator. */\n    static String strip(String line, int margin) {\n        // TODO: Return what is left of this source line in the block's value.\n        throw new IllegalStateException(\"TODO: strip\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-1/src/main/java/practice/Incidental.java",
-    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-1/src/test/java/practice/IncidentalTest.java",
+    "main_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-1/src/main/java/practice/TextBlockPreview.java",
+    "test_path": "practice/07-modern-java-features/30-text-blocks/prose/unit-03/practice-1/src/test/java/practice/TextBlockPreviewTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -143,29 +110,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.IncidentalTest#theSmallestContentIndentIsIncidental",
+        "id": "practice.TextBlockPreviewTest#keepsTheNestingOfAnAlignedBlock",
         "kind": "main",
-        "says": "The incidental whitespace is the smallest indentation among the content lines."
+        "says": "a block whose closing delimiter is aligned with its content loses its common indentation and keeps the nesting inside it"
       },
       {
-        "id": "practice.IncidentalTest#emptyLinesDoNotCount",
-        "kind": "edge",
-        "says": "An empty line takes no part in the smallest indentation."
+        "id": "practice.TextBlockPreviewTest#handlesAClosingDelimiterAfterTheLastLine",
+        "kind": "main",
+        "says": "a block whose closing delimiter follows its last line gets the same treatment and no final line break"
       },
       {
-        "id": "practice.IncidentalTest#whitespaceOnlyLinesDoNotCount",
+        "id": "practice.TextBlockPreviewTest#blankLinesNeitherMoveTheMarginNorKeepSpaces",
         "kind": "edge",
-        "says": "A line of only spaces is blank too, and takes no part either."
+        "says": "empty and whitespace-only lines leave the removed indentation unchanged and come out empty"
       },
       {
-        "id": "practice.IncidentalTest#aClosingLineToTheLeftCounts",
+        "id": "practice.TextBlockPreviewTest#aClosingDelimiterLeftOfTheContentIndentsEveryLine",
         "kind": "edge",
-        "says": "A closing delimiter on its own line, left of the content, lowers the incidental whitespace to its own indentation."
+        "says": "a closing delimiter on its own line, left of the content, leaves the difference in front of every line"
       },
       {
-        "id": "practice.IncidentalTest#aClosingLineToTheRightChangesNothing",
+        "id": "practice.TextBlockPreviewTest#aClosingDelimiterRightOfTheContentChangesNothing",
         "kind": "edge",
-        "says": "A closing delimiter to the right of the content does not raise the incidental whitespace."
+        "says": "a closing delimiter on its own line, right of the content, removes no more than the content allows"
+      },
+      {
+        "id": "practice.TextBlockPreviewTest#spacesAtTheEndOfALineAreNotInTheValue",
+        "kind": "edge",
+        "says": "whitespace at the end of a source line is not part of the value"
+      },
+      {
+        "id": "practice.TextBlockPreviewTest#aTabCountsAsOneCharacterOfIndentation",
+        "kind": "edge",
+        "says": "a tab counts as one character of indentation, like a space, not as several columns"
       }
     ],
     "report": {
@@ -174,12 +151,15 @@
     },
     "origin": {
       "path": "30-text-blocks/README_7.4.3.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Tab and a Space Each Count as One Character"
     },
     "concepts": [
-      "Blank lines, empty or only whitespace, take no part in the smallest-indentation calculation.",
-      "The closing delimiter's line takes part in the calculation: left of the content it keeps indentation, right of it it changes nothing.",
-      "Incidental whitespace is the common indentation that comes from the source and is removed; anything beyond it is essential and kept."
+      "Blank lines, empty or whitespace only, take no part in the count and come out empty, so the value does not depend on how an editor treats them.",
+      "A closing delimiter on its own line left of the content leaves the difference in front of every line.",
+      "A closing delimiter on its own line right of the content removes no more than the content allows.",
+      "javac removes from every line of a text block the smallest leading-whitespace count among its non-blank lines and the closing delimiter's line; indentation beyond it is kept.",
+      "A tab counts as one character of indentation, like a space, so a tab-indented line among space-indented ones comes out misaligned.",
+      "Whitespace at the end of every line of a text block is removed, so padding typed in the source is lost."
     ]
   }
 }

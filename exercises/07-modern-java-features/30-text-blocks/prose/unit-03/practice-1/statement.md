@@ -1,24 +1,17 @@
-The page splits a text block's leading whitespace in two. The **incidental**
-whitespace is the common indentation that comes from where the block sits in
-the source; the compiler removes it. Anything beyond it is **essential** and
-stays in the value.
+Twice this quarter a text block passed review and then produced the wrong string in production:
+once a padded record that came out short, once a message whose every line had gained four
+spaces. A diff can't show either. The team's review bot will now post, under every text block a
+pull request changes, the exact string the compiler makes of it.
 
-Write `Incidental.width(List<String> lines, String closing)`. `lines` are the
-content lines of a text block as they appear in the source (spaces only, no
-tabs). `closing` is the whitespace before the closing `"""` when the delimiter
-sits on its own line, or `null` when it sits at the end of the last content
-line. Return how many leading whitespace characters are incidental:
+`TextBlockPreview.value(...)` in `src/main/java/practice/TextBlockPreview.java` receives the
+block's source lines exactly as they are in the file: everything after the opening delimiter's
+line, up to and including the line with the closing `"""`. It already splits off the closing
+delimiter and joins the lines. Finish the two `TODO`s:
 
-- the smallest number of leading spaces among the content lines,
-- where a **blank** line (empty, or only spaces) takes no part,
-- and where the closing delimiter's line, when it is on its own line, takes
-  part too.
+- `margin(...)`: how many leading characters javac removes from every line of the block;
+- `strip(...)`: what is left of one source line in the value.
 
-| lines | closing | answer |
-|---|---|---|
-| `"        root"`, `"            child"` | `null` | `8` |
-| `"    Hello"`, `"    World"` | `"    "` | `4` |
-| `"        a"`, `""`, `"        b"` | `null` | `8` |
-| `"        a"`, `"   "`, `"        b"` | `null` | `8` |
-| `"            Hello"` | `"        "` | `8` |
-| `"    Hello"` | `"            "` | `4` |
+When you're done, `value(...)` returns exactly the string javac produces for any block of spaces,
+tabs and text, without escape sequences. About eight lines in total.
+
+The tests compare with values that javac 21 produced from the same lines.
