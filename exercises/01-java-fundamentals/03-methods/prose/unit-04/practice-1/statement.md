@@ -1,12 +1,8 @@
-Overloaded methods share a name and differ in their parameter lists: in how many parameters
-there are, in their types, or in their order. The compiler picks the one that fits the call.
+The billing service reads events off a queue and books them. Since the last release every
+payment and every refund ends up parked with the events nobody handles, and customers' balances
+stop moving. The queue delivers each event as an `Object`, in the order it was published.
 
-Write five overloads in `Calculator`:
-
-| call | result |
-|---|---|
-| `add(5, 10)` | `15`, an `int` |
-| `add(5, 10, 15)` | `30`, an `int` |
-| `add(5.5, 10.25)` | `15.75`, a `double` |
-| `concat("x", 7)` | `"x7"`: the text first |
-| `concat(7, "x")` | `"7x"`: the number first |
+`EventRouter` already has a handler for each kind of event, and a refund is a kind of payment.
+Finish `route(Object event)` in `src/main/java/practice/EventRouter.java` so that each event
+reaches the `handle(...)` method written for its kind: payments are credited, refunds debited,
+and anything else is parked. About five lines in total.

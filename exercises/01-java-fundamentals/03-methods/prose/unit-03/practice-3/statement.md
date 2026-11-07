@@ -1,10 +1,8 @@
-A `StringBuilder` is a mutable object: a method that calls `append` or `insert` on a builder
-it was passed changes the caller's builder. A method that assigns a new builder to its
-parameter changes nothing the caller can see.
+Each till has one basket. After an order is placed, the basket is emptied and filled again for
+the next customer. Billing, packing and the customer's receipt each read the placed order, and one
+of them once "fixed" an order by adding an item to it.
 
-Write `wrap(StringBuilder sb, String tag)` in `Tags`. It wraps the caller's builder's
-content in an opening and a closing tag, in place, and returns that same builder:
-
-- if `sb` holds `"hi"`, `wrap(sb, "b")` returns `sb`, which now holds `"<b>hi</b>"`;
-- wrapping twice nests: `wrap(wrap(sb, "b"), "i")` leaves `"<i><b>hi</b></i>"`;
-- an empty builder becomes `"<p></p>"`.
+Finish the constructor of `PlacedOrder` in `src/main/java/practice/Checkout.java`. An order with
+no items, or with a missing (`null`) item, is refused. Once placed, an order holds exactly the
+items it was placed with, whatever later happens to the list it came from and whoever reads it.
+About two lines in total.

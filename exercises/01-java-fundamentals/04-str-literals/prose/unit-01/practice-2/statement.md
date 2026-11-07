@@ -1,10 +1,12 @@
-A String can be built from a byte array: `new String(bytes)` decodes the bytes into
-characters. Bytes are not characters: in UTF-8 an ASCII letter takes one byte, but `é`
-takes two (`0xC3 0xA9`) and `€` takes three. Name the charset explicitly, so the result does
-not depend on the machine's default.
+The storefront keeps product descriptions in an in-memory cache with a budget of bytes for their
+text, so it can't take more than its share of the heap. Its weigher counts each string's UTF-8
+size. The caches of the Nordic and the Japanese shops hold fewer products than their budgets
+allow, while the Dutch shop's, whose descriptions carry prices in euros, takes more than its share
+of the heap.
 
-Write `decode(byte[] utf8)` in `Decoder`. It returns the text the UTF-8 bytes encode:
+Eviction already works. Finish the `TODO` in `src/main/java/practice/ProductCache.java`:
 
-- `decode(new byte[]{72, 101, 108, 108, 111})` is `"Hello"`, the page's own example;
-- `decode(new byte[]{104, (byte) 0xC3, (byte) 0xA9})` is `"hé"`;
-- `decode(new byte[]{})` is `""`.
+- `textBytes(s)`: how many bytes the characters of `s` take in the heap of a JVM with default
+  settings, leaving out the object's and the array's headers.
+
+About four lines.

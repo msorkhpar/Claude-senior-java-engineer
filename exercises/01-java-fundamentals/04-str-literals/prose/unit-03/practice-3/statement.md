@@ -1,9 +1,13 @@
-`substring(begin, end)` starts at `begin` and stops before `end`, so its length is
-`end - begin`. `substring(begin)` runs to the end of the String.
+The sign-up form saves names and addresses that users type, or paste from web pages, word
+processors and spreadsheets. The duplicate-customer report keeps finding pairs such as `Tomás`
+and a `Tomás` that looks identical, and support found accounts whose required last name is
+blank on screen but passed validation.
 
-Write two methods in `Emails`, using `indexOf('@')` to find the separator:
+`SignupForm.accept(...)` already cleans every field and checks the required ones. Finish the two
+`TODO`s in `src/main/java/practice/SignupForm.java`:
 
-1. `user(String email)` returns the part before the `@`: `user("ada@example.com")` is
-   `"ada"`. With no `@`, the whole text is the user: `user("ada")` is `"ada"`.
-2. `domain(String email)` returns the part after the `@`: `domain("ada@example.com")` is
-   `"example.com"`. With no `@` there is no domain: `domain("ada")` is `""`.
+- `clean(value)`: the value without the blank-looking characters around it;
+- `missing(value)`: whether the value shows as nothing at all.
+
+When you're done, a pasted value is saved the same as the typed one, and a required field that
+shows nothing is reported missing. About three lines in total.

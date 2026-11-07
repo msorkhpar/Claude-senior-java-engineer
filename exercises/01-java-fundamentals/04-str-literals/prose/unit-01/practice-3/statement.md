@@ -1,11 +1,13 @@
-A String can be built from a char array, `new String(chars)`, or from part of one:
-`new String(chars, offset, count)` takes `count` characters starting at `offset`. The third
-argument is a count, not an end index.
+The Nordic shop loads its supplier's price list, four million products, into memory every night.
+A heap dump shows four million `"SEK"` strings and four million `"SE"` strings, one of each per
+product, each its own object. Every SKU and every product name is different; currencies and
+countries come from a handful of values.
 
-Write `word(char[] buffer, int start, int end)` in `Buffer`. It returns the characters from
-index `start` up to, but not including, `end`:
+The loader already has a table, `codes`, which it drops with the catalogue when the next price list
+replaces it, and `tableSize()` reports its size to the shop's metrics. Finish the `TODO`s in
+`src/main/java/practice/CatalogueLoader.java`:
 
-- with `buffer = {'H', 'e', 'l', 'l', 'o', ' ', 'y', 'o', 'u'}`, `word(buffer, 0, 5)` is
-  `"Hello"` and `word(buffer, 6, 9)` is `"you"`;
-- `word(buffer, 3, 3)` is `""`;
-- the String is a copy: changing `buffer` afterwards does not change a word already taken.
+- `shared(value)`: the one string the loader keeps for `value`'s text;
+- `parse(line)`: the product for one `sku;name;currency;country` line.
+
+About four lines in total.

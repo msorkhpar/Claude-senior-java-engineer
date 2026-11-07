@@ -1,10 +1,10 @@
-`+` never fails on `null`: it inserts the four letters `"null"`, so `"Hello" + null` is
-`"Hellonull"`. `"Hello".concat(null)` throws `NullPointerException` instead. Neither is
-what a reader wants to see, so a value that may be `null` is checked before it is joined.
+The security team searches the access audit log by user, by role and by code, and their saved
+searches match lines such as `k.mensah [billing,support] W+ /invoices/88`. Requests from visitors
+who are not signed in must be findable with a `-` in the user column. The code column is the
+operation (`R`, `W` or `D`) followed by `+` when the request was allowed and `-` when it was
+refused.
 
-Write `address(String title, String name)` in `Greeting`. It returns the title and the name
-separated by one space, leaving out whichever is `null`:
+`AuditLine.line` already puts the columns together. Write the three `TODO` methods in
+`src/main/java/practice/AuditLine.java`: `who(user)`, `roles(roles)` and `code(op, outcome)`.
 
-- `address("Dr", "Ada")` is `"Dr Ada"`;
-- `address(null, "Ada")` is `"Ada"`, and `address("Dr", null)` is `"Dr"`;
-- `address(null, null)` is `""`.
+About three lines in total.

@@ -1,13 +1,14 @@
-When no overload takes exactly the argument's type, Java widens it: an `int` can go to a
-`double` parameter. So if an `int` overload is missing, an `int` argument quietly reaches
-the `double` one, and the program compiles, but means something else.
+The export service writes each field of an order as a JSON value with `JsonValue.of(...)`. Two
+kinds of caller use it: code that holds a field in a typed variable (`int quantity`,
+`char grade`), and code that copies fields from a database row, which arrive as a
+`Map<String, Object>`. The consumers of the export reject a file in which the same field is
+written two different ways.
 
-Write three `area` overloads in `Areas`:
+Finish `src/main/java/practice/JsonValue.java` so that:
 
-| call | shape | result |
-|---|---|---|
-| `area(4)` | a square of side 4 (an `int`) | `16.0` |
-| `area(1.0)` | a circle of radius 1.0 (a `double`) | `Math.PI` |
-| `area(2.0, 3.5)` | a rectangle | `7.0` |
+- whole numbers, decimals and booleans are written unquoted, `12` and `true`, whichever kind of
+  caller passes them;
+- a single character is written as a one-character string, `"B"`;
+- text is written quoted, and a missing row field as `null`.
 
-An `Integer` argument unboxes to `int`, so `area(Integer.valueOf(4))` is a square too.
+You may add methods to the class. About eight lines in total.

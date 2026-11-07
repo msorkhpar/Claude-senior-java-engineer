@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Overload by number, type and order",
+  "title": "Route billing events to the handler for their kind",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Overloaded methods share a name and differ in their parameter lists: in how many parameters there are, in their types, or in their order. The compiler picks the one that fits the call."
+      "text": "The billing service reads events off a queue and books them. Since the last release every payment and every refund ends up parked with the events nobody handles, and customers' balances stop moving. The queue delivers each event as an `Object`, in the order it was published."
     },
     {
       "type": "para",
-      "text": "Write five overloads in `Calculator`:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`add(5, 10)`",
-          "`15`, an `int`"
-        ],
-        [
-          "`add(5, 10, 15)`",
-          "`30`, an `int`"
-        ],
-        [
-          "`add(5.5, 10.25)`",
-          "`15.75`, a `double`"
-        ],
-        [
-          "`concat(\"x\", 7)`",
-          "`\"x7\"`: the text first"
-        ],
-        [
-          "`concat(7, \"x\")`",
-          "`\"7x\"`: the number first"
-        ]
-      ]
+      "text": "`EventRouter` already has a handler for each kind of event, and a refund is a kind of payment. Finish `route(Object event)` in `src/main/java/practice/EventRouter.java` so that each event reaches the `handle(...)` method written for its kind: payments are credited, refunds debited, and anything else is parked. About five lines in total."
     },
     {
       "type": "heading",
@@ -67,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Calculator {\n\n    private Calculator() {\n    }\n\n    /** Adds two ints. */\n    public static int add(int a, int b) {\n        return a + b;\n    }\n\n    /** Adds three ints. */\n    public static int add(int a, int b, int c) {\n        return a + b + c;\n    }\n\n    /** Adds two doubles. */\n    public static double add(double a, double b) {\n        return a + b;\n    }\n\n    /** Joins a text and a number, text first. */\n    public static String concat(String str, int num) {\n        return str + num;\n    }\n\n    /** Joins a number and a text, number first. */\n    public static String concat(int num, String str) {\n        return num + str;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Takes events off the billing queue and hands each one to the handler for its kind. The queue\n * delivers every event as an Object, in the order it was published.\n */\npublic class EventRouter {\n\n    /** A customer paid. */\n    public static class Payment {\n        final String id;\n        final long cents;\n\n        public Payment(String id, long cents) {\n            this.id = id;\n            this.cents = cents;\n        }\n    }\n\n    /** Money went back to a customer. A refund is booked as a negative payment, so it is one. */\n    public static class Refund extends Payment {\n        public Refund(String id, long cents) {\n            super(id, cents);\n        }\n    }\n\n    private final List<String> journal = new ArrayList<>();\n\n    /** What the handlers booked, one line per event. */\n    public List<String> journal() {\n        return journal;\n    }\n\n    /** Routes every event of a batch, in order. */\n    public void routeAll(List<Object> batch) {\n        for (Object event : batch) {\n            route(event);\n        }\n    }\n\n    void handle(Payment payment) {\n        journal.add(\"credit \" + payment.id + \" \" + payment.cents);\n    }\n\n    void handle(Refund refund) {\n        journal.add(\"debit \" + refund.id + \" \" + refund.cents);\n    }\n\n    void handle(Object unknown) {\n        journal.add(\"parked \" + unknown);\n    }\n\n    /** Hands one event to the handler for its kind; anything else is parked. */\n    void route(Object event) {\n        switch (event) {\n            case Refund refund -> handle(refund);\n            case Payment payment -> handle(payment);\n            default -> handle(event);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Calculator {\n\n    private Calculator() {\n    }\n\n    /** Adds two ints. */\n    public static int add(int a, int b) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Adds three ints. */\n    public static int add(int a, int b, int c) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Adds two doubles. */\n    public static double add(double a, double b) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Joins a text and a number, text first. */\n    public static String concat(String str, int num) {\n        throw new UnsupportedOperationException(\"write concat\");\n    }\n\n    /** Joins a number and a text, number first. */\n    public static String concat(int num, String str) {\n        throw new UnsupportedOperationException(\"write concat\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Takes events off the billing queue and hands each one to the handler for its kind. The queue\n * delivers every event as an Object, in the order it was published.\n */\npublic class EventRouter {\n\n    /** A customer paid. */\n    public static class Payment {\n        final String id;\n        final long cents;\n\n        public Payment(String id, long cents) {\n            this.id = id;\n            this.cents = cents;\n        }\n    }\n\n    /** Money went back to a customer. A refund is booked as a negative payment, so it is one. */\n    public static class Refund extends Payment {\n        public Refund(String id, long cents) {\n            super(id, cents);\n        }\n    }\n\n    private final List<String> journal = new ArrayList<>();\n\n    /** What the handlers booked, one line per event. */\n    public List<String> journal() {\n        return journal;\n    }\n\n    /** Routes every event of a batch, in order. */\n    public void routeAll(List<Object> batch) {\n        for (Object event : batch) {\n            route(event);\n        }\n    }\n\n    void handle(Payment payment) {\n        journal.add(\"credit \" + payment.id + \" \" + payment.cents);\n    }\n\n    void handle(Refund refund) {\n        journal.add(\"debit \" + refund.id + \" \" + refund.cents);\n    }\n\n    void handle(Object unknown) {\n        journal.add(\"parked \" + unknown);\n    }\n\n    /** Hands one event to the handler for its kind; anything else is parked. */\n    void route(Object event) {\n        // TODO: Every event reaches this method as an Object. Hand each one to the handle(...)\n        //       method written for its kind: payments are credited, refunds debited, and\n        //       anything else is parked.\n        throw new IllegalStateException(\"TODO: route\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -89,7 +60,7 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -98,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "67cb63ea8acd53a0d146248c148b59824c1ecb048002f54aedf662fa5e9583a9",
-  "starting_code": "package practice;\n\npublic final class Calculator {\n\n    private Calculator() {\n    }\n\n    /** Adds two ints. */\n    public static int add(int a, int b) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Adds three ints. */\n    public static int add(int a, int b, int c) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Adds two doubles. */\n    public static double add(double a, double b) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    /** Joins a text and a number, text first. */\n    public static String concat(String str, int num) {\n        throw new UnsupportedOperationException(\"write concat\");\n    }\n\n    /** Joins a number and a text, number first. */\n    public static String concat(int num, String str) {\n        throw new UnsupportedOperationException(\"write concat\");\n    }\n}\n",
+  "content_sha256": "7fd8999442643355f27d7d91341b6fa160fbb5937b0f68bd2a9c33eef681c7f4",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Takes events off the billing queue and hands each one to the handler for its kind. The queue\n * delivers every event as an Object, in the order it was published.\n */\npublic class EventRouter {\n\n    /** A customer paid. */\n    public static class Payment {\n        final String id;\n        final long cents;\n\n        public Payment(String id, long cents) {\n            this.id = id;\n            this.cents = cents;\n        }\n    }\n\n    /** Money went back to a customer. A refund is booked as a negative payment, so it is one. */\n    public static class Refund extends Payment {\n        public Refund(String id, long cents) {\n            super(id, cents);\n        }\n    }\n\n    private final List<String> journal = new ArrayList<>();\n\n    /** What the handlers booked, one line per event. */\n    public List<String> journal() {\n        return journal;\n    }\n\n    /** Routes every event of a batch, in order. */\n    public void routeAll(List<Object> batch) {\n        for (Object event : batch) {\n            route(event);\n        }\n    }\n\n    void handle(Payment payment) {\n        journal.add(\"credit \" + payment.id + \" \" + payment.cents);\n    }\n\n    void handle(Refund refund) {\n        journal.add(\"debit \" + refund.id + \" \" + refund.cents);\n    }\n\n    void handle(Object unknown) {\n        journal.add(\"parked \" + unknown);\n    }\n\n    /** Hands one event to the handler for its kind; anything else is parked. */\n    void route(Object event) {\n        // TODO: Every event reaches this method as an Object. Hand each one to the handle(...)\n        //       method written for its kind: payments are credited, refunds debited, and\n        //       anything else is parked.\n        throw new IllegalStateException(\"TODO: route\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/03-methods/prose/unit-04/practice-1/src/main/java/practice/Calculator.java",
-    "test_path": "practice/01-java-fundamentals/03-methods/prose/unit-04/practice-1/src/test/java/practice/CalculatorTest.java",
+    "main_path": "practice/01-java-fundamentals/03-methods/prose/unit-04/practice-1/src/main/java/practice/EventRouter.java",
+    "test_path": "practice/01-java-fundamentals/03-methods/prose/unit-04/practice-1/src/test/java/practice/EventRouterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,19 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CalculatorTest#addsIntsByCount",
+        "id": "practice.EventRouterTest#parksEventsOfAKindItHasNoHandlerFor",
         "kind": "main",
-        "says": "add(5, 10) is 15 and add(5, 10, 15) is 30."
+        "says": "events of a kind with no handler are parked, in the order they arrive"
       },
       {
-        "id": "practice.CalculatorTest#doublesKeepTheirFractions",
+        "id": "practice.EventRouterTest#creditsAPaymentTakenOffTheQueue",
         "kind": "edge",
-        "says": "add(5.5, 10.25) is 15.75: the double overload keeps the fractions."
+        "says": "a payment that arrives as an Object is credited by the payment handler, not parked"
       },
       {
-        "id": "practice.CalculatorTest#theOrderOfParametersMatters",
+        "id": "practice.EventRouterTest#debitsARefundEvenThoughItIsAlsoAPayment",
         "kind": "edge",
-        "says": "concat(\"x\", 7) is \"x7\" and concat(7, \"x\") is \"7x\"."
+        "says": "a refund, which is also a payment, is debited by the refund handler, not credited"
       }
     ],
     "report": {
@@ -144,10 +115,10 @@
     },
     "origin": {
       "path": "03-methods/README_1.3.4.md",
-      "section": "Key Points to Remember"
+      "section": "The Compiler Chooses an Overload From the Arguments' Declared Types"
     },
     "concepts": [
-      "Methods are overloaded by the number, the types or the order of their parameters."
+      "The compiler chooses an overload from the declared types of the arguments, so an argument held as Object reaches the Object overload whatever its class at run time."
     ]
   }
 }

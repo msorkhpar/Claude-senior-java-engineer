@@ -1,10 +1,8 @@
-A method that changes an object it was passed changes the caller's object. When the caller
-did not ask for that, it is a bug that shows up far from the method. A method that only
-needs to read its input works on a copy.
+The league site shows standings in three places. The club pages pass the teams in fixture order
+and draw the fixture list from that same list afterwards. The results importer passes a list it
+keeps adding teams to as results come in. The public API passes a list that nobody may change.
 
-Write `ranked(int[] scores)` in `Ranking`. It returns a new array holding the scores from
-highest to lowest, and leaves the caller's array exactly as it was:
-
-- `ranked(new int[]{70, 95, 80})` is `{95, 80, 70}`, and the caller's array is still
-  `{70, 95, 80}`;
-- `ranked(new int[]{})` is `{}`.
+Finish `table(...)` in `src/main/java/practice/Standings.java`: the teams by points, most first,
+with teams on the same points in the order they were given. Every caller must get its table and
+find its own list as it left it, and a table it already holds must not change when its list does
+later. About three lines in total.

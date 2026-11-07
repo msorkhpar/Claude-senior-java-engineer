@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Decode bytes into a String",
+  "title": "Make the product cache's byte budget match the heap",
   "blocks": [
     {
       "type": "heading",
@@ -19,20 +19,22 @@
     },
     {
       "type": "para",
-      "text": "A String can be built from a byte array: `new String(bytes)` decodes the bytes into characters. Bytes are not characters: in UTF-8 an ASCII letter takes one byte, but `é` takes two (`0xC3 0xA9`) and `€` takes three. Name the charset explicitly, so the result does not depend on the machine's default."
+      "text": "The storefront keeps product descriptions in an in-memory cache with a budget of bytes for their text, so it can't take more than its share of the heap. Its weigher counts each string's UTF-8 size. The caches of the Nordic and the Japanese shops hold fewer products than their budgets allow, while the Dutch shop's, whose descriptions carry prices in euros, takes more than its share of the heap."
     },
     {
       "type": "para",
-      "text": "Write `decode(byte[] utf8)` in `Decoder`. It returns the text the UTF-8 bytes encode:"
+      "text": "Eviction already works. Finish the `TODO` in `src/main/java/practice/ProductCache.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`decode(new byte[]{72, 101, 108, 108, 111})` is `\"Hello\"`, the page's own example;",
-        "`decode(new byte[]{104, (byte) 0xC3, (byte) 0xA9})` is `\"hé\"`;",
-        "`decode(new byte[]{})` is `\"\"`."
+        "`textBytes(s)`: how many bytes the characters of `s` take in the heap of a JVM with default settings, leaving out the object's and the array's headers."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About four lines."
     },
     {
       "type": "heading",
@@ -47,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.nio.charset.StandardCharsets;\n\npublic final class Decoder {\n\n    private Decoder() {\n    }\n\n    /** Returns the text the UTF-8 bytes encode. */\n    public static String decode(byte[] utf8) {\n        return new String(utf8, StandardCharsets.UTF_8);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Keeps product descriptions in memory, keyed by SKU, within a budget of heap bytes for their\n * text. When a new entry takes the cache over budget, the oldest entries are dropped.\n */\npublic class ProductCache {\n\n    private final long budgetBytes;\n    private final LinkedHashMap<String, String> entries = new LinkedHashMap<>();\n    private long usedBytes;\n\n    public ProductCache(long budgetBytes) {\n        this.budgetBytes = budgetBytes;\n    }\n\n    public void put(String sku, String description) {\n        String old = entries.put(sku, description);\n        if (old != null) usedBytes -= weigh(sku, old);\n        usedBytes += weigh(sku, description);\n        var oldest = entries.entrySet().iterator();\n        while (usedBytes > budgetBytes && oldest.hasNext()) {\n            Map.Entry<String, String> e = oldest.next();\n            usedBytes -= weigh(e.getKey(), e.getValue());\n            oldest.remove();\n        }\n    }\n\n    public String get(String sku) {\n        return entries.get(sku);\n    }\n\n    /** The heap bytes the cache counts for the text of all its entries. */\n    public long usedBytes() {\n        return usedBytes;\n    }\n\n    private long weigh(String sku, String description) {\n        return textBytes(sku) + textBytes(description);\n    }\n\n    /** The bytes {@code s}'s characters take in the heap of a JVM with default settings. */\n    int textBytes(String s) {\n        for (int i = 0; i < s.length(); i++) {\n            if (s.charAt(i) > 0xFF) return 2 * s.length();\n        }\n        return s.length();\n    }\n}\n"
         }
       ]
     },
@@ -59,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.nio.charset.StandardCharsets;\n\npublic final class Decoder {\n\n    private Decoder() {\n    }\n\n    /** Returns the text the UTF-8 bytes encode. */\n    public static String decode(byte[] utf8) {\n        throw new UnsupportedOperationException(\"write decode\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Keeps product descriptions in memory, keyed by SKU, within a budget of heap bytes for their\n * text. When a new entry takes the cache over budget, the oldest entries are dropped.\n */\npublic class ProductCache {\n\n    private final long budgetBytes;\n    private final LinkedHashMap<String, String> entries = new LinkedHashMap<>();\n    private long usedBytes;\n\n    public ProductCache(long budgetBytes) {\n        this.budgetBytes = budgetBytes;\n    }\n\n    public void put(String sku, String description) {\n        String old = entries.put(sku, description);\n        if (old != null) usedBytes -= weigh(sku, old);\n        usedBytes += weigh(sku, description);\n        var oldest = entries.entrySet().iterator();\n        while (usedBytes > budgetBytes && oldest.hasNext()) {\n            Map.Entry<String, String> e = oldest.next();\n            usedBytes -= weigh(e.getKey(), e.getValue());\n            oldest.remove();\n        }\n    }\n\n    public String get(String sku) {\n        return entries.get(sku);\n    }\n\n    /** The heap bytes the cache counts for the text of all its entries. */\n    public long usedBytes() {\n        return usedBytes;\n    }\n\n    private long weigh(String sku, String description) {\n        return textBytes(sku) + textBytes(description);\n    }\n\n    /** The bytes {@code s}'s characters take in the heap of a JVM with default settings. */\n    int textBytes(String s) {\n        // TODO: Return how many bytes the characters of s occupy in the heap, on a JVM run with\n        //       its default settings. Object headers and the array's header are not counted.\n        throw new IllegalStateException(\"TODO: textBytes\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -67,7 +69,7 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
     "tables": 0,
     "lists": 1,
@@ -78,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c308a7f5bacf3936468d7b98f6426e417653807dc19f4463522bdbc90b5a1613",
-  "starting_code": "package practice;\n\nimport java.nio.charset.StandardCharsets;\n\npublic final class Decoder {\n\n    private Decoder() {\n    }\n\n    /** Returns the text the UTF-8 bytes encode. */\n    public static String decode(byte[] utf8) {\n        throw new UnsupportedOperationException(\"write decode\");\n    }\n}\n",
+  "content_sha256": "24321bb33985e6f3de92b2d0f559e703bf3270a024e161b589e34f2a4aa518b5",
+  "starting_code": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\n/**\n * Keeps product descriptions in memory, keyed by SKU, within a budget of heap bytes for their\n * text. When a new entry takes the cache over budget, the oldest entries are dropped.\n */\npublic class ProductCache {\n\n    private final long budgetBytes;\n    private final LinkedHashMap<String, String> entries = new LinkedHashMap<>();\n    private long usedBytes;\n\n    public ProductCache(long budgetBytes) {\n        this.budgetBytes = budgetBytes;\n    }\n\n    public void put(String sku, String description) {\n        String old = entries.put(sku, description);\n        if (old != null) usedBytes -= weigh(sku, old);\n        usedBytes += weigh(sku, description);\n        var oldest = entries.entrySet().iterator();\n        while (usedBytes > budgetBytes && oldest.hasNext()) {\n            Map.Entry<String, String> e = oldest.next();\n            usedBytes -= weigh(e.getKey(), e.getValue());\n            oldest.remove();\n        }\n    }\n\n    public String get(String sku) {\n        return entries.get(sku);\n    }\n\n    /** The heap bytes the cache counts for the text of all its entries. */\n    public long usedBytes() {\n        return usedBytes;\n    }\n\n    private long weigh(String sku, String description) {\n        return textBytes(sku) + textBytes(description);\n    }\n\n    /** The bytes {@code s}'s characters take in the heap of a JVM with default settings. */\n    int textBytes(String s) {\n        // TODO: Return how many bytes the characters of s occupy in the heap, on a JVM run with\n        //       its default settings. Object headers and the array's header are not counted.\n        throw new IllegalStateException(\"TODO: textBytes\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-01/practice-2/src/main/java/practice/Decoder.java",
-    "test_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-01/practice-2/src/test/java/practice/DecoderTest.java",
+    "main_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-01/practice-2/src/main/java/practice/ProductCache.java",
+    "test_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-01/practice-2/src/test/java/practice/ProductCacheTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -103,14 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DecoderTest#decodesAsciiBytes",
+        "id": "practice.ProductCacheTest#plainTextIsCountedAndTheOldestEntryMakesRoom",
         "kind": "main",
-        "says": "The bytes 72, 101, 108, 108, 111 decode to \"Hello\"."
+        "says": "plain ASCII entries are counted at their length, and the oldest entry is dropped when the budget is passed"
       },
       {
-        "id": "practice.DecoderTest#aCharacterMayTakeSeveralBytes",
+        "id": "practice.ProductCacheTest#accentedLatinTextCostsOneBytePerCharacter",
         "kind": "edge",
-        "says": "The UTF-8 bytes of \"hé\" and \"€\" decode to one character each."
+        "says": "a description with Danish letters is counted at one byte per character"
+      },
+      {
+        "id": "practice.ProductCacheTest#oneCharacterBeyondLatin1MakesTheWholeDescriptionTwoBytesPerCharacter",
+        "kind": "edge",
+        "says": "a description with one euro sign is counted at two bytes for every character"
+      },
+      {
+        "id": "practice.ProductCacheTest#textOutsideLatin1CostsTwoBytesPerCharacterWhateverItsUtf8Size",
+        "kind": "edge",
+        "says": "a Japanese description is counted at two bytes per character, not at its UTF-8 size"
       }
     ],
     "report": {
@@ -119,10 +131,10 @@
     },
     "origin": {
       "path": "04-str-literals/README_1.4.1.md",
-      "section": "4. Byte Array"
+      "section": "A String Keeps Latin-1 Text at One Byte per Character, and One Character Beyond Latin-1 Doubles It"
     },
     "concepts": [
-      "A String built from a byte array decodes the bytes with a charset, and one character may take several bytes."
+      "A String stores its characters in Latin-1 at one byte each when all of them are at most U+00FF, and otherwise in UTF-16 at two bytes each, for the whole string."
     ]
   }
 }

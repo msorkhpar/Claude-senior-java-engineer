@@ -1,10 +1,12 @@
-`a.equals(b)` throws `NullPointerException` when `a` is `null`. `Objects.equals(a, b)` does
-not: it is `true` when both are `null`, `false` when only one is, and otherwise calls
-`a.equals(b)`.
+The baking blog's tag cloud shows `crème` twice, with a different count under each, and a reader
+who searches for `jalapeño` from a tablet finds no posts although the cloud shows the tag. Both
+come from authors and readers on different devices. A food blog also has tags that really are
+different and only look alike, such as `rose` and `rosé`; those must stay apart.
 
-Write `sameText(String a, String b)` in `Same`:
+`TagIndex` stores each tag under `key(tag)` and counts its posts. Finish the two `TODO`s in
+`src/main/java/practice/TagIndex.java`:
 
-- `sameText("hello", "hello")` is `true`, and `sameText("hello", "world")` is `false`;
-- `sameText(null, null)` is `true`;
-- `sameText(null, "hello")` and `sameText("hello", null)` are `false`;
-- `sameText("hello", new String("hello"))` and `sameText("", new String(""))` are `true`.
+- `key(...)`: the form a tag is stored and looked up in;
+- `postsTagged(...)`: the number of posts for a reader's search.
+
+About two lines in total. The next practice builds a tag value class on the same idea.

@@ -1,12 +1,12 @@
-`charAt` and `substring` throw `StringIndexOutOfBoundsException` for an index past the end,
-so check the length first. And a check such as "does it start with `abc`?" needs no
-substring at all: `s.substring(0, 3).equals("abc")` throws on a shorter `s`, while
-`s.startsWith("abc")` just answers `false`.
+The notification service sends long text messages as several SMS segments, and the phone joins
+them back together. A Unicode segment holds a fixed number of UTF-16 code units. Support has two
+complaints: some messages arrive with a `?` where an emoji should be, and the gateway rejects
+others as oversized.
 
-Write two methods in `Chars`:
+`SmsSegments.segments(...)` already splits a message. Finish the `TODO` in
+`src/main/java/practice/SmsSegments.java`: `cut(text, units)` returns the index where the first
+segment of `text` ends.
 
-1. `lastChar(String s)` returns the last character: `lastChar("Hello")` is `'o'`. An empty
-   String has none: throw `IllegalArgumentException`.
-2. `hasPrefix(String s, String prefix)` says whether `s` starts with `prefix`:
-   `hasPrefix("abcdef", "abc")` is `true`, `hasPrefix("abxdef", "abc")` is `false`, and
-   `hasPrefix("ab", "abc")` is `false`.
+When you're done, every segment fits the segment size, the segments joined give back the
+original text, and each segment can be shown on its own, whatever the message holds. About four
+lines in total.
