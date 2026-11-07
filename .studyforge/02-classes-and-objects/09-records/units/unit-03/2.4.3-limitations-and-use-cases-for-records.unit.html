@@ -25,9 +25,9 @@
 <nav aria-label="Outline"><p>On this page</p><ol><li data-level="1"><a href="#s-prose">Limitations and use cases for records</a></li><li data-level="2"><a href="#prose-b2">A Record Extends Only java.lang.Record, and Nothing Extends It</a></li><li data-level="2"><a href="#prose-b12">A Record's Only Instance State Is Its Header</a></li><li data-level="2"><a href="#prose-b20">A Framework That Builds an Object Empty, Then Fills It, Can't Build a Record</a></li><li data-level="2"><a href="#prose-b31">Keep a Class for Identity, Changing State, or Many Optional Parts</a></li><li data-level="2"><a href="#prose-b44">Summary</a></li><li data-level="2"><a href="#prose-b46">Reference</a></li><li data-level="2"><a href="#prose-b49">Challenges</a></li><li data-level="2"><a href="#prose-b51">Design Note: Why a Record Is Closed</a></li><li data-level="2"><a href="#prose-b53">Code Examples</a></li><li data-level="1"><a href="#practices">Practice (3)</a></li><li data-level="2"><a href="#card-practice-prose">Teach the import mapper to build records</a></li><li data-level="2"><a href="#card-practice-prose-2">Stop retrying a job forever</a></li><li data-level="2"><a href="#card-practice-prose-3">Check yourself: limitations and use cases for records</a></li></ol></nav>
 <main id="content">
 <section id="s-prose" data-section="prose" data-kind="lesson" data-label="Limitations and use cases for records">
-<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b2-0768d9e7.mp3">The billing team turns <code>Invoice</code> into a record to drop its boilerplate. The class extends an <code>Audited</code> base, caches its total in a field, and is loaded by an ORM. The first build fails on the header, the second on the cache, and once it compiles, the ORM can't load it.</p>
-<h2 id="prose-b2" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b3-ec8ea125.mp3">A Record Extends Only java.lang.Record, and Nothing Extends It</h2>
-<p>javac 21 on three attempts to fit <code>Invoice</code> into a hierarchy:</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b2-6e319111.mp3">The billing team turns <code>Invoice</code> into a record to drop its boilerplate. The class extends an <code>Audited</code> base, caches its total in a field, and is loaded by an ORM. The first build fails on the header, the second on the cache, and once it compiles, the ORM can't load it.</p>
+<h2 id="prose-b2" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b3-afaa6675.mp3">A Record Extends Only java.lang.Record, and Nothing Extends It</h2>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b4-2105f7cb.mp3">javac 21 on three attempts to fit <code>Invoice</code> into a hierarchy:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">Invoice.java:5: error: '{' expected
 record Invoice(String number, long totalCents) extends Audited {}
                                               ^
@@ -37,8 +37,8 @@ class CreditNote extends Invoice {
 Invoice.java:1: error: modifier abstract not allowed here
 abstract record Invoice(String number, long totalCents) {}
          ^</code></pre></figure>
-<p>A record has no <code>extends</code> clause: its superclass is always <code>java.lang.Record</code>. It is implicitly <code>final</code>, so it can't be <code>abstract</code> either. Its state is exactly its components, which lets the generated <code>equals</code> compare them and <code>new Invoice(i.number(), i.totalCents())</code> rebuild an equal copy. A superclass or a subclass would add state those methods can't see.</p>
-<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b7-46d9a34a.mp3">Turn <code>Audited</code> into an interface; the accessors implement its methods:</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b6-b8650229.mp3">A record has no <code>extends</code> clause: its superclass is always <code>java.lang.Record</code>. It is implicitly <code>final</code>, so it can't be <code>abstract</code> either. Its state is exactly its components, which lets the generated <code>equals</code> compare them and <code>new Invoice(i.number(), i.totalCents())</code> rebuild an equal copy. A superclass or a subclass would add state those methods can't see.</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b7-fbe37b34.mp3">Turn <code>Audited</code> into an interface; the accessors implement its methods:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">interface Audited {
     long createdAtMillis();
     default boolean olderThan(long millis, long nowMillis) { return nowMillis - createdAtMillis() &gt; millis; }
@@ -48,16 +48,16 @@ record Invoice(String number, long totalCents, long createdAtMillis) implements 
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">Invoice inv = new Invoice(&quot;I-7&quot;, 4_200, 1_000);
 System.out.println(inv + &quot; older than 1s at t=5000: &quot; + inv.olderThan(1_000, 5_000));</code></pre></figure>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">Invoice[number=I-7, totalCents=4200, createdAtMillis=1000] older than 1s at t=5000: true</code></pre></figure>
-<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b11-8a71d41f.mp3">The cost is repetition: every <code>Audited</code> record declares <code>createdAtMillis</code> itself.</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b11-366c050f.mp3">The cost is repetition: every <code>Audited</code> record declares <code>createdAtMillis</code> itself.</p>
 <!-- practice 3 -->
-<h2 id="prose-b12" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b13-2b8de05a.mp3">A Record's Only Instance State Is Its Header</h2>
-<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b14-15f7c827.mp3">javac refuses the old class's cache field, and any instance initializer:</p>
+<h2 id="prose-b12" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b13-fbada64d.mp3">A Record's Only Instance State Is Its Header</h2>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b14-1d6b1829.mp3">javac refuses the old class's cache field, and any instance initializer:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">Invoice.java:4: error: field declaration must be static
     private long totalCents = -1;                    // cache, filled on first call
                  ^
   (consider replacing field with record component)
 Invoice.java:2: error: instance initializers not allowed in records</code></pre></figure>
-<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b16-e8e3b490.mp3">The error says to make it static. What do two bills print?</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b16-5aead490.mp3">The error says to make it static. What do two bills print?</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">import java.util.List;
 
 record Bill(String number, List&lt;Long&gt; lineCents) {
@@ -74,13 +74,13 @@ System.out.println(&quot;B-1 total: &quot; + a.totalCents());
 System.out.println(&quot;B-2 total: &quot; + b.totalCents());</code></pre></figure>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">B-1 total: 1250
 B-2 total: 1250</code></pre></figure>
-<p>A static field belongs to the class, so the first bill's total became every bill's. Compute a derived value in a method on each call; if that is too slow, make it a component the constructor checks, or use a class. State that changes, such as a retry count, lives outside the record, for example in a map keyed by it.</p>
-<h2 id="prose-b20">A Framework That Builds an Object Empty, Then Fills It, Can't Build a Record</h2>
-<p>Many ORMs create an object with its no-arg constructor, then set its fields by reflection. Jakarta Persistence requires an entity to have a public or protected no-arg constructor, a class that isn't <code>final</code>, and persistent fields that aren't <code>final</code>. A record and its fields are final. A no-arg constructor can be added, but it can only delegate with placeholder values:</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b20-daef54f9.mp3">A static field belongs to the class, so the first bill's total became every bill's. Compute a derived value in a method on each call; if that is too slow, make it a component the constructor checks, or use a class. State that changes, such as a retry count, lives outside the record, for example in a map keyed by it.</p>
+<h2 id="prose-b20" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b21-b3be83ca.mp3">A Framework That Builds an Object Empty, Then Fills It, Can't Build a Record</h2>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b22-a0b74652.mp3">Many ORMs create an object with its no-arg constructor, then set its fields by reflection. Jakarta Persistence requires an entity to have a public or protected no-arg constructor, a class that isn't <code>final</code>, and persistent fields that aren't <code>final</code>. A record and its fields are final. A no-arg constructor can be added, but it can only delegate with placeholder values:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">record Customer(String name, String email) {
     Customer() { this(null, null); }                // a no-arg constructor must delegate
 }</code></pre></figure>
-<p>What a framework then does, with <code>record Point(int x, int y)</code> for comparison:</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b24-5a62b1d9.mp3">What a framework then does, with <code>record Point(int x, int y)</code> for comparison:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// Point and Customer are nested in a class Limits
 Point.class.getDeclaredConstructor();                           // throws
 Customer c = Customer.class.getDeclaredConstructor().newInstance();
@@ -90,7 +90,7 @@ name.set(c, &quot;Jane Doe&quot;);                                        // thr
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">Point no-arg constructor: java.lang.NoSuchMethodException: Limits$Point.&lt;init&gt;()
 Customer() built: Customer[name=null, email=null]
 set name: Can not set final java.lang.String field Limits$Customer.name to java.lang.String</code></pre></figure>
-<p><code>setAccessible(true)</code> lets reflection write a final instance field of an ordinary class, but not of a record. The way in is the canonical constructor, with every value at once. <code>getRecordComponents()</code> gives the components' names and types in header order:</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b27-a5527ef2.mp3"><code>setAccessible(true)</code> lets reflection write a final instance field of an ordinary class, but not of a record. The way in is the canonical constructor, with every value at once. <code>getRecordComponents()</code> gives the components' names and types in header order:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">RecordComponent[] comps = Customer.class.getRecordComponents();
 Class&lt;?&gt;[] types = Arrays.stream(comps).map(RecordComponent::getType).toArray(Class&lt;?&gt;[]::new);
 Constructor&lt;Customer&gt; canonical = Customer.class.getDeclaredConstructor(types);
@@ -98,34 +98,34 @@ System.out.println(&quot;components: &quot; + Arrays.stream(comps).map(RecordCom
 System.out.println(&quot;built: &quot; + canonical.newInstance(&quot;Jane Doe&quot;, &quot;jane@example.com&quot;));</code></pre></figure>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">components: [name, email]
 built: Customer[name=Jane Doe, email=jane@example.com]</code></pre></figure>
-<p>Mappers that support records work this way, and the constructor's checks run on every row. The entity stays a class; a record carries what is read out of it.</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b30-cd058860.mp3">Mappers that support records work this way, and the constructor's checks run on every row. The entity stays a class; a record carries what is read out of it.</p>
 <!-- practice 1 -->
-<h2 id="prose-b31">Keep a Class for Identity, Changing State, or Many Optional Parts</h2>
-<p>A record's <code>equals</code> compares components. Two different visitors with the same name and birth date check in at two gates:</p>
+<h2 id="prose-b31" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b32-83c9fd25.mp3">Keep a Class for Identity, Changing State, or Many Optional Parts</h2>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b33-0639e3b9.mp3">A record's <code>equals</code> compares components. Two different visitors with the same name and birth date check in at two gates:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">record Visitor(String name, String birthDate) {}</code></pre></figure>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">Set&lt;Visitor&gt; inside = new HashSet&lt;&gt;();
 boolean north = inside.add(new Visitor(&quot;Jane Doe&quot;, &quot;1990-04-01&quot;));    // at the north gate
 boolean south = inside.add(new Visitor(&quot;Jane Doe&quot;, &quot;1990-04-01&quot;));    // a different person, south gate</code></pre></figure>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">north added: true, south added: false, visitors inside: 1</code></pre></figure>
-<p>The two objects are distinct but equal, so the second <code>add</code> returns false and the set of who is inside counts one person. A visitor or an account stays the same thing while its data changes. That is identity, and it needs a class whose <code>equals</code> uses an id, or none. Changing a record makes a new copy, and every other holder of the old one keeps the old state.</p>
-<p>A record's canonical constructor is positional, and with four <code>int</code> components a swap compiles:</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b37-93a75ab4.mp3">The two objects are distinct but equal, so the second <code>add</code> returns false and the set of who is inside counts one person. A visitor or an account stays the same thing while its data changes. That is identity, and it needs a class whose <code>equals</code> uses an id, or none. Changing a record makes a new copy, and every other holder of the old one keeps the old state.</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b38-d9bae2bc.mp3">A record's canonical constructor is positional, and with four <code>int</code> components a swap compiles:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">record PoolConfig(int minSize, int maxSize, int idleTimeoutSeconds, int maxWaitMillis) {}</code></pre></figure>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">// meant: min 2, max 20, idle 300 s, wait 500 ms
 PoolConfig c = new PoolConfig(2, 20, 500, 300);
 System.out.println(c);</code></pre></figure>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">PoolConfig[minSize=2, maxSize=20, idleTimeoutSeconds=500, maxWaitMillis=300]</code></pre></figure>
-<p>With many components, or many optional ones, put a builder class or named factory methods in front of the record.</p>
-<p>Records fit DTOs and API responses, values such as money, map keys, several results returned together, and messages taken apart with record patterns (unit <em>Record patterns (Java 19+)</em>).</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b42-fb582871.mp3">With many components, or many optional ones, put a builder class or named factory methods in front of the record.</p>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b43-c0955895.mp3">Records fit DTOs and API responses, values such as money, map keys, several results returned together, and messages taken apart with record patterns (unit <em>Record patterns (Java 19+)</em>).</p>
 <!-- practice 2 -->
-<h2 id="prose-b44">Summary</h2>
-<ul class="items"><li><strong>A record extends only `java.lang.Record` and is `final`.</strong> Shared shape goes into an interface.</li><li><strong>A record's only instance state is its header.</strong> A static &quot;cache&quot; is shared by every instance.</li><li><strong>A framework that constructs empty, then sets fields, can't build a record.</strong> Build it through the canonical constructor.</li><li><strong>Identity, changing state and many optional parts call for a class</strong>, or a builder.</li></ul>
-<h2 id="prose-b46">Reference</h2>
-<p><strong>What a record body may declare (javac 21):</strong></p>
-<div class="scroll"><table><thead><tr><th>Declaration</th><th>Allowed</th></tr></thead><tbody><tr><td>static fields, static initializers, static and instance methods, nested types</td><td>yes</td></tr><tr><td><code>implements</code>, type parameters</td><td>yes</td></tr><tr><td>a non-canonical constructor</td><td>only if it starts with <code>this(...)</code></td></tr><tr><td><code>extends</code>, <code>abstract</code>, instance fields, instance initializers</td><td>no</td></tr></tbody></table></div>
-<h2 id="prose-b49">Challenges</h2>
-<ol class="items"><li>Your events share six components. Compare repeating them in every record with one <code>Envelope(EventId id, Instant at, Payload p)</code> that wraps a sealed <code>Payload</code>. What does each do to pattern matching?</li><li>A costly derived value is read in a sort comparator. Measure recomputing it against storing it as a checked component.</li><li>A row mapper builds records through the canonical constructor. What should it do with a missing column for an <code>int</code> component?</li></ol>
-<h2 id="prose-b51">Design Note: Why a Record Is Closed</h2>
-<p>A record promises that its state is its components and nothing else, so <code>equals</code>, <code>hashCode</code>, <code>toString</code>, deconstruction and serialization are derived from the header and agree. The cost is that a record can't join a class hierarchy, be filled lazily, or be an entity.</p>
+<h2 id="prose-b44" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b45-8e76a94a.mp3">Summary</h2>
+<ul class="items"><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b46.i1-de698d8f.mp3"><strong>A record extends only `java.lang.Record` and is `final`.</strong> Shared shape goes into an interface.</li><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b46.i2-57036d97.mp3"><strong>A record's only instance state is its header.</strong> A static &quot;cache&quot; is shared by every instance.</li><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b46.i3-dbc120c7.mp3"><strong>A framework that constructs empty, then sets fields, can't build a record.</strong> Build it through the canonical constructor.</li><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b46.i4-6dba062a.mp3"><strong>Identity, changing state and many optional parts call for a class</strong>, or a builder.</li></ul>
+<h2 id="prose-b46" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b47-71bf9093.mp3">Reference</h2>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b48-98dbe245.mp3"><strong>What a record body may declare (javac 21):</strong></p>
+<div class="scroll"><table><thead><tr><th>Declaration</th><th>Allowed</th></tr></thead><tbody><tr data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b49.r1-653ebff5.mp3"><td>static fields, static initializers, static and instance methods, nested types</td><td>yes</td></tr><tr data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b49.r2-8736da44.mp3"><td><code>implements</code>, type parameters</td><td>yes</td></tr><tr data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b49.r3-5b2eea87.mp3"><td>a non-canonical constructor</td><td>only if it starts with <code>this(...)</code></td></tr><tr data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b49.r4-7593c8f0.mp3"><td><code>extends</code>, <code>abstract</code>, instance fields, instance initializers</td><td>no</td></tr></tbody></table></div>
+<h2 id="prose-b49" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b50-40b9c8f4.mp3">Challenges</h2>
+<ol class="items"><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b51.i1-7fab8288.mp3">Your events share six components. Compare repeating them in every record with one <code>Envelope(EventId id, Instant at, Payload p)</code> that wraps a sealed <code>Payload</code>. What does each do to pattern matching?</li><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b51.i2-50ea6652.mp3">A costly derived value is read in a sort comparator. Measure recomputing it against storing it as a checked component.</li><li data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b51.i3-7f116d4a.mp3">A row mapper builds records through the canonical constructor. What should it do with a missing column for an <code>int</code> component?</li></ol>
+<h2 id="prose-b51" data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b52-770ded84.mp3">Design Note: Why a Record Is Closed</h2>
+<p data-audio="audio/02-classes-and-objects--09-records--unit-03.prose.b53-117d64b4.mp3">A record promises that its state is its components and nothing else, so <code>equals</code>, <code>hashCode</code>, <code>toString</code>, deconstruction and serialization are derived from the header and agree. The cost is that a record can't join a class hierarchy, be filled lazily, or be an entity.</p>
 <h2 id="prose-b53">Code Examples</h2>
 <div data-code-examples data-corpus="claude-senior-java-engineer-interview-preparation">
 <details data-code-example data-code-open="09-records/src/test/java/com/github/msorkhpar/claudejavatutor/records/PersonDTOTest.java">

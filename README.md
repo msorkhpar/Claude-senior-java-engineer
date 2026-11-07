@@ -113,10 +113,6 @@ deletes them too. Every setting is explained in [`course.env`](course.env).
 
 ## Narration (optional)
 
-> **Not yet available for this version.** The lessons were rewritten in November 2026 and
-> are being narrated again. Until then only the site without narration is published, and
-> `COURSE_NARRATION` should stay `without-narration`.
-
 The site is complete without narration: a lesson with no recording shows no
 player. The recordings are not stored in this repository, because of their
 size: they are assets of this repository's release, and the pulled voiced

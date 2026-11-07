@@ -25,10 +25,10 @@
 <nav aria-label="Outline"><p>On this page</p><ol><li data-level="1"><a href="#s-prose">Applying DRY in concurrent programming</a></li><li data-level="2"><a href="#prose-b3">A Lock Written at Each Call Site Is Missing at the Site That Forgets It</a></li><li data-level="2"><a href="#prose-b15">The Compound Action Belongs in the Class That Owns the Lock</a></li><li data-level="2"><a href="#prose-b25">An Action Across Two Wallets Needs One Owner for Both Balances</a></li><li data-level="2"><a href="#prose-b35">Summary</a></li><li data-level="2"><a href="#prose-b37">Reference</a></li><li data-level="2"><a href="#prose-b40">Challenges</a></li><li data-level="2"><a href="#prose-b42">Design Note: Why ConcurrentMap Has putIfAbsent</a></li><li data-level="2"><a href="#prose-b45">Code Examples</a></li><li data-level="1"><a href="#practices">Practice (3)</a></li><li data-level="2"><a href="#card-practice-prose">Charge API quota in one place</a></li><li data-level="2"><a href="#card-practice-prose-2">Keep the stock count right while stock moves</a></li><li data-level="2"><a href="#card-practice-prose-3">Check yourself: one place for a locking policy</a></li></ol></nav>
 <main id="content">
 <section id="s-prose" data-section="prose" data-kind="lesson" data-label="Applying DRY in concurrent programming">
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b2-77d4b726.mp3">A customer's prepaid wallet holds 100 credits. She buys an 80-credit item, her monthly plan renews for 30, and afterwards her balance reads 70. Checkout, gifts and renewals each charge the wallet, and each passed review. Checkout and gifts lock the wallet around the charge; the renewal job, written last, doesn't.</p>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b3-0c56538f.mp3">&quot;Hold the wallet's lock from the read to the write&quot; is knowledge in the sense of unit <em>Definition and purpose of DRY principle</em>, and here every call site has to repeat it. Every output below is from Java 21 on a 20-core machine.</p>
-<h2 id="prose-b3" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b4-db5f772e.mp3">A Lock Written at Each Call Site Is Missing at the Site That Forgets It</h2>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b5-95986900.mp3">The wallet offers a read and a write, each <code>synchronized</code>, and leaves the charge to its callers:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b2-3f6775ee.mp3">A customer's prepaid wallet holds 100 credits. She buys an 80-credit item, her monthly plan renews for 30, and afterwards her balance reads 70. Checkout, gifts and renewals each charge the wallet, and each passed review. Checkout and gifts lock the wallet around the charge; the renewal job, written last, doesn't.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b3-8df0782b.mp3">&quot;Hold the wallet's lock from the read to the write&quot; is knowledge in the sense of unit <em>Definition and purpose of DRY principle</em>, and here every call site has to repeat it. Every output below is from Java 21 on a 20-core machine.</p>
+<h2 id="prose-b3" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b4-390d22cb.mp3">A Lock Written at Each Call Site Is Missing at the Site That Forgets It</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b5-4b2a5c58.mp3">The wallet offers a read and a write, each <code>synchronized</code>, and leaves the charge to its callers:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">/** A customer's prepaid credits. A caller that reads and then writes holds the wallet's monitor across both. */
 public class Wallet {
     private long credits;
@@ -45,7 +45,7 @@ public class Wallet {
         this.credits = credits;
     }
 }</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b7-10fb70ce.mp3">Checkout follows the class comment, and <code>Gifts.send</code> has the same body. The renewal job asks the tax service for the tax between its read and its write:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b7-4c86a189.mp3">Checkout follows the class comment, and <code>Gifts.send</code> has the same body. The renewal job asks the tax service for the tax between its read and its write:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">public boolean buy(Wallet wallet, long price) {
     synchronized (wallet) {
         long balance = wallet.balance();
@@ -62,7 +62,7 @@ public boolean renew(Wallet wallet, long planPrice) throws InterruptedException 
     wallet.setBalance(balance - due);
     return true;
 }</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b9-c1745c98.mp3">To get the bad order on every run, the test's tax service waits on a latch, and a checkout runs while the renewal waits:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b9-7f8d7ec6.mp3">To get the bad order on every run, the test's tax service waits on a latch, and a checkout runs while the renewal waits:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">CallSites.Taxes taxes = price -&gt; {
     inTaxCall.countDown();
     taxAnswers.await();
@@ -76,8 +76,8 @@ taxAnswers.countDown();</code></pre></figure>
 checkout 80: true, balance 20
 renewal 27 + 3 tax: true, balance 70
 sold 110 credits, the balance fell by 30</code></pre></figure>
-<p>The renewal kept 100 in a local variable, and its <code>setBalance(70)</code> overwrote the checkout's charge. Each method of <code>Wallet</code> is atomic; the charge is a check followed by an act across two of them (unit <em>Monitors and synchronized blocks</em>). The renewal takes the monitor for each call and lets go in between, so checkout's lock, held from read to write, never keeps it out.</p>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b13-26690257.mp3">With an instant tax service and no latch, seven checkout threads and one renewal thread drain a million-credit wallet, ten times:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b12-a475ce65.mp3">The renewal kept 100 in a local variable, and its <code>setBalance(70)</code> overwrote the checkout's charge. Each method of <code>Wallet</code> is atomic; the charge is a check followed by an act across two of them (unit <em>Monitors and synchronized blocks</em>). The renewal takes the monitor for each call and lets go in between, so checkout's lock, held from read to write, never keeps it out.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b13-706869de.mp3">With an instant tax service and no latch, seven checkout threads and one renewal thread drain a million-credit wallet, ten times:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">run  1: sold 1589562, debited 1000000, lost 589562
 run  2: sold 1661016, debited 1000000, lost 661016
 run  3: sold 1621688, debited 1000000, lost 621688
@@ -89,9 +89,9 @@ run  8: sold 1470406, debited 1000000, lost 470406
 run  9: sold 1576134, debited 1000000, lost 576134
 run 10: sold 1699756, debited 1000000, lost 699756
 runs with lost credits: 10 of 10</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b15-807b7ebc.mp3">Every run lost credits, as did 30 more, by different amounts each run. The losses are debits made by the locked checkouts and overwritten by the renewal. The class's public setter is what lets any caller compose the charge.</p>
-<h2 id="prose-b15">The Compound Action Belongs in the Class That Owns the Lock</h2>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b17-07117973.mp3">The charge moves into <code>Wallet</code>, and the setter goes:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b15-8261fc51.mp3">Every run lost credits, as did 30 more, by different amounts each run. The losses are debits made by the locked checkouts and overwritten by the renewal. The class's public setter is what lets any caller compose the charge.</p>
+<h2 id="prose-b15" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b16-624896ad.mp3">The Compound Action Belongs in the Class That Owns the Lock</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b17-388d8b88.mp3">The charge moves into <code>Wallet</code>, and the setter goes:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">/** A customer's prepaid credits. Thread-safe: every read and change of credits holds this wallet's monitor. */
 public class Wallet {
     private long credits;
@@ -114,13 +114,13 @@ public class Wallet {
         credits += amount;
     }
 }</code></pre></figure>
-<p>Checkout and gifts become <code>return wallet.tryDebit(price);</code>. The renewal asks for the tax first, then calls <code>wallet.tryDebit(due)</code>. The same latch and the same order:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b19-036bbbb5.mp3">Checkout and gifts become <code>return wallet.tryDebit(price);</code>. The renewal asks for the tax first, then calls <code>wallet.tryDebit(due)</code>. The same latch and the same order:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">renewal waits for the tax service; balance 100
 checkout 80: true, balance 20
 renewal 27 + 3 tax: false, balance 20
 sold 80 credits, the balance fell by 80</code></pre></figure>
-<p>The renewal still waits for the tax service at the same moment, but it holds no balance while it waits. The ten stress runs end with <code>runs with lost credits: 0 of 10</code>, and so do three more sets of ten. Clean runs are a sample; the reason it holds is in one file: after construction, every method that reads or changes <code>credits</code> is <code>synchronized</code> on the wallet, with the lock named next to the field as in unit <em>Best practices for safe concurrent programming</em>.</p>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b22-3c3cabb5.mp3">Deleting <code>setBalance</code> also tells you where the old rule was written. Compiling the old call sites against the new <code>Wallet</code>:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b21-00ca66e2.mp3">The renewal still waits for the tax service at the same moment, but it holds no balance while it waits. The ten stress runs end with <code>runs with lost credits: 0 of 10</code>, and so do three more sets of ten. Clean runs are a sample; the reason it holds is in one file: after construction, every method that reads or changes <code>credits</code> is <code>synchronized</code> on the wallet, with the lock named next to the field as in unit <em>Best practices for safe concurrent programming</em>.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b22-f17a5939.mp3">Deleting <code>setBalance</code> also tells you where the old rule was written. Compiling the old call sites against the new <code>Wallet</code>:</p>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">CallSites.java:14: error: cannot find symbol
                 wallet.setBalance(balance - price);
                       ^
@@ -137,15 +137,15 @@ CallSites.java:42: error: cannot find symbol
   symbol:   method setBalance(long)
   location: variable wallet of type Wallet
 3 errors</code></pre></figure>
-<p>javac lists all three call sites, the two locked ones and the renewal. A shared <code>withLock(wallet, ...)</code> helper would remove the repeated <code>synchronized</code> lines but none of these errors: each caller would still read, decide and write, and a caller that skips the helper still compiles. What one fix in the owning class buys later is unit <em>Benefits of DRY for concurrency</em>.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b24-72342921.mp3">javac lists all three call sites, the two locked ones and the renewal. A shared <code>withLock(wallet, ...)</code> helper would remove the repeated <code>synchronized</code> lines but none of these errors: each caller would still read, decide and write, and a caller that skips the helper still compiles. What one fix in the owning class buys later is unit <em>Benefits of DRY for concurrency</em>.</p>
 <!-- practice 1 -->
-<h2 id="prose-b25" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b26-658d689e.mp3">An Action Across Two Wallets Needs One Owner for Both Balances</h2>
-<p>A gift is a debit from one wallet and a credit to another, two calls, and the reconciliation job sums every wallet while gifts are in flight. Ann and Bo, with 100 credits each, send each other one credit a million times while an auditor sums their balances, first with <code>Wallet</code> as it is:</p>
+<h2 id="prose-b25" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b26-e9f9c236.mp3">An Action Across Two Wallets Needs One Owner for Both Balances</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b27-021df6e4.mp3">A gift is a debit from one wallet and a credit to another, two calls, and the reconciliation job sums every wallet while gifts are in flight. Ann and Bo, with 100 credits each, send each other one credit a million times while an auditor sums their balances, first with <code>Wallet</code> as it is:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">if (ann.tryDebit(1)) bo.credit(1);        // Ann sends Bo a gift
 if (bo.tryDebit(1)) ann.credit(1);        // and Bo sends one back
 // the auditor's total, read in a loop on another thread:
 () -&gt; ann.balance() + bo.balance()</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b29-418702e8.mp3">then with one class that owns every balance:</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b29-dfdb3cb3.mp3">then with one class that owns every balance:</p>
 <figure class="code"><figcaption><span class="what">java</span></figcaption><pre><code class="language-java">import java.util.HashMap;
 import java.util.Map;
 
@@ -182,20 +182,20 @@ public class Wallets {
 }</code></pre></figure>
 <figure class="code"><figcaption><span class="what">text</span></figcaption><pre><code class="language-text">one lock per wallet  1,472,320 audits, 1,337,515 saw a total other than 200 (from 199 to 201)
 one lock for all     2,644,166 audits, 0 saw a total other than 200 (from 200 to 200)</code></pre></figure>
-<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b32-c794075a.mp3">Two compound actions span both wallets: the gift, between its debit and its credit, and the audit, between its two reads. Both 199 and 201 are audits whose two reads straddled part of a gift: one that landed between a debit and its credit sees a credit missing, and one that read Ann before a gift from her and Bo after it counts the credit twice. Each wallet's lock covers one balance, and the rule &quot;the total doesn't change&quot; covers two, so its lock belongs to the object that owns both.</p>
-<p>The cost is that every charge, gift and audit in the process now waits for one monitor. Fixed-order locking of both wallets (unit <em>Monitors and synchronized blocks</em>) keeps unrelated gifts parallel, but an audit must then take every wallet's lock.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b32-83e42cb8.mp3">Two compound actions span both wallets: the gift, between its debit and its credit, and the audit, between its two reads. Both 199 and 201 are audits whose two reads straddled part of a gift: one that landed between a debit and its credit sees a credit missing, and one that read Ann before a gift from her and Bo after it counts the credit twice. Each wallet's lock covers one balance, and the rule &quot;the total doesn't change&quot; covers two, so its lock belongs to the object that owns both.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b33-85ed2bda.mp3">The cost is that every charge, gift and audit in the process now waits for one monitor. Fixed-order locking of both wallets (unit <em>Monitors and synchronized blocks</em>) keeps unrelated gifts parallel, but an audit must then take every wallet's lock.</p>
 <!-- practice 2 -->
 <!-- practice 3 -->
-<h2 id="prose-b35">Summary</h2>
-<ul class="items"><li><strong>A lock written at each call site is missing at the site that forgets it.</strong> One unlocked renewal wrote back a stale balance, overwriting debits made by the locked checkouts in every stress run.</li><li><strong>The compound action belongs in the class that owns the lock.</strong> With <code>tryDebit</code> the same forced order declines the renewal, and deleting the setter makes javac list every caller that composed the charge.</li><li><strong>An action across two objects needs one owner for both.</strong> Two thread-safe wallets still showed wrong totals to nine audits in ten; one class with one lock showed none, at the price of one monitor for all wallets.</li></ul>
-<h2 id="prose-b37">Reference</h2>
-<p>Where the JDK puts compound actions (Java 21 javadoc):</p>
-<div class="scroll"><table><thead><tr><th>Class</th><th>Compound actions the class performs atomically</th><th>Left to the caller</th></tr></thead><tbody><tr><td><code>Collections.synchronizedList</code></td><td>none beyond single calls</td><td>iteration: &quot;the user manually synchronize on the returned list when traversing it&quot;</td></tr><tr><td><code>ConcurrentHashMap</code></td><td><code>putIfAbsent</code>, <code>replace</code>, <code>compute</code>, <code>merge</code> for one key</td><td>actions across keys (unit <em>Atomicity violations and ensuring atomic operations</em>)</td></tr><tr><td><code>AtomicLong</code></td><td><code>compareAndSet</code>, <code>updateAndGet</code>, <code>accumulateAndGet</code></td><td>actions across two variables</td></tr></tbody></table></div>
-<h2 id="prose-b40">Challenges</h2>
-<ol class="items"><li>Product asks for &quot;pay what the wallet covers, the rest by card&quot;. Write it as a caller of <code>balance()</code> and <code>tryDebit()</code>, then as a method of <code>Wallet</code>. What can the caller version charge when a checkout runs in between?</li><li><code>Wallets</code> serializes every wallet in the process. Measure checkouts per second with 1, 8 and 32 threads, then try one lock per wallet with ordered locking for transfers. What does the audit cost in each design?</li><li>Find a class in your code whose Javadoc tells callers which lock to hold. Which of its callers would javac list if you removed the methods that make the rule necessary?</li></ol>
-<h2 id="prose-b42">Design Note: Why ConcurrentMap Has putIfAbsent</h2>
-<p>The synchronized collections made each call atomic and left compound actions to their callers, with the collection itself as the lock; their javadoc still tells callers to lock it for iteration. Java 5's <code>ConcurrentMap</code> moved the common compound actions into the interface (<code>putIfAbsent</code>, <code>replace</code>, <code>remove(key, value)</code>), and Java 8 added <code>compute</code> and <code>merge</code>, where the caller passes the decision as a function, which <code>ConcurrentHashMap</code> runs atomically.</p>
-<p>A class can offer only the compound actions its authors foresaw, so a new one means a new method. Accepting a function instead runs the caller's code while the map holds a lock of its own, and <code>ConcurrentHashMap</code>'s javadoc asks that the function be &quot;short and simple&quot; and not modify the map.</p>
+<h2 id="prose-b35" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b36-8e76a94a.mp3">Summary</h2>
+<ul class="items"><li data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b37.i1-fe7bc6f7.mp3"><strong>A lock written at each call site is missing at the site that forgets it.</strong> One unlocked renewal wrote back a stale balance, overwriting debits made by the locked checkouts in every stress run.</li><li data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b37.i2-6f667f1b.mp3"><strong>The compound action belongs in the class that owns the lock.</strong> With <code>tryDebit</code> the same forced order declines the renewal, and deleting the setter makes javac list every caller that composed the charge.</li><li data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b37.i3-dcab951c.mp3"><strong>An action across two objects needs one owner for both.</strong> Two thread-safe wallets still showed wrong totals to nine audits in ten; one class with one lock showed none, at the price of one monitor for all wallets.</li></ul>
+<h2 id="prose-b37" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b38-71bf9093.mp3">Reference</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b39-c512655a.mp3">Where the JDK puts compound actions (Java 21 javadoc):</p>
+<div class="scroll"><table><thead><tr><th>Class</th><th>Compound actions the class performs atomically</th><th>Left to the caller</th></tr></thead><tbody><tr data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b40.r1-edda5994.mp3"><td><code>Collections.synchronizedList</code></td><td>none beyond single calls</td><td>iteration: &quot;the user manually synchronize on the returned list when traversing it&quot;</td></tr><tr data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b40.r2-52cdcdb9.mp3"><td><code>ConcurrentHashMap</code></td><td><code>putIfAbsent</code>, <code>replace</code>, <code>compute</code>, <code>merge</code> for one key</td><td>actions across keys (unit <em>Atomicity violations and ensuring atomic operations</em>)</td></tr><tr data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b40.r3-8c0fbbaf.mp3"><td><code>AtomicLong</code></td><td><code>compareAndSet</code>, <code>updateAndGet</code>, <code>accumulateAndGet</code></td><td>actions across two variables</td></tr></tbody></table></div>
+<h2 id="prose-b40" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b41-40b9c8f4.mp3">Challenges</h2>
+<ol class="items"><li data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b42.i1-ac374afd.mp3">Product asks for &quot;pay what the wallet covers, the rest by card&quot;. Write it as a caller of <code>balance()</code> and <code>tryDebit()</code>, then as a method of <code>Wallet</code>. What can the caller version charge when a checkout runs in between?</li><li data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b42.i2-27d63738.mp3"><code>Wallets</code> serializes every wallet in the process. Measure checkouts per second with 1, 8 and 32 threads, then try one lock per wallet with ordered locking for transfers. What does the audit cost in each design?</li><li data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b42.i3-2564afe1.mp3">Find a class in your code whose Javadoc tells callers which lock to hold. Which of its callers would javac list if you removed the methods that make the rule necessary?</li></ol>
+<h2 id="prose-b42" data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b43-3f00a3bc.mp3">Design Note: Why ConcurrentMap Has putIfAbsent</h2>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b44-00612791.mp3">The synchronized collections made each call atomic and left compound actions to their callers, with the collection itself as the lock; their javadoc still tells callers to lock it for iteration. Java 5's <code>ConcurrentMap</code> moved the common compound actions into the interface (<code>putIfAbsent</code>, <code>replace</code>, <code>remove(key, value)</code>), and Java 8 added <code>compute</code> and <code>merge</code>, where the caller passes the decision as a function, which <code>ConcurrentHashMap</code> runs atomically.</p>
+<p data-audio="audio/08-principles--33-dry-principle--unit-02.prose.b45-e6abbafb.mp3">A class can offer only the compound actions its authors foresaw, so a new one means a new method. Accepting a function instead runs the caller's code while the map holds a lock of its own, and <code>ConcurrentHashMap</code>'s javadoc asks that the function be &quot;short and simple&quot; and not modify the map.</p>
 <h2 id="prose-b45">Code Examples</h2>
 <div data-code-examples data-corpus="claude-senior-java-engineer-interview-preparation">
 <details data-code-example data-code-open="33-dry-principle/src/test/java/com/github/msorkhpar/claudejavatutor/dryprinciple/DryConcurrencyPatternsTest.java">
