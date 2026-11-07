@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Area and perimeter behind one abstraction",
+  "title": "Give every carrier's rate card the same checks and its own rates",
   "blocks": [
     {
       "type": "heading",
@@ -19,42 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Abstraction keeps what matters and hides the rest. Every shape can say its area and its perimeter; **how** it computes them is its own business. The lesson's abstract `Shape` declares exactly those two methods."
+      "text": "The shop ships with several carriers, and each carrier's rates come from a slow lookup: a carrier's API, or a file. `Shipping.CachedRateCard` is the base class for them, and `Shipping.ParcelPost` is the first carrier. The freight team will add theirs next month, as their own subclass, and the last time they did, two things went wrong: their card was created with the currency `\"usd\"`, and every invoice it produced was refused by the bank; and once both carriers had quoted the same zone, the checkout page showed Parcel Post's price for freight."
     },
     {
       "type": "para",
-      "text": "In `Figures`, implement three shapes behind that abstraction:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/Shipping.java`, both in `CachedRateCard`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Circle(double radius)`: area `π·r²`, perimeter `2·π·r`.",
-        "`Square(double side)`: area `side²`, perimeter `4·side`.",
-        "`Triangle(double a, double b, double c)`: perimeter `a + b + c`; area by Heron's formula, `√(s·(s−a)·(s−b)·(s−c))` with `s` half the perimeter."
+        "the constructor: no carrier's card, today's or one written later, can exist with a currency that isn't an ISO 4217 code (three capital letters); refuse one with `IllegalArgumentException`;",
+        "`rateCents(zone)`: the card's rate for the zone, looking each zone up at most once for that card."
       ]
     },
     {
       "type": "para",
-      "text": "The constructors refuse bad input with `IllegalArgumentException`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "a square's side, and a circle's radius, must be greater than 0;",
-        "a triangle's sides must each be shorter than the sum of the other two, in any order. Sides that only **equal** that sum lie on one line and are refused too."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Circle(1).area()          -> 3.14159...   perimeter() -> 6.28318...\nnew Square(2).area()          -> 4.0          perimeter() -> 8.0\nnew Triangle(3, 4, 5).area()  -> 6.0          perimeter() -> 12.0\nnew Triangle(1, 2, 10)        -> IllegalArgumentException\nnew Triangle(10, 2, 1)        -> IllegalArgumentException\nnew Triangle(1, 2, 3)         -> IllegalArgumentException\nnew Square(0)                 -> IllegalArgumentException"
+      "text": "About six lines in total. The tests add a carrier of their own, the way the freight team will."
     },
     {
       "type": "heading",
@@ -69,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class Figures {\n\n    public abstract static class Shape {\n        public abstract double area();\n\n        public abstract double perimeter();\n    }\n\n    public static class Circle extends Shape {\n        private final double radius;\n\n        public Circle(double radius) {\n            if (radius <= 0) {\n                throw new IllegalArgumentException(\"a radius must be positive\");\n            }\n            this.radius = radius;\n        }\n\n        @Override\n        public double area() {\n            return Math.PI * radius * radius;\n        }\n\n        @Override\n        public double perimeter() {\n            return 2 * Math.PI * radius;\n        }\n    }\n\n    public static class Square extends Shape {\n        private final double side;\n\n        public Square(double side) {\n            if (side <= 0) {\n                throw new IllegalArgumentException(\"a side must be positive\");\n            }\n            this.side = side;\n        }\n\n        @Override\n        public double area() {\n            return side * side;\n        }\n\n        @Override\n        public double perimeter() {\n            return 4 * side;\n        }\n    }\n\n    public static class Triangle extends Shape {\n        private final double a;\n        private final double b;\n        private final double c;\n\n        public Triangle(double a, double b, double c) {\n            if (a + b <= c || a + c <= b || b + c <= a) {\n                throw new IllegalArgumentException(\"these sides make no triangle\");\n            }\n            this.a = a;\n            this.b = b;\n            this.c = c;\n        }\n\n        @Override\n        public double area() {\n            double s = perimeter() / 2;\n            return Math.sqrt(s * (s - a) * (s - b) * (s - c));\n        }\n\n        @Override\n        public double perimeter() {\n            return a + b + c;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Rate cards of the carriers the shop ships with. */\npublic class Shipping {\n\n    /** What a carrier charges to ship one parcel to a zone. */\n    public interface RateCard {\n        /** The price, in minor units of {@link #currency()}, of one parcel to {@code zone}. */\n        long rateCents(String zone);\n\n        /** The ISO 4217 code of the currency the rates are in, such as \"EUR\". */\n        String currency();\n    }\n\n    /**\n     * Base class for carriers whose rates come from a slow lookup (a carrier's API, a file).\n     * Subclasses say how to look one rate up; this class remembers what it looked up.\n     */\n    public abstract static class CachedRateCard implements RateCard {\n        private final String currency;\n        private final Map<String, Long> known = new HashMap<>();\n\n        protected CachedRateCard(String currency) {\n            if (currency == null || !currency.matches(\"[A-Z]{3}\")) {\n                throw new IllegalArgumentException(\"not an ISO 4217 code: \" + currency);\n            }\n            this.currency = currency;\n        }\n\n        /** Looks one rate up; slow, so called at most once per zone for each card. */\n        protected abstract long lookUp(String zone);\n\n        @Override\n        public final long rateCents(String zone) {\n            return known.computeIfAbsent(zone, this::lookUp);\n        }\n\n        @Override\n        public String currency() {\n            return currency;\n        }\n    }\n\n    /** Parcel Post: its rates come from a table it is given. */\n    public static class ParcelPost extends CachedRateCard {\n        private final Map<String, Long> table;\n\n        public ParcelPost(String currency, Map<String, Long> table) {\n            super(currency);\n            this.table = Map.copyOf(table);\n        }\n\n        @Override\n        protected long lookUp(String zone) {\n            Long rate = table.get(zone);\n            if (rate == null) throw new IllegalArgumentException(\"Parcel Post doesn't ship to \" + zone);\n            return rate;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -81,18 +62,18 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class Figures {\n\n    public abstract static class Shape {\n        public abstract double area();\n\n        public abstract double perimeter();\n    }\n\n    public static class Circle extends Shape {\n        public Circle(double radius) {\n            throw new UnsupportedOperationException(\"write the Circle constructor\");\n        }\n\n        @Override\n        public double area() {\n            throw new UnsupportedOperationException(\"write Circle.area\");\n        }\n\n        @Override\n        public double perimeter() {\n            throw new UnsupportedOperationException(\"write Circle.perimeter\");\n        }\n    }\n\n    public static class Square extends Shape {\n        public Square(double side) {\n            throw new UnsupportedOperationException(\"write the Square constructor\");\n        }\n\n        @Override\n        public double area() {\n            throw new UnsupportedOperationException(\"write Square.area\");\n        }\n\n        @Override\n        public double perimeter() {\n            throw new UnsupportedOperationException(\"write Square.perimeter\");\n        }\n    }\n\n    public static class Triangle extends Shape {\n        public Triangle(double a, double b, double c) {\n            throw new UnsupportedOperationException(\"write the Triangle constructor\");\n        }\n\n        @Override\n        public double area() {\n            throw new UnsupportedOperationException(\"write Triangle.area\");\n        }\n\n        @Override\n        public double perimeter() {\n            throw new UnsupportedOperationException(\"write Triangle.perimeter\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\n\n/** Rate cards of the carriers the shop ships with. */\npublic class Shipping {\n\n    /** What a carrier charges to ship one parcel to a zone. */\n    public interface RateCard {\n        /** The price, in minor units of {@link #currency()}, of one parcel to {@code zone}. */\n        long rateCents(String zone);\n\n        /** The ISO 4217 code of the currency the rates are in, such as \"EUR\". */\n        String currency();\n    }\n\n    /**\n     * Base class for carriers whose rates come from a slow lookup (a carrier's API, a file).\n     * Subclasses say how to look one rate up; this class remembers what it looked up.\n     */\n    public abstract static class CachedRateCard implements RateCard {\n        private final String currency;\n\n        protected CachedRateCard(String currency) {\n            // TODO: Invoices are refused by the bank unless the currency is an ISO 4217 code:\n            //       three capital letters, such as \"EUR\". Make sure no rate card of any carrier,\n            //       today's or one written later, can exist with anything else (refuse it with\n            //       IllegalArgumentException), then keep the code.\n            throw new IllegalStateException(\"TODO: CachedRateCard constructor\");\n        }\n\n        /** Looks one rate up; slow, so called at most once per zone for each card. */\n        protected abstract long lookUp(String zone);\n\n        @Override\n        public final long rateCents(String zone) {\n            // TODO: Answer with this card's rate for the zone, calling lookUp at most once per\n            //       zone for this card.\n            throw new IllegalStateException(\"TODO: rateCents\");\n        }\n\n        @Override\n        public String currency() {\n            return currency;\n        }\n    }\n\n    /** Parcel Post: its rates come from a table it is given. */\n    public static class ParcelPost extends CachedRateCard {\n        private final Map<String, Long> table;\n\n        public ParcelPost(String currency, Map<String, Long> table) {\n            super(currency);\n            this.table = Map.copyOf(table);\n        }\n\n        @Override\n        protected long lookUp(String zone) {\n            Long rate = table.get(zone);\n            if (rate == null) throw new IllegalArgumentException(\"Parcel Post doesn't ship to \" + zone);\n            return rate;\n        }\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
+    "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -100,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e20868206849eab2f9cdb0b14d4dee3e7f37dd945a4331996c0928cc211f1ca5",
-  "starting_code": "package practice;\n\npublic class Figures {\n\n    public abstract static class Shape {\n        public abstract double area();\n\n        public abstract double perimeter();\n    }\n\n    public static class Circle extends Shape {\n        public Circle(double radius) {\n            throw new UnsupportedOperationException(\"write the Circle constructor\");\n        }\n\n        @Override\n        public double area() {\n            throw new UnsupportedOperationException(\"write Circle.area\");\n        }\n\n        @Override\n        public double perimeter() {\n            throw new UnsupportedOperationException(\"write Circle.perimeter\");\n        }\n    }\n\n    public static class Square extends Shape {\n        public Square(double side) {\n            throw new UnsupportedOperationException(\"write the Square constructor\");\n        }\n\n        @Override\n        public double area() {\n            throw new UnsupportedOperationException(\"write Square.area\");\n        }\n\n        @Override\n        public double perimeter() {\n            throw new UnsupportedOperationException(\"write Square.perimeter\");\n        }\n    }\n\n    public static class Triangle extends Shape {\n        public Triangle(double a, double b, double c) {\n            throw new UnsupportedOperationException(\"write the Triangle constructor\");\n        }\n\n        @Override\n        public double area() {\n            throw new UnsupportedOperationException(\"write Triangle.area\");\n        }\n\n        @Override\n        public double perimeter() {\n            throw new UnsupportedOperationException(\"write Triangle.perimeter\");\n        }\n    }\n}\n",
+  "content_sha256": "8b593a81e6023cf10784c4e4ad5ed75d6e11f5e7a58943d244f6255ab6162f03",
+  "starting_code": "package practice;\n\nimport java.util.Map;\n\n/** Rate cards of the carriers the shop ships with. */\npublic class Shipping {\n\n    /** What a carrier charges to ship one parcel to a zone. */\n    public interface RateCard {\n        /** The price, in minor units of {@link #currency()}, of one parcel to {@code zone}. */\n        long rateCents(String zone);\n\n        /** The ISO 4217 code of the currency the rates are in, such as \"EUR\". */\n        String currency();\n    }\n\n    /**\n     * Base class for carriers whose rates come from a slow lookup (a carrier's API, a file).\n     * Subclasses say how to look one rate up; this class remembers what it looked up.\n     */\n    public abstract static class CachedRateCard implements RateCard {\n        private final String currency;\n\n        protected CachedRateCard(String currency) {\n            // TODO: Invoices are refused by the bank unless the currency is an ISO 4217 code:\n            //       three capital letters, such as \"EUR\". Make sure no rate card of any carrier,\n            //       today's or one written later, can exist with anything else (refuse it with\n            //       IllegalArgumentException), then keep the code.\n            throw new IllegalStateException(\"TODO: CachedRateCard constructor\");\n        }\n\n        /** Looks one rate up; slow, so called at most once per zone for each card. */\n        protected abstract long lookUp(String zone);\n\n        @Override\n        public final long rateCents(String zone) {\n            // TODO: Answer with this card's rate for the zone, calling lookUp at most once per\n            //       zone for this card.\n            throw new IllegalStateException(\"TODO: rateCents\");\n        }\n\n        @Override\n        public String currency() {\n            return currency;\n        }\n    }\n\n    /** Parcel Post: its rates come from a table it is given. */\n    public static class ParcelPost extends CachedRateCard {\n        private final Map<String, Long> table;\n\n        public ParcelPost(String currency, Map<String, Long> table) {\n            super(currency);\n            this.table = Map.copyOf(table);\n        }\n\n        @Override\n        protected long lookUp(String zone) {\n            Long rate = table.get(zone);\n            if (rate == null) throw new IllegalArgumentException(\"Parcel Post doesn't ship to \" + zone);\n            return rate;\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-1/src/main/java/practice/Figures.java",
-    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-1/src/test/java/practice/FiguresTest.java",
+    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-1/src/main/java/practice/Shipping.java",
+    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-03/practice-1/src/test/java/practice/ShippingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -125,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FiguresTest#eachFigureAnswersBothQuestions",
+        "id": "practice.ShippingTest#parcelPostQuotesFromItsTableInAnIsoCurrency",
         "kind": "main",
-        "says": "A circle, a square and a 3-4-5 triangle each report their own area and perimeter through the abstract Shape."
+        "says": "Parcel Post quotes the rates of its table, in its currency, and refuses a currency that isn't three capital letters"
       },
       {
-        "id": "practice.FiguresTest#impossibleTrianglesAreRefusedInAnyOrder",
-        "kind": "edge",
-        "says": "Sides 1, 2 and 10 cannot make a triangle, whichever order they come in, and are refused."
+        "id": "practice.ShippingTest#aCarrierLooksEachZoneUpOnce",
+        "kind": "main",
+        "says": "a carrier's card looks each zone up once, however often the zone is asked for"
       },
       {
-        "id": "practice.FiguresTest#aFlatTriangleIsRefused",
+        "id": "practice.ShippingTest#aCarrierWrittenLaterCantHaveALowerCaseCurrency",
         "kind": "edge",
-        "says": "Sides 1, 2 and 3 lie on one line, so they make no triangle and are refused."
+        "says": "a carrier written later, as its own subclass with its own constructor, still can't be created with a currency that isn't an ISO code"
       },
       {
-        "id": "practice.FiguresTest#aSquareNeedsAPositiveSide",
+        "id": "practice.ShippingTest#twoCarriersKeepTheirOwnRatesForTheSameZone",
         "kind": "edge",
-        "says": "A square with a zero or negative side is refused."
+        "says": "two carriers asked for the same zone each answer with their own rate"
       }
     ],
     "report": {
@@ -151,10 +132,11 @@
     },
     "origin": {
       "path": "08-object-oriented/README_2.3.3.md",
-      "section": "Focusing on Essential Features and Behavior"
+      "section": "An Abstract Class Can't Be Instantiated, but Its Constructor Runs for Every Subclass"
     },
     "concepts": [
-      "An abstraction declares what every kind of object must do, such as area and perimeter, and leaves how to each implementation."
+      "An abstract class can't be instantiated, but its constructor runs for every subclass, anonymous ones included, so the checks every subclass needs go there.",
+      "Every field of an interface is public static final, so a mutable object declared there is one shared value for every implementation, and per-object state needs an abstract class."
     ]
   }
 }

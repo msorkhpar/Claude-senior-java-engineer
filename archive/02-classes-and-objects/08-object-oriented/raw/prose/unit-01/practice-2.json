@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "The order constructors run in",
+  "title": "Retry refunds the way the platform allows",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Constructors are not inherited, and every constructor runs its superclass's constructor **first**, through an explicit or implicit `super(...)`. A constructor may instead hand over to another constructor of the same class with `this(...)`. Building an object therefore runs a **chain** of constructors, from the top of the hierarchy down."
+      "text": "The payment service sends charges and refunds to the bank. A charge sent twice charges the customer twice, so a `Payment` is tried once. A refund carries the key of the charge it reverses, and the bank applies it once however often it arrives, so refunds implement the platform team's `Idempotent` interface, which says how often an idempotent operation may be tried. The platform team sets that number from its configuration and changes it when the bank's limits change."
     },
     {
       "type": "para",
-      "text": "In `Chain`, each constructor records one line in the shared `log` it is given, **after** the constructor it chains to has finished:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/Retries.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Vehicle(String brand, List<String> log)` stores the brand in its `protected` field and records `\"Vehicle <brand>\"`.",
-        "`Car(String brand, int doors, List<String> log)` stores the doors in its `protected` field and records `\"Car <doors> doors\"`.",
-        "`Car(String brand, List<String> log)` is a four-door car: it hands over to the full constructor with `this(...)` and records nothing of its own.",
-        "`SportsCar(String brand, List<String> log)` is a two-door `Car` and records `\"SportsCar\"`.",
-        "`SportsCar.describe()` returns `\"<brand> sports car with <doors> doors\"`, read from the fields its superclasses set."
+        "`send(...)`: try a payment until the bank accepts it or the payment has used its attempts;",
+        "`Refund.maxAttempts()`: how many times a refund may be tried."
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new SportsCar(\"Ferrari\", log)  -> log [\"Vehicle Ferrari\", \"Car 2 doors\", \"SportsCar\"]\n  .describe()                  -> \"Ferrari sports car with 2 doors\"\nnew Car(\"Fiat\", log)           -> log [\"Vehicle Fiat\", \"Car 4 doors\"]"
+      "type": "para",
+      "text": "When you're done, charges are still sent once, and a failing refund is tried exactly as often as the platform's policy allows at the time, today and after the platform changes it. About five lines in total."
     },
     {
       "type": "heading",
@@ -59,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic class Chain {\n\n    public static class Vehicle {\n        protected final String brand;\n\n        public Vehicle(String brand, List<String> log) {\n            this.brand = brand;\n            log.add(\"Vehicle \" + brand);\n        }\n    }\n\n    public static class Car extends Vehicle {\n        protected final int doors;\n\n        public Car(String brand, int doors, List<String> log) {\n            super(brand, log);\n            this.doors = doors;\n            log.add(\"Car \" + doors + \" doors\");\n        }\n\n        /** A four-door car. */\n        public Car(String brand, List<String> log) {\n            this(brand, 4, log);\n        }\n    }\n\n    public static class SportsCar extends Car {\n\n        public SportsCar(String brand, List<String> log) {\n            super(brand, 2, log);\n            log.add(\"SportsCar\");\n        }\n\n        public String describe() {\n            return brand + \" sports car with \" + doors + \" doors\";\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.function.BooleanSupplier;\n\n/** Sending payments to the bank, with retries where they are safe. */\npublic class Retries {\n\n    /** How many times an idempotent operation may be tried. The platform's configuration sets it. */\n    public static int idempotentAttempts = 4;\n\n    /** The platform team's interface for operations that are safe to repeat. */\n    public interface Idempotent {\n        /** The key the bank uses to recognise a repeat of the same operation. */\n        String key();\n\n        default int maxAttempts() { return idempotentAttempts; }\n    }\n\n    /** A money movement. A charge sent twice charges twice, so by default a payment is tried once. */\n    public static class Payment {\n        private final long cents;\n\n        public Payment(long cents) { this.cents = cents; }\n\n        public long cents() { return cents; }\n\n        public int maxAttempts() { return 1; }\n    }\n\n    public static class Charge extends Payment {\n        public Charge(long cents) { super(cents); }\n    }\n\n    /** A refund carries the key of the charge it reverses, so the bank applies it once however often it is sent. */\n    public static class Refund extends Payment implements Idempotent {\n        private final String key;\n\n        public Refund(long cents, String chargeKey) {\n            super(cents);\n            this.key = \"refund-\" + chargeKey;\n        }\n\n        @Override public String key() { return key; }\n\n        @Override public int maxAttempts() {\n            return Idempotent.super.maxAttempts();\n        }\n    }\n\n    /**\n     * Sends a payment: makes one attempt after another until one succeeds or the payment has used\n     * every attempt it is allowed. Returns whether an attempt succeeded.\n     */\n    public static boolean send(Payment payment, BooleanSupplier attempt) {\n        for (int i = 0; i < payment.maxAttempts(); i++) {\n            if (attempt.getAsBoolean()) return true;\n        }\n        return false;\n    }\n}\n"
         }
       ]
     },
@@ -71,16 +62,16 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic class Chain {\n\n    public static class Vehicle {\n        protected final String brand;\n\n        public Vehicle(String brand, List<String> log) {\n            throw new UnsupportedOperationException(\"write the Vehicle constructor\");\n        }\n    }\n\n    public static class Car extends Vehicle {\n        protected final int doors;\n\n        public Car(String brand, int doors, List<String> log) {\n            super(brand, log); // replace if you need to\n            throw new UnsupportedOperationException(\"write the full Car constructor\");\n        }\n\n        /** A four-door car. */\n        public Car(String brand, List<String> log) {\n            super(brand, log); // replace: hand over to the full constructor\n            throw new UnsupportedOperationException(\"write the short Car constructor\");\n        }\n    }\n\n    public static class SportsCar extends Car {\n\n        public SportsCar(String brand, List<String> log) {\n            super(brand, log); // replace if you need to\n            throw new UnsupportedOperationException(\"write the SportsCar constructor\");\n        }\n\n        public String describe() {\n            throw new UnsupportedOperationException(\"write describe\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.BooleanSupplier;\n\n/** Sending payments to the bank, with retries where they are safe. */\npublic class Retries {\n\n    /** How many times an idempotent operation may be tried. The platform's configuration sets it. */\n    public static int idempotentAttempts = 4;\n\n    /** The platform team's interface for operations that are safe to repeat. */\n    public interface Idempotent {\n        /** The key the bank uses to recognise a repeat of the same operation. */\n        String key();\n\n        default int maxAttempts() { return idempotentAttempts; }\n    }\n\n    /** A money movement. A charge sent twice charges twice, so by default a payment is tried once. */\n    public static class Payment {\n        private final long cents;\n\n        public Payment(long cents) { this.cents = cents; }\n\n        public long cents() { return cents; }\n\n        public int maxAttempts() { return 1; }\n    }\n\n    public static class Charge extends Payment {\n        public Charge(long cents) { super(cents); }\n    }\n\n    /** A refund carries the key of the charge it reverses, so the bank applies it once however often it is sent. */\n    public static class Refund extends Payment implements Idempotent {\n        private final String key;\n\n        public Refund(long cents, String chargeKey) {\n            super(cents);\n            this.key = \"refund-\" + chargeKey;\n        }\n\n        @Override public String key() { return key; }\n\n        @Override public int maxAttempts() {\n            // TODO: how many times a refund may be tried.\n            throw new IllegalStateException(\"TODO: a refund's attempts\");\n        }\n    }\n\n    /**\n     * Sends a payment: makes one attempt after another until one succeeds or the payment has used\n     * every attempt it is allowed. Returns whether an attempt succeeded.\n     */\n    public static boolean send(Payment payment, BooleanSupplier attempt) {\n        // TODO: try the payment as often as it allows, stopping at the first success.\n        throw new IllegalStateException(\"TODO: send the payment\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
-    "paras": 2,
-    "code": 2,
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -90,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "77c6446c1f7a98f90952aff223e58d1e4512a7295231434a0551d56882a8be8a",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic class Chain {\n\n    public static class Vehicle {\n        protected final String brand;\n\n        public Vehicle(String brand, List<String> log) {\n            throw new UnsupportedOperationException(\"write the Vehicle constructor\");\n        }\n    }\n\n    public static class Car extends Vehicle {\n        protected final int doors;\n\n        public Car(String brand, int doors, List<String> log) {\n            super(brand, log); // replace if you need to\n            throw new UnsupportedOperationException(\"write the full Car constructor\");\n        }\n\n        /** A four-door car. */\n        public Car(String brand, List<String> log) {\n            super(brand, log); // replace: hand over to the full constructor\n            throw new UnsupportedOperationException(\"write the short Car constructor\");\n        }\n    }\n\n    public static class SportsCar extends Car {\n\n        public SportsCar(String brand, List<String> log) {\n            super(brand, log); // replace if you need to\n            throw new UnsupportedOperationException(\"write the SportsCar constructor\");\n        }\n\n        public String describe() {\n            throw new UnsupportedOperationException(\"write describe\");\n        }\n    }\n}\n",
+  "content_sha256": "4b6355ace5be668f05bb5538070cc43d45bb8b30cb806641a0b5750aa45b168b",
+  "starting_code": "package practice;\n\nimport java.util.function.BooleanSupplier;\n\n/** Sending payments to the bank, with retries where they are safe. */\npublic class Retries {\n\n    /** How many times an idempotent operation may be tried. The platform's configuration sets it. */\n    public static int idempotentAttempts = 4;\n\n    /** The platform team's interface for operations that are safe to repeat. */\n    public interface Idempotent {\n        /** The key the bank uses to recognise a repeat of the same operation. */\n        String key();\n\n        default int maxAttempts() { return idempotentAttempts; }\n    }\n\n    /** A money movement. A charge sent twice charges twice, so by default a payment is tried once. */\n    public static class Payment {\n        private final long cents;\n\n        public Payment(long cents) { this.cents = cents; }\n\n        public long cents() { return cents; }\n\n        public int maxAttempts() { return 1; }\n    }\n\n    public static class Charge extends Payment {\n        public Charge(long cents) { super(cents); }\n    }\n\n    /** A refund carries the key of the charge it reverses, so the bank applies it once however often it is sent. */\n    public static class Refund extends Payment implements Idempotent {\n        private final String key;\n\n        public Refund(long cents, String chargeKey) {\n            super(cents);\n            this.key = \"refund-\" + chargeKey;\n        }\n\n        @Override public String key() { return key; }\n\n        @Override public int maxAttempts() {\n            // TODO: how many times a refund may be tried.\n            throw new IllegalStateException(\"TODO: a refund's attempts\");\n        }\n    }\n\n    /**\n     * Sends a payment: makes one attempt after another until one succeeds or the payment has used\n     * every attempt it is allowed. Returns whether an attempt succeeded.\n     */\n    public static boolean send(Payment payment, BooleanSupplier attempt) {\n        // TODO: try the payment as often as it allows, stopping at the first success.\n        throw new IllegalStateException(\"TODO: send the payment\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/main/java/practice/Chain.java",
-    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/test/java/practice/ChainTest.java",
+    "main_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/main/java/practice/Retries.java",
+    "test_path": "practice/02-classes-and-objects/08-object-oriented/prose/unit-01/practice-2/src/test/java/practice/RetriesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,19 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ChainTest#aSportsCarRunsEveryConstructorTopDown",
+        "id": "practice.RetriesTest#aChargeIsSentOnceWhetherOrNotTheBankAccepts",
         "kind": "main",
-        "says": "Building a sports car runs Vehicle's constructor, then Car's, then SportsCar's, and the log records them in that order."
+        "says": "a charge is sent exactly once, and send reports whether the bank accepted it"
       },
       {
-        "id": "practice.ChainTest#aPlainCarDelegatesToTheFullConstructor",
-        "kind": "edge",
-        "says": "A car built with the short constructor delegates with this(...) and is logged exactly once, with four doors."
+        "id": "practice.RetriesTest#aRefundTheBankAcceptsAtOnceIsSentOnce",
+        "kind": "main",
+        "says": "sending stops at the first attempt the bank accepts"
       },
       {
-        "id": "practice.ChainTest#aPlainCarStillRecordsItsOwnStep",
+        "id": "practice.RetriesTest#aRefundIsRetriedAsOftenAsTheIdempotencyPolicyAllows",
         "kind": "edge",
-        "says": "The short Car constructor's delegation still records Car's step, not only Vehicle's."
+        "says": "a refund is tried as many times as the idempotency policy allows, not once like other payments"
+      },
+      {
+        "id": "practice.RetriesTest#aRefundFollowsThePolicyWhenThePlatformChangesIt",
+        "kind": "edge",
+        "says": "a refund's attempts follow the platform's policy when the platform raises or lowers it"
       }
     ],
     "report": {
@@ -136,10 +132,10 @@
     },
     "origin": {
       "path": "08-object-oriented/README_2.3.1.md",
-      "section": "Interview-specific Insights"
+      "section": "A Class Method Beats a Default, a More Specific Interface Beats Its Parent, and Any Other Conflict Is Yours to Resolve"
     },
     "concepts": [
-      "Building an object runs its constructors from the top of the hierarchy down, and this(...) hands over to another constructor of the same class."
+      "A method declared in a class or inherited from a superclass wins over an interface default, even when called through the interface; the default is reached with X.super.m()."
     ]
   }
 }

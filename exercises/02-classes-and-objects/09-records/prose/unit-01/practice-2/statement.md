@@ -1,30 +1,15 @@
-A compact constructor may not only validate its parameters, it may also
-**modify** them: assigning to a parameter inside the compact constructor
-changes the value the component field receives. Everything the record
-generates, `equals` and `hashCode` included, then works on the stored value.
+The listing service pages through products with a `PageRequest(int page, int size)`. Requests come
+from query parameters, from saved searches (which store only the page), and from `next()` when a
+client scrolls on. The database has started receiving `OFFSET -2147483648`, and a client that asks
+for `size=5000` gets a page of 5,000 rows, which the service then caches under a key that no
+request at the limit ever hits.
 
-Complete
+Finish the two `TODO`s in `src/main/java/practice/PageRequest.java`:
 
-```java
-public record Tag(String value)
-```
+- the compact constructor: no request may exist with a page below 0 or a size below 1 (refuse
+  them with `IllegalArgumentException`), and a size above `MAX_SIZE` is served as `MAX_SIZE`;
+- `fromQuery(page, size)`: reads the two query parameters; without a size the client gets
+  `DEFAULT_SIZE`.
 
-so that tags are stored in one canonical form:
-
-- the stored `value` has no leading or trailing whitespace and is lower case
-  (`String.strip()` and `toLowerCase(Locale.ROOT)`);
-- a `null` value, or one that is empty after stripping, is refused with an
-  `IllegalArgumentException`;
-- because the value is normalised when it is stored, two tags that differ only
-  in case or surrounding spaces are `equal` and have the same `hashCode`, so a
-  `Set<Tag>` keeps only one of them.
-
-## Examples
-
-```
-new Tag("  Java ").value()                    -> "java"
-new Tag("RECORDS").equals(new Tag("records")) -> true
-a HashSet given new Tag("Java") and new Tag(" java") -> holds one tag
-new Tag("   ")                                -> IllegalArgumentException
-new Tag(null)                                 -> IllegalArgumentException
-```
+When you're done, an impossible request can't be made by any route, and a request for more than
+`MAX_SIZE` rows is the same request as one for exactly `MAX_SIZE`. About eight lines in total.

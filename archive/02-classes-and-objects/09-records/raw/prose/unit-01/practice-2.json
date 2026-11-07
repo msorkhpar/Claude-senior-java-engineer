@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Normalise a tag before it is stored",
+  "title": "Keep impossible page requests out of the listing service",
   "blocks": [
     {
       "type": "heading",
@@ -19,39 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A compact constructor may not only validate its parameters, it may also **modify** them: assigning to a parameter inside the compact constructor changes the value the component field receives. Everything the record generates, `equals` and `hashCode` included, then works on the stored value."
+      "text": "The listing service pages through products with a `PageRequest(int page, int size)`. Requests come from query parameters, from saved searches (which store only the page), and from `next()` when a client scrolls on. The database has started receiving `OFFSET -2147483648`, and a client that asks for `size=5000` gets a page of 5,000 rows, which the service then caches under a key that no request at the limit ever hits."
     },
     {
       "type": "para",
-      "text": "Complete"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Tag(String value)"
-    },
-    {
-      "type": "para",
-      "text": "so that tags are stored in one canonical form:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/PageRequest.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "the stored `value` has no leading or trailing whitespace and is lower case (`String.strip()` and `toLowerCase(Locale.ROOT)`);",
-        "a `null` value, or one that is empty after stripping, is refused with an `IllegalArgumentException`;",
-        "because the value is normalised when it is stored, two tags that differ only in case or surrounding spaces are `equal` and have the same `hashCode`, so a `Set<Tag>` keeps only one of them."
+        "the compact constructor: no request may exist with a page below 0 or a size below 1 (refuse them with `IllegalArgumentException`), and a size above `MAX_SIZE` is served as `MAX_SIZE`;",
+        "`fromQuery(page, size)`: reads the two query parameters; without a size the client gets `DEFAULT_SIZE`."
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new Tag(\"  Java \").value()                    -> \"java\"\nnew Tag(\"RECORDS\").equals(new Tag(\"records\")) -> true\na HashSet given new Tag(\"Java\") and new Tag(\" java\") -> holds one tag\nnew Tag(\"   \")                                -> IllegalArgumentException\nnew Tag(null)                                 -> IllegalArgumentException"
+      "type": "para",
+      "text": "When you're done, an impossible request can't be made by any route, and a request for more than `MAX_SIZE` rows is the same request as one for exactly `MAX_SIZE`. About eight lines in total."
     },
     {
       "type": "heading",
@@ -66,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Locale;\n\npublic record Tag(String value) {\n\n    /** Store the value stripped and in lower case; refuse null and blank values. */\n    public Tag {\n        if (value == null || value.isBlank()) {\n            throw new IllegalArgumentException(\"A tag needs some text\");\n        }\n        value = value.strip().toLowerCase(Locale.ROOT);\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * Which page of a listing a client asked for. Pages are numbered from 0. The listing service\n * builds requests from query parameters, from saved searches, and by stepping to the next page.\n */\npublic record PageRequest(int page, int size) {\n\n    public static final int DEFAULT_SIZE = 25;\n    public static final int MAX_SIZE = 200;\n\n    public PageRequest {\n        if (page < 0) throw new IllegalArgumentException(\"page \" + page);\n        if (size < 1) throw new IllegalArgumentException(\"size \" + size);\n        size = Math.min(size, MAX_SIZE);\n    }\n\n    /** The first request of a saved search, which stores only the page. */\n    public PageRequest(int page) {\n        this(page, DEFAULT_SIZE);\n    }\n\n    /** The request for the page after this one. */\n    public PageRequest next() {\n        return new PageRequest(page + 1, size);\n    }\n\n    /** Builds a request from the query parameters ?page=..&size=..; size may be absent (null). */\n    public static PageRequest fromQuery(String page, String size) {\n        int p = Integer.parseInt(page.strip());\n        return size == null ? new PageRequest(p) : new PageRequest(p, Integer.parseInt(size.strip()));\n    }\n}\n"
         }
       ]
     },
@@ -78,16 +62,16 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Locale;\n\npublic record Tag(String value) {\n\n    /** Store the value stripped and in lower case; refuse null and blank values. */\n    public Tag {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * Which page of a listing a client asked for. Pages are numbered from 0. The listing service\n * builds requests from query parameters, from saved searches, and by stepping to the next page.\n */\npublic record PageRequest(int page, int size) {\n\n    public static final int DEFAULT_SIZE = 25;\n    public static final int MAX_SIZE = 200;\n\n    public PageRequest {\n        // TODO: No request may exist with a page below 0 or a size below 1: refuse those with\n        //       IllegalArgumentException. A size above MAX_SIZE is served as MAX_SIZE.\n        throw new IllegalStateException(\"TODO: the canonical constructor\");\n    }\n\n    /** The first request of a saved search, which stores only the page. */\n    public PageRequest(int page) {\n        this(page, DEFAULT_SIZE);\n    }\n\n    /** The request for the page after this one. */\n    public PageRequest next() {\n        return new PageRequest(page + 1, size);\n    }\n\n    /** Builds a request from the query parameters ?page=..&size=..; size may be absent (null). */\n    public static PageRequest fromQuery(String page, String size) {\n        // TODO: Read the two parameters (surrounding spaces allowed). Without a size, the client\n        //       gets DEFAULT_SIZE.\n        throw new IllegalStateException(\"TODO: fromQuery\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
+    "headings": 3,
     "paras": 3,
-    "code": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -97,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c062e7f40667d89b395c00d102cc67deb577584e182804250cf1913b476a044f",
-  "starting_code": "package practice;\n\nimport java.util.Locale;\n\npublic record Tag(String value) {\n\n    /** Store the value stripped and in lower case; refuse null and blank values. */\n    public Tag {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n}\n",
+  "content_sha256": "9e99691330f91016359c505af58d3c4f8c08cbd5430c73ebfe9a34f0d3d2079f",
+  "starting_code": "package practice;\n\n/**\n * Which page of a listing a client asked for. Pages are numbered from 0. The listing service\n * builds requests from query parameters, from saved searches, and by stepping to the next page.\n */\npublic record PageRequest(int page, int size) {\n\n    public static final int DEFAULT_SIZE = 25;\n    public static final int MAX_SIZE = 200;\n\n    public PageRequest {\n        // TODO: No request may exist with a page below 0 or a size below 1: refuse those with\n        //       IllegalArgumentException. A size above MAX_SIZE is served as MAX_SIZE.\n        throw new IllegalStateException(\"TODO: the canonical constructor\");\n    }\n\n    /** The first request of a saved search, which stores only the page. */\n    public PageRequest(int page) {\n        this(page, DEFAULT_SIZE);\n    }\n\n    /** The request for the page after this one. */\n    public PageRequest next() {\n        return new PageRequest(page + 1, size);\n    }\n\n    /** Builds a request from the query parameters ?page=..&size=..; size may be absent (null). */\n    public static PageRequest fromQuery(String page, String size) {\n        // TODO: Read the two parameters (surrounding spaces allowed). Without a size, the client\n        //       gets DEFAULT_SIZE.\n        throw new IllegalStateException(\"TODO: fromQuery\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-2/src/main/java/practice/Tag.java",
-    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-2/src/test/java/practice/TagTest.java",
+    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-2/src/main/java/practice/PageRequest.java",
+    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-01/practice-2/src/test/java/practice/PageRequestTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -122,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TagTest#aTagIsStoredTrimmedAndLowerCase",
+        "id": "practice.PageRequestTest#aClientsQueryBecomesARequest",
         "kind": "main",
-        "says": "A tag's value is stored without surrounding spaces and in lower case."
+        "says": "query parameters become a request with that page and size, the default size when size is absent, and next() steps one page on"
       },
       {
-        "id": "practice.TagTest#tagsThatDifferOnlyInCaseAreEqual",
-        "kind": "edge",
-        "says": "Two tags written with different case or spacing are equal and hash alike."
+        "id": "practice.PageRequestTest#aQueryForANegativePageOrNoRowsIsRefused",
+        "kind": "main",
+        "says": "a query with a negative page or a size below 1 is refused with IllegalArgumentException"
       },
       {
-        "id": "practice.TagTest#aBlankTagIsRefused",
+        "id": "practice.PageRequestTest#everyWayOfMakingARequestRefusesAnImpossibleOne",
         "kind": "edge",
-        "says": "A tag of only spaces is refused with IllegalArgumentException."
+        "says": "a negative page or a size below 1 is refused however the request is made: the one-argument constructor, the canonical one, or next() past the last int"
       },
       {
-        "id": "practice.TagTest#aNullTagIsRefused",
+        "id": "practice.PageRequestTest#anOversizedRequestIsTheSameRequestAsOneAtTheLimit",
         "kind": "edge",
-        "says": "A null tag is refused with IllegalArgumentException."
+        "says": "a request above the size limit is equal to, hashes like and is found in a set as the request at the limit"
       }
     ],
     "report": {
@@ -148,10 +132,11 @@
     },
     "origin": {
       "path": "09-records/README_2.4.1.md",
-      "section": "Custom Constructors"
+      "section": "A Custom Constructor Must Call the Canonical One First, So Checks Belong in the Canonical One"
     },
     "concepts": [
-      "Assigning to a parameter in the compact constructor changes the stored value, and the generated equals compares that stored value."
+      "Every other constructor must start with this(...), so every way of making a record ends in the canonical constructor, and a check placed anywhere else guards only one path.",
+      "A value assigned to a parameter in the compact constructor is the value stored, so equals, hashCode and the accessor all see it."
     ]
   }
 }

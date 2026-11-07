@@ -1,28 +1,16 @@
-A record's **compact constructor** runs before the component fields are
-assigned, so it is the one place to validate a record's input: every `new`
-of the record goes through it.
+A sensor gateway stores temperature batches and keeps a `HashSet<Batch>` of what it has stored, so
+that a batch a sensor sends twice (it resends whenever an acknowledgement is lost) is stored once.
+In production the set never recognises a resent batch, and the gateway's storage has doubled. A
+second report says that some stored batches later show samples from a different read.
 
-Complete the compact constructor of
+`Batch` is a record with a `String device` and an `int[] samples` component. Finish the four
+`TODO`s in `src/main/java/practice/Batch.java`:
 
-```java
-public record Person(String name, int age)
-```
+- `equals` and `hashCode`: a resent batch is the same device with the same samples in the same
+  order;
+- `keep(...)`: what the batch stores, given the array the sensor driver passes in (the driver reads
+  every batch into one buffer and reuses it);
+- `samples()`: what a reader of a stored batch gets back.
 
-so that a `Person` can only be created with valid data:
-
-- a `name` that is `null` or empty (`""`) is refused with an
-  `IllegalArgumentException` whose message is `Name cannot be null or empty`;
-- a negative `age` is refused with an `IllegalArgumentException` whose message
-  is `Age cannot be negative`;
-- everything else is accepted unchanged. Leave the generated accessors,
-  `equals`, `hashCode` and `toString` alone.
-
-## Examples
-
-```
-new Person("Alice", 30)          -> name() = "Alice", age() = 30, prints Person[name=Alice, age=30]
-new Person(null, 20)             -> IllegalArgumentException: Name cannot be null or empty
-new Person("", 20)               -> IllegalArgumentException: Name cannot be null or empty
-new Person("Eve", -1)            -> IllegalArgumentException: Age cannot be negative
-new Person("Baby", 0)            -> a valid person
-```
+When you're done, the gateway's set drops every resent batch, and no code outside `Batch` can
+change a batch once it is built. About eight lines in total.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Write the boilerplate a record saves you",
+  "title": "Keep a cached shipment from changing under its rate",
   "blocks": [
     {
       "type": "heading",
@@ -19,30 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The one line `record Person(String name, int age) {}` gives you a constructor, accessors, `equals`, `hashCode` and `toString`. A traditional class has to write them by hand, and every hand-written one is a chance for a mistake."
+      "text": "The quoting service caches each shipping rate under the `Shipment` it was quoted for. Since a new client went live, the cache keeps growing while its hit rate falls, and support has a ticket about a shipment that was quoted twice at different prices. The new client builds each shipment from one `HashMap` of parcels, which it keeps filling for the next request."
     },
     {
       "type": "para",
-      "text": "`PersonBean` is the traditional-class version of that record: its fields, constructor and accessors are written. Write the other three so that a `PersonBean` behaves exactly like the record would:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/RateCache.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`equals(Object)`: `true` for another `PersonBean` with an equal `name` (which may be `null`, and which may be a different `String` object with the same text) and the same `age`; `false` for `null` and for any other type;",
-        "`hashCode()`: equal beans have equal hash codes (`Objects.hash` helps);",
-        "`toString()`: `PersonBean[name=<name>, age=<age>]`, the record's format."
+        "the compact constructor of `Shipment`: once built, a shipment keeps the parcels it was given, whatever later happens to the caller's map or to the map `parcels()` returns;",
+        "`withParcel(id, grams)`: a new shipment with one more parcel, leaving this one as it is."
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "new PersonBean(\"Alice\", 30).equals(new PersonBean(\"Alice\", 30))   -> true\nnew PersonBean(\"Alice\", 30).equals(new PersonBean(\"Alice\", 31))   -> false\nnew PersonBean(null, 5).equals(new PersonBean(null, 5))           -> true\nnew PersonBean(\"Alice\", 30).equals(\"Alice\")                       -> false\nnew PersonBean(\"Alice\", 30).toString()                            -> \"PersonBean[name=Alice, age=30]\""
+      "type": "para",
+      "text": "When you're done, a cached shipment is found again however the code around it treats its maps. About four lines in total."
     },
     {
       "type": "heading",
@@ -57,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\n/** The traditional-class version of record Person(String name, int age). */\npublic final class PersonBean {\n\n    private final String name;\n    private final int age;\n\n    public PersonBean(String name, int age) {\n        this.name = name;\n        this.age = age;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public int age() {\n        return age;\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        if (this == other) {\n            return true;\n        }\n        if (!(other instanceof PersonBean that)) {\n            return false;\n        }\n        return age == that.age && Objects.equals(name, that.name);\n    }\n\n    @Override\n    public int hashCode() {\n        return Objects.hash(name, age);\n    }\n\n    @Override\n    public String toString() {\n        return \"PersonBean[name=\" + name + \", age=\" + age + \"]\";\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Quoted shipping rates, cached per shipment. */\npublic final class RateCache {\n\n    /** A shipment: a carrier, and the weight in grams of each parcel by parcel id. */\n    public record Shipment(String carrier, Map<String, Integer> parcels) {\n\n        public Shipment {\n            parcels = Map.copyOf(parcels);\n        }\n\n        /** A shipment with one more parcel. This shipment stays as it is. */\n        public Shipment withParcel(String id, int grams) {\n            Map<String, Integer> more = new HashMap<>(parcels);\n            more.put(id, grams);\n            return new Shipment(carrier, more);\n        }\n    }\n\n    private final Map<Shipment, Long> rates = new HashMap<>();\n\n    public void put(Shipment shipment, long cents) {\n        rates.put(shipment, cents);\n    }\n\n    /** The cached rate in cents, or null when this shipment was never quoted. */\n    public Long rateFor(Shipment shipment) {\n        return rates.get(shipment);\n    }\n\n    public int size() {\n        return rates.size();\n    }\n}\n"
         }
       ]
     },
@@ -69,16 +62,16 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\n\n/** The traditional-class version of record Person(String name, int age). */\npublic final class PersonBean {\n\n    private final String name;\n    private final int age;\n\n    public PersonBean(String name, int age) {\n        this.name = name;\n        this.age = age;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public int age() {\n        return age;\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        throw new UnsupportedOperationException(\"write equals\");\n    }\n\n    @Override\n    public int hashCode() {\n        throw new UnsupportedOperationException(\"write hashCode\");\n    }\n\n    @Override\n    public String toString() {\n        throw new UnsupportedOperationException(\"write toString\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Quoted shipping rates, cached per shipment. */\npublic final class RateCache {\n\n    /** A shipment: a carrier, and the weight in grams of each parcel by parcel id. */\n    public record Shipment(String carrier, Map<String, Integer> parcels) {\n\n        public Shipment {\n            // TODO: once built, a shipment must keep its parcels exactly as they were passed in,\n            // whatever happens later to the map the caller passed, or to the one parcels() returns.\n            throw new IllegalStateException(\"TODO: Shipment's compact constructor\");\n        }\n\n        /** A shipment with one more parcel. This shipment stays as it is. */\n        public Shipment withParcel(String id, int grams) {\n            // TODO: return a new shipment with the same carrier and parcels, plus this one.\n            throw new IllegalStateException(\"TODO: withParcel\");\n        }\n    }\n\n    private final Map<Shipment, Long> rates = new HashMap<>();\n\n    public void put(Shipment shipment, long cents) {\n        rates.put(shipment, cents);\n    }\n\n    /** The cached rate in cents, or null when this shipment was never quoted. */\n    public Long rateFor(Shipment shipment) {\n        return rates.get(shipment);\n    }\n\n    public int size() {\n        return rates.size();\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
-    "paras": 2,
-    "code": 2,
+    "headings": 3,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -88,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "b46978410c3d41cdb94a7367e37298176661792a38ad0fe531f292d9128d90f1",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\n\n/** The traditional-class version of record Person(String name, int age). */\npublic final class PersonBean {\n\n    private final String name;\n    private final int age;\n\n    public PersonBean(String name, int age) {\n        this.name = name;\n        this.age = age;\n    }\n\n    public String name() {\n        return name;\n    }\n\n    public int age() {\n        return age;\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        throw new UnsupportedOperationException(\"write equals\");\n    }\n\n    @Override\n    public int hashCode() {\n        throw new UnsupportedOperationException(\"write hashCode\");\n    }\n\n    @Override\n    public String toString() {\n        throw new UnsupportedOperationException(\"write toString\");\n    }\n}\n",
+  "content_sha256": "cc39512db5cedc6db0a9b2a98690c26fa7c6ed51adfea9ebf2c4b847e25db330",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Quoted shipping rates, cached per shipment. */\npublic final class RateCache {\n\n    /** A shipment: a carrier, and the weight in grams of each parcel by parcel id. */\n    public record Shipment(String carrier, Map<String, Integer> parcels) {\n\n        public Shipment {\n            // TODO: once built, a shipment must keep its parcels exactly as they were passed in,\n            // whatever happens later to the map the caller passed, or to the one parcels() returns.\n            throw new IllegalStateException(\"TODO: Shipment's compact constructor\");\n        }\n\n        /** A shipment with one more parcel. This shipment stays as it is. */\n        public Shipment withParcel(String id, int grams) {\n            // TODO: return a new shipment with the same carrier and parcels, plus this one.\n            throw new IllegalStateException(\"TODO: withParcel\");\n        }\n    }\n\n    private final Map<Shipment, Long> rates = new HashMap<>();\n\n    public void put(Shipment shipment, long cents) {\n        rates.put(shipment, cents);\n    }\n\n    /** The cached rate in cents, or null when this shipment was never quoted. */\n    public Long rateFor(Shipment shipment) {\n        return rates.get(shipment);\n    }\n\n    public int size() {\n        return rates.size();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-1/src/main/java/practice/PersonBean.java",
-    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-1/src/test/java/practice/PersonBeanTest.java",
+    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-1/src/main/java/practice/RateCache.java",
+    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-02/practice-1/src/test/java/practice/RateCacheTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -113,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PersonBeanTest#behavesLikeTheRecord",
+        "id": "practice.RateCacheTest#shipmentsBuiltFromEqualParcelsShareARate",
         "kind": "main",
-        "says": "Equal components make equal beans, and toString reads PersonBean[name=Alice, age=30]."
+        "says": "two shipments built separately from the same carrier and parcels find the same cached rate, and a different weight does not"
       },
       {
-        "id": "practice.PersonBeanTest#aNullNameIsHandled",
-        "kind": "edge",
-        "says": "Beans with a null name compare and hash without a NullPointerException."
+        "id": "practice.RateCacheTest#withParcelAddsAParcelAndLeavesTheOriginalQuoted",
+        "kind": "main",
+        "says": "withParcel returns a shipment with the extra parcel, and the original keeps its parcels and its cached rate"
       },
       {
-        "id": "practice.PersonBeanTest#equalBeansHashAlike",
+        "id": "practice.RateCacheTest#aCallerThatReusesItsMapDoesNotMoveACachedShipment",
         "kind": "edge",
-        "says": "Equal beans have equal hash codes, so a HashSet holds one of them."
+        "says": "when the caller changes the map it built a shipment from, the shipment keeps its parcels and its rate is still found"
       },
       {
-        "id": "practice.PersonBeanTest#otherTypesAndNullAreNeverEqual",
+        "id": "practice.RateCacheTest#codeHoldingAShipmentCannotChangeItsParcels",
         "kind": "edge",
-        "says": "A bean is not equal to null or to an object of another type, and saying so throws nothing."
-      },
-      {
-        "id": "practice.PersonBeanTest#equalNamesBuiltSeparatelyAreEqual",
-        "kind": "edge",
-        "says": "Two beans whose equal names are separate String objects, built at run time, are equal."
+        "says": "code that removes a parcel from the map parcels() returns does not change the shipment, and its rate is still found"
       }
     ],
     "report": {
@@ -144,10 +132,10 @@
     },
     "origin": {
       "path": "09-records/README_2.4.2.md",
-      "section": "Key Advantages"
+      "section": "A Record Is Only Shallowly Immutable: a List Component Can Change Under a Map Key"
     },
     "concepts": [
-      "A record generates the equals, hashCode and toString a traditional class must write by hand, and hand-written ones are where errors creep in."
+      "A record is only shallowly immutable: a mutable collection component changed after the record became a map key changes its hash and loses the entry, unless the compact constructor stores an unmodifiable copy rather than a view."
     ]
   }
 }

@@ -19,276 +19,347 @@
     },
     {
       "type": "para",
-      "text": "Polymorphism is a fundamental concept in object-oriented programming that allows objects of different types to be treated as objects of a common base type. In Java, polymorphism enables you to write more flexible and reusable code by allowing methods to operate on objects of various classes through a common interface."
+      "text": "The release that added fragile parcels and pallets to the shipping service brought three tickets. Fragile parcels are billed as ordinary parcels, and pallets go out free. Since a cleanup that removed \"duplicate code\", the customs printer prints `skipped` for every shipment. And a helper that totals weights won't accept a `List<Parcel>`, so its callers copy their lists first. All of it compiled."
+    },
+    {
+      "type": "para",
+      "text": "How a call reaches an override is unit 1.3.1, and why an overload is chosen at compile time is unit 1.3.4."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points"
+      "text": "An instanceof Chain Fails Silently on a Subclass or a New Type; an Abstract Method Makes the Compiler Ask"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Polymorphism means \"many forms\" and occurs when we have many classes that are related to each other by inheritance.",
-        "It allows us to perform a single action in different ways.",
-        "There are two types of polymorphism in Java: compile-time (static) polymorphism and runtime (dynamic) polymorphism."
+      "type": "para",
+      "text": "The billing code priced each kind of shipment in one method. `FragileParcel extends Parcel`, and `Pallet`, another direct subclass of `Shipment`, arrived a year after the method was written:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static int feeCents(Shipment s) {\n    if (s instanceof Letter) return 85;\n    if (s instanceof Parcel p) return 450 + p.grams / 100 * 20;\n    if (s instanceof FragileParcel f) return 450 + f.grams / 100 * 20 + 300;\n    return 0;                                    // \"can't happen\"\n}"
+    },
+    {
+      "type": "para",
+      "text": "Predict the fees for a letter, a 1,200 g parcel, a 1,200 g fragile parcel and a pallet:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Letter            85\nParcel           690\nFragileParcel    690\nPallet             0"
+    },
+    {
+      "type": "para",
+      "text": "A fragile parcel is a `Parcel`, so the second test catches it and the third never runs. javac compiles this without a word, even with `-Xlint:all`: it rejects a dominated `case` in a switch (unit 1.5.4), but it doesn't judge the order of `if` tests. The pallet falls through to a default written for a case nobody expected. Both mistakes produce a plausible number, so nothing fails until finance finds the missing surcharges and the free pallets a month later."
+    },
+    {
+      "type": "para",
+      "text": "Moving the decision into the types removes both mistakes:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "abstract class Shipment {\n    final int grams;\n    Shipment(int grams) { this.grams = grams; }\n    abstract int feeCents();\n}\nclass Parcel extends Shipment {\n    Parcel(int grams) { super(grams); }\n    @Override int feeCents() { return 450 + grams / 100 * 20; }\n}\nclass FragileParcel extends Parcel {\n    FragileParcel(int grams) { super(grams); }\n    @Override int feeCents() { return super.feeCents() + 300; }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Letter            85\nParcel           690\nFragileParcel    990"
+    },
+    {
+      "type": "para",
+      "text": "Callers write `s.feeCents()` and get the most specific implementation the object's class has, so there is no order to get wrong. A `Pallet` without a price no longer compiles:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Fees.java:22: error: Pallet is not abstract and does not override abstract method feeCents() in Shipment"
+    },
+    {
+      "type": "para",
+      "text": "A chain repeats the decision wherever types are tested, and each copy must be found when a type is added. When the types are sealed and the operations keep growing, a switch over the sealed type is the better trade, for the reasons in unit 1.5.4's Design Note."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Java Chooses the Method by the Receiver Alone, So Dispatching on a Second Object Takes Two Calls"
+    },
+    {
+      "type": "para",
+      "text": "Customs needs a form per kind of shipment, and other handlers (labels, insurance) need their own method per kind. Each handler implements one overload per type:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface Handler {\n    default String visit(Shipment s) { return \"skipped\"; }   // so a new type doesn't break every handler\n    String visit(Letter l);\n    String visit(Parcel p);\n    String visit(FragileParcel f);\n}"
+    },
+    {
+      "type": "para",
+      "text": "The obvious call, `customs.visit(s)` with `s` declared as `Shipment`, runs `visit(Shipment)` for every shipment. The overload is chosen from the argument's declared type (unit 1.3.4), and the run-time choice looks only at the object left of the dot, `customs`. To dispatch on the shipment as well, the call goes through the shipment first, and each class declares the same one-line method:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "abstract class Shipment {\n    abstract String accept(Handler h);\n}\nclass Letter extends Shipment {\n    @Override String accept(Handler h) { return h.visit(this); }\n}\nclass Parcel extends Shipment {\n    @Override String accept(Handler h) { return h.visit(this); }\n}\nclass FragileParcel extends Parcel {\n    @Override String accept(Handler h) { return h.visit(this); }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Letter         visit(s): skipped   s.accept(customs): no form\nParcel         visit(s): skipped   s.accept(customs): CN22\nFragileParcel  visit(s): skipped   s.accept(customs): CN22 + handling note"
+    },
+    {
+      "type": "para",
+      "text": "`s.accept(customs)` is dispatched on the shipment, which picks the class. Inside that class `this` has the class's own type, so the compiler picks the matching overload, and that call is dispatched on the handler. This is double dispatch, and the Visitor pattern is built on it."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: the accept Methods Look Duplicated"
+    },
+    {
+      "type": "para",
+      "text": "The cleanup from the opening deleted the three `accept` methods and wrote one in the base class:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "abstract class Shipment {\n    String accept(Handler h) { return h.visit(this); }      // written once, inherited by all\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Letter         visit(s): skipped   s.accept(customs): skipped\nParcel         visit(s): skipped   s.accept(customs): skipped\nFragileParcel  visit(s): skipped   s.accept(customs): skipped"
+    },
+    {
+      "type": "para",
+      "text": "The three bodies were identical as text, not as compiled code. `javap -c` shows the overload each one calls, in `Letter` and `Parcel` before the cleanup, then in `Shipment` after it:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "       2: invokeinterface #7,  2            // InterfaceMethod Handler.visit:(LLetter;)Ljava/lang/String;\n       2: invokeinterface #7,  2            // InterfaceMethod Handler.visit:(LParcel;)Ljava/lang/String;\n       2: invokeinterface #7,  2            // InterfaceMethod Handler.visit:(LShipment;)Ljava/lang/String;"
+    },
+    {
+      "type": "para",
+      "text": "In `Shipment`, `this` is a `Shipment` to the compiler, whatever the object is at run time. A subclass that inherits `accept` instead of declaring its own has the same problem: it is handled as its parent. Every class with its own overload needs its own `accept`. The `visit(Shipment)` overload is what let the cleanup compile; without it, `visit(this)` in `Shipment` would have been an error."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A List of Parcels Is Not a List of Shipments; a Wildcard Says Whether the Method Reads or Writes"
+    },
+    {
+      "type": "para",
+      "text": "A helper that totals weights takes a `List<Shipment>`. Passing it a `List<Parcel>`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Invariant.java:17: error: incompatible types: List<Parcel> cannot be converted to List<Shipment>\n        System.out.println(totalGrams(parcels));\n                                      ^"
+    },
+    {
+      "type": "para",
+      "text": "If it compiled, the helper could call `items.add(new Letter())`, and the caller's list of parcels would hold a letter. The `ClassCastException` would come later, in whatever code read a `Parcel` from it. Arrays allow the conversion and check every store at run time instead, with unit 1.5.1's `ArrayStoreException`. Generics refuse at compile time: neither of `List<Parcel>` and `List<Shipment>` is a subtype of the other."
+    },
+    {
+      "type": "para",
+      "text": "A wildcard tells the compiler whether a method reads from the list or writes to it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static int totalGrams(List<? extends Shipment> items) {      // reads Shipments\n    int sum = 0;\n    for (Shipment s : items) sum += s.grams;\n    return sum;\n}\n\nstatic void addReturns(List<? super Parcel> out) {           // writes Parcels\n    out.add(new Parcel(450));\n}"
+    },
+    {
+      "type": "para",
+      "text": "Both methods now take a `List<Parcel>` (1,200 g and 800 g) and a `List<Shipment>` (a truck holding one letter), and the program adds a return to each. A `Comparator<Shipment>` sorts a `List<Parcel>` for the same reason, since `List.sort` takes a `Comparator<? super E>`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Comparator<Shipment> byWeight = Comparator.comparingInt(s -> s.grams);\nparcels.sort(byWeight);                                  // List<Parcel>.sort(Comparator<? super Parcel>)"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "parcels: 2000 g, truck: 20 g\ntruck: [Letter 20 g, Parcel 450 g]\nparcels: [Parcel 450 g, Parcel 800 g, Parcel 1200 g]"
+    },
+    {
+      "type": "para",
+      "text": "Each wildcard allows only one of the two. A `List<? extends Shipment>` could be a list of pallets, so the compiler won't add a letter to it. A `List<? super Parcel>` could be a `List<Object>`, so what comes out is only an `Object`. `CAP#1` is javac's name for the unknown element type:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ReadOnly.java:10: error: incompatible types: Letter cannot be converted to CAP#1\n        items.add(new Letter());\nReadOnly.java:14: error: incompatible types: CAP#1 cannot be converted to Parcel\n        Parcel first = out.get(0);"
+    },
+    {
+      "type": "para",
+      "text": "A parameter the method reads from is `? extends T`, one it writes to is `? super T`, and one it does both with is plain `T`. The JDK's own signatures follow this, as in `Collections.copy(List<? super T> dest, List<? extends T> src)`. An API without wildcards passes the cost to its callers: they copy lists, or cast to a raw type and give up the check."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Call Site That Has Seen Three Classes Isn't Inlined, Which Matters Only in a Hot Loop"
+    },
+    {
+      "type": "para",
+      "text": "Is every virtual call a lookup in a method table? This loop calls `feeCents()` from one call site over 1,000 shipments, drawn in equal shares from one to four small final classes of the benchmark's own, with one JVM run per number of classes:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static int total(Shipment[] items) {\n    int sum = 0;\n    for (Shipment s : items) sum += s.feeCents();            // the call site\n    return sum;\n}"
+    },
+    {
+      "type": "para",
+      "text": "`-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining` shows what the C2 compiler did with the call:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "== 1 class(es)\n@ 25  CallSite$Letter::feeCents (3 bytes)  inline (hot)\n== 2 class(es)\n@ 25  CallSite$Letter::feeCents (3 bytes)  inline (hot)\n@ 25  CallSite$Parcel::feeCents (4 bytes)  inline (hot)\n== 3 class(es)\n@ 25  CallSite$Shipment::feeCents (0 bytes)  virtual call\n== 4 class(es)\n@ 25  CallSite$Shipment::feeCents (0 bytes)  virtual call"
+    },
+    {
+      "type": "para",
+      "text": "The interpreter and the first compiler tier record which classes reach each call site, and C2 reads that profile. It keeps two classes (`TypeProfileWidth=2` on Java 21), so a third class leaves C2 with a virtual call, unless one class has at least 90 % of the calls (`TypeProfileMajorReceiverPercent`): with three classes and 95 % letters, the same call site printed `CallSiteSkew$Letter::feeCents (3 bytes)  inline (hot)`. Best of ten timed rounds, on one machine, with `sink` there to keep the loop's result in use:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "1 class(es): 0.14 ns per call (sink 3)\n2 class(es): 0.27 ns per call (sink 4)\n3 class(es): 1.91 ns per call (sink 6)\n4 class(es): 6.54 ns per call (sink 4)"
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Measure your own workload.** These numbers come from a hand-timed loop whose methods return a constant, on Java 21; once a call is inlined, the time is per element more than per call, and the gap between three and four classes is not explained by dispatch alone. Java 25 on the same machine gave 1.70 ns for both three and four classes, and prints the inlining lines in another format. A few nanoseconds matter only when the method does as little as the call costs, in a loop that runs millions of times. Use JMH and a profiler before replacing an override with an `if`."
+        }
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "2.3.2.1 Method Overloading"
-    },
-    {
-      "type": "para",
-      "text": "Method overloading is a form of compile-time polymorphism where multiple methods in the same class have the same name but different parameters."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Key Aspects:"
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Methods must have the same name but different parameter lists.",
-        "Return type alone is not sufficient to distinguish overloaded methods.",
-        "It improves code readability and reusability."
+        "**An `instanceof` chain fails silently**: an early test hides a subclass's branch, and a new type falls into the default. An abstract method puts the decision in each type, and the compiler names every class that lacks it.",
+        "**Java dispatches on the receiver only.** An overload is fixed by the argument's declared type, so dispatching on a second object takes a second call: `accept` in every class, calling `visit(this)`. One `accept` in the base class sends everything to the default.",
+        "**A `List<Parcel>` is not a `List<Shipment>`.** Read through `? extends T`, write through `? super T`; arrays allow the conversion and fail at run time instead.",
+        "**HotSpot doesn't inline a call site that has seen three or more classes**, unless one of them dominates. That costs nanoseconds per call, which matters only in hot loops with tiny methods; measure before designing around it."
       ]
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class Calculator {\n    public int add(int a, int b) {\n        return a + b;\n    }\n\n    public double add(double a, double b) {\n        return a + b;\n    }\n\n    public int add(int a, int b, int c) {\n        return a + b + c;\n    }\n}"
-    },
-    {
-      "type": "heading",
       "level": 2,
-      "text": "2.3.2.2 Dynamic Method Dispatch and Virtual Methods"
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "Dynamic method dispatch is a mechanism by which a call to an overridden method is resolved at runtime rather than compile-time. It's a fundamental feature that enables runtime polymorphism in Java."
+      "text": "**What chooses the method (Java 21):**"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Key Aspects:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "It's based on the actual object type, not the reference type.",
-        "All non-static, non-private methods in Java are virtual by default (a `final` method is still dispatched virtually, it just cannot be overridden; private methods are never dispatched dynamically).",
-        "It allows for more flexible and extensible code."
+      "type": "table",
+      "headers": [
+        "Call",
+        "Chosen from",
+        "When"
+      ],
+      "rows": [
+        [
+          "`obj.m(arg)`, `m` overridable: which implementation",
+          "the class of `obj`",
+          "run time"
+        ],
+        [
+          "`obj.m(arg)`: which overload",
+          "the declared types of the arguments",
+          "compile time"
+        ],
+        [
+          "`T.m()` or `expr.m()`, `m` static",
+          "the declared type left of the dot",
+          "compile time"
+        ],
+        [
+          "`m()`, `m` private",
+          "the class that declares it",
+          "compile time"
+        ],
+        [
+          "`super.m()`",
+          "the direct superclass, then upward",
+          "compile time"
+        ]
       ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class Animal {\n    public void makeSound() {\n        System.out.println(\"The animal makes a sound\");\n    }\n}\n\nclass Dog extends Animal {\n    @Override\n    public void makeSound() {\n        System.out.println(\"The dog barks\");\n    }\n}\n\nclass Cat extends Animal {\n    @Override\n    public void makeSound() {\n        System.out.println(\"The cat meows\");\n    }\n}\n\n// Usage\nAnimal myPet = new Dog();\nmyPet.makeSound(); // Outputs: The dog barks\n\nmyPet = new Cat();\nmyPet.makeSound(); // Outputs: The cat meows"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "2.3.2.3 Interfaces and Implementing Classes"
     },
     {
       "type": "para",
-      "text": "Interfaces in Java provide a way to achieve abstraction and support polymorphism by defining a contract that implementing classes must follow."
+      "text": "**Wildcards, for a parameter `list`:**"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Key Aspects:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Interfaces define abstract methods that implementing classes must override.",
-        "A class can implement multiple interfaces, enabling a form of multiple inheritance.",
-        "Since Java 8, interfaces can have default and static methods with implementations."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "interface Drawable {\n    void draw();\n    \n    default void display() {\n        System.out.println(\"Displaying the drawable object\");\n    }\n}\n\nclass Circle implements Drawable {\n    @Override\n    public void draw() {\n        System.out.println(\"Drawing a circle\");\n    }\n}\n\nclass Square implements Drawable {\n    @Override\n    public void draw() {\n        System.out.println(\"Drawing a square\");\n    }\n}\n\n// Usage\nDrawable shape = new Circle();\nshape.draw(); // Outputs: Drawing a circle\nshape.display(); // Outputs: Displaying the drawable object\n\nshape = new Square();\nshape.draw(); // Outputs: Drawing a square"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Confusing overloading and overriding: Remember, overloading is about multiple methods with the same name in the same class, while overriding is about redefining a method in a subclass.",
-        "Forgetting to use the `@Override` annotation: Always use this annotation when overriding methods to catch errors at compile-time.",
-        "Misunderstanding method resolution in inheritance hierarchies: Java uses the most specific method available. Be aware of how method calls are resolved when dealing with complex inheritance structures.",
-        "Not considering the implications of changing an interface: Adding methods to an interface can break implementing classes. Use default methods (Java 8+) when possible to add methods to interfaces without breaking existing implementations."
+      "type": "table",
+      "headers": [
+        "Declared as",
+        "Accepts",
+        "`list.get(0)` is",
+        "`list.add(x)` takes"
+      ],
+      "rows": [
+        [
+          "`List<T>`",
+          "`List<T>` only",
+          "`T`",
+          "`T`"
+        ],
+        [
+          "`List<? extends T>`",
+          "`List<T>`, `List<S>` for any subtype `S`",
+          "`T`",
+          "only `null`"
+        ],
+        [
+          "`List<? super T>`",
+          "`List<T>`, `List<U>` for any supertype `U`",
+          "`Object`",
+          "`T`"
+        ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Use method overloading judiciously to provide convenience methods, but don't overuse it to the point of confusion.",
-        "Leverage dynamic method dispatch to create flexible and extensible designs, especially when dealing with hierarchies of related classes.",
-        "Design interfaces carefully, considering future extensibility. Use the Interface Segregation Principle to keep interfaces focused and cohesive.",
-        "Use the Liskov Substitution Principle when designing class hierarchies to ensure that objects of a superclass can be replaced with objects of its subclasses without affecting the correctness of the program.",
-        "Consider using functional interfaces (interfaces with a single abstract method) in conjunction with lambda expressions for more concise and expressive code."
+        "A rules engine applies twelve kinds of rule to every order through one interface, and a profile shows the dispatching call near the top. What would you measure before changing the design, and what would you change it to?",
+        "Your shipment types live in a library you can't edit, and you need a new operation on them. Compare a Visitor the library would have to add, a switch over a sealed type, and an `instanceof` chain in your own code.",
+        "`merge(List<Shipment> a, List<Shipment> b)` returns a new list. Write its signature with wildcards, and decide what element type the result should have."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Ambiguous method calls in overloading: When an overloaded method call could match multiple method signatures, ensure type compatibility or use explicit casting.",
-        "Covariant return types in method overriding: A method in a subclass can return a more specific type than the method in the superclass.",
-        "Interface default method conflicts: When a class implements multiple interfaces with conflicting default methods, the class must override the method to resolve the conflict."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Be prepared to explain the difference between compile-time and runtime polymorphism.",
-        "Understand how the JVM resolves method calls at runtime (vtable mechanism).",
-        "Be able to discuss the pros and cons of using interfaces vs abstract classes for achieving polymorphism.",
-        "Know how to use polymorphism to write more flexible and maintainable code."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Java 21 Features Relevant to Polymorphism"
+      "text": "Design Note: Why Java Dispatches on the Receiver Only"
     },
     {
       "type": "para",
-      "text": "While polymorphism is a fundamental concept that hasn't changed significantly, Java 21 continues to support and enhance features that complement polymorphism:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Sealed Classes and Interfaces: Introduced in Java 17 and refined in later versions, sealed classes and interfaces allow for more precise control over which classes can implement an interface or extend a class, providing a form of restricted polymorphism.",
-        "Pattern Matching for instanceof: Enhances type checking and casting in polymorphic scenarios, making code more concise and readable.",
-        "Records: While not directly related to polymorphism, records can implement interfaces, allowing them to participate in polymorphic designs."
-      ]
+      "text": "Java chooses the implementation at run time from one object, the receiver, and the overload at compile time from the declared types of everything else. That keeps every call checkable before it runs: the compiler knows the one method signature each call will use, and only the class that supplies it is left to run time. Languages with multiple dispatch choose from the run-time classes of all the arguments, so a two-type decision needs no Visitor, but an ambiguity between two methods can then appear only at run time."
     },
     {
       "type": "para",
-      "text": "These features, while not changing the core concepts of polymorphism, provide new tools for creating more expressive and type-safe polymorphic code."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "Q1: What is polymorphism in Java, and what are its types?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Polymorphism in Java is the ability of an object to take on many forms. It allows you to perform a single action in different ways. There are two types of polymorphism in Java:\n\n1. Compile-time polymorphism (Static binding):\n   - Achieved through method overloading\n   - Resolved at compile time\n\n2. Runtime polymorphism (Dynamic binding):\n   - Achieved through method overriding\n   - Resolved at runtime\n\nCompile-time polymorphism is less flexible but slightly faster, while runtime polymorphism is more flexible and central to object-oriented design."
-    },
-    {
-      "type": "para",
-      "text": "Q2: Explain method overloading with an example."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class Calculator {\n    public int add(int a, int b) {\n        return a + b;\n    }\n\n    public double add(double a, double b) {\n        return a + b;\n    }\n\n    public int add(int a, int b, int c) {\n        return a + b + c;\n    }\n\n    public static void main(String[] args) {\n        Calculator calc = new Calculator();\n        System.out.println(calc.add(5, 10));        // Calls the first method\n        System.out.println(calc.add(5.5, 10.5));    // Calls the second method\n        System.out.println(calc.add(5, 10, 15));    // Calls the third method\n    }\n}"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Method overloading is a feature that allows a class to have more than one method with the same name, but with different parameters. In this example, the `add` method is overloaded three times:\n1. With two int parameters\n2. With two double parameters\n3. With three int parameters\n\nThe compiler determines which method to call based on the number and types of the arguments passed to the method."
-    },
-    {
-      "type": "para",
-      "text": "Q3: How does dynamic method dispatch work in Java?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Dynamic method dispatch is the mechanism by which a call to an overridden method is resolved at runtime. Here's how it works:\n\n1. When an overridden method is called through a superclass reference, Java determines which version of that method to execute based on the actual type of the object being referred to at runtime.\n\n2. This decision is made at runtime, not at compile time.\n\n3. The JVM maintains a method table (vtable) for each class, which contains pointers to all the methods that can be called on objects of that class.\n\n4. When a method is called, the JVM looks up the appropriate method in the vtable of the actual object type and executes it.\n\nThis mechanism allows for runtime polymorphism, enabling more flexible and extensible code designs."
-    },
-    {
-      "type": "para",
-      "text": "Q4: What is the difference between an interface and an abstract class in terms of polymorphism?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Both interfaces and abstract classes can be used to achieve polymorphism in Java, but they have some key differences:\n\nInterfaces:\n1. Can only declare abstract methods (prior to Java 8) and constants.\n2. Since Java 8, can have default and static methods with implementations.\n3. A class can implement multiple interfaces.\n4. All methods are implicitly public and abstract (except default and static methods, and private methods, which are\n   allowed since Java 9).\n5. Cannot have instance variables (only static final constants).\n\nAbstract Classes:\n1. Can have both abstract and concrete methods.\n2. Can have instance variables and constructors.\n3. A class can extend only one abstract class.\n4. Can have methods with any access modifier.\n5. Can have static, final, or static final variables with any access modifier.\n\nIn terms of polymorphism:\n- Interfaces are often preferred for defining a contract that unrelated classes can implement, providing a common behavior.\n- Abstract classes are used when you want to provide a common base implementation for a group of related subclasses, allowing for code reuse along with polymorphic behavior.\n\nChoose an interface when you want to define a contract without implementation details, and an abstract class when you want to provide a common base implementation for related classes."
-    },
-    {
-      "type": "para",
-      "text": "Q5: Can you explain how the `@Override` annotation helps in polymorphism?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "The `@Override` annotation in Java is used to indicate that a method in a subclass is intended to override a method in its superclass or implement a method from an interface. While it's not strictly necessary for method overriding to work, it provides several benefits:\n\n1. Compile-time error checking: If you use @Override on a method that doesn't actually override a superclass method or implement an interface method, the compiler will generate an error. This helps catch errors early, such as typos in method names or incorrect method signatures.\n\n2. Code readability: It clearly communicates to other developers that this method is meant to override a superclass method or implement an interface method.\n\n3. Maintenance: If the superclass method signature changes, the compiler will generate an error in the subclass, helping to keep the override in sync with the superclass.\n\n4. Documentation: It serves as a form of self-documentation, making the code's intent clearer.\n\nExample:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "class Animal {\n    public void makeSound() {\n        System.out.println(\"The animal makes a sound\");\n    }\n}\n\nclass Dog extends Animal {\n    @Override\n    public void makeSound() {\n        System.out.println(\"The dog barks\");\n    }\n}"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "In this example, if we were to accidentally misspell `makeSound` in the `Dog` class, the `@Override` annotation would cause a compile-time error, catching the mistake early."
-    },
-    {
-      "type": "para",
-      "text": "This module's implementation of these concepts (see the Code Examples links below) looks like this:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "package com.github.msorkhpar.claudejavatutor.oo;\n\n// Shape interface\ninterface Shape2 {\n    double calculateArea();\n    \n    default void display() {\n        System.out.println(\"This is a shape with area: \" + calculateArea());\n    }\n}\n\n// Circle class implementing Shape\nclass Circle2 implements Shape2 {\n    private double radius;\n\n    public Circle2(double radius) {\n        this.radius = radius;\n    }\n\n    @Override\n    public double calculateArea() {\n        return Math.PI * radius * radius;\n    }\n}\n\n// Rectangle class implementing Shape\nclass Rectangle2 implements Shape2 {\n    private double length;\n    private double width;\n\n    public Rectangle2(double length, double width) {\n        this.length = length;\n        this.width = width;\n    }\n\n    @Override\n    public double calculateArea() {\n        return length * width;\n    }\n}\n"
+      "text": "The cost in Java is boilerplate: an `accept` in every class, and a handler interface that changes when a type is added. Switches over sealed types (units 1.5.3 and 1.5.4) now cover many of the cases the Visitor was written for, and the compiler checks that they handle every type."
     },
     {
       "type": "heading",
@@ -310,17 +381,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 18,
-    "paras": 12,
-    "code": 12,
-    "tables": 0,
-    "lists": 10,
+    "headings": 11,
+    "paras": 27,
+    "code": 19,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 1,
     "disclosures": 0
   },
-  "content_sha256": "0eab9ac7308f1a2c3d2a95777b4acee307cded3d548a46ae190ac7a5874f2993"
+  "content_sha256": "397e9e30f2d71e549213aefd693d5e29d2afdf55295ff258feea3c726dca8ed7"
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Change an immutable configuration",
+  "title": "Stop retrying a job forever",
   "blocks": [
     {
       "type": "heading",
@@ -19,34 +19,11 @@
     },
     {
       "type": "para",
-      "text": "Records suit **configuration objects**: a configuration is a small, fixed set of values that should not change once made. A record cannot be changed after creation, so \"changing\" one means making a copy with one component replaced, a method often called a *wither*."
+      "text": "The job runner takes jobs from a broker. When a delivery fails, the runner asks `RetryPolicy` whether to put the job back, and a job that keeps failing is meant to be dropped after a few deliveries. Each delivery is read from its message into a new `Job` object. `Job` is a record that the producer shares, and the first attempt to count deliveries in a field of `Job` didn't compile."
     },
     {
       "type": "para",
-      "text": "Complete `record ServerConfig(String host, int port, int timeoutSeconds)`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**compact constructor**: a `null` or blank host, a port outside `1..65535`, and a timeout of 0 seconds or less are refused with an `IllegalArgumentException`;",
-        "**`static ServerConfig defaults()`**: `localhost`, port `8080`, `30` seconds;",
-        "**`ServerConfig withPort(int port)`** and **`ServerConfig withTimeoutSeconds(int seconds)`**: a new configuration with that one component replaced and every other component kept."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Every configuration, however it is made, must be valid."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "ServerConfig.defaults()                         -> ServerConfig[host=localhost, port=8080, timeoutSeconds=30]\nServerConfig.defaults().withPort(9090)          -> ServerConfig[host=localhost, port=9090, timeoutSeconds=30]\nnew ServerConfig(\"api.example.com\", 443, 5).withPort(8443)\n                                                -> ServerConfig[host=api.example.com, port=8443, timeoutSeconds=5]\nnew ServerConfig(\"localhost\", 0, 30)            -> IllegalArgumentException\nServerConfig.defaults().withPort(70000)         -> IllegalArgumentException"
+      "text": "Finish `failed(...)` and `failures(...)` in `src/main/java/practice/RetryPolicy.java`. A job is delivered at most `maxDeliveries` times, and its count must not depend on which `Job` object a delivery arrived in. You may add fields to `RetryPolicy`, but don't change `Job`. About four lines in total."
     },
     {
       "type": "heading",
@@ -61,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic record ServerConfig(String host, int port, int timeoutSeconds) {\n\n    /** Refuse a null or blank host, a port outside 1..65535 and a timeout of 0 or less. */\n    public ServerConfig {\n        if (host == null || host.isBlank()) {\n            throw new IllegalArgumentException(\"A host is required\");\n        }\n        if (port < 1 || port > 65535) {\n            throw new IllegalArgumentException(\"Port out of range: \" + port);\n        }\n        if (timeoutSeconds <= 0) {\n            throw new IllegalArgumentException(\"Timeout must be positive\");\n        }\n    }\n\n    /** localhost, port 8080, 30 seconds. */\n    public static ServerConfig defaults() {\n        return new ServerConfig(\"localhost\", 8080, 30);\n    }\n\n    /** A new configuration with this port and every other component kept. */\n    public ServerConfig withPort(int port) {\n        return new ServerConfig(host, port, timeoutSeconds);\n    }\n\n    /** A new configuration with this timeout and every other component kept. */\n    public ServerConfig withTimeoutSeconds(int seconds) {\n        return new ServerConfig(host, port, seconds);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/** Decides whether a job whose delivery failed is delivered again. */\npublic final class RetryPolicy {\n\n    /**\n     * A job as the broker delivers it. The producer shares this type, and every delivery is read\n     * from the message into a new {@code Job} object.\n     */\n    public record Job(String id, String type, String payload) {\n    }\n\n    private final int maxDeliveries;\n    private final Map<Job, Integer> failures = new HashMap<>();\n\n    /** @param maxDeliveries how many times one job is delivered at most */\n    public RetryPolicy(int maxDeliveries) {\n        if (maxDeliveries < 1) {\n            throw new IllegalArgumentException(\"maxDeliveries must be at least 1\");\n        }\n        this.maxDeliveries = maxDeliveries;\n    }\n\n    /**\n     * TODO: called once each time a delivery of {@code job} fails. Returns whether the job is\n     * delivered again.\n     */\n    public boolean failed(Job job) {\n        int failed = failures.merge(job, 1, Integer::sum);\n        return failed < maxDeliveries;\n    }\n\n    /** TODO: how many deliveries of {@code job} have failed so far. */\n    public int failures(Job job) {\n        return failures.getOrDefault(job, 0);\n    }\n}\n"
         }
       ]
     },
@@ -73,18 +50,18 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic record ServerConfig(String host, int port, int timeoutSeconds) {\n\n    /** Refuse a null or blank host, a port outside 1..65535 and a timeout of 0 or less. */\n    public ServerConfig {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n\n    /** localhost, port 8080, 30 seconds. */\n    public static ServerConfig defaults() {\n        throw new UnsupportedOperationException(\"write defaults\");\n    }\n\n    /** A new configuration with this port and every other component kept. */\n    public ServerConfig withPort(int port) {\n        throw new UnsupportedOperationException(\"write withPort\");\n    }\n\n    /** A new configuration with this timeout and every other component kept. */\n    public ServerConfig withTimeoutSeconds(int seconds) {\n        throw new UnsupportedOperationException(\"write withTimeoutSeconds\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Decides whether a job whose delivery failed is delivered again. */\npublic final class RetryPolicy {\n\n    /**\n     * A job as the broker delivers it. The producer shares this type, and every delivery is read\n     * from the message into a new {@code Job} object.\n     */\n    public record Job(String id, String type, String payload) {\n    }\n\n    private final int maxDeliveries;\n\n    /** @param maxDeliveries how many times one job is delivered at most */\n    public RetryPolicy(int maxDeliveries) {\n        if (maxDeliveries < 1) {\n            throw new IllegalArgumentException(\"maxDeliveries must be at least 1\");\n        }\n        this.maxDeliveries = maxDeliveries;\n    }\n\n    /**\n     * TODO: called once each time a delivery of {@code job} fails. Returns whether the job is\n     * delivered again.\n     */\n    public boolean failed(Job job) {\n        throw new IllegalStateException(\"TODO: count this failed delivery\");\n    }\n\n    /** TODO: how many deliveries of {@code job} have failed so far. */\n    public int failures(Job job) {\n        throw new IllegalStateException(\"TODO: report the failed deliveries\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
-    "paras": 3,
-    "code": 2,
+    "headings": 3,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -92,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2ddf25a635f13ab78e9c7814d38bf241c4c641ab70c53f67dee8806ada252ba1",
-  "starting_code": "package practice;\n\npublic record ServerConfig(String host, int port, int timeoutSeconds) {\n\n    /** Refuse a null or blank host, a port outside 1..65535 and a timeout of 0 or less. */\n    public ServerConfig {\n        throw new UnsupportedOperationException(\"write the compact constructor\");\n    }\n\n    /** localhost, port 8080, 30 seconds. */\n    public static ServerConfig defaults() {\n        throw new UnsupportedOperationException(\"write defaults\");\n    }\n\n    /** A new configuration with this port and every other component kept. */\n    public ServerConfig withPort(int port) {\n        throw new UnsupportedOperationException(\"write withPort\");\n    }\n\n    /** A new configuration with this timeout and every other component kept. */\n    public ServerConfig withTimeoutSeconds(int seconds) {\n        throw new UnsupportedOperationException(\"write withTimeoutSeconds\");\n    }\n}\n",
+  "content_sha256": "f269b74f11d8aaec1e3ec27b3644636c8c9fc43df7460f4e739c81c4484c7944",
+  "starting_code": "package practice;\n\n/** Decides whether a job whose delivery failed is delivered again. */\npublic final class RetryPolicy {\n\n    /**\n     * A job as the broker delivers it. The producer shares this type, and every delivery is read\n     * from the message into a new {@code Job} object.\n     */\n    public record Job(String id, String type, String payload) {\n    }\n\n    private final int maxDeliveries;\n\n    /** @param maxDeliveries how many times one job is delivered at most */\n    public RetryPolicy(int maxDeliveries) {\n        if (maxDeliveries < 1) {\n            throw new IllegalArgumentException(\"maxDeliveries must be at least 1\");\n        }\n        this.maxDeliveries = maxDeliveries;\n    }\n\n    /**\n     * TODO: called once each time a delivery of {@code job} fails. Returns whether the job is\n     * delivered again.\n     */\n    public boolean failed(Job job) {\n        throw new IllegalStateException(\"TODO: count this failed delivery\");\n    }\n\n    /** TODO: how many deliveries of {@code job} have failed so far. */\n    public int failures(Job job) {\n        throw new IllegalStateException(\"TODO: report the failed deliveries\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-2/src/main/java/practice/ServerConfig.java",
-    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-2/src/test/java/practice/ServerConfigTest.java",
+    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-2/src/main/java/practice/RetryPolicy.java",
+    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-2/src/test/java/practice/RetryPolicyTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -117,24 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ServerConfigTest#withersReturnChangedCopies",
+        "id": "practice.RetryPolicyTest#aJobIsDeliveredAgainUntilItHasFailedTheMaximumNumberOfTimes",
         "kind": "main",
-        "says": "withPort and withTimeoutSeconds return new configurations and leave the original as it was."
+        "says": "a job is delivered again after each failure until it has failed the maximum number of times"
       },
       {
-        "id": "practice.ServerConfigTest#aWitherKeepsEveryOtherComponent",
+        "id": "practice.RetryPolicyTest#eachJobHasItsOwnCount",
         "kind": "edge",
-        "says": "Changing the port of a custom configuration keeps its host and timeout."
+        "says": "the failures of one job don't count against another job"
       },
       {
-        "id": "practice.ServerConfigTest#anInvalidPortIsRefusedHoweverItArrives",
+        "id": "practice.RetryPolicyTest#aRedeliveredJobKeepsTheCountOfItsEarlierDeliveries",
         "kind": "edge",
-        "says": "A port outside 1..65535 is refused by new and by withPort alike."
-      },
-      {
-        "id": "practice.ServerConfigTest#theHighestPortIsAllowed",
-        "kind": "edge",
-        "says": "Port 65535 is a valid port."
+        "says": "a job that arrives again as a new but equal object keeps the failures of its earlier deliveries"
       }
     ],
     "report": {
@@ -143,10 +115,11 @@
     },
     "origin": {
       "path": "09-records/README_2.4.3.md",
-      "section": "Use Cases for Records"
+      "section": "Keep a Class for Identity, Changing State, or Many Optional Parts"
     },
     "concepts": [
-      "A record cannot change after creation, so a configuration is changed by building a copy with one component replaced."
+      "State that changes over a record's life, such as a retry count, lives outside the record, in a map keyed by it, not in a static field of the record.",
+      "A record's equals compares components, so two distinct things with the same data are one entry, and a new equal record is the same map key."
     ]
   }
 }

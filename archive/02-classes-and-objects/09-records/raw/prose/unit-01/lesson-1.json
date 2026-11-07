@@ -18,252 +18,324 @@
       "text": "2.4.1 Defining and Using Records in Java"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Introduction"
+      "type": "para",
+      "text": "The report service caches rendered PDFs in a `HashMap`, keyed by `record CacheKey(String tenant, byte[] digest)`, where `digest` is the SHA-256 of the report's parameters. The cache has never had a hit. Each request computes the digest, builds a key, misses, renders the PDF again and adds one more entry, and the debug log prints keys like `CacheKey[tenant=acme, digest=[B@4d405ef7]`."
     },
     {
       "type": "para",
-      "text": "Records were introduced in Java 14 as a preview feature and became a standard feature in Java 16. They provide a compact syntax for declaring classes that are transparent holders for shallowly immutable data."
+      "text": "A record is a class whose state is the list of components in its header. From that list the compiler writes a private final field and an accessor for each component (unit 2.2.2), a canonical constructor that takes them in order, and `equals`, `hashCode` and `toString`. Every output is from Java 21."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points"
+      "text": "A Record's equals Compares Each Component with Its Own equals, So an Array Compares by Identity"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record CacheKey(String tenant, byte[] digest) {}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Map<CacheKey, String> cache = new HashMap<>();\ncache.put(new CacheKey(\"acme\", sha256(\"report-q3\")), \"rendered PDF\");\n\nCacheKey again = new CacheKey(\"acme\", sha256(\"report-q3\"));\nSystem.out.println(\"lookup: \" + cache.get(again));\nSystem.out.println(\"equals: \" + again.equals(new CacheKey(\"acme\", sha256(\"report-q3\"))));\nSystem.out.println(\"key: \" + again);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lookup: null\nequals: false\nkey: CacheKey[tenant=acme, digest=[B@4d405ef7]"
+    },
+    {
+      "type": "para",
+      "text": "The generated `equals` holds when the argument is the same record class and every pair of components is equal. A reference component is compared with `Objects.equals`, a primitive with its wrapper's `compare` (the `Record.equals` javadoc). `hashCode` combines the components' hash codes, and `toString` prints each component's own `toString`. An array inherits `equals` and `hashCode` from `Object`, so two digests holding the same 32 bytes are two different keys. A `List<Byte>` component would compare by contents, because `List.equals` does."
+    },
+    {
+      "type": "para",
+      "text": "Every request renders, and every request adds an entry that no lookup finds, until the heap runs out. Either store a type that compares by value, such as the digest as a hex `String`, or override `equals` and `hashCode` with `Arrays.equals` and `Arrays.hashCode` (and `toString` with `Arrays.toString`). An array is also mutable, so copy it on the way in, as unit 1.3.3 does for a list, and return a copy from the accessor, which otherwise hands out the field. Once `hashCode` reads the contents, a caller that changes the array after `put` changes the key's hash, and the entry is lost in the map."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Compact Constructor Runs Before the Fields Are Assigned, So It Checks the Parameters"
+    },
+    {
+      "type": "para",
+      "text": "A compact constructor is the canonical constructor without its parameter list. Its body sees the components as parameters, and when the body ends, the compiler assigns each parameter to its field."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: a Check That Never Fires"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Interval(int start, int end) {\n    Interval {\n        System.out.println(\"  in the body: \" + this);\n        if (end() < start()) throw new IllegalArgumentException(start + \" > \" + end);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`System.out.println(\"accessors: \" + new Interval(9, 4))` prints:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  in the body: Interval[start=0, end=0]\naccessors: Interval[start=9, end=4]"
+    },
+    {
+      "type": "para",
+      "text": "While the body runs, the fields hold their defaults, so the accessors return 0 and the inverted interval goes through. Any instance method called from the body sees the same zeros and nulls, so a check that calls a method on a reference component's accessor throws `NullPointerException`. Written against the parameters, `if (end < start)`, the same constructor throws `IllegalArgumentException: 9 > 4`."
+    },
+    {
+      "type": "para",
+      "text": "`javac` refuses the other ways to reach the fields: `this.start = ...` in the body is `cannot assign a value to final variable start`, and reading `this.start` is `variable start might not have been initialized`. To change a value before it is stored, assign the parameter, as unit 2.2.2 does with `name = name.strip().toLowerCase(Locale.ROOT)`. Check the value after normalising it: a check for an empty name placed before `strip()` lets `\"   \"` through, and stores it as `\"\"`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Custom Constructor Must Call the Canonical One First, So Checks Belong in the Canonical One"
+    },
+    {
+      "type": "para",
+      "text": "This `Interval` parses `\"4-9\"`, and checks the order in the constructor that parses:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Interval(int start, int end) {\n    Interval(String text) {\n        this(Integer.parseInt(text.split(\"-\")[0]), Integer.parseInt(text.split(\"-\")[1]));\n        if (end < start) throw new IllegalArgumentException(text);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "text:      java.lang.IllegalArgumentException: 9-4\ncanonical: Interval[start=9, end=4]"
+    },
+    {
+      "type": "para",
+      "text": "`new Interval(\"9-4\")` is refused, and `new Interval(9, 4)` is not. A record may have other constructors, but each must start with `this(...)`. One that assigns the fields itself fails with `constructor is not canonical, so its first statement must invoke another constructor of class Interval`. Every path to a record therefore ends in the canonical constructor: `new` with all components, the other constructors, and Java serialization, which calls the canonical constructor and nothing else (unit 2.2.3 shows it refusing a forged stream)."
+    },
+    {
+      "type": "para",
+      "text": "A check placed after `this(...)`, or in a factory, guards only the callers of that one path. Code that builds an `Interval` from two database columns, or deserializes one from a queue, gets past it. Put every check in the canonical constructor, compact or explicit, and let the other constructors only convert their arguments."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Record's Body Adds Methods, Static Members and Interfaces, but No Instance Field"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Comparator;\n\ninterface Identified {\n    String id();\n}\n\nrecord Customer(String id, String email) implements Identified {}\n\nrecord Vendor(String id, String country) implements Identified, Comparable<Vendor> {\n    static final Comparator<Vendor> ORDER =\n            Comparator.comparing(Vendor::country).thenComparing(Vendor::id);\n\n    static Vendor domestic(String id) { return new Vendor(id, \"NL\"); }\n\n    @Override public int compareTo(Vendor o) { return ORDER.compare(this, o); }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<Identified> all = List.of(new Customer(\"c-17\", \"jane@example.com\"),\n        Vendor.domestic(\"s-03\"), new Vendor(\"s-01\", \"BE\"));\nSystem.out.println(all.stream().map(Identified::id).toList());\nSystem.out.println(List.of(Vendor.domestic(\"s-09\"), new Vendor(\"s-02\", \"BE\")).stream().sorted().toList());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[c-17, s-03, s-01]\n[Vendor[id=s-02, country=BE], Vendor[id=s-09, country=NL]]"
+    },
+    {
+      "type": "para",
+      "text": "`Customer` has no body and still implements `Identified`: its generated accessor `id()` is public with the interface method's signature, so it is the implementation. `java.lang.Record`, which every record extends, declares only `equals`, `hashCode` and `toString`. An instance field can't go in the body: `private int hits;` is `field declaration must be static`, and `javac` suggests a record component instead. All instance state is in the header, so all of it passes through the canonical constructor and takes part in `equals`, `hashCode` and `toString`. A record can't extend a class; unit 2.4.3 covers what that rules out."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Nested and Local Records Are Static, So They Can't Reach an Outer Instance or a Local Variable"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "class Order {\n    private final String currency = \"EUR\";\n\n    record Line(String sku, long cents) {\n        String price() { return cents + \" \" + currency; }\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "InnerCapture.java:5: error: non-static variable currency cannot be referenced from a static context\n        String price() { return cents + \" \" + currency; }\n                                              ^"
+    },
+    {
+      "type": "para",
+      "text": "A record nested in a class is implicitly `static`: a `Line` has no enclosing `Order`, so `new Order.Line(\"TEA-1\", 450)` works from a static method, and there is no `currency` to read. A record declared in a method is static too, unlike a local class or a lambda, so it can't capture the method's variables, even effectively final ones:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.List;\n\nclass LocalCapture {\n    static List<String> labels(List<Integer> starts, int width) {\n        record Slot(int start) {\n            String label() { return start + \"-\" + (start + width); }\n        }\n        return starts.stream().map(s -> new Slot(s).label()).toList();\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "LocalCapture.java:6: error: non-static variable width cannot be referenced from a static context\n            String label() { return start + \"-\" + (start + width); }\n                                                           ^"
+    },
+    {
+      "type": "para",
+      "text": "A hidden reference to an outer object or a captured variable would be state outside the header, missing from the constructor and from `equals`. Make it a component: with `record Slot(int start, int width)` and `new Slot(s, width)`, `labels(List.of(0, 30), 15)` returns `[0-15, 30-45]`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Records are shallowly immutable data classes (the component fields are final, but an object a component refers to, such as a List, can still be mutable)",
-        "They automatically generate methods like constructor, getters, equals(), hashCode(), and toString()",
-        "Records can have static fields, methods, and nested classes",
-        "They can implement interfaces but cannot extend other classes"
+        "**`equals`, `hashCode` and `toString` use each component's own methods.** An array component compares by identity; store a value type or override all three with `Arrays`.",
+        "**The compact constructor runs before the fields are assigned.** Check and normalise the parameters; accessors and `this` see default values there.",
+        "**Every constructor ends in the canonical one, and so does Java deserialization.** A check anywhere else guards one path.",
+        "**The body adds methods, static members and interfaces, never instance fields.** A matching accessor implements an interface method.",
+        "**Nested and local records are static.** Pass what they need as components."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Defining a Record"
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "To define a record, use the `record` keyword followed by the class name and a list of components (fields) in parentheses:"
+      "text": "**What a record declaration generates (Java 21):**"
     },
     {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Person(String name, int age) {}"
+      "type": "table",
+      "headers": [
+        "Member",
+        "What it does"
+      ],
+      "rows": [
+        [
+          "field per component",
+          "`private final`, assigned once, by the canonical constructor"
+        ],
+        [
+          "accessor `c()`",
+          "`public`, returns the field; an explicit one must be `public` with the component's type"
+        ],
+        [
+          "canonical constructor",
+          "parameters in header order; explicit or compact, at least as accessible as the record"
+        ],
+        [
+          "`equals(Object)`",
+          "same record class, and each component equal as below"
+        ],
+        [
+          "`hashCode()`",
+          "combines the components' hashes; the formula is unspecified"
+        ],
+        [
+          "`toString()`",
+          "`Name[c1=v1, c2=v2]`; the javadoc says the format may change, so don't parse it"
+        ]
+      ]
     },
     {
       "type": "para",
-      "text": "This simple declaration creates a class with two final fields, a constructor, getters, and implementations of equals(), hashCode(), and toString()."
+      "text": "**How the generated `equals` compares one component (ran):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Component",
+        "Compared by",
+        "Result"
+      ],
+      "rows": [
+        [
+          "`String`, `List`, other reference",
+          "`Objects.equals`",
+          "by contents if the type's `equals` is; `null` equals `null`"
+        ],
+        [
+          "array",
+          "`Objects.equals`, which is `==` for arrays",
+          "equal contents, different arrays: not equal"
+        ],
+        [
+          "`double`, `float`",
+          "`Double.compare`, `Float.compare`",
+          "`NaN` equals `NaN`; `0.0` doesn't equal `-0.0`"
+        ],
+        [
+          "`int` and other primitives",
+          "the wrapper's `compare`",
+          "by value"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**What `javac` 21 refuses:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Code",
+        "Message"
+      ],
+      "rows": [
+        [
+          "`this.c = ...` in a compact constructor",
+          "`cannot assign a value to final variable c`"
+        ],
+        [
+          "reading `this.c` in a compact constructor",
+          "`variable c might not have been initialized`"
+        ],
+        [
+          "another constructor that doesn't start with `this(...)`",
+          "`constructor is not canonical, so its first statement must invoke another constructor of class R`"
+        ],
+        [
+          "an instance field in the body",
+          "`field declaration must be static`"
+        ],
+        [
+          "a canonical constructor less accessible than the record",
+          "`invalid canonical constructor in record R` (`attempting to assign stronger access privileges`)"
+        ],
+        [
+          "a nested or local record reading an outer field or local variable",
+          "`non-static variable x cannot be referenced from a static context`"
+        ]
+      ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Using Records"
-    },
-    {
-      "type": "para",
-      "text": "You can create and use record instances just like any other class:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Person person = new Person(\"Alice\", 30);\nSystem.out.println(person.name()); // Prints: Alice\nSystem.out.println(person.age());  // Prints: 30\nSystem.out.println(person);        // Prints: Person[name=Alice, age=30]"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Custom Constructors"
-    },
-    {
-      "type": "para",
-      "text": "You can define custom constructors in records:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Person(String name, int age) {\n    public Person {\n        if (age < 0) {\n            throw new IllegalArgumentException(\"Age cannot be negative\");\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "This is called a compact constructor and allows you to validate or modify the input parameters."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Additional Methods"
-    },
-    {
-      "type": "para",
-      "text": "You can add static or instance methods to records:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Person(String name, int age) {\n    public boolean isAdult() {\n        return age >= 18;\n    }\n\n    public static Person createAdult(String name) {\n        return new Person(name, 18);\n    }\n}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Implementing Interfaces"
-    },
-    {
-      "type": "para",
-      "text": "Records can implement interfaces:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public interface Printable {\n    void print();\n}\n\npublic record Person(String name, int age) implements Printable {\n    @Override\n    public void print() {\n        System.out.println(\"Person: \" + name + \", \" + age + \" years old\");\n    }\n}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Use records for simple data carriers",
-        "Prefer records over classes for DTOs (Data Transfer Objects)",
-        "Use custom constructors for input validation",
-        "Avoid mutable component types, or copy them defensively (e.g. `List.copyOf`) in the compact constructor"
+        "For the cache key above, would you store the digest as a hex `String`, a `ByteBuffer`, or keep `byte[]` and override three methods? Measure each on a million lookups.",
+        "A record has twelve components and four of them are optional. Do you add constructors, static factories or a builder, and where does each one's validation run?",
+        "A library reads and writes your records by reflection, through their accessors and canonical constructor. Which of this page's rules does it rely on, and what breaks if a record overrides an accessor?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Trying to extend other classes (records can't extend classes other than Record)",
-        "Attempting to declare non-static fields outside the record header",
-        "Forgetting that records are final and can't be inherited"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Be prepared to explain the benefits of records over traditional classes",
-        "Understand the limitations of records and when to use them",
-        "Know how to implement custom behavior in records while maintaining their immutability"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "References"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "[JEP 395: Records](https://openjdk.java.net/jeps/395)",
-        "[Java Records Tutorial](https://docs.oracle.com/en/java/javase/16/language/records.html)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A"
+      "text": "Design Note: Why a Record Compares Arrays by Identity"
     },
     {
       "type": "para",
-      "text": "Q1: What is a record in Java, and when was it introduced? A1: A record in Java is a special kind of class that serves as a transparent carrier for immutable data. It was introduced as a preview feature in Java 14 and became a standard feature in Java 16. Records provide a concise way to declare classes that are used to encapsulate data, automatically generating methods like constructors, getters, equals(), hashCode(), and toString()."
-    },
-    {
-      "type": "para",
-      "text": "Q2: How do you define a simple record in Java? A2: You can define a simple record in Java using the `record` keyword, followed by the record name and a list of components (fields) in parentheses. Here's an example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Point(int x, int y) {}"
-    },
-    {
-      "type": "para",
-      "text": "Q3: What methods are automatically generated for a record? A3: Java automatically generates the following methods for a record:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "A constructor with parameters for all components",
-        "Getter methods for each component (named after the component)",
-        "equals() method",
-        "hashCode() method",
-        "toString() method"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Q4: Can you add custom methods to a record? If so, how? A4: Yes, you can add custom methods to a record. You can define both instance and static methods in the record body. Here's an example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Point(int x, int y) {\n    public double distanceFromOrigin() {\n        return Math.sqrt(x * x + y * y);\n    }\n\n    public static Point origin() {\n        return new Point(0, 0);\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "Q5: How can you perform validation in a record constructor? A5: You can use a compact constructor to perform validation in a record. The compact constructor doesn't need to explicitly list the record's components. Here's an example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Person(String name, int age) {\n    public Person {\n        if (name == null || name.isEmpty()) {\n            throw new IllegalArgumentException(\"Name cannot be null or empty\");\n        }\n        if (age < 0) {\n            throw new IllegalArgumentException(\"Age cannot be negative\");\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "Q6: Can records inherit from other classes? A6: No, records cannot inherit from other classes. They implicitly extend the java.lang.Record class and cannot extend any other class. However, records can implement interfaces."
-    },
-    {
-      "type": "para",
-      "text": "Q7: How do you access the fields of a record? A7: You access the fields of a record using automatically generated getter methods. These methods have the same name as the field. For example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Point p = new Point(3, 4);\nint x = p.x(); // Not p.getX()\nint y = p.y(); // Not p.getY()"
-    },
-    {
-      "type": "para",
-      "text": "Q8: Can you have mutable fields in a record? A8: No. The component fields of a record are implicitly private and final, and a record cannot declare any other instance field: `record R(int a) { private int counter; }` fails with \"field declaration must be static\". Mutable state can still sneak in through a component of a mutable type: in `record P(String name, List<String> tags)`, `p.tags().add(\"x\")` changes the list the record holds. This is why records are called shallowly immutable; copy such components defensively (e.g. `tags = List.copyOf(tags);` in the compact constructor) when real immutability is needed."
-    },
-    {
-      "type": "para",
-      "text": "Q9: How do records differ from regular classes in terms of inheritance? A9: Records differ from regular classes in several ways regarding inheritance:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Records are implicitly final and cannot be extended.",
-        "Records cannot extend other classes (except java.lang.Record, which they extend implicitly).",
-        "Records can implement interfaces."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Q10: Can you override the automatically generated methods in a record? A10: Yes, you can override the automatically generated methods in a record. This includes the equals(), hashCode(), and toString() methods. However, you should carefully consider whether this is necessary, as the automatically generated methods are usually sufficient. Here's an example of overriding toString():"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public record Person(String name, int age) {\n    @Override\n    public String toString() {\n        return \"Person named \" + name + \" is \" + age + \" years old\";\n    }\n}"
+      "text": "The generated methods are defined by the components alone: `equals` asks each component's `equals`, with no exception for arrays. An exception would make an array equal by contents inside a record while the same array in a `List` or a map value is not, and the generated `hashCode` would hash every byte of a large array on each call. The cost is that a record holding an array has value syntax and identity equality, and `javac` gives no warning."
     },
     {
       "type": "heading",
@@ -283,17 +355,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
+    "headings": 12,
     "paras": 18,
-    "code": 10,
-    "tables": 0,
-    "lists": 8,
+    "code": 14,
+    "tables": 3,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "dded12d7b01fecfe186e62b82773f16834390e0d259ef5aa277e85b3b8e58b90"
+  "content_sha256": "969012a652b336c568b848a57358ffb917b6bbd1cb837e4fe5b6bcb43274c313"
 }

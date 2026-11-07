@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Parse a line into a PersonDTO",
+  "title": "Teach the import mapper to build records",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "Records are ideal **data transfer objects**: a DTO carries data between the layers of an application, and a record's compact constructor guards every way a DTO can be made, a factory method included."
+      "text": "The nightly import reads rows from partner files, each row a map from column name to value, and turns every row into an object with `RowMapper.map`. The mapper was written for beans. The team has since turned `Shipment`, `Sensor` and the other imported types into records, and now every import fails before the first row is stored."
     },
     {
       "type": "para",
-      "text": "`PersonDTO(String name, int age, String email)` is the course's DTO. Its compact constructor already validates (a null or empty name, a negative age, an email that is null or has no `@` are refused with `IllegalArgumentException`), and it has `isAdult()`. Write its static factory"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "static PersonDTO parse(String line)"
+      "text": "Finish `toRecord(...)` in `src/main/java/practice/RowMapper.java`, so that `map` builds records as well as beans. Each column is named after a component of the record, but partners send the columns in whatever order their files have, and the import adds bookkeeping columns of its own (their names start with `_`). A row that a record refuses must still be refused, with the record's own exception somewhere in what `map` throws. About ten lines."
     },
     {
       "type": "para",
-      "text": "which reads one line of the form `name,age,email`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "strip the spaces around each field;",
-        "a line that does not have exactly three fields is refused with an `IllegalArgumentException`;",
-        "an age that is not a whole number is refused with an `IllegalArgumentException` (not a `NumberFormatException`);",
-        "build the DTO through its canonical constructor, so its own checks apply (a parsed line with a bad email is refused with `Invalid email format`)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Examples"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "parse(\"John Doe,30,john@example.com\")         -> PersonDTO[name=John Doe, age=30, email=john@example.com]\nparse(\" Jane Doe , 15 , jane@example.com \")   -> PersonDTO[name=Jane Doe, age=15, email=jane@example.com]\nparse(\"John Doe,30\")                          -> IllegalArgumentException\nparse(\"John Doe,thirty,john@example.com\")     -> IllegalArgumentException\nparse(\"John Doe,30,invalidemail\")             -> IllegalArgumentException: Invalid email format"
+      "text": "The tests use records of their own, with components of several types."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic record PersonDTO(String name, int age, String email) {\n\n    public PersonDTO {\n        if (name == null || name.isEmpty()) {\n            throw new IllegalArgumentException(\"Name cannot be null or empty\");\n        }\n        if (age < 0) {\n            throw new IllegalArgumentException(\"Age cannot be negative\");\n        }\n        if (email == null || !email.contains(\"@\")) {\n            throw new IllegalArgumentException(\"Invalid email format\");\n        }\n    }\n\n    public boolean isAdult() {\n        return age >= 18;\n    }\n\n    /** One line \"name,age,email\", its fields stripped, as a PersonDTO. */\n    public static PersonDTO parse(String line) {\n        String[] fields = line.split(\",\", -1);\n        if (fields.length != 3) {\n            throw new IllegalArgumentException(\"Expected name,age,email\");\n        }\n        int age;\n        try {\n            age = Integer.parseInt(fields[1].strip());\n        } catch (NumberFormatException e) {\n            throw new IllegalArgumentException(\"Age is not a whole number\", e);\n        }\n        return new PersonDTO(fields[0].strip(), age, fields[2].strip());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.lang.reflect.RecordComponent;\nimport java.util.Map;\n\n/** Turns one imported row (column name to value) into an object of the requested type. */\npublic final class RowMapper {\n\n    private RowMapper() {\n    }\n\n    /** Builds an object of {@code type} from one row of the import. */\n    public static <T> T map(Class<T> type, Map<String, ?> row) {\n        try {\n            return type.isRecord() ? toRecord(type, row) : toBean(type, row);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot map a row to \" + type.getName(), e);\n        }\n    }\n\n    /** Beans: the no-arg constructor, then every instance field set from the column of its name. */\n    static <T> T toBean(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        Constructor<T> noArg = type.getDeclaredConstructor();\n        noArg.setAccessible(true);\n        T bean = noArg.newInstance();\n        for (Field field : type.getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) {\n                continue;\n            }\n            field.setAccessible(true);\n            field.set(bean, row.get(field.getName()));\n        }\n        return bean;\n    }\n\n    /**\n     * Records: TODO. Build a record of {@code type} from the row. Every check the record makes on\n     * its values must still run on imported rows.\n     */\n    static <T> T toRecord(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        RecordComponent[] components = type.getRecordComponents();\n        Class<?>[] types = new Class<?>[components.length];\n        Object[] values = new Object[components.length];\n        for (int i = 0; i < components.length; i++) {\n            types[i] = components[i].getType();\n            values[i] = row.get(components[i].getName());\n        }\n        Constructor<T> canonical = type.getDeclaredConstructor(types);\n        canonical.setAccessible(true);\n        return canonical.newInstance(values);\n    }\n}\n"
         }
       ]
     },
@@ -79,18 +54,18 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic record PersonDTO(String name, int age, String email) {\n\n    public PersonDTO {\n        if (name == null || name.isEmpty()) {\n            throw new IllegalArgumentException(\"Name cannot be null or empty\");\n        }\n        if (age < 0) {\n            throw new IllegalArgumentException(\"Age cannot be negative\");\n        }\n        if (email == null || !email.contains(\"@\")) {\n            throw new IllegalArgumentException(\"Invalid email format\");\n        }\n    }\n\n    public boolean isAdult() {\n        return age >= 18;\n    }\n\n    /** One line \"name,age,email\", its fields stripped, as a PersonDTO. */\n    public static PersonDTO parse(String line) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\n\n/** Turns one imported row (column name to value) into an object of the requested type. */\npublic final class RowMapper {\n\n    private RowMapper() {\n    }\n\n    /** Builds an object of {@code type} from one row of the import. */\n    public static <T> T map(Class<T> type, Map<String, ?> row) {\n        try {\n            return type.isRecord() ? toRecord(type, row) : toBean(type, row);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot map a row to \" + type.getName(), e);\n        }\n    }\n\n    /** Beans: the no-arg constructor, then every instance field set from the column of its name. */\n    static <T> T toBean(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        Constructor<T> noArg = type.getDeclaredConstructor();\n        noArg.setAccessible(true);\n        T bean = noArg.newInstance();\n        for (Field field : type.getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) {\n                continue;\n            }\n            field.setAccessible(true);\n            field.set(bean, row.get(field.getName()));\n        }\n        return bean;\n    }\n\n    /**\n     * Records: TODO. Build a record of {@code type} from the row. Every check the record makes on\n     * its values must still run on imported rows.\n     */\n    static <T> T toRecord(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        throw new IllegalStateException(\"TODO: build a record from the row\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 4,
+    "headings": 3,
     "paras": 3,
-    "code": 3,
+    "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0a40180828d7fcbf624915ecea72e71e6d9eadc04935281bbf6b5894267b0a27",
-  "starting_code": "package practice;\n\npublic record PersonDTO(String name, int age, String email) {\n\n    public PersonDTO {\n        if (name == null || name.isEmpty()) {\n            throw new IllegalArgumentException(\"Name cannot be null or empty\");\n        }\n        if (age < 0) {\n            throw new IllegalArgumentException(\"Age cannot be negative\");\n        }\n        if (email == null || !email.contains(\"@\")) {\n            throw new IllegalArgumentException(\"Invalid email format\");\n        }\n    }\n\n    public boolean isAdult() {\n        return age >= 18;\n    }\n\n    /** One line \"name,age,email\", its fields stripped, as a PersonDTO. */\n    public static PersonDTO parse(String line) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n",
+  "content_sha256": "0b9e1983e820afbab0f3dcee502ee5bac663c5f03d994686d91eb49f18faf7b6",
+  "starting_code": "package practice;\n\nimport java.lang.reflect.Constructor;\nimport java.lang.reflect.Field;\nimport java.lang.reflect.Modifier;\nimport java.util.Map;\n\n/** Turns one imported row (column name to value) into an object of the requested type. */\npublic final class RowMapper {\n\n    private RowMapper() {\n    }\n\n    /** Builds an object of {@code type} from one row of the import. */\n    public static <T> T map(Class<T> type, Map<String, ?> row) {\n        try {\n            return type.isRecord() ? toRecord(type, row) : toBean(type, row);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalStateException(\"cannot map a row to \" + type.getName(), e);\n        }\n    }\n\n    /** Beans: the no-arg constructor, then every instance field set from the column of its name. */\n    static <T> T toBean(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        Constructor<T> noArg = type.getDeclaredConstructor();\n        noArg.setAccessible(true);\n        T bean = noArg.newInstance();\n        for (Field field : type.getDeclaredFields()) {\n            if (Modifier.isStatic(field.getModifiers())) {\n                continue;\n            }\n            field.setAccessible(true);\n            field.set(bean, row.get(field.getName()));\n        }\n        return bean;\n    }\n\n    /**\n     * Records: TODO. Build a record of {@code type} from the row. Every check the record makes on\n     * its values must still run on imported rows.\n     */\n    static <T> T toRecord(Class<T> type, Map<String, ?> row) throws ReflectiveOperationException {\n        throw new IllegalStateException(\"TODO: build a record from the row\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/main/java/practice/PersonDTO.java",
-    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/test/java/practice/PersonDTOTest.java",
+    "main_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/main/java/practice/RowMapper.java",
+    "test_path": "practice/02-classes-and-objects/09-records/prose/unit-03/practice-1/src/test/java/practice/RowMapperTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PersonDTOTest#parsesAWellFormedLine",
+        "id": "practice.RowMapperTest#buildsARecordFromARowWhoseColumnsFollowTheHeader",
         "kind": "main",
-        "says": "\"John Doe,30,john@example.com\" becomes a PersonDTO with those three values, and a bad email is still refused by the record."
+        "says": "a row whose columns match the record's components builds an equal record, for records of different shapes"
       },
       {
-        "id": "practice.PersonDTOTest#spacesAroundFieldsAreIgnored",
-        "kind": "edge",
-        "says": "Spaces around each field are stripped before the DTO is built."
+        "id": "practice.RowMapperTest#aRowTheRecordRefusesIsStillRefused",
+        "kind": "main",
+        "says": "a row with a value the record's own constructor refuses is refused with that constructor's exception"
       },
       {
-        "id": "practice.PersonDTOTest#aLineWithTheWrongFieldCountIsRefused",
+        "id": "practice.RowMapperTest#columnsInAnotherOrderStillLandInTheRightComponents",
         "kind": "edge",
-        "says": "A line with fewer or more than three fields is refused with IllegalArgumentException."
+        "says": "a row whose columns come in another order than the record's header still puts each value in the component of its name"
       },
       {
-        "id": "practice.PersonDTOTest#anAgeThatIsNoNumberIsRefused",
+        "id": "practice.RowMapperTest#columnsTheRecordDoesNotHaveAreLeftOut",
         "kind": "edge",
-        "says": "An age that is not a whole number is refused with IllegalArgumentException, not NumberFormatException."
+        "says": "columns the record has no component for are left out instead of breaking the import"
       }
     ],
     "report": {
@@ -149,10 +124,10 @@
     },
     "origin": {
       "path": "09-records/README_2.4.3.md",
-      "section": "Q&A Section"
+      "section": "A Framework That Builds an Object Empty, Then Fills It, Can't Build a Record"
     },
     "concepts": [
-      "A record is an ideal data transfer object, and its compact constructor guards every way one is made, a factory method included."
+      "A record is built from outside through its canonical constructor, whose parameters getRecordComponents() lists by name and type in header order, so the record's checks run."
     ]
   }
 }

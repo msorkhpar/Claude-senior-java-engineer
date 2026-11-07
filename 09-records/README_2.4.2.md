@@ -1,125 +1,305 @@
 # 2.4.2. Advantages of Records over Traditional Classes
 
-Records, introduced in Java 14 and finalized in Java 16, offer several advantages over traditional classes, particularly
-for simple data carriers. This section explores these benefits and how they contribute to more concise, readable, and
-less error-prone code.
+A shop caches prices under a hand-written key class. In March the team added `region` to it,
+because Germany and Austria charge different prices in the same currency. Since then, whenever
+the German price is cached first, Austrian customers are shown it. No test failed, and the cache code wasn't touched.
 
-## Key Advantages
+The advantages of a record that matter are about what can't drift apart when the class changes,
+and they come with a limit and a migration cost. Every output here is from Java 21; declaring records and what they generate is unit 2.4.1.
 
-1. **Concise Syntax**: Records provide a compact way to declare classes that are primarily used to store data.
-
-2. **Immutability by Default**: Records are implicitly final and their fields are final, promoting immutability.
-
-3. **Automatic Generation of Boilerplate Code**: Records automatically generate methods like `equals()`, `hashCode()`,
-   and `toString()`.
-
-4. **Clear Intent**: Records clearly communicate the purpose of the class as a simple data carrier.
-
-5. **Pattern Matching**: Records work well with pattern matching, introduced in Java 16 and enhanced in later versions.
-
-6. **Improved Readability**: The concise syntax of records leads to more readable code.
-
-7. **Reduced Risk of Errors**: Automatic generation of methods reduces the risk of errors in implementations.
-
-8. **Serialization Support**: A record that implements `Serializable` (it is not serializable unless it declares
-   that) is serialized by its components and deserialized through its canonical constructor, so the constructor's
-   validation also runs on deserialization.
-
-## Best Practices
-
-- Use records for simple data carriers where immutability is desired.
-- Leverage the compact constructor syntax for validation or normalization of record components.
-- Consider using records in APIs to represent immutable data transfer objects (DTOs).
-
-## Common Pitfalls
-
-- Avoid using records for classes that require mutable state.
-- Be cautious when using records with inheritance, as records cannot extend other classes (except `java.lang.Record`).
-
-## Performance Considerations
-
-Records generally have similar performance characteristics to regular classes. However, their immutability can lead to
-better performance in concurrent scenarios and when used as keys in hash-based collections.
-
-## Interview Insights
-
-Interviewers often ask about the benefits of records and scenarios where they are most appropriate. Be prepared to
-discuss the trade-offs between records and traditional classes, and when you would choose one over the other.
-
-## Interview Q&A
-
-Q1: What are the main advantages of using records over traditional classes?
-
-A1: The main advantages of records include:
-
-- Concise syntax for declaring data carrier classes
-- Automatic generation of boilerplate methods (equals, hashCode, toString)
-- Immutability by default
-- Clear intent as data carriers
-- Good integration with pattern matching
-- Improved readability and reduced risk of errors in method implementations
-
-Q2: How do records promote immutability?
-
-A2: Records promote immutability in several ways:
-
-- Record classes are implicitly final, preventing inheritance
-- All fields (components) of a record are final by default
-- Records do not provide setter methods
-- The automatically generated equals and hashCode methods are based on the immutable state
-
-Q3: Can you modify the automatically generated methods in a record? If so, how?
-
-A3: Yes, you can modify the automatically generated methods in a record:
-
-- You can provide custom implementations for equals, hashCode, and toString methods
-- You can use compact constructors to validate or normalize the input data
-- You can add additional methods to the record
-
-Here's an example:
+## A Record's equals and hashCode Follow Its Component List, So a New Field Can't Be Left Out
 
 ```java
-public record Person(String name, int age) {
-    // Compact constructor for validation
-    public Person {
-        if (age < 0) {
-            throw new IllegalArgumentException("Age cannot be negative");
-        }
+static final class PriceKey {
+    private final String sku;
+    private final String currency;
+    private final String region;
+
+    PriceKey(String sku, String currency, String region) {
+        this.sku = sku;
+        this.currency = currency;
+        this.region = region;
     }
 
-    // Custom toString method
-    @Override
-    public String toString() {
-        return "Person: " + name + " (Age: " + age + ")";
+    @Override public boolean equals(Object o) {
+        return o instanceof PriceKey k && sku.equals(k.sku) && currency.equals(k.currency);
     }
 
-    // Additional method
-    public boolean isAdult() {
-        return age >= 18;
+    @Override public int hashCode() {
+        return Objects.hash(sku, currency);
+    }
+}
+
+record PriceRecord(String sku, String currency, String region) {}
+```
+
+Pause here: the cache holds the German price, 1990 cents, and a request for Austria comes in.
+Which price does it get?
+
+```java
+Map<Object, Integer> cache = new HashMap<>();
+cache.put(new PriceKey("SKU-7", "EUR", "DE"), 1990);
+Integer forAustria = cache.get(new PriceKey("SKU-7", "EUR", "AT"));
+// and the same with PriceRecord, asked for AT and then DE
+```
+
+```text
+class key,  AT request: 1990 (the DE price)
+record key, AT request: null
+record key, DE request: 1990
+```
+
+The class's `equals` and `hashCode` were generated by an IDE when the class had two fields, and
+nothing ties them to the third. The two keys are equal, so the cache answers with the German
+price, and nothing throws or logs.
+
+A record's `equals`, `hashCode` and `toString` are derived from the component list in the header,
+so adding `region` there changes all three, and the Austrian request misses and gets priced for
+Austria.
+
+## Adding a Component Breaks Every Constructor Call and Record Pattern at Compile Time
+
+`Quote` gains a `currency` component. Code written against the old shape:
+
+```java
+record Quote(String sku, long cents, String currency) {}   // was (String sku, long cents)
+
+static Quote quote(String sku) {
+    return new Quote(sku, 1990);
+}
+
+static String describe(Object o) {
+    return switch (o) {
+        case Quote(var sku, var cents) -> sku + " costs " + cents;
+        default -> "not a quote";
+    };
+}
+```
+
+```text
+break/Quotes.java:6: error: constructor Quote in record Quote cannot be applied to given types;
+        return new Quote(sku, 1990);
+               ^
+  required: String,long,String
+  found:    String,int
+  reason: actual and formal argument lists differ in length
+break/Quotes.java:11: error: incorrect number of nested patterns
+            case Quote(var sku, var cents) -> sku + " costs " + cents;
+                 ^
+  required: String,long,String
+  found: String,long
+2 errors
+```
+
+A record has one canonical constructor and one deconstruction shape (record patterns, unit 1.5.3),
+both equal to the header, so every call and pattern written for two components stops compiling.
+You can keep old calls compiling with an extra `Quote(String sku, long cents)` constructor that
+passes a default currency, but the pattern still breaks: it has no such escape. Code that only
+calls `q.sku()` still compiles. A class with a no-arg constructor and setters gets none of this:
+every old call site compiles and leaves `currency` null.
+
+## A Record Is Only Shallowly Immutable: a List Component Can Change Under a Map Key
+
+A record's fields are `final`, but a `final` field that holds a `List` holds a list anyone with a
+reference can change. A booking service keeps seat holds in a map keyed by a flight leg, and the
+caller reuses its seat list:
+
+```java
+record Leg(String flight, List<String> seats) {}
+
+List<String> seats = new ArrayList<>(List.of("12A", "12B"));
+Leg leg = new Leg("LH-401", seats);
+Map<Leg, String> holds = new HashMap<>();
+holds.put(leg, "hold-1");
+
+seats.add("12C");                                  // the caller reuses its list
+```
+
+```text
+leg now:      Leg[flight=LH-401, seats=[12A, 12B, 12C]]
+get(leg):     null
+map size:     1
+key equals:   true
+```
+
+The record's `hashCode` reads the list, so the key's hash changed after it was stored. The entry
+was filed under the old hash, so `get` with the new one doesn't find it, although the map still
+holds the entry and that entry equals `leg`. The hold can't be found or released, so the seats
+stay blocked.
+
+Copy the component in the compact constructor. Both candidates were checked after the same
+`seats.add("12C")`:
+
+```java
+record CopiedLeg(String flight, List<String> seats) {
+    CopiedLeg { seats = List.copyOf(seats); }
+}
+
+record ViewLeg(String flight, List<String> seats) {
+    ViewLeg { seats = Collections.unmodifiableList(seats); }
+}
+```
+
+```text
+List.copyOf:  hold-1, [12A, 12B]
+unmodifiable: null, [12A, 12B, 12C]
+```
+
+`Collections.unmodifiableList` is a read-only view of the caller's list, not a copy, so the
+caller's change still reaches the key. `List.copyOf` makes an unmodifiable copy (and refuses
+`null` elements). Maps and sets have `Map.copyOf` and `Set.copyOf`. An array can't be made
+unmodifiable: clone it in the constructor and in the accessor, and note that it is compared by
+identity (see the Reference).
+
+<!-- practice 1 -->
+
+## Moving a JavaBean DTO to a Record Turns Identity into Value Equality
+
+A monitoring service collects alerts in a `HashSet` and pages someone when one host sends two
+`503`s within a minute. The DTO was a JavaBean with no `equals`, and the team migrates it to
+a record that checks its code:
+
+```java
+public record Alert(String host, int code) {
+    public Alert {
+        if (code < 100 || code > 599) throw new IllegalArgumentException("bad code " + code);
     }
 }
 ```
 
-Q4: How do records improve code readability compared to traditional classes?
+The same two alerts go into a `Set<AlertBean>` (the old bean, with setters) and a `Set<Alert>`:
 
-A4: Records improve code readability in several ways:
+```java
+for (int i = 0; i < 2; i++) {
+    AlertBean b = new AlertBean();
+    b.setHost("db-1");
+    b.setCode(503);
+    beans.add(b);
+}
+Set<Alert> records = new HashSet<>(List.of(new Alert("db-1", 503)));
+records.add(new Alert("db-1", 503));
+```
 
-- The concise syntax clearly shows the structure and components of the data
-- The absence of boilerplate code (like getters, setters, equals, hashCode) reduces clutter
-- The immutability by default makes the code's intent clearer
-- The automatic toString method provides a readable representation of the object
+```text
+alerts counted, bean:   2
+alerts counted, record: 1
+```
 
-Q5: Are there any limitations to using records that developers should be aware of?
+The bean inherited `Object.equals`, which compares identity, so two alerts with the same values
+were two set elements. The record compares values: equal hash codes only bring the two alerts
+together, and the record's `equals` makes the second one a duplicate, so the rule never fires. The code around the set compiles unchanged, and every test that sends one alert
+passes.
 
-A5: Yes, there are some limitations to records:
+Before migrating, find every `Set`, map key, `contains`, `remove` and `indexOf` that sees the DTO.
+Where two equal values are two events, give the record a component that tells them apart, such as
+an id or a timestamp.
 
-- Records cannot extend other classes (except java.lang.Record)
-- All fields in a record are final, so a record cannot change which objects it holds (but a component of a mutable
-  type, such as a List, can still be modified; records are only shallowly immutable)
-- Records are designed for use as simple data carriers and may not be suitable for complex domain objects
-- Records cannot declare instance fields other than the private final fields for the components of the record component
-  list
-- Records cannot have explicit extends clause (other than java.lang.Record)
+## A Binder Can Build a Record Only Through Its Canonical Constructor
+
+A binder written for JavaBeans creates the object with its no-arg constructor, then sets each
+property through a setter or by writing the field. A record has no no-arg constructor and no
+setters (unit 2.2.2 covers the missing `getX` names). What the binder tries, each call wrapped in
+its own `try`, and whether `Alert` can be subclassed:
+
+```java
+Alert.class.getDeclaredConstructor().newInstance();
+
+Alert a = new Alert("db-1", 503);
+Field code = Alert.class.getDeclaredField("code");
+code.setAccessible(true);
+code.setInt(a, 200);
+
+System.out.println("final class: " + Modifier.isFinal(Alert.class.getModifiers()));
+```
+
+```text
+no-arg constructor: java.lang.NoSuchMethodException: Migration$Alert.<init>()
+field write: Can not set final int field Migration$Alert.code to (int)200
+final class: true
+```
+
+`Field.set` refuses to write a record's field even after `setAccessible(true)`, as its javadoc
+states. A record is also implicitly `final`, so a library that subclasses at run time, a
+lazy-loading proxy for example, can't do so.
+
+A binder that supports records reads the components in declaration order and calls the canonical
+constructor:
+
+```java
+Map<String, Object> json = Map.of("code", 502, "host", "db-2");
+RecordComponent[] parts = Alert.class.getRecordComponents();
+Class<?>[] types = Arrays.stream(parts).map(RecordComponent::getType).toArray(Class<?>[]::new);
+Object[] values = Arrays.stream(parts).map(p -> json.get(p.getName())).toArray();
+Constructor<Alert> canonical = Alert.class.getDeclaredConstructor(types);
+System.out.println("bound: " + canonical.newInstance(values));
+try {
+    canonical.newInstance("db-3", 42);
+} catch (InvocationTargetException e) {
+    System.out.println("bound with code 42: " + e.getCause());
+}
+```
+
+```text
+bound: Alert[host=db-2, code=502]
+bound with code 42: java.lang.IllegalArgumentException: bad code 42
+```
+
+Binding through the constructor runs the compact constructor's checks on every object; a
+setter-based binder skips them. Reflection delivers the check's exception wrapped in an
+`InvocationTargetException`.
+
+> **Libraries differ.** Recent versions of the common JSON and mapping libraries bind records
+> through the canonical constructor; older versions, and tools that require a no-arg constructor
+> (JPA entities among them), don't. Check the version you run before migrating.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A record's `equals` and `hashCode` follow its components.** A component added later is part
+  of equality at once; a hand-written class drifts and serves the wrong value without an error.
+- **Adding a component is a compile error at every record pattern and canonical-constructor
+  call.** The compiler finds the sites that build or take apart the old shape.
+- **A record is only shallowly immutable.** A mutable component changed after the record is a map
+  key loses the entry; copy it with `List.copyOf`, not a view.
+- **Migrating a JavaBean DTO changes its equality** from identity to values, so sets and maps
+  that held equal beans apart now merge them.
+- **Binders need the canonical constructor.** No-arg construction, field writes and subclassing
+  fail on a record; constructor binding works and runs its validation.
+
+## Reference
+
+**What a record's generated members do (Java 21):**
+
+| Situation | Result |
+|---|---|
+| array component in `equals` | compared by identity: equal contents, `false` |
+| array component in `toString` | `Sample[sensor=t1, values=[D@...]` |
+| `List` component in `equals` | `List.equals`: `List.of("a")` equals an `ArrayList` of `"a"` |
+| `toString` | prints every component: `Login[user=jane, password=s3cret]` |
+| `hashCode` | algorithm unspecified, may change between runs (`Record` javadoc): `Point(1, 2)` gave 33, `Objects.hash(1, 2)` 994; never persist it |
+| `Field.set` on a record's field | `IllegalAccessException`, even after `setAccessible(true)` |
+| subclassing | impossible: a record is implicitly `final`, its superclass is `java.lang.Record` |
+
+## Challenges
+
+1. Your record holds a `List<Item>` and `Item` is a mutable class. Is `List.copyOf` enough to
+   make the record a safe map key? What would be?
+2. List the places in a service you know where a DTO is put in a set or used as a map key. Which
+   of them would change behaviour if the DTO became a record?
+3. A record holds a password. Do you override `toString`, wrap the password in a type of its own,
+   or keep it out of the record? What does each choice do to `equals`?
+
+## Design Note: A Record's API Is Its State
+
+`Record`'s javadoc requires that `new R(r.c1(), ..., r.cn())` equals `r`: the header is the
+constructor, the accessors, the equality and the pattern. As long as you don't override them,
+the generated members can't drift from each other, and a binder can build a record from its
+components alone. The cost is that a record can't hide its representation. Changing a component
+changes the canonical constructor, every record pattern and the serialized form; a class could
+keep its old constructor and convert behind it.
 
 ## Code Examples
 
