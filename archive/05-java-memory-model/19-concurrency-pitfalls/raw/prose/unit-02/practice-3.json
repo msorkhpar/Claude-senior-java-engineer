@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Keep a balance and its transaction count consistent",
+  "title": "Keep a pool's minimum below its maximum",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,15 @@
     },
     {
       "type": "para",
-      "text": "When two fields must always agree, updating them one after the other is an atomicity violation: a reader can see the new balance with the old transaction count. The page's first fix (its `MultiVariableAtomicity`, approach 1) guards **every** read and write of both fields with one lock: `synchronized` methods on the object."
+      "text": "A connection pool keeps at least `min` connections open and never more than `max`. Operators change the limits by hand and the autoscaler changes them on its own, from different threads, and every change must also pass the platform's `Policy` (a ceiling per service tier, for example). Last week one service ran with `min` 16 and `max` 12 for an hour: an operator raised the minimum while the autoscaler lowered the maximum, and both changes were accepted. Each limit is an `AtomicInteger` today."
     },
     {
       "type": "para",
-      "text": "Write `Account`, with a balance and a count of successful transactions, both starting at 0. Guard both fields with the account object's own monitor (`synchronized` methods, or `synchronized (this)`):"
+      "text": "Finish `limits()`, `setMin(...)` and `setMax(...)` in `src/main/java/practice/PoolLimits.java`. You may change how the limits are stored. The policy check calls the config service and can take seconds, and a change must not wait for another change's policy check. When you're done, the limits can never be seen with `min` above `max`, every change that was accepted is in force, and a change that a concurrent change made invalid is refused. About twelve lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`deposit(amount)` adds to the balance and counts one transaction;",
-        "`withdraw(amount)` takes from the balance and counts one transaction, or returns `false` and changes nothing when the balance is too small;",
-        "`snapshot()` returns a `Snapshot(balance, transactions)` read in one step."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer",
-        "`snapshot()`"
-      ],
-      "rows": [
-        [
-          "`deposit(100)`",
-          "",
-          "`(100, 1)`"
-        ],
-        [
-          "`withdraw(30)`",
-          "`true`",
-          "`(70, 2)`"
-        ],
-        [
-          "`withdraw(500)`",
-          "`false`",
-          "`(70, 2)`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests make one change's policy check slow and make another change while it waits."
     },
     {
       "type": "heading",
@@ -72,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Account {\n\n    /** The balance and the number of successful transactions, read together. */\n    public record Snapshot(int balance, int transactions) {\n    }\n\n    private int balance;\n    private int transactions;\n\n    /** Adds to the balance and counts one transaction. */\n    public synchronized void deposit(int amount) {\n        balance += amount;\n        transactions++;\n    }\n\n    /** Takes from the balance and counts one transaction; false, changing nothing, when too small. */\n    public synchronized boolean withdraw(int amount) {\n        if (balance < amount) {\n            return false;\n        }\n        balance -= amount;\n        transactions++;\n        return true;\n    }\n\n    /** Returns the balance and the transaction count, read in one step. */\n    public synchronized Snapshot snapshot() {\n        return new Snapshot(balance, transactions);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.function.UnaryOperator;\n\n/**\n * The size limits of a connection pool: it keeps at least min connections open and never more\n * than max. Operators and the autoscaler change the limits from different threads, and the pool\n * reads them on every borrow.\n */\npublic class PoolLimits {\n\n    /** A pair of limits. */\n    public record Limits(int min, int max) {}\n\n    /** The platform's rules for a proposed pair, such as a ceiling per service tier. */\n    public interface Policy {\n        boolean permits(Limits proposed);\n    }\n\n    private final AtomicReference<Limits> limits;\n    private final Policy policy;\n\n    public PoolLimits(int min, int max, Policy policy) {\n        this.limits = new AtomicReference<>(new Limits(min, max));\n        this.policy = policy;\n    }\n\n    /** The limits in force, as one pair. */\n    public Limits limits() {\n        return limits.get();\n    }\n\n    /** Sets the minimum. False, and nothing changes, when the result would be refused. */\n    public boolean setMin(int min) {\n        return change(l -> new Limits(min, l.max()));\n    }\n\n    /** Sets the maximum. False, and nothing changes, when the result would be refused. */\n    public boolean setMax(int max) {\n        return change(l -> new Limits(l.min(), max));\n    }\n\n    private boolean change(UnaryOperator<Limits> how) {\n        while (true) {\n            Limits current = limits.get();\n            Limits next = how.apply(current);\n            if (next.min() > next.max() || !policy.permits(next)) return false;\n            if (limits.compareAndSet(current, next)) return true;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Account {\n\n    /** The balance and the number of successful transactions, read together. */\n    public record Snapshot(int balance, int transactions) {\n    }\n\n    /** Adds to the balance and counts one transaction. */\n    public void deposit(int amount) {\n        throw new UnsupportedOperationException(\"write deposit\");\n    }\n\n    /** Takes from the balance and counts one transaction; false, changing nothing, when too small. */\n    public boolean withdraw(int amount) {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    /** Returns the balance and the transaction count, read in one step. */\n    public Snapshot snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The size limits of a connection pool: it keeps at least min connections open and never more\n * than max. Operators and the autoscaler change the limits from different threads, and the pool\n * reads them on every borrow.\n */\npublic class PoolLimits {\n\n    /** A pair of limits. */\n    public record Limits(int min, int max) {}\n\n    /** The platform's rules for a proposed pair, such as a ceiling per service tier. */\n    public interface Policy {\n        boolean permits(Limits proposed);\n    }\n\n    private final AtomicInteger min;\n    private final AtomicInteger max;\n    private final Policy policy;\n\n    public PoolLimits(int min, int max, Policy policy) {\n        this.min = new AtomicInteger(min);\n        this.max = new AtomicInteger(max);\n        this.policy = policy;\n    }\n\n    /** The limits in force, as one pair. */\n    public Limits limits() {\n        // TODO: Return the limits in force. You may change how the limits are stored.\n        throw new IllegalStateException(\"TODO: limits\");\n    }\n\n    /** Sets the minimum. False, and nothing changes, when the result would be refused. */\n    public boolean setMin(int min) {\n        // TODO: Change the minimum, unless the policy refuses the new pair or min would exceed max.\n        throw new IllegalStateException(\"TODO: setMin\");\n    }\n\n    /** Sets the maximum. False, and nothing changes, when the result would be refused. */\n    public boolean setMax(int max) {\n        // TODO: Change the maximum, unless the policy refuses the new pair or max would fall below min.\n        throw new IllegalStateException(\"TODO: setMax\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -103,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5df7d6231605611d2b1f40287c3bdc1252ee44039762e1ae5d6a16898db80102",
-  "starting_code": "package practice;\n\npublic final class Account {\n\n    /** The balance and the number of successful transactions, read together. */\n    public record Snapshot(int balance, int transactions) {\n    }\n\n    /** Adds to the balance and counts one transaction. */\n    public void deposit(int amount) {\n        throw new UnsupportedOperationException(\"write deposit\");\n    }\n\n    /** Takes from the balance and counts one transaction; false, changing nothing, when too small. */\n    public boolean withdraw(int amount) {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    /** Returns the balance and the transaction count, read in one step. */\n    public Snapshot snapshot() {\n        throw new UnsupportedOperationException(\"write snapshot\");\n    }\n}\n",
+  "content_sha256": "e08255370b7e9dfa43d34a40f0e8f3912b34da4add029c905e23dc8e98acbcb3",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The size limits of a connection pool: it keeps at least min connections open and never more\n * than max. Operators and the autoscaler change the limits from different threads, and the pool\n * reads them on every borrow.\n */\npublic class PoolLimits {\n\n    /** A pair of limits. */\n    public record Limits(int min, int max) {}\n\n    /** The platform's rules for a proposed pair, such as a ceiling per service tier. */\n    public interface Policy {\n        boolean permits(Limits proposed);\n    }\n\n    private final AtomicInteger min;\n    private final AtomicInteger max;\n    private final Policy policy;\n\n    public PoolLimits(int min, int max, Policy policy) {\n        this.min = new AtomicInteger(min);\n        this.max = new AtomicInteger(max);\n        this.policy = policy;\n    }\n\n    /** The limits in force, as one pair. */\n    public Limits limits() {\n        // TODO: Return the limits in force. You may change how the limits are stored.\n        throw new IllegalStateException(\"TODO: limits\");\n    }\n\n    /** Sets the minimum. False, and nothing changes, when the result would be refused. */\n    public boolean setMin(int min) {\n        // TODO: Change the minimum, unless the policy refuses the new pair or min would exceed max.\n        throw new IllegalStateException(\"TODO: setMin\");\n    }\n\n    /** Sets the maximum. False, and nothing changes, when the result would be refused. */\n    public boolean setMax(int max) {\n        // TODO: Change the maximum, unless the policy refuses the new pair or max would fall below min.\n        throw new IllegalStateException(\"TODO: setMax\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-3/src/main/java/practice/Account.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-3/src/test/java/practice/AccountTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-3/src/main/java/practice/PoolLimits.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-02/practice-3/src/test/java/practice/PoolLimitsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AccountTest#depositsWithdrawsAndSnapshots",
+        "id": "practice.PoolLimitsTest#changesEachLimitAndRefusesPairsThatAreOutOfOrderOrAgainstPolicy",
         "kind": "main",
-        "says": "Deposits and withdrawals move the balance and each counts one transaction, and a snapshot reads both."
+        "says": "each limit can be changed on its own, and a change is refused when the minimum would exceed the maximum or the policy refuses the pair"
       },
       {
-        "id": "practice.AccountTest#anOverdraftIsRefused",
+        "id": "practice.PoolLimitsTest#aRaisedMinimumAndALoweredMaximumNeverCross",
         "kind": "edge",
-        "says": "A withdrawal larger than the balance is refused and changes neither field."
+        "says": "a raised minimum and a lowered maximum made at the same time never leave the minimum above the maximum"
       },
       {
-        "id": "practice.AccountTest#updatesTakeTheAccountsLock",
+        "id": "practice.PoolLimitsTest#twoChangesThatFitTogetherAreBothInForce",
         "kind": "edge",
-        "says": "A deposit waits while another thread holds the account's lock, so both fields change in one step."
+        "says": "two changes made at the same time that fit together are both in force afterwards"
       },
       {
-        "id": "practice.AccountTest#aWithdrawalTakesTheAccountsLock",
+        "id": "practice.PoolLimitsTest#aLoweredMaximumIsRefusedWhenTheMinimumRoseAboveIt",
         "kind": "edge",
-        "says": "withdraw() waits while another thread holds the account's own monitor, like every other update."
-      },
-      {
-        "id": "practice.AccountTest#aSnapshotTakesTheAccountsLock",
-        "kind": "edge",
-        "says": "A snapshot waits for the lock too, so it never pairs a new balance with an old count."
+        "says": "a change that was valid when it was checked is refused if a change made meanwhile makes it invalid"
       }
     ],
     "report": {
@@ -159,10 +124,10 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.2.md",
-      "section": "3. Non-atomic multi-variable updates"
+      "section": "Values That Must Agree Need One Lock or One Immutable Holder Replaced by compareAndSet"
     },
     "concepts": [
-      "Fields that must stay consistent are all read and written under one lock, so no reader sees half an update."
+      "A rule over two variables breaks even when each is atomic; it holds only under one lock or in one immutable holder replaced by compareAndSet with the rule checked on every attempt."
     ]
   }
 }

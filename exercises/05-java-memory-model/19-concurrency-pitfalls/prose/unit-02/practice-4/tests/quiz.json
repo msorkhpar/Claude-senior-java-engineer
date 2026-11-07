@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "19-concurrency-pitfalls"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 4,
+  "title": "Check yourself: atomicity violations",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-points-audit",
+        "stem": "A loyalty service adds points with `balance.accumulateAndGet(points, (cur, p) -> { audit.record(cur, p); return cur + p; })` on an AtomicLong. During a promotion, 12 request threads add points at the same time. Afterwards, how do the balance and the audit trail compare with the awards that were made?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The balance matches the awards and the audit trail can have more entries than awards, since the function runs again whenever another update got in first",
+            "correct": true,
+            "says": "the update is a compare-and-set retried until it wins; each losing attempt re-applies the function, side effect included"
+          },
+          {
+            "id": "b",
+            "text": "The balance matches the awards and the audit trail has one entry per award, since a failed attempt retries only the write and keeps the computed value",
+            "correct": false,
+            "says": "the retry reads the new value and re-runs the function on it; it does not reuse the result computed from the old value"
+          },
+          {
+            "id": "c",
+            "text": "The balance falls short of the awards and the audit trail has one entry per award, since a concurrent update can overwrite the function's result",
+            "correct": false,
+            "says": "compareAndSet writes only if the value is still the one the function started from, so no award is lost"
+          },
+          {
+            "id": "d",
+            "text": "The balance falls short of the awards and the audit trail can have more entries than awards, since contended updates drop some writes and repeat others",
+            "correct": false,
+            "says": "no write is dropped: the counter ends right, only the function's runs multiply"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.2.md",
+          "section": "An Atomic Update Retries Until Its compareAndSet Wins, So Its Function Can Run Many Times"
+        }
+      },
+      {
+        "id": "q-sessions-gauge",
+        "stem": "An active-sessions gauge is a LongAdder: a login thread calls increment() when a session opens, and the session's logout, handled later on another thread, calls decrement(). A dashboard reads sum() every second and pages the on-call engineer when it reads below zero. Under heavy login and logout traffic, what can happen?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It can page although the sessions never went below zero, since a decrement can be lost when an increment lands in the same cell",
+            "correct": false,
+            "says": "no update is lost: each add to a cell is atomic, and the adder ends exact"
+          },
+          {
+            "id": "b",
+            "text": "It can page although the sessions never went below zero, since sum() adds up cells that keep changing while it reads them",
+            "correct": true,
+            "says": "sum() is not an atomic snapshot: it can read the logout's cell after the decrement and the login's cell before the increment"
+          },
+          {
+            "id": "c",
+            "text": "It pages when a logout was counted before its login, since sum() returns a total the gauge held at some moment",
+            "correct": false,
+            "says": "sum() can return a total the gauge never held, so it can read below zero with every logout after its login"
+          },
+          {
+            "id": "d",
+            "text": "It pages when a logout was counted before its login, since sum() holds back updates while it adds the cells",
+            "correct": false,
+            "says": "sum() takes no lock and blocks nothing; updates go on while it reads"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.2.md",
+          "section": "LongAdder Counts Faster Under Contention Because No Single Variable Holds the Total"
+        }
+      },
+      {
+        "id": "q-reservation-keys",
+        "stem": "A ConcurrentHashMap<String, Integer> holds `lamp-7:available` and `lamp-7:reserved`. A reservation runs `stock.merge(\"lamp-7:available\", -1, Integer::sum)` and then `stock.merge(\"lamp-7:reserved\", 1, Integer::sum)`. An audit thread repeatedly checks that available plus reserved equals the 40 lamps received. What does the audit find while reservations are made one at a time?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It can find 39, since each merge is atomic only for its own key, and the audit can read between the two",
+            "correct": true,
+            "says": "the atomicity of compute and merge covers one call on one key; the reservation is two calls"
+          },
+          {
+            "id": "b",
+            "text": "It can find 39, since merge runs its function outside the bin's lock, and the audit can read a key mid-update",
+            "correct": false,
+            "says": "merge on one key is atomic; the gap is between the two calls, not inside one"
+          },
+          {
+            "id": "c",
+            "text": "It finds 40 unless two reservations overlap, since merge keeps the key's bin locked until the calling method returns",
+            "correct": false,
+            "says": "the bin is locked only while that one call's function runs"
+          },
+          {
+            "id": "d",
+            "text": "It finds 40 unless two reservations overlap, since the map shows one thread's merges to readers together",
+            "correct": false,
+            "says": "the map promises nothing across keys; a reader can see the first merge without the second"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.2.md",
+          "section": "compute and merge Are Atomic for One Key, Not for an Action Across Keys"
+        }
+      },
+      {
+        "id": "q-discount-band",
+        "stem": "A discount band keeps `floorPct` and `capPct` in two AtomicIntegers, and the floor must never exceed the cap. To fix occasional bad bands, setFloor(v) now reads `int old = floorPct.get()`, checks `v <= capPct.get()`, and then calls `floorPct.compareAndSet(old, v)`; setCap does the same on its own field. Is the rule safe now?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No, since a cap lowered between the floor's check and its compareAndSet still leaves the floor above the cap",
+            "correct": true,
+            "says": "the compareAndSet compares only the floor's own value, and the rule reads two variables"
+          },
+          {
+            "id": "b",
+            "text": "No, since an int field written by one thread can be read half-written by another while the check runs",
+            "correct": false,
+            "says": "each atomic field is read and written whole; what breaks is the rule between the two"
+          },
+          {
+            "id": "c",
+            "text": "Yes, since the compareAndSet fails whenever the band changed after the check, cap included",
+            "correct": false,
+            "says": "a compareAndSet on floorPct sees only floorPct; a change to capPct does not make it fail"
+          },
+          {
+            "id": "d",
+            "text": "Yes, since each field is now changed only by compareAndSet, which keeps the two in step",
+            "correct": false,
+            "says": "atomic fields keep each value whole and let the rule between them break"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.2.md",
+          "section": "Values That Must Agree Need One Lock or One Immutable Holder Replaced by compareAndSet"
+        }
+      }
+    ]
+  }
+}

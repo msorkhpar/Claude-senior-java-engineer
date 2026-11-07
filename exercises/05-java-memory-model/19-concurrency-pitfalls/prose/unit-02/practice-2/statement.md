@@ -1,25 +1,14 @@
-`if (sold < capacity) sold++` is a check-then-act: two threads can both pass the
-check for the last ticket. The page's fix is a **compare-and-set retry loop**:
-read the current value, decide, then `compareAndSet(current, next)`. The CAS fails
-when another thread changed the value in between, so the update loops: it re-reads,
-**re-checks its condition** (the page's `incrementIfPositive` gives up when the
-condition no longer holds), and tries again.
+The warehouse keeps its stock in one `ConcurrentHashMap`: for each SKU, how many units sit in
+each bin. Pickers move units between bins all day. The same map is read by the hourly stock
+count and updated by the order service, which ships units straight from it with its own
+`compute` calls. Lately the stock count has reported units missing that turned up an hour later,
+a bin once showed -6 units, and a shipment of glue reappeared on the shelf in the system but not
+in the aisle.
 
-Write `TicketCounter`. It counts sold tickets in a `Cell`, a tiny interface with
-`get()` and `compareAndSet(expected, next)`; `Cell.atomic()` is one backed by an
-`AtomicInteger` (already written for you). The constructor takes the cell and the
-capacity.
+Finish `move(...)` in `src/main/java/practice/Warehouse.java`. The `Bins` record and the reading
+methods are done. The order service won't change, so whatever `move` does must hold against its
+calls on the map. When you're done, a stock count taken at any moment finds every unit, no bin
+goes below zero, and no shipment is undone. About seven lines in total.
 
-- `sell()` sells one ticket and returns `true`, or returns `false` when all
-  `capacity` tickets are sold. Update the cell **only** with `compareAndSet`, in a
-  retry loop.
-- `sold()` returns how many tickets are sold.
-
-| calls (capacity 2) | answer | `sold()` |
-|---|---|---|
-| `sell()` | `true` | 1 |
-| `sell()` | `true` | 2 |
-| `sell()` | `false` | 2 |
-
-The tests hand you a cell whose first `compareAndSet` loses to a sale made by
-"another thread", to check what your loop does next.
+The tests hold the picker's thread right after it reads the map, or right after it first changes
+it, and meanwhile take a stock count or ship from the same bin.

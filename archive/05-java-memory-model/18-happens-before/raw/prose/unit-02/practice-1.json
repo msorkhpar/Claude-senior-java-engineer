@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "One lock for every path to the balance",
+  "title": "Stop the audit sender from losing events",
   "blocks": [
     {
       "type": "heading",
@@ -19,49 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`synchronized` gives two guarantees: **mutual exclusion** and **visibility** (an unlock happens-before the next lock of the **same** monitor). The page's pitfalls show how both are lost: locking a different object on one path, synchronizing writes but not reads, and locking on something that is not a `private final` monitor. It also notes that a `synchronized` block always releases its monitor when an exception leaves it."
+      "text": "The account service records an audit event for every sensitive action. Each request thread has an `AuditRecorder` that collects its events into batches and puts every full batch on an outbox queue; a sender thread takes batches from the outbox and ships them to the archive. Since the last release, which cut the recorder's allocations, the archive is missing most events, holds some of them twice, and the sender logs `ConcurrentModificationException` every few seconds."
     },
     {
       "type": "para",
-      "text": "Write the `Ledger` of an account:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`deposit(long amount, Runnable whileLocked)` adds `amount` to the balance, then runs `whileLocked` **while still holding the lock** (an audit hook; tests use it to hold the lock open);",
-        "`withdraw(long amount)` takes `amount` off the balance, or throws `IllegalStateException` when the balance is smaller, leaving the balance unchanged;",
-        "`balance()` returns the balance."
-      ]
+      "text": "Finish `handOff()` in `src/main/java/practice/AuditRecorder.java`. When you're done, every event a recorder records reaches the sender exactly once, in the batch it was recorded in, no matter how far the recorder has got by the time the sender takes that batch. About two lines."
     },
     {
       "type": "para",
-      "text": "Every one of them must use one and the same lock, so that no thread ever sees or changes the balance while another thread is inside a deposit. Keep that lock out of other code's reach: code outside the class that holds `synchronized (ledger)` must not hold up any of them."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`deposit(100)`, `withdraw(30)`, `balance()`",
-          "`70`"
-        ],
-        [
-          "then `withdraw(500)`",
-          "`IllegalStateException`, and `balance()` is still `70`"
-        ],
-        [
-          "a `balance()` from another thread while a deposit's hook runs",
-          "waits until the deposit leaves its lock"
-        ],
-        [
-          "a `balance()` while another thread holds `synchronized (ledger)`",
-          "answers at once"
-        ]
-      ]
+      "text": "The tests record on one thread and take batches from the outbox on another."
     },
     {
       "type": "heading",
@@ -76,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Ledger {\n\n    private final Object lock = new Object();   // one private, final monitor for all state\n    private long balance;\n\n    /** Adds amount, then runs whileLocked while still holding the ledger's lock. */\n    public void deposit(long amount, Runnable whileLocked) {\n        synchronized (lock) {\n            balance += amount;\n            whileLocked.run();\n        }\n    }\n\n    /** Takes amount off the balance, or throws IllegalStateException when the balance is smaller. */\n    public void withdraw(long amount) {\n        synchronized (lock) {\n            if (balance < amount) {\n                throw new IllegalStateException(\"insufficient funds\");  // the monitor is released\n            }\n            balance -= amount;\n        }\n    }\n\n    /** Returns the balance. */\n    public long balance() {\n        synchronized (lock) {\n            return balance;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\n\n/**\n * Collects audit events from one request thread into batches and hands each full batch to the\n * sender thread through the outbox. The sender takes batches from the outbox and ships them.\n */\npublic class AuditRecorder {\n\n    private final BlockingQueue<List<String>> outbox;\n    private final int batchSize;\n    private List<String> batch = new ArrayList<>();\n\n    public AuditRecorder(BlockingQueue<List<String>> outbox, int batchSize) {\n        this.outbox = outbox;\n        this.batchSize = batchSize;\n    }\n\n    /** Records one event; called only by the thread that owns this recorder. */\n    public void record(String event) throws InterruptedException {\n        batch.add(event);\n        if (batch.size() == batchSize) handOff();\n    }\n\n    /** Hands over the events recorded since the last batch, if there are any. Called on shutdown. */\n    public void flush() throws InterruptedException {\n        if (!batch.isEmpty()) handOff();\n    }\n\n    /** Puts the current batch on the outbox and gets ready to record the next one. */\n    void handOff() throws InterruptedException {\n        outbox.put(batch);\n        batch = new ArrayList<>(batchSize);\n    }\n}\n"
         }
       ]
     },
@@ -88,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Ledger {\n\n    /** Adds amount, then runs whileLocked while still holding the ledger's lock. */\n    public void deposit(long amount, Runnable whileLocked) {\n        throw new UnsupportedOperationException(\"write deposit\");\n    }\n\n    /** Takes amount off the balance, or throws IllegalStateException when the balance is smaller. */\n    public void withdraw(long amount) {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    /** Returns the balance. */\n    public long balance() {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\n\n/**\n * Collects audit events from one request thread into batches and hands each full batch to the\n * sender thread through the outbox. The sender takes batches from the outbox and ships them.\n */\npublic class AuditRecorder {\n\n    private final BlockingQueue<List<String>> outbox;\n    private final int batchSize;\n    private List<String> batch = new ArrayList<>();\n\n    public AuditRecorder(BlockingQueue<List<String>> outbox, int batchSize) {\n        this.outbox = outbox;\n        this.batchSize = batchSize;\n    }\n\n    /** Records one event; called only by the thread that owns this recorder. */\n    public void record(String event) throws InterruptedException {\n        batch.add(event);\n        if (batch.size() == batchSize) handOff();\n    }\n\n    /** Hands over the events recorded since the last batch, if there are any. Called on shutdown. */\n    public void flush() throws InterruptedException {\n        if (!batch.isEmpty()) handOff();\n    }\n\n    /** Puts the current batch on the outbox and gets ready to record the next one. */\n    void handOff() throws InterruptedException {\n        // TODO: The sender ships each batch it takes from the outbox, while this recorder goes on\n        //       recording. Hand the current batch over, and be ready for the next event.\n        throw new IllegalStateException(\"TODO: handOff\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -107,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c7a4ce91d179c2ec5613d5333f963d39a10eab0062610dd29e2d60a8bcf3a439",
-  "starting_code": "package practice;\n\npublic final class Ledger {\n\n    /** Adds amount, then runs whileLocked while still holding the ledger's lock. */\n    public void deposit(long amount, Runnable whileLocked) {\n        throw new UnsupportedOperationException(\"write deposit\");\n    }\n\n    /** Takes amount off the balance, or throws IllegalStateException when the balance is smaller. */\n    public void withdraw(long amount) {\n        throw new UnsupportedOperationException(\"write withdraw\");\n    }\n\n    /** Returns the balance. */\n    public long balance() {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n}\n",
+  "content_sha256": "af2e0b5bee7120f4b1eb91f6707dceaa25a07c95a46ff07165e880e5eee93c8a",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.BlockingQueue;\n\n/**\n * Collects audit events from one request thread into batches and hands each full batch to the\n * sender thread through the outbox. The sender takes batches from the outbox and ships them.\n */\npublic class AuditRecorder {\n\n    private final BlockingQueue<List<String>> outbox;\n    private final int batchSize;\n    private List<String> batch = new ArrayList<>();\n\n    public AuditRecorder(BlockingQueue<List<String>> outbox, int batchSize) {\n        this.outbox = outbox;\n        this.batchSize = batchSize;\n    }\n\n    /** Records one event; called only by the thread that owns this recorder. */\n    public void record(String event) throws InterruptedException {\n        batch.add(event);\n        if (batch.size() == batchSize) handOff();\n    }\n\n    /** Hands over the events recorded since the last batch, if there are any. Called on shutdown. */\n    public void flush() throws InterruptedException {\n        if (!batch.isEmpty()) handOff();\n    }\n\n    /** Puts the current batch on the outbox and gets ready to record the next one. */\n    void handOff() throws InterruptedException {\n        // TODO: The sender ships each batch it takes from the outbox, while this recorder goes on\n        //       recording. Hand the current batch over, and be ready for the next event.\n        throw new IllegalStateException(\"TODO: handOff\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/main/java/practice/Ledger.java",
-    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/test/java/practice/LedgerTest.java",
+    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/main/java/practice/AuditRecorder.java",
+    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-1/src/test/java/practice/AuditRecorderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -132,29 +98,14 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LedgerTest#keepsTheBalance",
+        "id": "practice.AuditRecorderTest#handsOverEveryEventOnceInBatchesOfTheConfiguredSize",
         "kind": "main",
-        "says": "Deposits and withdrawals keep the balance, and a withdrawal beyond it is refused and changes nothing."
+        "says": "every recorded event is handed over once, in order, in batches of the configured size with the rest in a last batch"
       },
       {
-        "id": "practice.LedgerTest#balanceWaitsForADeposit",
+        "id": "practice.AuditRecorderTest#aBatchTheSenderTakesHoldsWhatWasHandedOver",
         "kind": "edge",
-        "says": "Reading the balance takes the same lock, so it waits while a deposit is inside its critical section."
-      },
-      {
-        "id": "practice.LedgerTest#withdrawWaitsForADeposit",
-        "kind": "edge",
-        "says": "A withdrawal locks the same monitor as a deposit, not a different one such as the class object."
-      },
-      {
-        "id": "practice.LedgerTest#aRefusedWithdrawalReleasesTheLock",
-        "kind": "edge",
-        "says": "A withdrawal that throws still releases the lock, so another thread can deposit afterwards."
-      },
-      {
-        "id": "practice.LedgerTest#outsideCodeCannotHoldTheLedgersLock",
-        "kind": "edge",
-        "says": "The lock is a private monitor, so code outside that holds synchronized (ledger) does not hold up the ledger."
+        "says": "a batch the sender takes from the outbox still holds the events it held when it was handed over, after the recorder has gone on recording"
       }
     ],
     "report": {
@@ -163,13 +114,10 @@
     },
     "origin": {
       "path": "18-happens-before/README_5.2.2.md",
-      "section": "5.2.2.1. Synchronized Methods and Blocks"
+      "section": "The Edge Covers Writes Made Before the Release, Not After It"
     },
     "concepts": [
-      "Locking different objects gives neither mutual exclusion nor happens-before, and a static synchronized method locks the Class object, not the instance.",
-      "A monitor should be a private final reference, so every thread locks the same object.",
-      "A synchronized block releases its monitor even when an exception leaves it.",
-      "synchronized gives both mutual exclusion and visibility: an unlock happens-before the next lock of the same monitor."
+      "The edge covers writes made before the release; data changed after a put, a countDown or a submit is shared with no edge, so the producer must not touch it again."
     ]
   }
 }

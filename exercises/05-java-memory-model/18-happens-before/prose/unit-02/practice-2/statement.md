@@ -1,22 +1,17 @@
-The page's fifth pitfall: `volatile Config config` makes only the **reference**
-volatile. Editing `config.timeout` in place is not published to other threads, and a
-reader can see a half-changed config. The fix is the immutable update pattern: `Config`
-has only `final` fields, and an update **replaces the whole object** through the
-`volatile` reference. The page's final-field rule is what makes such an object safe to
-read without a lock.
+The checkout service converts prices with exchange rates that a loader thread reads from storage
+once, at startup. Requests arrive from the first second, often before the rates do. A request
+must then wait for them, but not for ever: after the configured timeout it fails with a
+`TimeoutException`, and the load balancer retries it on another node. The loader reads into a
+scratch map, which it clears and reuses once it has handed the rates over.
 
-Write the two classes:
+Finish the two `TODO`s in `src/main/java/practice/RatesCache.java`:
 
-- `Server.Config`, holding a `timeout` (an `int`) and a `host` (a `String`), with the
-  accessors `timeout()` and `host()`;
-- `Server`, built with a starting timeout and host, with `config()` returning the
-  current `Config`, and `withTimeout(int)` and `withHost(String)` each changing one
-  setting and keeping the other.
+- `onLoaded(...)`, called once on the loader's thread;
+- `awaitLoaded()`, called by every request before it reads the rates.
 
-One admin thread makes the updates; many threads call `config()`.
+When you're done, no request answers from rates that aren't fully loaded, a request that comes
+early waits and then answers, and one that has waited the whole timeout fails with
+`TimeoutException`. The `rates` field stays a plain field. About five lines in total.
 
-| calls | answer |
-|---|---|
-| `new Server(30, "localhost").config()` | timeout `30`, host `"localhost"` |
-| then `withTimeout(60)`, `config()` | timeout `60`, host `"localhost"` |
-| a `Config` read before the update | still timeout `30` |
+The tests load the rates and make requests on threads of their own, and hold the loader in the
+middle of its work.

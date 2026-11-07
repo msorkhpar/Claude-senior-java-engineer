@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "18-happens-before"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 3,
+  "title": "Check yourself: happens-before",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-maintenance-flag",
+        "stem": "At 02:00:00 a scheduler thread sets the plain field `maintenanceMode = true`. From 02:00:05 on, request threads poll that field in a tight loop, with no lock and no volatile access anywhere in the loop. What is guaranteed about those reads?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They may return false at first, then true, since a write is ordered before reads that start long enough after it",
+            "correct": false,
+            "says": "happens-before is not time: a write made earlier by the clock gives no edge, and the page's plain flag stayed unseen for two seconds"
+          },
+          {
+            "id": "b",
+            "text": "They may return false at first, then true, since a thread's end orders its writes before all later reads",
+            "correct": false,
+            "says": "a thread's end orders its writes only before a join on it, or an isAlive() that sees it ended; the polling threads do neither"
+          },
+          {
+            "id": "c",
+            "text": "They may return false indefinitely, since nothing orders a plain write in one thread before a plain read in another",
+            "correct": true,
+            "says": "without a happens-before edge every read is allowed to return the old value, forever, however long ago the write was made"
+          },
+          {
+            "id": "d",
+            "text": "They may return false indefinitely, since nothing orders a plain write made without a lock before a plain read made without one",
+            "correct": false,
+            "says": "plain writes made without any lock do reach plain reads in other threads once an edge orders them, as the loader's map reaches the main thread through a volatile edge and a join; what is missing here is any edge, not a lock"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.1.md",
+          "section": "Happens-Before Is Not Time: a Write Seconds Earlier Can Stay Invisible"
+        }
+      },
+      {
+        "id": "q-routes-chain",
+        "stem": "Thread A fills a plain `List<String> routes` and then writes the volatile field `version = 7`. Thread B loops until it reads `version == 7`, writes the plain field `routeCount = routes.size()`, and exits. Thread C calls `b.join()` and then reads `routes`; C never reads `version` and never joins A. Is C guaranteed to see the filled list?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Yes, since the volatile edge from A to B and the join edge from B to C chain into one ordering",
+            "correct": true,
+            "says": "happens-before is transitive: A's list writes come before its volatile write, B's read sees it, and B's actions come before C's join returns"
+          },
+          {
+            "id": "b",
+            "text": "Yes, since the join edge from B to C also waits for A, whose list B used",
+            "correct": false,
+            "says": "join() waits for the joined thread only; what covers C is the chain of edges, not waiting for A"
+          },
+          {
+            "id": "c",
+            "text": "No, since the volatile edge from A to B and the join edge from B to C don't chain into one ordering",
+            "correct": false,
+            "says": "happens-before is transitive, so the two edges do chain; the page's three-thread chain has the same shape"
+          },
+          {
+            "id": "d",
+            "text": "No, since the join edge carries only B's own writes and the volatile edge carries only A's flag",
+            "correct": false,
+            "says": "an edge carries every write made before its first end: the volatile edge carries A's list writes, and the join passes them on"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.1.md",
+          "section": "Four Pairs of Actions Connect Two Threads, and Transitivity Chains Them"
+        }
+      },
+      {
+        "id": "q-fields-around-start",
+        "stem": "The main thread runs `region = \"eu-west\"; batchSize = 500; worker.start(); dryRun = true;`, where all three are plain fields. The worker reads the three fields first thing. Which of the three values is the worker guaranteed to see?",
+        "options": [
+          {
+            "id": "a",
+            "text": "All three, since the main thread's writes that follow start() are also ordered before every action of the worker",
+            "correct": false,
+            "says": "the start edge covers the writes made before the call to start(), not the ones after it"
+          },
+          {
+            "id": "b",
+            "text": "All three, since a new thread takes far longer to get going than one field write takes",
+            "correct": false,
+            "says": "happens-before is not time; a write that usually lands first is still unordered"
+          },
+          {
+            "id": "c",
+            "text": "Only region and batchSize at first, then dryRun too once the write has left the main thread's store buffer",
+            "correct": false,
+            "says": "no edge ever covers a write made after start(), so dryRun is never guaranteed, however long the worker waits"
+          },
+          {
+            "id": "d",
+            "text": "Only region and batchSize, since the main thread's writes that follow start() are not ordered before the worker's reads",
+            "correct": true,
+            "says": "a call to start() happens-before every action in the started thread, which covers the writes before the call; dryRun, written after it, is a data race"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.1.md",
+          "section": "Four Pairs of Actions Connect Two Threads, and Transitivity Chains Them"
+        }
+      },
+      {
+        "id": "q-quote-before-seq",
+        "stem": "A producer writes the plain field `lastPrice` and then the volatile field `quoteSeq`. A consumer runs `double px = lastPrice; if (quoteSeq == expected) publish(px);`. What can `publish` be handed?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Only the expected quote's price, since the producer's two stores reach the consumer in program order",
+            "correct": false,
+            "says": "the writer's order is only half of the rule; the consumer's read of the price comes before its volatile read, so the edge doesn't reach it"
+          },
+          {
+            "id": "b",
+            "text": "Only the expected quote's price, since the volatile check covers both of the consumer's two loads",
+            "correct": false,
+            "says": "an edge carries writes only to code after its other end; the price was read before the check"
+          },
+          {
+            "id": "c",
+            "text": "An older quote's price, but only when the processor performs the consumer's two loads in the opposite order",
+            "correct": false,
+            "says": "no reordering is needed: the page's stale payloads come from the reader's own code reading the value before the check"
+          },
+          {
+            "id": "d",
+            "text": "An older quote's price, since both fields can change between the consumer's two loads",
+            "correct": true,
+            "says": "the producer can write both fields between the consumer's reads; the check then sees the new number and passes on the price read earlier"
+          }
+        ],
+        "origin": {
+          "path": "18-happens-before/README_5.2.1.md",
+          "section": "Spot the Problem: Reading the Payload Before the Flag"
+        }
+      }
+    ]
+  }
+}

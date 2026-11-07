@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Keep encounter order where it matters in a parallel stream",
+  "title": "Group a parallel ledger without reordering a statement",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,27 @@
     },
     {
       "type": "para",
-      "text": "A parallel stream processes its chunks on several threads at once, so any step that hands elements to the outside world, or picks one of them, must say whether encounter order matters. `forEach` and `findAny` do not keep it; `forEachOrdered` and `findFirst` do, at the cost of some coordination between the threads."
+      "text": "The bank's monthly statements are built from the ledger, which hands its lines over as a stream in posting order. For the large business accounts the month has millions of lines, so the stream is parallel. A customer reads a statement from top to bottom and checks it against their own books, and the statement starts with the account's opening line: its first posting of the month."
     },
     {
       "type": "para",
-      "text": "Write two static methods in `OrderedOutput`. Each receives a stream that may be sequential or parallel:"
+      "text": "Finish the two methods in `src/main/java/practice/Ledger.java`:"
     },
     {
       "type": "list",
-      "ordered": true,
+      "ordered": false,
       "items": [
-        "`void emitInOrder(Stream<String> lines, Consumer<String> sink)`: hands every line to `sink`, in encounter order.",
-        "`Optional<Integer> firstAbove(Stream<Integer> numbers, int threshold)`: the first number, in encounter order, that is greater than `threshold`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`emitInOrder(Stream.of(\"a\", \"b\", \"c\"), sink)`",
-          "`sink` receives `\"a\"`, `\"b\"`, `\"c\"`"
-        ],
-        [
-          "`firstAbove(Stream.of(5, 3, 8, 1, 9, 2, 7, 4, 6), 5)`",
-          "`Optional[8]`"
-        ],
-        [
-          "`firstAbove(Stream.of(1, 2), 5)`",
-          "`Optional.empty`"
-        ]
+        "`statements(...)`: each account's lines, in the order they were posted;",
+        "`openingLines(...)`: each account's first posted line."
       ]
     },
     {
       "type": "para",
-      "text": "The tests also hand both methods large parallel streams, where many numbers are above the threshold."
+      "text": "Both must give the same answer for a sequential and for a parallel stream. About two lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests hand the methods parallel streams in which some threads get to later lines first."
     },
     {
       "type": "heading",
@@ -71,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Consumer;\nimport java.util.stream.Stream;\n\npublic final class OrderedOutput {\n\n    private OrderedOutput() {\n    }\n\n    /** Hands every line to the sink in encounter order; the stream may be parallel. */\n    public static void emitInOrder(Stream<String> lines, Consumer<String> sink) {\n        lines.forEachOrdered(sink);\n    }\n\n    /** The first number in encounter order greater than the threshold; the stream may be parallel. */\n    public static Optional<Integer> firstAbove(Stream<Integer> numbers, int threshold) {\n        return numbers.filter(n -> n > threshold).findFirst();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Collectors;\nimport java.util.stream.Stream;\n\n/**\n * Builds the monthly statements from the ledger. The ledger hands over its lines as a stream,\n * in posting order, and for a large month that stream is parallel.\n */\npublic class Ledger {\n\n    /** One posted line: the account, the amount in cents, and its posting number. */\n    public record Line(String account, long cents, long postingNo) { }\n\n    /** Each account's lines, in posting order: one statement per account. */\n    public static Map<String, List<Line>> statements(Stream<Line> lines) {\n        return lines.collect(Collectors.groupingBy(Line::account));\n    }\n\n    /** The first line posted to each account in the month: the account's opening line. */\n    public static Map<String, Line> openingLines(Stream<Line> lines) {\n        return lines.collect(Collectors.toMap(Line::account, line -> line, (earlier, later) -> earlier));\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Consumer;\nimport java.util.stream.Stream;\n\npublic final class OrderedOutput {\n\n    private OrderedOutput() {\n    }\n\n    /** Hands every line to the sink in encounter order; the stream may be parallel. */\n    public static void emitInOrder(Stream<String> lines, Consumer<String> sink) {\n        throw new UnsupportedOperationException(\"write emitInOrder\");\n    }\n\n    /** The first number in encounter order greater than the threshold; the stream may be parallel. */\n    public static Optional<Integer> firstAbove(Stream<Integer> numbers, int threshold) {\n        throw new UnsupportedOperationException(\"write firstAbove\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\n/**\n * Builds the monthly statements from the ledger. The ledger hands over its lines as a stream,\n * in posting order, and for a large month that stream is parallel.\n */\npublic class Ledger {\n\n    /** One posted line: the account, the amount in cents, and its posting number. */\n    public record Line(String account, long cents, long postingNo) { }\n\n    /** Each account's lines, in posting order: one statement per account. */\n    public static Map<String, List<Line>> statements(Stream<Line> lines) {\n        // TODO: A customer reads a statement from top to bottom, so each account's lines keep\n        //       the order in which they were posted, also when the stream is parallel.\n        throw new IllegalStateException(\"TODO: statements\");\n    }\n\n    /** The first line posted to each account in the month: the account's opening line. */\n    public static Map<String, Line> openingLines(Stream<Line> lines) {\n        // TODO: The opening line is the account's first posting of the month, also when the\n        //       stream is parallel.\n        throw new IllegalStateException(\"TODO: openingLines\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -102,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "73a88aa79b0c2c0f0b15eaa72c553c8e05836445d54df40bd018e2d44177c918",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\nimport java.util.function.Consumer;\nimport java.util.stream.Stream;\n\npublic final class OrderedOutput {\n\n    private OrderedOutput() {\n    }\n\n    /** Hands every line to the sink in encounter order; the stream may be parallel. */\n    public static void emitInOrder(Stream<String> lines, Consumer<String> sink) {\n        throw new UnsupportedOperationException(\"write emitInOrder\");\n    }\n\n    /** The first number in encounter order greater than the threshold; the stream may be parallel. */\n    public static Optional<Integer> firstAbove(Stream<Integer> numbers, int threshold) {\n        throw new UnsupportedOperationException(\"write firstAbove\");\n    }\n}\n",
+  "content_sha256": "c99852fd4bd087c9de11bc92d13affc25865c2462d9f55bd07744f72bd0cd546",
+  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Stream;\n\n/**\n * Builds the monthly statements from the ledger. The ledger hands over its lines as a stream,\n * in posting order, and for a large month that stream is parallel.\n */\npublic class Ledger {\n\n    /** One posted line: the account, the amount in cents, and its posting number. */\n    public record Line(String account, long cents, long postingNo) { }\n\n    /** Each account's lines, in posting order: one statement per account. */\n    public static Map<String, List<Line>> statements(Stream<Line> lines) {\n        // TODO: A customer reads a statement from top to bottom, so each account's lines keep\n        //       the order in which they were posted, also when the stream is parallel.\n        throw new IllegalStateException(\"TODO: statements\");\n    }\n\n    /** The first line posted to each account in the month: the account's opening line. */\n    public static Map<String, Line> openingLines(Stream<Line> lines) {\n        // TODO: The opening line is the account's first posting of the month, also when the\n        //       stream is parallel.\n        throw new IllegalStateException(\"TODO: openingLines\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-3/src/main/java/practice/OrderedOutput.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-3/src/test/java/practice/OrderedOutputTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-3/src/main/java/practice/Ledger.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-3/src/test/java/practice/LedgerTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.OrderedOutputTest#handlesASequentialStream",
+        "id": "practice.LedgerTest#groupsASequentialMonthInPostingOrder",
         "kind": "main",
-        "says": "It emits every line in order and finds the first number above the threshold in a sequential stream."
+        "says": "from a sequential stream, each account's statement lists its lines in posting order, and its opening line is its first posting"
       },
       {
-        "id": "practice.OrderedOutputTest#linesKeepOrderInParallel",
-        "kind": "edge",
-        "says": "A parallel stream's lines reach the sink in encounter order: forEach hands them over in whatever order the threads run."
+        "id": "practice.LedgerTest#groupsAParallelMonthCompletely",
+        "kind": "main",
+        "says": "from a parallel stream, every account gets a statement with all of its lines, and an opening line"
       },
       {
-        "id": "practice.OrderedOutputTest#firstMatchInParallelIsTheFirst",
+        "id": "practice.LedgerTest#aStatementKeepsPostingOrderWhenALaterLineIsHandledFirst",
         "kind": "edge",
-        "says": "On a parallel stream the match returned is the first in encounter order: findAny returns whichever thread finds one first."
+        "says": "a statement keeps posting order even when a thread handles a later line of the account before an earlier one"
+      },
+      {
+        "id": "practice.LedgerTest#theOpeningLineIsTheFirstPostedWhenALaterLineIsHandledFirst",
+        "kind": "edge",
+        "says": "the opening line is the first one posted, even when a thread handles a later line of the account first"
       }
     ],
     "report": {
@@ -148,11 +136,10 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.5.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "groupingByConcurrent Trades the Order Inside Each Group for One Shared Map"
     },
     "concepts": [
-      "findFirst keeps encounter order in parallel, while findAny returns whichever match a thread finds first.",
-      "forEach on a parallel stream follows no order; forEachOrdered keeps encounter order."
+      "groupingByConcurrent and toConcurrentMap fill one shared map in the order threads arrive, so groups lose encounter order and a keep-first merge keeps the first to arrive; groupingBy and toMap keep encounter order."
     ]
   }
 }

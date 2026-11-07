@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Totals that stay right when the stream turns parallel",
+  "title": "Price the export in parallel, write it in order",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A parallel `reduce` splits the stream into chunks, reduces each chunk from the identity, and combines the partial results. That is only correct when the operation is **associative**, when the identity really is an identity (`identity op x == x`), and, for the three-argument `reduce(identity, accumulator, combiner)`, when the combiner merges two partial results the way the accumulator would have."
+      "text": "The nightly price export has to be on the shops' servers by six in the morning. Pricing a single SKU takes a lot of CPU, and with one thread doing it the export now runs past seven. The pricing code is safe to call from several threads at once. The writer that appends lines to the export file is not, and the shops' import expects the lines in catalogue order."
     },
     {
       "type": "para",
-      "text": "Write three static methods in `Totals`. Each receives a stream that may be sequential or parallel, and must give the same answer either way:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "`int balance(Stream<Integer> withdrawals, int opening)`: the opening balance minus every withdrawal.",
-        "`int withBonus(Stream<Integer> scores, int bonus)`: the sum of the scores plus the bonus, counted once.",
-        "`int totalLength(Stream<String> words)`: the total number of characters (the three-argument `reduce` is one way to write it)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`balance(Stream.of(10, 20, 30), 100)`",
-          "`40`"
-        ],
-        [
-          "`withBonus(Stream.of(1, 2, 3), 10)`",
-          "`16`"
-        ],
-        [
-          "`totalLength(Stream.of(\"a\", \"bb\", \"ccc\"))`",
-          "`6`"
-        ]
-      ]
+      "text": "Finish `export(...)` in `src/main/java/practice/PriceExport.java`. When you're done, several SKUs are priced at the same time, and the writer receives every line, one at a time, in the order of the catalogue. About three lines in total."
     },
     {
       "type": "para",
-      "text": "A version that only passes sequential streams is not done: the tests also hand it large parallel streams."
+      "text": "The tests run the export in a pool of four threads and use a pricer that is slow for some SKUs."
     },
     {
       "type": "heading",
@@ -72,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.stream.Stream;\n\npublic final class Totals {\n\n    private Totals() {\n    }\n\n    /** The opening balance minus every withdrawal, on a sequential or a parallel stream. */\n    public static int balance(Stream<Integer> withdrawals, int opening) {\n        return opening - withdrawals.reduce(0, Integer::sum);\n    }\n\n    /** The sum of the scores plus the bonus, counted once, on a sequential or a parallel stream. */\n    public static int withBonus(Stream<Integer> scores, int bonus) {\n        return bonus + scores.reduce(0, Integer::sum);\n    }\n\n    /** The total number of characters, with the three-argument reduce, on a sequential or a parallel stream. */\n    public static int totalLength(Stream<String> words) {\n        return words.reduce(0, (total, word) -> total + word.length(), Integer::sum);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Writes the nightly price list: one line per SKU, \"sku;price\", in catalogue order. Pricing one\n * SKU takes a lot of CPU, so the export has to price several SKUs at once to finish in time.\n */\npublic class PriceExport {\n\n    /** Works out one SKU's price. CPU-bound, and safe to call from several threads at once. */\n    public interface Pricer {\n        String price(String sku);\n    }\n\n    /** Appends one line to the export file. Not thread-safe, and the file must follow the catalogue. */\n    public interface LineWriter {\n        void write(String line);\n    }\n\n    private final Pricer pricer;\n    private final LineWriter out;\n\n    public PriceExport(Pricer pricer, LineWriter out) {\n        this.pricer = pricer;\n        this.out = out;\n    }\n\n    /** Prices every SKU of the catalogue and writes its line. */\n    public void export(List<String> catalogue) {\n        List<String> lines = catalogue.parallelStream().map(this::line).toList();\n        lines.forEach(out::write);\n    }\n\n    /** The line for one SKU. */\n    String line(String sku) {\n        return sku + \";\" + pricer.price(sku);\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.stream.Stream;\n\npublic final class Totals {\n\n    private Totals() {\n    }\n\n    /** The opening balance minus every withdrawal, on a sequential or a parallel stream. */\n    public static int balance(Stream<Integer> withdrawals, int opening) {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n\n    /** The sum of the scores plus the bonus, counted once, on a sequential or a parallel stream. */\n    public static int withBonus(Stream<Integer> scores, int bonus) {\n        throw new UnsupportedOperationException(\"write withBonus\");\n    }\n\n    /** The total number of characters, with the three-argument reduce, on a sequential or a parallel stream. */\n    public static int totalLength(Stream<String> words) {\n        throw new UnsupportedOperationException(\"write totalLength\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Writes the nightly price list: one line per SKU, \"sku;price\", in catalogue order. Pricing one\n * SKU takes a lot of CPU, so the export has to price several SKUs at once to finish in time.\n */\npublic class PriceExport {\n\n    /** Works out one SKU's price. CPU-bound, and safe to call from several threads at once. */\n    public interface Pricer {\n        String price(String sku);\n    }\n\n    /** Appends one line to the export file. Not thread-safe, and the file must follow the catalogue. */\n    public interface LineWriter {\n        void write(String line);\n    }\n\n    private final Pricer pricer;\n    private final LineWriter out;\n\n    public PriceExport(Pricer pricer, LineWriter out) {\n        this.pricer = pricer;\n        this.out = out;\n    }\n\n    /** Prices every SKU of the catalogue and writes its line. */\n    public void export(List<String> catalogue) {\n        // TODO: With one thread doing the pricing, tonight's export won't finish before the shops\n        //       open. Price several SKUs at once, and hand the writer every line, one at a time,\n        //       in catalogue order.\n        throw new IllegalStateException(\"TODO: export\");\n    }\n\n    /** The line for one SKU. */\n    String line(String sku) {\n        return sku + \";\" + pricer.price(sku);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -94,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -103,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a98541d5f9041a624614d5519ebeb149d42fa08fe39873c7bc3da5cf7c8e3e17",
-  "starting_code": "package practice;\n\nimport java.util.stream.Stream;\n\npublic final class Totals {\n\n    private Totals() {\n    }\n\n    /** The opening balance minus every withdrawal, on a sequential or a parallel stream. */\n    public static int balance(Stream<Integer> withdrawals, int opening) {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n\n    /** The sum of the scores plus the bonus, counted once, on a sequential or a parallel stream. */\n    public static int withBonus(Stream<Integer> scores, int bonus) {\n        throw new UnsupportedOperationException(\"write withBonus\");\n    }\n\n    /** The total number of characters, with the three-argument reduce, on a sequential or a parallel stream. */\n    public static int totalLength(Stream<String> words) {\n        throw new UnsupportedOperationException(\"write totalLength\");\n    }\n}\n",
+  "content_sha256": "eed4bd1cf3b785e9dd7645835bd1d4eed4e552a0b48f64f22767dc3ce4046cc8",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * Writes the nightly price list: one line per SKU, \"sku;price\", in catalogue order. Pricing one\n * SKU takes a lot of CPU, so the export has to price several SKUs at once to finish in time.\n */\npublic class PriceExport {\n\n    /** Works out one SKU's price. CPU-bound, and safe to call from several threads at once. */\n    public interface Pricer {\n        String price(String sku);\n    }\n\n    /** Appends one line to the export file. Not thread-safe, and the file must follow the catalogue. */\n    public interface LineWriter {\n        void write(String line);\n    }\n\n    private final Pricer pricer;\n    private final LineWriter out;\n\n    public PriceExport(Pricer pricer, LineWriter out) {\n        this.pricer = pricer;\n        this.out = out;\n    }\n\n    /** Prices every SKU of the catalogue and writes its line. */\n    public void export(List<String> catalogue) {\n        // TODO: With one thread doing the pricing, tonight's export won't finish before the shops\n        //       open. Price several SKUs at once, and hand the writer every line, one at a time,\n        //       in catalogue order.\n        throw new IllegalStateException(\"TODO: export\");\n    }\n\n    /** The line for one SKU. */\n    String line(String sku) {\n        return sku + \";\" + pricer.price(sku);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/main/java/practice/Totals.java",
-    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/test/java/practice/TotalsTest.java",
+    "main_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/main/java/practice/PriceExport.java",
+    "test_path": "practice/04-functional-programming/16-streams-api/prose/unit-05/practice-1/src/test/java/practice/PriceExportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,24 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TotalsTest#totalsASequentialStream",
+        "id": "practice.PriceExportTest#writesALineForEverySku",
         "kind": "main",
-        "says": "It computes the balance, the bonus total and the total length of a sequential stream."
+        "says": "every SKU of the catalogue gets exactly one line, with its price"
       },
       {
-        "id": "practice.TotalsTest#balanceHoldsInParallel",
+        "id": "practice.PriceExportTest#pricesSeveralSkusAtOnce",
         "kind": "edge",
-        "says": "The balance is the same on a parallel stream: subtraction is not associative, so it cannot be the reducer."
+        "says": "the pricing of one SKU overlaps with the pricing of another"
       },
       {
-        "id": "practice.TotalsTest#bonusCountedOnceInParallel",
+        "id": "practice.PriceExportTest#writesInCatalogueOrderWhenALaterPriceIsReadyFirst",
         "kind": "edge",
-        "says": "The bonus is added once on a parallel stream: a bonus used as the identity is added once per chunk."
-      },
-      {
-        "id": "practice.TotalsTest#lengthHoldsInParallel",
-        "kind": "edge",
-        "says": "The total length is the same on a parallel stream: the combiner must add the partial totals of the chunks."
+        "says": "the lines reach the writer in catalogue order even when a later SKU is priced first"
       }
     ],
     "report": {
@@ -154,12 +119,10 @@
     },
     "origin": {
       "path": "16-streams-api/README_4.4.5.md",
-      "section": "Interview Q&A Section"
+      "section": "One Pipeline Runs in One Mode: the Last parallel() or sequential() Call Wins"
     },
     "concepts": [
-      "A parallel reduce is correct only with an associative operation; subtraction is not one.",
-      "A parallel stream splits its source, processes the chunks on several threads and combines the partial results.",
-      "The identity of a parallel reduce is applied once per chunk, so it must leave every element unchanged."
+      "The last parallel() or sequential() call sets the mode of the whole pipeline, so a parallel step followed by an ordered one-at-a-time step needs forEachOrdered or two pipelines."
     ]
   }
 }

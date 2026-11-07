@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Replace the config, never edit it",
+  "title": "Let checkout requests wait for the exchange rates",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The page's fifth pitfall: `volatile Config config` makes only the **reference** volatile. Editing `config.timeout` in place is not published to other threads, and a reader can see a half-changed config. The fix is the immutable update pattern: `Config` has only `final` fields, and an update **replaces the whole object** through the `volatile` reference. The page's final-field rule is what makes such an object safe to read without a lock."
+      "text": "The checkout service converts prices with exchange rates that a loader thread reads from storage once, at startup. Requests arrive from the first second, often before the rates do. A request must then wait for them, but not for ever: after the configured timeout it fails with a `TimeoutException`, and the load balancer retries it on another node. The loader reads into a scratch map, which it clears and reuses once it has handed the rates over."
     },
     {
       "type": "para",
-      "text": "Write the two classes:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/RatesCache.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Server.Config`, holding a `timeout` (an `int`) and a `host` (a `String`), with the accessors `timeout()` and `host()`;",
-        "`Server`, built with a starting timeout and host, with `config()` returning the current `Config`, and `withTimeout(int)` and `withHost(String)` each changing one setting and keeping the other."
+        "`onLoaded(...)`, called once on the loader's thread;",
+        "`awaitLoaded()`, called by every request before it reads the rates."
       ]
     },
     {
       "type": "para",
-      "text": "One admin thread makes the updates; many threads call `config()`."
+      "text": "When you're done, no request answers from rates that aren't fully loaded, a request that comes early waits and then answers, and one that has waited the whole timeout fails with `TimeoutException`. The `rates` field stays a plain field. About five lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`new Server(30, \"localhost\").config()`",
-          "timeout `30`, host `\"localhost\"`"
-        ],
-        [
-          "then `withTimeout(60)`, `config()`",
-          "timeout `60`, host `\"localhost\"`"
-        ],
-        [
-          "a `Config` read before the update",
-          "still timeout `30`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests load the rates and make requests on threads of their own, and hold the loader in the middle of its work."
     },
     {
       "type": "heading",
@@ -71,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Server {\n\n    /** The server's settings: a timeout and a host. */\n    public static final class Config {\n\n        private final int timeout;\n        private final String host;\n\n        public Config(int timeout, String host) {\n            this.timeout = timeout;\n            this.host = host;\n        }\n\n        public int timeout() {\n            return timeout;\n        }\n\n        public String host() {\n            return host;\n        }\n    }\n\n    private volatile Config config;       // the one publication point\n\n    public Server(int timeout, String host) {\n        this.config = new Config(timeout, host);\n    }\n\n    /** Returns the current settings. */\n    public Config config() {\n        return config;\n    }\n\n    /** Changes the timeout, keeping the host. */\n    public void withTimeout(int timeout) {\n        config = new Config(timeout, config.host());      // replace, never edit\n    }\n\n    /** Changes the host, keeping the timeout. */\n    public void withHost(String host) {\n        config = new Config(config.timeout(), host);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * Exchange rates for the checkout service. A loader thread reads them from storage once, at\n * startup, and calls onLoaded; request threads call rate() from the first second on.\n */\npublic class RatesCache {\n\n    private final long timeoutMillis;\n    private final CountDownLatch loaded = new CountDownLatch(1);\n    private Map<String, BigDecimal> rates = Map.of();\n\n    /** timeoutMillis: how long a request may wait for the rates before it gives up. */\n    public RatesCache(long timeoutMillis) {\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Called once, on the loader's thread, with the rates it read. */\n    public void onLoaded(Map<String, BigDecimal> fresh) {\n        rates = Map.copyOf(fresh);\n        loaded.countDown();\n    }\n\n    /** The rate of one currency against the euro; called on request threads. */\n    public BigDecimal rate(String currency) throws InterruptedException, TimeoutException {\n        awaitLoaded();\n        BigDecimal rate = rates.get(currency);\n        if (rate == null) throw new NoSuchElementException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Returns once the rates are loaded, or throws TimeoutException after timeoutMillis. */\n    void awaitLoaded() throws InterruptedException, TimeoutException {\n        if (!loaded.await(timeoutMillis, TimeUnit.MILLISECONDS)) {\n            throw new TimeoutException(\"rates not loaded within \" + timeoutMillis + \" ms\");\n        }\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Server {\n\n    /** The server's settings: a timeout and a host. */\n    public static final class Config {\n\n        public Config(int timeout, String host) {\n            throw new UnsupportedOperationException(\"write Config\");\n        }\n\n        public int timeout() {\n            throw new UnsupportedOperationException(\"write timeout\");\n        }\n\n        public String host() {\n            throw new UnsupportedOperationException(\"write host\");\n        }\n    }\n\n    public Server(int timeout, String host) {\n        throw new UnsupportedOperationException(\"write Server\");\n    }\n\n    /** Returns the current settings. */\n    public Config config() {\n        throw new UnsupportedOperationException(\"write config\");\n    }\n\n    /** Changes the timeout, keeping the host. */\n    public void withTimeout(int timeout) {\n        throw new UnsupportedOperationException(\"write withTimeout\");\n    }\n\n    /** Changes the host, keeping the timeout. */\n    public void withHost(String host) {\n        throw new UnsupportedOperationException(\"write withHost\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * Exchange rates for the checkout service. A loader thread reads them from storage once, at\n * startup, and calls onLoaded; request threads call rate() from the first second on.\n */\npublic class RatesCache {\n\n    private final long timeoutMillis;\n    private final CountDownLatch loaded = new CountDownLatch(1);\n    private Map<String, BigDecimal> rates = Map.of();\n\n    /** timeoutMillis: how long a request may wait for the rates before it gives up. */\n    public RatesCache(long timeoutMillis) {\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Called once, on the loader's thread, with the rates it read. */\n    public void onLoaded(Map<String, BigDecimal> fresh) {\n        // TODO: Keep the rates for the request threads (the caller may reuse its map), and let\n        //       requests that are waiting for them go on.\n        throw new IllegalStateException(\"TODO: onLoaded\");\n    }\n\n    /** The rate of one currency against the euro; called on request threads. */\n    public BigDecimal rate(String currency) throws InterruptedException, TimeoutException {\n        awaitLoaded();\n        BigDecimal rate = rates.get(currency);\n        if (rate == null) throw new NoSuchElementException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Returns once the rates are loaded, or throws TimeoutException after timeoutMillis. */\n    void awaitLoaded() throws InterruptedException, TimeoutException {\n        // TODO: A request that arrives before the rates must wait for them, but for no longer\n        //       than timeoutMillis; then it fails with a TimeoutException.\n        throw new IllegalStateException(\"TODO: awaitLoaded\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -102,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "7ae312cf95c969a59249d585cefa18a0b97f0bc37852b776f12f109debc2f78e",
-  "starting_code": "package practice;\n\npublic final class Server {\n\n    /** The server's settings: a timeout and a host. */\n    public static final class Config {\n\n        public Config(int timeout, String host) {\n            throw new UnsupportedOperationException(\"write Config\");\n        }\n\n        public int timeout() {\n            throw new UnsupportedOperationException(\"write timeout\");\n        }\n\n        public String host() {\n            throw new UnsupportedOperationException(\"write host\");\n        }\n    }\n\n    public Server(int timeout, String host) {\n        throw new UnsupportedOperationException(\"write Server\");\n    }\n\n    /** Returns the current settings. */\n    public Config config() {\n        throw new UnsupportedOperationException(\"write config\");\n    }\n\n    /** Changes the timeout, keeping the host. */\n    public void withTimeout(int timeout) {\n        throw new UnsupportedOperationException(\"write withTimeout\");\n    }\n\n    /** Changes the host, keeping the timeout. */\n    public void withHost(String host) {\n        throw new UnsupportedOperationException(\"write withHost\");\n    }\n}\n",
+  "content_sha256": "c630ccf54b4416f96c27d9a66259f22633fde346988212f6ca69d207e59a07a7",
+  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.concurrent.CountDownLatch;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.TimeoutException;\n\n/**\n * Exchange rates for the checkout service. A loader thread reads them from storage once, at\n * startup, and calls onLoaded; request threads call rate() from the first second on.\n */\npublic class RatesCache {\n\n    private final long timeoutMillis;\n    private final CountDownLatch loaded = new CountDownLatch(1);\n    private Map<String, BigDecimal> rates = Map.of();\n\n    /** timeoutMillis: how long a request may wait for the rates before it gives up. */\n    public RatesCache(long timeoutMillis) {\n        this.timeoutMillis = timeoutMillis;\n    }\n\n    /** Called once, on the loader's thread, with the rates it read. */\n    public void onLoaded(Map<String, BigDecimal> fresh) {\n        // TODO: Keep the rates for the request threads (the caller may reuse its map), and let\n        //       requests that are waiting for them go on.\n        throw new IllegalStateException(\"TODO: onLoaded\");\n    }\n\n    /** The rate of one currency against the euro; called on request threads. */\n    public BigDecimal rate(String currency) throws InterruptedException, TimeoutException {\n        awaitLoaded();\n        BigDecimal rate = rates.get(currency);\n        if (rate == null) throw new NoSuchElementException(\"no rate for \" + currency);\n        return rate;\n    }\n\n    /** Returns once the rates are loaded, or throws TimeoutException after timeoutMillis. */\n    void awaitLoaded() throws InterruptedException, TimeoutException {\n        // TODO: A request that arrives before the rates must wait for them, but for no longer\n        //       than timeoutMillis; then it fails with a TimeoutException.\n        throw new IllegalStateException(\"TODO: awaitLoaded\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/main/java/practice/Server.java",
-    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/test/java/practice/ServerTest.java",
+    "main_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/main/java/practice/RatesCache.java",
+    "test_path": "practice/05-java-memory-model/18-happens-before/prose/unit-02/practice-2/src/test/java/practice/RatesCacheTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +110,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ServerTest#updatesTheConfig",
+        "id": "practice.RatesCacheTest#answersWithRatesLoadedOnAnotherThread",
         "kind": "main",
-        "says": "Each update is seen by the next read of the config, and it keeps the setting it did not change."
+        "says": "once the loader thread has delivered the rates, requests on other threads get the loaded rates"
       },
       {
-        "id": "practice.ServerTest#anOldSnapshotNeverChanges",
+        "id": "practice.RatesCacheTest#aRequestNeverAnswersFromRatesThatAreStillBeingStored",
         "kind": "edge",
-        "says": "An update builds a new Config instead of editing the published one, so a reader's snapshot stays whole."
+        "says": "a request does not go on while the loader is still storing the rates; it answers from the stored rates once the loader is done"
       },
       {
-        "id": "practice.ServerTest#configFieldsAreFinal",
+        "id": "practice.RatesCacheTest#aRequestGivesUpWithATimeoutWhenTheRatesNeverArrive",
         "kind": "edge",
-        "says": "Every field of Config is final, so a Config is immutable and safe once its reference is published."
+        "says": "when the rates don't arrive within the timeout, a request fails with TimeoutException instead of answering from no rates"
       },
       {
-        "id": "practice.ServerTest#theReferenceIsVolatile",
+        "id": "practice.RatesCacheTest#aRequestThatArrivesBeforeTheRatesWaitsForThem",
         "kind": "edge",
-        "says": "The server publishes its Config through a volatile field."
+        "says": "a request that arrives before the rates waits for them and then answers"
+      },
+      {
+        "id": "practice.RatesCacheTest#theRatesStayWhenTheLoaderReusesItsMap",
+        "kind": "edge",
+        "says": "the cache keeps answering after the loader clears the map it delivered"
       }
     ],
     "report": {
@@ -153,12 +141,11 @@
     },
     "origin": {
       "path": "18-happens-before/README_5.2.2.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Only an Acquire That Succeeds, on the Same Object, Gets the Edge"
     },
     "concepts": [
-      "An object whose fields are all final needs only safe publication of its reference, and no lock to be read.",
-      "Safe publication is a static initializer, a volatile field, a lock-guarded field or a final field.",
-      "volatile on a reference does not make the object's fields volatile, so an update replaces an immutable object instead of editing it."
+      "Only an acquire that succeeds gets the edge: an await that returned false, a get that timed out or returned null, or a poll that returned null orders nothing.",
+      "A java.util.concurrent hand-off (submit to task, task to Future.get, countDown to await, put to take, map put to get) is a happens-before edge, so data passed through it needs no volatile fields or locks of its own."
     ]
   }
 }

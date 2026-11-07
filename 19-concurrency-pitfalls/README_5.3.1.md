@@ -1,593 +1,396 @@
 # 5.3.1. Data Races and How to Prevent Them
 
-## Concept Explanation
+A customer forwards two documents for one order: the confirmation email says reference 48213, the
+invoice says 48214. Both were produced by `order.reference()`, which takes a number from a shared
+sequence the first time it is called and returns the stored one after that. The email and the
+invoice are rendered on two threads. In code review, a month earlier, the question "is there a
+data race?" got the answer "no, `ref` is an `AtomicInteger`". That answer was right, and the order
+still got two numbers.
 
-A **data race** occurs when two or more threads access the same shared memory location concurrently, at least one of
-those accesses is a write, and there is no synchronization mechanism coordinating those accesses. Data races are among
-the most insidious bugs in concurrent programming because they can be non-deterministic, meaning they may appear only
-occasionally and under specific timing conditions that are hard to reproduce.
+## A Tool That Counts Outcomes
 
-**Real-world analogy**: Imagine two people simultaneously editing the same Google Doc with no awareness of each other.
-One person reads the sentence, thinks about their edit, types a change — but in the meantime, the other person has
-already rewritten the same paragraph. When the second person's changes are applied, the first person's earlier work is
-lost. Each individual thinks they're working correctly, but the coordination is broken. A data race in software works
-exactly the same way.
-
-Under the Java Memory Model (JMM), a data race is specifically defined as:
-- Two memory accesses in different threads that access the same variable
-- At least one access is a write
-- The accesses are not ordered by a happens-before relationship
-
-The JMM makes only weak guarantees about what value a thread will read from a variable when there is a data race: the
-read returns a value that some write to that variable actually wrote — possibly a stale one — and never a value "out of
-thin air" (for references and primitives alike; only non-volatile `long`/`double` may tear). Unlike C/C++, this is not
-undefined behavior, but the program is almost certainly wrong.
-
-### Why Data Races Are Dangerous
-
-1. **Non-determinism**: Bugs appear sporadically, depending on thread scheduling — making them hard to find.
-2. **Memory visibility**: Without synchronization, a thread may see a stale value from its local cache.
-3. **Instruction reordering**: Compilers and CPUs may reorder instructions for optimization — valid for single-threaded
-   execution but can cause surprising results in concurrent code.
-4. **Torn reads/writes**: A non-volatile `long` or `double` field access is not required to be atomic (JLS §17.7) —
-   in practice this happens on 32-bit JVMs — so a read may see half of one write and half of another.
-
-## Key Points to Remember
-
-1. A data race requires: concurrent access + at least one write + no synchronization.
-2. Data races can corrupt state even if the code looks logically correct in isolation.
-3. `volatile` removes data races on that variable, but compound operations such as `i++` on it still have race
-   conditions (lost updates).
-4. `synchronized` prevents data races by establishing mutual exclusion and memory visibility.
-5. Immutable objects can never be involved in a data race (their fields never change after construction).
-6. `final` fields, when safely published, are immune to data races.
-7. Detecting data races: use stress testing with the Java Concurrency Stress (JCStress) framework, static analysis
-   (SpotBugs), and code review; ThreadSanitizer and Helgrind target native code (a Java port of ThreadSanitizer exists
-   only as an experimental OpenJDK project).
-8. Data races on reference types may return a stale reference, or a reference to an object whose non-final fields are
-   not yet visible — always use synchronization.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (Project Loom)**: Virtual threads make I/O-heavy workloads easier to scale but do NOT automatically
-  prevent data races. The same synchronization rules apply.
-- **Structured concurrency (JEP 453 preview)**: Encourages task hierarchies that reduce shared-state access between
-  sibling tasks.
-- **Sequenced collections**: Unrelated to thread safety — the new `SequencedCollection` methods on `ArrayList`,
-  `LinkedHashMap`, etc. are exactly as unsynchronized as the rest of those classes.
-- **Record classes**: Shallowly immutable (all fields `private final`), making them safe for sharing across threads
-  without synchronization for their fields.
-- **Pattern matching for switch**: Enables more expressive code, but concurrent state management requirements remain
-  unchanged.
-
-## Common Pitfalls and How to Avoid Them
-
-### 1. Unsynchronized counter increment
+A race condition shows up only when two threads meet inside a few instructions. To see how often
+that happens, the examples use this helper: two threads walk the same batch of fresh objects in the same order,
+2,000 batches of 1,000, and afterwards the main thread sorts each object into an outcome.
 
 ```java
-// PROBLEM: data race on counter
-public class UnsynchronizedCounter {
-    private int counter = 0;
-
-    public void increment() {
-        counter++; // Read, increment, write — NOT atomic!
-    }
-
-    public int getCounter() {
-        return counter;
-    }
-}
-// Two threads calling increment() 1000 times each may result in counter < 2000
-```
-
-```java
-// SOLUTION 1: synchronized method
-public class SynchronizedCounter {
-    private int counter = 0;
-
-    public synchronized void increment() {
-        counter++;
-    }
-
-    public synchronized int getCounter() {
-        return counter;
-    }
-}
-
-// SOLUTION 2: AtomicInteger (preferred for simple counters)
-public class AtomicCounter {
-    private final AtomicInteger counter = new AtomicInteger(0);
-
-    public void increment() {
-        counter.incrementAndGet();
-    }
-
-    public int getCounter() {
-        return counter.get();
-    }
-}
-```
-
-### 2. Race on check-then-act
-
-```java
-// PROBLEM: Race condition between check and action
-public class RaceOnCheckThenAct {
-    private Map<String, String> cache = new HashMap<>();
-
-    // Thread A and Thread B can both see key absent and both insert
-    public String getOrCompute(String key) {
-        if (!cache.containsKey(key)) {       // check
-            cache.put(key, compute(key));     // act
-        }
-        return cache.get(key);
-    }
-}
-
-// SOLUTION: ConcurrentHashMap.computeIfAbsent
-public class SafeCheckThenAct {
-    private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
-
-    public String getOrCompute(String key) {
-        return cache.computeIfAbsent(key, this::compute);
-    }
-}
-```
-
-### 3. Long and double tearing
-
-```java
-// PROBLEM: long writes may not be atomic on 32-bit JVMs
-private long sharedLong = 0;
-
-// Thread 1: writes upper 32 bits, then lower 32 bits
-// Thread 2: reads in between — sees a "torn" value
-
-// SOLUTION: use volatile for longs and doubles
-private volatile long sharedLong = 0;
-// Or use AtomicLong
-private final AtomicLong sharedLong = new AtomicLong(0);
-```
-
-### 4. Sharing mutable collections without synchronization
-
-```java
-// PROBLEM: ArrayList is not thread-safe
-private List<String> sharedList = new ArrayList<>();
-
-// SOLUTION 1: Use CopyOnWriteArrayList for read-heavy workloads
-private List<String> sharedList = new CopyOnWriteArrayList<>();
-
-// SOLUTION 2: Collections.synchronizedList
-private List<String> sharedList = Collections.synchronizedList(new ArrayList<>());
-
-// SOLUTION 3: ConcurrentLinkedQueue for FIFO access
-private Queue<String> sharedQueue = new ConcurrentLinkedQueue<>();
-```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer immutability**: Use `final` fields and immutable value objects (records, etc.) to eliminate mutable shared state.
-2. **Confine state to a single thread**: Thread-local storage (`ThreadLocal`) ensures each thread has its own copy.
-3. **Use higher-level abstractions**: `java.util.concurrent` classes (`AtomicLong`, `ConcurrentHashMap`, `BlockingQueue`) are designed for concurrent use.
-4. **Minimize the scope of shared mutable state**: The less data is shared, the fewer potential races.
-5. **Use static analysis**: Tools like SpotBugs (FindBugs successor), Checker Framework, and IntelliJ IDEA can detect potential data races at compile time.
-6. **Write tests with stress frameworks**: JCStress (`@Arbiter`, `@State`, `@Actor`) or JUnit `@RepeatedTest` with multiple threads can expose races.
-7. **Document thread-safety guarantees**: Annotate classes with `@ThreadSafe`, `@NotThreadSafe`, or `@GuardedBy`.
-
-## Edge Cases and Their Handling
-
-### 1. Safe publication of immutable objects
-
-Even immutable objects can be involved in a data race if they are not *safely published*: the race is then on the
-*reference*. For a truly immutable object (all fields `final`, no `this` escape), a thread that does see the reference
-also sees the constructed field values (JLS §17.5) — but it may keep seeing `null`. An "immutable" class whose fields
-are not `final` can additionally be seen partially constructed.
-
-```java
-// UNSAFE: the write of the reference races with the readers
-private MyImmutable obj;
-
-public void init() {
-    obj = new MyImmutable(42); // Readers may keep seeing null; if MyImmutable's fields are not
-                               // final, a reader may also see them unset
-}
-
-// SAFE: volatile ensures the write to obj is visible only after the object is fully constructed
-private volatile MyImmutable obj;
-```
-
-### 2. Static initializer safety
-
-Static initializers run under the class initialization lock (JLS §12.4.2), so they are inherently thread-safe. Static fields initialized in
-a static initializer or at declaration are safely published.
-
-```java
-// Safe — initialized in static initializer
-public class SafeSingleton {
-    private static final SafeSingleton INSTANCE = new SafeSingleton();
-
-    public static SafeSingleton getInstance() {
-        return INSTANCE; // Always visible, always fully constructed
-    }
-}
-```
-
-### 3. Null check races
-
-```java
-// PROBLEM: Double-checked locking without volatile is broken
-private MyObject instance;
-
-public MyObject getInstance() {
-    if (instance == null) {                 // First check (no lock)
-        synchronized (this) {
-            if (instance == null) {         // Second check (with lock)
-                instance = new MyObject();  // May be seen as partially constructed without volatile!
-            }
-        }
-    }
-    return instance;
-}
-
-// SOLUTION: use volatile for the field
-private volatile MyObject instance;
-```
-
-## Interview-specific Insights
-
-Interviewers often probe:
-
-- The formal definition of a data race (concurrent, unsynchronized, at least one write)
-- The difference between a **data race** and a **race condition** — they are NOT synonyms. A data race is a formal JMM
-  violation; a race condition is a logical bug where outcome depends on timing (a race condition can exist without a data
-  race, e.g., in properly synchronized code with TOCTOU issues).
-- Whether `volatile` prevents all data races (it prevents races on single reads/writes but not compound operations)
-- How immutability prevents data races
-- Real-world examples of data races in production systems
-
-Common tricky questions:
-- "Can you have a race condition without a data race?" — Yes! A check-then-act built from individually synchronized
-  calls (e.g. `contains` then `add` on a `Collections.synchronizedSet`) is a logical race but not a JMM data race.
-- "Is `i++` on a volatile int atomic?" — No! volatile only ensures visibility, not atomicity of compound operations.
-- "What happens if two threads write to different fields of the same object without synchronization?" — No data race:
-  they are different variables, and JLS §17.6 forbids word tearing, so neither write can disturb the other (at most
-  they cause false sharing, a performance effect). Problems start only when a thread also reads the other thread's
-  field, or when the two fields must stay consistent with each other.
-
-## Interview Q&A Section
-
-**Q1: What is a data race, and how does it differ from a race condition?**
-
-```text
-A1: A data race is a precise technical term defined by the Java Memory Model (JMM): it occurs when
-two threads access the same variable concurrently, at least one access is a write, and the
-accesses are not ordered by a happens-before relationship. The JMM then allows stale and
-reordered results (though not values out of thin air).
-
-A race condition is a broader term for any situation where the correctness of a program depends on
-the relative timing or interleaving of threads. A race condition can exist even in fully
-synchronized code — for example, a check-then-act sequence where the state may change between
-the check and the action, even if each individual operation is synchronized.
-
-Key distinction:
-- All data races are a form of race condition, but not all race conditions are data races.
-- A data race = accesses the JMM leaves unordered (stale or reordered values allowed).
-- A race condition = logical correctness issue that may or may not involve a JMM violation.
-
-Example of a race condition without a data race (set = Collections.synchronizedSet(...)):
-  if (!set.contains(x)) set.add(x);
-  // Each call is synchronized, but between the check and the add, another thread may add x.
-  // (Wrapping both calls in one synchronized (set) { ... } block removes the race.)
-```
-
-```java
-// Data race example
-class DataRaceExample {
-    private int value = 0; // No synchronization
-
-    // Thread 1 calls this
-    public void writer() {
-        value = 42; // Write without synchronization — data race!
-    }
-
-    // Thread 2 calls this
-    public int reader() {
-        return value; // Read without synchronization — data race!
-    }
-}
-
-// Race condition without data race
-class RaceConditionWithoutDataRace {
-    private final Set<String> items = Collections.synchronizedSet(new HashSet<>());
-
-    public void addIfAbsent(String item) {
-        // Each operation is thread-safe, but the compound operation is not:
-        if (!items.contains(item)) {   // Thread A checks, sees absent
-            // Thread B also checks, also sees absent
-            items.add(item);           // Both threads insert — logical bug!
-        }
-        // Fix: use ConcurrentHashMap or synchronize the entire block
-    }
-}
-```
-
-**Q2: How does the Java Memory Model guarantee freedom from data races?**
-
-```text
-A2: The Java Memory Model (JMM), specified in the Java Language Specification Chapter 17, defines
-the conditions under which a memory access in one thread is guaranteed to be visible to another
-thread. The key concept is the "happens-before" relationship.
-
-A happens-before relationship between action A and action B means that the effects of A are
-guaranteed to be visible to B. Sources of happens-before in Java include:
-
-1. Program order: Within a single thread, each action happens-before the next one.
-2. Monitor lock: An unlock on a monitor happens-before every subsequent lock on that monitor.
-3. Volatile: A write to a volatile variable happens-before every subsequent read of that variable.
-4. Thread start: Thread.start() happens-before any action in the started thread.
-5. Thread join: All actions in a thread happen-before Thread.join() returns.
-6. Object initialization: Default initialization happens-before any program action.
-
-If two conflicting accesses (one write, any order) are NOT ordered by happens-before, they form a
-data race. The JMM only guarantees safe, predictable behavior for programs that are "correctly
-synchronized" — meaning they have no data races.
-```
-
-```java
-// Demonstrating happens-before through volatile
-class HappensBeforeDemo {
-    private int data = 0;
-    private volatile boolean ready = false; // Flag to establish happens-before
-
-    public void writer() {
-        data = 42;        // Action A
-        ready = true;     // Action B — volatile write establishes happens-before
-    }
-
-    public void reader() {
-        while (!ready) {} // Waits for volatile read
-        // ready = true happens-before this volatile read
-        // data = 42 happens-before ready = true (program order)
-        // Therefore data = 42 happens-before this point — data is 42 here
-        System.out.println(data); // Guaranteed to print 42
-    }
-}
-```
-
-**Q3: Why is `i++` not atomic even on a volatile variable?**
-
-```text
-A3: The `volatile` keyword guarantees two things:
-1. Visibility: A write to a volatile variable is visible to every later read of it.
-2. Ordering: Reads and writes before a volatile write cannot move after it, and those after a volatile read
-   cannot move before it.
-
-However, `volatile` does NOT make compound operations like `i++` atomic. The `i++` operation
-decomposes into THREE separate steps:
-1. Read the current value of i
-2. Increment the value
-3. Write the new value back
-
-Even with volatile, a context switch can happen between any of these steps. If Thread A reads the
-value (step 1), Thread B also reads the same value (step 1), both increment (step 2), and both
-write back (step 3), the final result is an increment of 1 rather than 2.
-
-To make increments atomic, use AtomicInteger.incrementAndGet() which uses CPU-level CAS
-(Compare-And-Swap) instructions to ensure atomicity without locking.
-```
-
-```java
-class VolatileVsAtomic {
-    private volatile int volatileCounter = 0;
-    private final AtomicInteger atomicCounter = new AtomicInteger(0);
-
-    // NOT thread-safe! Despite volatile
-    public void unsafeIncrement() {
-        volatileCounter++; // Read + modify + write — 3 non-atomic steps!
-    }
-
-    // Thread-safe: CAS-based atomic increment
-    public void safeIncrement() {
-        atomicCounter.incrementAndGet(); // Single atomic operation
-    }
-
-    // Demonstrating the problem
-    public static void main(String[] args) throws InterruptedException {
-        var example = new VolatileVsAtomic();
-        var threads = new ArrayList<Thread>();
-
-        for (int i = 0; i < 100; i++) {
-            threads.add(Thread.ofVirtual().start(() -> {
-                for (int j = 0; j < 1000; j++) {
-                    example.unsafeIncrement();
-                    example.safeIncrement();
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.CyclicBarrier;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+/** Runs two actors against many fresh objects at once and counts what each object ended up as. */
+public final class Outcomes {
+
+    public static <S> void count(String name, Supplier<S> fresh, Consumer<S> actor1,
+                                 Consumer<S> actor2, Function<S, String> outcome) throws Exception {
+        int batches = 2_000, size = 1_000;
+        List<S> batch = new ArrayList<>();
+        CyclicBarrier go = new CyclicBarrier(3), done = new CyclicBarrier(3);
+        Thread[] actors = new Thread[2];
+        List<Consumer<S>> bodies = List.of(actor1, actor2);
+        for (int a = 0; a < 2; a++) {
+            Consumer<S> body = bodies.get(a);
+            actors[a] = new Thread(() -> {
+                try {
+                    for (int b = 0; b < batches; b++) {
+                        go.await();                          // both actors start a batch together
+                        for (S s : batch) body.accept(s);    // and walk it in the same order
+                        done.await();
+                    }
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
                 }
-            }));
+            });
+            actors[a].setDaemon(true);
+            actors[a].start();
         }
-        for (var t : threads) t.join();
-
-        // Expected 100000 for both. Lost updates can make volatileCounter smaller;
-        // the JMM does not promise they will happen, so one run proves nothing either way.
-        System.out.println("Volatile (may lose updates): " + example.volatileCounter);
-        System.out.println("Atomic (always 100000):      " + example.atomicCounter.get());
+        Map<String, Long> seen = new TreeMap<>();
+        for (int b = 0; b < batches; b++) {
+            batch.clear();
+            for (int i = 0; i < size; i++) batch.add(fresh.get());
+            go.await();
+            done.await();                                    // the barrier orders the actors' writes before our reads
+            for (S s : batch) seen.merge(outcome.apply(s), 1L, Long::sum);
+        }
+        System.out.printf("%-22s %s%n", name, seen);
     }
 }
 ```
 
-**Q4: How can you detect data races in a Java application?**
+Every output on this page is from Java 21 on a 20-thread x86-64 machine, one JVM per run.
 
-```text
-A4: Several tools and techniques exist for detecting data races in Java:
+## A Data Race Is Two Accesses to One Variable, One a Write, With No Happens-Before Between Them
 
-1. ThreadSanitizer (TSan): A dynamic race detector for native code. A Java port exists only as an
-   experimental OpenJDK project (not part of standard JDK builds).
-
-2. JCStress (Java Concurrency Stress): A specialized framework for writing correctness tests for
-   concurrent code. Tests can reveal races that are very hard to reproduce with regular unit tests.
-
-3. Helgrind / DRD: Valgrind tools that detect data races (mainly for native code, less common for JVM).
-
-4. SpotBugs: Its multithreaded-correctness detectors (e.g. inconsistent synchronization) find some classes of
-   thread-safety bugs statically.
-
-5. IntelliJ IDEA / Eclipse: IDEs can warn about common concurrent programming mistakes.
-
-6. Code review: Manual review using annotations like @GuardedBy, @ThreadSafe from the
-   jcip-annotations library makes threading requirements explicit.
-
-7. Stress testing: Running tests with many threads and many iterations can expose races that
-   probabilistic analysis would miss.
-
-For production use, structured concurrency, immutability, and high-level concurrent primitives
-(java.util.concurrent) are the best preventative measures.
-```
+The first version of the order keeps the reference in a plain `int`:
 
 ```java
-// Example of a stress test that can expose data races
-class DataRaceStressTest {
-    private int sharedCounter = 0;
+static final AtomicInteger SEQUENCE = new AtomicInteger();
 
-    // Run this repeatedly with many threads to detect the race
-    // (@RepeatedTest alone: combining it with @Test would register the method twice)
-    @org.junit.jupiter.api.RepeatedTest(10)
-    void detectRaceWithRepetition() throws InterruptedException {
-        sharedCounter = 0;
-        int threadCount = 100;
-        int incrementsPerThread = 1000;
+int ref;                                   // 0 until assigned
+int seenByEmail, seenByInvoice;
 
-        List<Thread> threads = new ArrayList<>();
-        for (int i = 0; i < threadCount; i++) {
-            threads.add(Thread.ofVirtual().start(() -> {
-                for (int j = 0; j < incrementsPerThread; j++) {
-                    sharedCounter++; // Race!
-                }
-            }));
-        }
-        for (Thread t : threads) t.join();
-
-        int expected = threadCount * incrementsPerThread;
-        // This assertion will FAIL intermittently due to the data race
-        // org.assertj.core.api.Assertions.assertThat(sharedCounter).isEqualTo(expected);
-        System.out.println("Expected: " + expected + ", Actual: " + sharedCounter);
-    }
+int reference() {
+    if (ref == 0) ref = SEQUENCE.incrementAndGet();
+    return ref;
 }
 ```
 
-**Q5: What is the relationship between immutability and data races?**
-
-```text
-A5: Immutable objects are inherently thread-safe because their state never changes after
-construction. If an object's fields cannot be written after it's constructed, there can be no
-concurrent write — and without a concurrent write, there can be no data race.
-
-Java provides two mechanisms for immutability:
-1. final fields: A final field can only be assigned once (in the constructor or at declaration).
-   After construction, the final field's value is guaranteed to be visible to every thread that
-   obtains a reference to the object, without any additional synchronization — even if the reference
-   was passed through a data race (JLS 17.5), provided 'this' did not escape the constructor.
-2. Records: Java record classes (Java 16+) generate final fields for all components, making them
-   (shallowly) immutable.
-
-"Safe publication" is still needed for the REFERENCE: publish it through a properly synchronized
-channel (volatile field, concurrent collection, synchronized block, etc.) so that other threads are
-guaranteed to see it at all. The object's final-field state itself is safe even without it.
-
-Immutability is the gold standard for concurrent programming because it:
-- Eliminates data races by definition
-- Eliminates the need for synchronization on the object's state
-- Makes reasoning about concurrent code simpler
-- Enables free sharing across threads
-```
+One actor plays the email renderer, the other the invoice:
 
 ```java
-// Immutable class — safe for multi-threaded use without synchronization
-public final class ImmutablePoint {
-    private final int x;
-    private final int y;
-
-    public ImmutablePoint(int x, int y) {
-        this.x = x;
-        this.y = y;
-    }
-
-    public int getX() { return x; }
-    public int getY() { return y; }
-
-    public ImmutablePoint translate(int dx, int dy) {
-        return new ImmutablePoint(x + dx, y + dy); // Returns new instance
-    }
-}
-
-// Java record — implicitly immutable
-public record ImmutablePointRecord(int x, int y) {
-    public ImmutablePointRecord translate(int dx, int dy) {
-        return new ImmutablePointRecord(x + dx, y + dy);
-    }
-}
-
-// Safe publication using volatile
-class SafePublisher {
-    private volatile ImmutablePoint point; // volatile ensures safe publication
-
-    public void setPoint(ImmutablePoint p) {
-        this.point = p; // Safe — volatile write
-    }
-
-    public ImmutablePoint getPoint() {
-        return this.point; // Safe — volatile read
-    }
-}
+Outcomes.count("plain int", PlainOrder::new,
+        o -> o.seenByEmail = o.reference(), o -> o.seenByInvoice = o.reference(),
+        o -> o.seenByEmail == o.seenByInvoice ? "same" : "different");
 ```
-
-**Q6: How does ThreadLocal help prevent data races?**
 
 ```text
-A6: ThreadLocal provides each thread with its own independent copy of a variable, completely
-eliminating shared mutable state. Since no data is shared between threads, no synchronization is
-needed, and data races become impossible on ThreadLocal variables.
-
-Use cases for ThreadLocal:
-1. Per-thread state in web frameworks (Spring stores request context in ThreadLocal)
-2. Database connections per thread (JDBC connection pooling)
-3. Per-thread formatters (SimpleDateFormat is not thread-safe; ThreadLocal makes it safe)
-4. User session data in servlet containers
-
-However, ThreadLocal has risks:
-1. Memory leaks in thread pool environments: If threads are recycled, old ThreadLocal values may
-   persist. Always call ThreadLocal.remove() when done.
-2. Can obscure dependencies: Passing values implicitly through ThreadLocal makes code harder to test.
-3. Not suitable for parallel tasks that need to share results.
+plain int              {different=118980, same=1881020}
+plain int              {different=145020, same=1854980}
+plain int              {different=72164, same=1927836}
 ```
+
+Before reading on, list the pairs of accesses in this example that form a data race.
+
+The Java Memory Model (JLS 17.4.5) defines one: two accesses to the same variable, from different
+threads, at least one of them a write, and no happens-before order between them. In `reference()`,
+each thread's read of `ref` and the other thread's write of `ref` qualify, and so do the two
+writes. No happens-before edge orders them: no lock, no volatile, no `start` or `join` between the
+two threads (the edges are units 5.2.1 and 5.2.2).
+
+Three other shared variables in the program are not raced on:
+
+- `SEQUENCE` is an `AtomicInteger`. `incrementAndGet()` is one atomic read-modify-write on a
+  volatile field, so two calls never return the same number.
+- `seenByEmail` is written by an actor and read by the main thread. The `CyclicBarrier` orders
+  them: its javadoc says actions before `await()` happen-before actions after the matching
+  `await()` returns in other threads.
+- The two actors write `seenByEmail` and `seenByInvoice` of the same object at the same moment.
+  They are different variables, and JLS 17.6 forbids a write to one field from disturbing another.
+
+The definition is about order, not about timing: two accesses a second apart with no edge between
+them still race.
+
+Both threads read `0` before either wrote, so `incrementAndGet()` ran twice for one order. "Writes
+to an `int` are atomic" is true and doesn't prevent that interleaving. What the data race adds is
+that the JMM no longer promises sequential consistency (unit 5.1.1), so a read may also see an
+older write than the latest one.
+
+## Code With No Data Race Can Still Race: a Check and an Act Are Two Steps
+
+The version from the opening, in which every access to `ref` goes through the `AtomicInteger`:
 
 ```java
-class ThreadLocalExample {
-    // Each thread gets its own SimpleDateFormat (not thread-safe if shared)
-    private static final ThreadLocal<SimpleDateFormat> DATE_FORMAT =
-        ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
+final AtomicInteger ref = new AtomicInteger();
 
-    // Each thread gets its own request context
-    private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
-
-    public String formatDate(Date date) {
-        return DATE_FORMAT.get().format(date); // No synchronization needed!
-    }
-
-    public void processRequest(String requestId) {
-        REQUEST_ID.set(requestId);
-        try {
-            doWork(); // doWork can access REQUEST_ID.get() without parameters
-        } finally {
-            REQUEST_ID.remove(); // Critical in thread pools — prevents memory leaks!
-        }
-    }
-
-    private void doWork() {
-        String id = REQUEST_ID.get(); // Access the per-thread request context
-        System.out.println("Processing request: " + id);
-    }
+int reference() {
+    if (ref.get() == 0) ref.set(SEQUENCE.incrementAndGet());
+    return ref.get();
 }
 ```
+
+```text
+AtomicInteger          {different=355798, same=1644202}
+AtomicInteger          {different=344723, same=1655277}
+AtomicInteger          {different=490673, same=1509327}
+```
+
+There is no data race left. Volatile reads and writes are synchronization actions, which are not
+counted as data races: the JMM puts them in one total order, and each read returns the latest write
+in it (JLS 17.4.4, 17.4.7). No read of `ref` is stale. The result is still wrong in at least a sixth
+to a quarter of the orders (two threads that both set `ref` can also both return the second number,
+which counts as `same`), because the
+check (`get() == 0`) and the act (`set`) are two atomic steps, and the other thread can run both of
+its own between them. That is a **race condition**: the outcome depends on how the threads
+interleave. It needs no data race: unit 6.2.1 shows one with every method `synchronized`, and unit
+6.5.2 one on a `ConcurrentHashMap`. Making `ref` volatile,
+or moving it into a thread-safe class, removes the data race and leaves the race condition.
+
+The fix lets one atomic step decide who sets the value:
+
+```java
+int reference() {
+    int current = ref.get();
+    if (current != 0) return current;
+    ref.compareAndSet(0, SEQUENCE.incrementAndGet());
+    return ref.get();
+}
+```
+
+```text
+compareAndSet          {same=2000000}
+compareAndSet          {same=2000000}
+```
+
+`compareAndSet(0, n)` sets the value only if it is still `0`, and only one thread can win that.
+The loser returns the winner's number and its own is never used, so the sequence gets gaps.
+Unit 5.3.2 covers compare-and-set loops in general.
+
+On a `ConcurrentMap` the same shape is `if (!map.containsKey(k)) map.put(k, v)`, and `putIfAbsent`
+or `computeIfAbsent` does it in one call; `remove(key, value)` and `replace(key, old, new)` do the
+same for a check followed by a remove or a replace. (On a plain `Map` those default methods promise
+no atomicity.) When you review shared state, after "is there a data race?" ask: does any decision
+rest on a value another thread can change before the decision takes effect?
+
+<!-- practice 1 -->
+
+<!-- practice 2 -->
+
+## A Data Race Is Harmless Only When Every Value the Read Can See Gives the Right Answer
+
+An order's checksum is cached with the same shape as the first reference, in a plain `int` with no
+lock:
+
+```java
+int checksum() {
+    int c = checksum;                     // one read into a local
+    if (c == 0) {
+        c = checksumOf(lines);
+        computed.incrementAndGet();
+        checksum = c;
+    }
+    return c;
+}
+```
+
+```text
+checksum cache         {same=1830516, same, computed twice=169484}
+checksum cache         {same=1771544, same, computed twice=228456}
+checksum cache         {same=1925317, same, computed twice=74683}
+```
+
+This is a data race by the definition above, and both threads got the same checksum every time. Up to 11 % of
+the objects computed the checksum twice, and both computations wrote the same number. Each read
+could see `0` or the checksum, and either leads to the right result. Such a race is called
+**benign**, and it stays benign only while three things hold:
+
+- every computation produces the same value from inputs that don't change;
+- the value is read and written in one access: any primitive but a non-volatile `long` or
+  `double`, which may tear (unit 5.1.1), or a reference to an immutable object with `final` fields
+  (unit 5.2.3);
+- the field is read once, into a local.
+
+The order reference fails the first condition: each computation takes a new number.
+
+The third condition is easy to break while tidying the code:
+
+```java
+int checksumReadTwice() {
+    if (checksum == 0) checksum = checksumOf(lines);
+    return checksum;                      // a second, separate read
+}
+```
+
+The two reads of `checksum` are separate racy reads. Each may see the initial `0`, which is the
+last write ordered before it (JLS 17.4.4, 17.4.5), or the other thread's write, which isn't ordered
+against it. So the first read may see the checksum and the second `0`, and the method returns `0`.
+No write is undone; the second read simply sees an older one. This is allowed by the JLS and was not observed here: twelve
+runs of 2,000,000 objects returned the right value every time. `String.hashCode()` reads its
+cached field once into a local for this reason (unit 5.1.1).
+
+A benign race saves synchronization on a hot path. It is worth that only after you have
+checked all three conditions and written them in a comment beside the field, because the next
+person to edit the method won't see them otherwise.
+
+## A Passing Stress Test Shows Only the Interleavings That Run Produced
+
+The usual test starts two threads, one call each, and compares. Here it is, repeated 1,000 times
+against the `AtomicInteger` version:
+
+```java
+for (int r = 0; r < repeats; r++) {
+    Refs.AtomicOrder order = new Refs.AtomicOrder();
+    CountDownLatch go = new CountDownLatch(1);
+    Thread email = new Thread(() -> { await(go); order.seenByEmail = order.reference(); });
+    Thread invoice = new Thread(() -> { await(go); order.seenByInvoice = order.reference(); });
+    email.start();
+    invoice.start();
+    go.countDown();                       // release both at once
+    email.join();
+    invoice.join();
+    if (order.seenByEmail != order.seenByInvoice) failed++;
+}
+```
+
+```text
+two threads, one call each: failed 14 of 1000
+two threads, one call each: failed 7 of 1000
+two threads, one call each: failed 3 of 1000
+two threads, one call each: failed 13 of 1000
+two threads, one call each: failed 10 of 1000
+```
+
+A test that makes one attempt fails about one build in a hundred: the flaky test that gets a
+retry annotation instead of a fix. The two threads leave the latch at slightly different moments,
+and one call to `reference()` is short, so the calls seldom overlap. Even the harness, which
+overlaps them on purpose, never produced the read-twice checksum's `0`, an outcome the JLS allows.
+
+A thread dump doesn't help either. It shows each thread's stack and the locks it holds or waits
+for, and a data race involves no lock: both threads are `RUNNABLE` somewhere in `reference()`,
+or already finished.
+
+> **jcstress (described here, not run).** OpenJDK's Java Concurrency Stress tool does what the
+> helper above does, at scale. A test class holds the shared state (`@State`),
+> two or more `@Actor` methods that the tool runs on different threads against fresh states many
+> millions of times, and `@Outcome` annotations that mark each possible result as acceptable,
+> interesting or forbidden. It runs the test in several JVM forks with different compiler
+> settings and prints how often each outcome appeared. It is the tool for memory-model questions
+> (can this read see `0`?), and its verdict is still per machine: run it on the CPUs you deploy to.
+
+## A Check-Then-Act Is Tested by Pausing One Thread Between the Check and the Act
+
+A race condition doesn't need luck to test. The test makes the interleaving happen: the sequence
+handed to the order pauses its first caller, which has just found `ref` at `0`, until the second
+caller has finished. Here `Order` takes its sequence in the constructor, and `call` picks the
+version under test:
+
+```java
+Order order = new Order(() -> {
+    int n = numbers.incrementAndGet();
+    if (n == 1) {                                  // the first caller has checked and found 0
+        firstChecked.countDown();
+        try { goOn.await(5, TimeUnit.SECONDS); } catch (InterruptedException e) { throw new IllegalStateException(e); }
+    }
+    return n;
+});
+int[] seen = new int[2];
+Thread email = new Thread(() -> seen[0] = call.on(order));
+email.start();
+firstChecked.await(5, TimeUnit.SECONDS);           // email is now between its check and its act
+Thread invoice = new Thread(() -> seen[1] = call.on(order));
+invoice.start();
+invoice.join(5_000);                               // invoice runs its whole call meanwhile
+goOn.countDown();
+email.join(5_000);
+```
+
+```text
+check, then set  email 1, invoice 2, stored 1
+check, then set  email 1, invoice 2, stored 1
+check, then set  email 1, invoice 2, stored 1
+compareAndSet    email 2, invoice 2, stored 2
+compareAndSet    email 2, invoice 2, stored 2
+compareAndSet    email 2, invoice 2, stored 2
+```
+
+Pausing a thread after a read is a schedule the real system can produce, so a correct
+implementation must survive it. The latches order the threads, and the timeouts keep a wrong
+solution from hanging the build. A fix that holds a lock across the call makes the second caller
+wait for the paused one, so a real test lets it wait, then releases the first and checks both
+results.
+
+The hook has to sit between the check and the act, so the code must call out at that point: an
+injected sequence, clock, map or repository. Code that does everything inline can't be paused
+there, which is one more reason to inject collaborators. A memory-model question (can a racy read
+see a stale value?) has no such hook; that is jcstress's job.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A data race is two accesses to one variable, at least one a write, with no happens-before
+  between them.** Timing doesn't enter the definition, and two fields of one object never race
+  with each other.
+- **Code with no data race can still race.** Atomic or volatile accesses remove stale reads, but
+  a check and an act are two steps unless one atomic call (`compareAndSet`, or `putIfAbsent` on a
+  `ConcurrentMap`) or one lock does both.
+- **A data race is harmless only when every value a read can see gives the right answer:** an
+  idempotent computation, a value read in one access, and one read into a local.
+- **A passing stress test shows only the interleavings it produced.** A naive two-thread test
+  failed about one run in a hundred; an outcome the JLS allows may never show on one machine.
+- **A check-then-act is tested deterministically** by pausing one thread between the check and
+  the act; memory-model effects need jcstress.
+
+## Reference
+
+**Is it a data race? (JLS 17.4.5; edges in units 5.2.1 and 5.2.2)**
+
+| Accesses to one variable from two threads | Data race? |
+|---|---|
+| plain field, one thread writes, the other reads, no edge between them | yes |
+| written before `t.start()`, read by `t` | no |
+| written by `t`, read after `t.join()` returns | no |
+| written and read while holding the same lock | no |
+| written and read under two different locks | yes |
+| a `volatile` field, or an `Atomic*` class through its volatile-mode methods (`get`, `set`, `compareAndSet`, ...) | no |
+| written before `CyclicBarrier.await()`, read after the matching `await()` returns elsewhere | no |
+| two threads writing two different fields or array elements: not one variable (JLS 17.6) | no |
+
+**Finding races:**
+
+| Method | Shows | Misses |
+|---|---|---|
+| thread dump | where each thread is, the locks it holds and waits for | every data race: no lock is involved |
+| repeated multithreaded test | a race that happened in that run | everything else; fails intermittently |
+| outcome counting (jcstress) | how often each outcome appears, per JVM and machine | outcomes this hardware and JIT never produce |
+| pausing a thread between check and act | a race condition, on every run | memory-model effects |
+
+## Challenges
+
+1. The harness found the plain-`int` reference wrong in 4–7 % of orders and the `AtomicInteger`
+   one in 17–25 %. Propose why the version with no data race failed more often, then test your
+   explanation by changing the harness.
+2. A metrics field `long lastRequestMillis` is written by every request thread and read by a
+   health check that alerts after 60 s of silence. Is this race benign? What changes on a JVM that
+   tears `long` writes, and what would you change?
+3. Find a check-then-act in code you maintain that calls no collaborator between the check and
+   the act. How would you restructure it so a test can pause it there?
+
+## Design Note: Why Java Gives a Racy Program Any Meaning at All
+
+Java could have declared a program with a data race undefined and left compilers free to do
+anything with it. It can't: a racy read of a reference must still return a reference to a real
+object of the right type, or the JVM's type safety is gone. So JLS 17.4 constrains what a racy
+read may return: a value that some write to that variable stored, never one "out of thin air"
+(JLS 17.4.8).
+
+The cost is that a racy Java program is guaranteed to keep running on plausible values: a stale
+read or a duplicated computation doesn't crash, it issues a second order number. The guarantee
+protects the JVM's type safety; your invariants still depend on removing the race.
 
 ## Code Examples
 

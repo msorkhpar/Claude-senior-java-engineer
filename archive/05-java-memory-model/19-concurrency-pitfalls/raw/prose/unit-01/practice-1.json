@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A hit counter guarded by its own lock",
+  "title": "Stop double-booking seats on a shared seat map",
   "blocks": [
     {
       "type": "heading",
@@ -19,32 +19,35 @@
     },
     {
       "type": "para",
-      "text": "The page's `UnsynchronizedCounter` loses updates: `counter++` is a read, an add and a write, and two threads can interleave them. Its first fix, `SynchronizedCounter`, makes **both** methods `synchronized`: the lock gives mutual exclusion to the writers and visibility to the readers."
+      "text": "An airline keeps seat holds for each flight in one `ConcurrentHashMap` from seat to customer. Every booking request builds its own `SeatHolds` over the flight's map, so requests for the same seat run on different threads at the same moment. Two support tickets came in this week:"
     },
     {
-      "type": "para",
-      "text": "Write `HitCounter`, a page-hit counter that follows that fix. `hit()` adds one hit, and `hits()` returns the total so far. Guard the count with the counter object's own monitor (`synchronized` methods, or `synchronized (this)`), for the write **and** the read."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "`hits()`"
-      ],
-      "rows": [
-        [
-          "a new counter",
-          "`0`"
-        ],
-        [
-          "`hit()` three times",
-          "`3`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "\"Both my wife and I got a confirmation for 31F. At the gate the system had only her name.\"",
+        "\"I held 5B, then someone else's cancellation freed my seat. They had clicked Release twice.\""
       ]
     },
     {
       "type": "para",
-      "text": "The tests hold the counter's lock themselves and check that your `hit()` and `hits()` wait for it."
+      "text": "`holderOf(...)` already works. Finish the two `TODO`s in `src/main/java/practice/SeatHolds.java`:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`reserve(seat, customer)`: true when this customer now holds the seat;",
+        "`release(seat, customer)`: true when this customer's hold was removed."
+      ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, two requests that race for one free seat give it to exactly one customer, a refused request changes nothing, and a release that arrives late never frees someone else's seat. About two lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests use a map that pauses one request right after it reads, while another request runs."
     },
     {
       "type": "heading",
@@ -59,7 +62,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class HitCounter {\n\n    private int count;\n\n    /** Adds one hit. */\n    public synchronized void hit() {\n        count++;\n    }\n\n    /** Returns the number of hits so far. */\n    public synchronized int hits() {\n        return count;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.ConcurrentMap;\n\n/**\n * Seat holds for one flight. The map (seat to customer) belongs to the flight and is shared: every\n * booking request builds its own SeatHolds over it, so requests for one seat can run on several\n * threads at once.\n */\npublic class SeatHolds {\n\n    private final ConcurrentMap<String, String> holders;\n\n    public SeatHolds(ConcurrentMap<String, String> holders) {\n        this.holders = holders;\n    }\n\n    /** Who holds the seat now, if anyone. */\n    public Optional<String> holderOf(String seat) {\n        return Optional.ofNullable(holders.get(seat));\n    }\n\n    /** Puts the seat on hold for the customer. True when this customer now holds it. */\n    public boolean reserve(String seat, String customer) {\n        return holders.putIfAbsent(seat, customer) == null;\n    }\n\n    /** Gives up the customer's hold on the seat. True when a hold of this customer was removed. */\n    public boolean release(String seat, String customer) {\n        return holders.remove(seat, customer);\n    }\n}\n"
         }
       ]
     },
@@ -71,7 +74,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class HitCounter {\n\n    /** Adds one hit. */\n    public void hit() {\n        throw new UnsupportedOperationException(\"write hit\");\n    }\n\n    /** Returns the number of hits so far. */\n    public int hits() {\n        throw new UnsupportedOperationException(\"write hits\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.ConcurrentMap;\n\n/**\n * Seat holds for one flight. The map (seat to customer) belongs to the flight and is shared: every\n * booking request builds its own SeatHolds over it, so requests for one seat can run on several\n * threads at once.\n */\npublic class SeatHolds {\n\n    private final ConcurrentMap<String, String> holders;\n\n    public SeatHolds(ConcurrentMap<String, String> holders) {\n        this.holders = holders;\n    }\n\n    /** Who holds the seat now, if anyone. */\n    public Optional<String> holderOf(String seat) {\n        return Optional.ofNullable(holders.get(seat));\n    }\n\n    /** Puts the seat on hold for the customer. True when this customer now holds it. */\n    public boolean reserve(String seat, String customer) {\n        // TODO: Two requests for the same free seat may arrive at the same moment. Exactly one of\n        //       them may get it, and the map must name the customer who was told yes.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n\n    /** Gives up the customer's hold on the seat. True when a hold of this customer was removed. */\n    public boolean release(String seat, String customer) {\n        // TODO: A customer's release may arrive late, for example a second click, after the seat\n        //       has already gone to someone else. It must never free another customer's hold.\n        throw new IllegalStateException(\"TODO: release\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -79,10 +82,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 2,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -90,11 +93,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3333affdd1144adc86c1f7e60e91e87143281c3925180f95c3067f1dae6af36d",
-  "starting_code": "package practice;\n\npublic final class HitCounter {\n\n    /** Adds one hit. */\n    public void hit() {\n        throw new UnsupportedOperationException(\"write hit\");\n    }\n\n    /** Returns the number of hits so far. */\n    public int hits() {\n        throw new UnsupportedOperationException(\"write hits\");\n    }\n}\n",
+  "content_sha256": "78d571eff9c430459d371f28574d7f4796a827af563eebafe35b03681af3826a",
+  "starting_code": "package practice;\n\nimport java.util.Optional;\nimport java.util.concurrent.ConcurrentMap;\n\n/**\n * Seat holds for one flight. The map (seat to customer) belongs to the flight and is shared: every\n * booking request builds its own SeatHolds over it, so requests for one seat can run on several\n * threads at once.\n */\npublic class SeatHolds {\n\n    private final ConcurrentMap<String, String> holders;\n\n    public SeatHolds(ConcurrentMap<String, String> holders) {\n        this.holders = holders;\n    }\n\n    /** Who holds the seat now, if anyone. */\n    public Optional<String> holderOf(String seat) {\n        return Optional.ofNullable(holders.get(seat));\n    }\n\n    /** Puts the seat on hold for the customer. True when this customer now holds it. */\n    public boolean reserve(String seat, String customer) {\n        // TODO: Two requests for the same free seat may arrive at the same moment. Exactly one of\n        //       them may get it, and the map must name the customer who was told yes.\n        throw new IllegalStateException(\"TODO: reserve\");\n    }\n\n    /** Gives up the customer's hold on the seat. True when a hold of this customer was removed. */\n    public boolean release(String seat, String customer) {\n        // TODO: A customer's release may arrive late, for example a second click, after the seat\n        //       has already gone to someone else. It must never free another customer's hold.\n        throw new IllegalStateException(\"TODO: release\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-1/src/main/java/practice/HitCounter.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-1/src/test/java/practice/HitCounterTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-1/src/main/java/practice/SeatHolds.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-01/practice-1/src/test/java/practice/SeatHoldsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -115,19 +118,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HitCounterTest#countsHits",
+        "id": "practice.SeatHoldsTest#holdsGoToTheFirstCustomerWhoAsks",
         "kind": "main",
-        "says": "It counts hits and reads the total back."
+        "says": "a free seat goes to the customer who asks for it, and a taken seat is refused"
       },
       {
-        "id": "practice.HitCounterTest#hitTakesTheCountersLock",
-        "kind": "edge",
-        "says": "A hit waits while another thread holds the counter's lock, so no two updates interleave."
+        "id": "practice.SeatHoldsTest#aReleaseFreesOnlyTheCustomersOwnHold",
+        "kind": "main",
+        "says": "a customer can release their own hold, and nobody else's"
       },
       {
-        "id": "practice.HitCounterTest#readingTakesTheCountersLock",
+        "id": "practice.SeatHoldsTest#twoRequestsForOneFreeSeatGiveItToOneCustomer",
         "kind": "edge",
-        "says": "Reading the total waits for the lock too, so a reader never sees a stale count."
+        "says": "when two requests for one free seat meet, exactly one is told yes and the map names that customer"
+      },
+      {
+        "id": "practice.SeatHoldsTest#aRefusedRequestLeavesTheHolderInPlace",
+        "kind": "edge",
+        "says": "a refused request leaves the seat with the customer who holds it"
+      },
+      {
+        "id": "practice.SeatHoldsTest#aLateReleaseLeavesTheNextCustomersHoldInPlace",
+        "kind": "edge",
+        "says": "a release that arrives after the seat went to someone else leaves the new hold in place"
       }
     ],
     "report": {
@@ -136,10 +149,10 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.1.md",
-      "section": "1. Unsynchronized counter increment"
+      "section": "Code With No Data Race Can Still Race: a Check and an Act Are Two Steps"
     },
     "concepts": [
-      "synchronized gives mutual exclusion and visibility, so the reads of shared state take the lock as well as the writes."
+      "One atomic call (putIfAbsent, remove(key, value), compareAndSet, compute) decides between racing threads; a check followed by a separate act does not."
     ]
   }
 }

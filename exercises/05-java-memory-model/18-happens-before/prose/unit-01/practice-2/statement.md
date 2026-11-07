@@ -1,28 +1,18 @@
-The page defines a **data race**: two threads access the same variable, at least one
-access is a write, and there is **no happens-before** between the two accesses. The JMM
-does not make a racy program undefined, but it lets the reader see stale values.
+The platform team's replay harness records every run of a concurrency test as a list of actions,
+in the order they ran: each thread's reads and writes of fields, its locks and unlocks, its
+`start()` and `join()` calls. A race report built on the recording has to flag every pair of plain
+accesses to one field, from two threads, at least one of them a write, that the memory model
+leaves unordered. Today it is a stub: it can't tell an ordered pair from an unordered one.
 
-A trace is the list of actions one run performed, in the order they ran, as in the
-previous practice: each `Action` has a thread, a `Kind` (`READ`, `WRITE`,
-`VOLATILE_READ`, `VOLATILE_WRITE`, `LOCK`, `UNLOCK`, `START`, `JOIN`) and a target (a
-variable, a monitor, or the thread started or joined). Happens-before follows the page's
-six rules: program order, monitor lock, volatile variable, thread start, thread join,
-and transitivity. You may reuse your happens-before from the previous practice.
+`RaceReport.races()` already finds the pairs worth checking. Finish the two `TODO`s in
+`src/main/java/practice/RaceReport.java`:
 
-Write `DataRaces.find(List<Action> trace)`. It returns every data race as a pair
-`[i, j]` of trace indices with `i < j`, sorted by `i` then `j`. Only `READ` and `WRITE`
-are plain accesses; a volatile access is a synchronization action and never races.
+- `edge(i, j)`: whether a single rule of the memory model orders action `i` before the later
+  action `j`, with no action in between;
+- `happensBefore(i, j)`: whether the memory model orders action `i` before action `j` at all.
 
-The page's broken flag, where neither `ready` nor `data` is volatile:
+A recorded `JOIN` means the join returned because the other thread had ended. When you're done,
+the report flags every pair the model leaves unordered and no pair it orders. About fifteen lines
+in total.
 
-| # | thread | action |
-|---|---|---|
-| 0 | T1 | `WRITE data` |
-| 1 | T1 | `WRITE ready` |
-| 2 | T2 | `READ ready` |
-| 3 | T2 | `READ data` |
-
-| trace | answer |
-|---|---|
-| the broken flag | `[[0, 3], [1, 2]]` |
-| the same, with `ready` volatile | `[]` |
+The tests build recordings by hand; nothing in them runs concurrently.

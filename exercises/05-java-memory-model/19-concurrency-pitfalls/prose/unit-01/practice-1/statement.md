@@ -1,17 +1,17 @@
-The page's `UnsynchronizedCounter` loses updates: `counter++` is a read, an add and
-a write, and two threads can interleave them. Its first fix, `SynchronizedCounter`,
-makes **both** methods `synchronized`: the lock gives mutual exclusion to the
-writers and visibility to the readers.
+An airline keeps seat holds for each flight in one `ConcurrentHashMap` from seat to customer.
+Every booking request builds its own `SeatHolds` over the flight's map, so requests for the same
+seat run on different threads at the same moment. Two support tickets came in this week:
 
-Write `HitCounter`, a page-hit counter that follows that fix. `hit()` adds one hit,
-and `hits()` returns the total so far. Guard the count with the counter object's own
-monitor (`synchronized` methods, or `synchronized (this)`), for the write **and** the
-read.
+- "Both my wife and I got a confirmation for 31F. At the gate the system had only her name."
+- "I held 5B, then someone else's cancellation freed my seat. They had clicked Release twice."
 
-| calls | `hits()` |
-|---|---|
-| a new counter | `0` |
-| `hit()` three times | `3` |
+`holderOf(...)` already works. Finish the two `TODO`s in `src/main/java/practice/SeatHolds.java`:
 
-The tests hold the counter's lock themselves and check that your `hit()` and
-`hits()` wait for it.
+- `reserve(seat, customer)`: true when this customer now holds the seat;
+- `release(seat, customer)`: true when this customer's hold was removed.
+
+When you're done, two requests that race for one free seat give it to exactly one customer, a
+refused request changes nothing, and a release that arrives late never frees someone else's seat.
+About two lines in total.
+
+The tests use a map that pauses one request right after it reads, while another request runs.

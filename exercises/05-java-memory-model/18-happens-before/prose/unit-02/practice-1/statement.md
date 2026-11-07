@@ -1,26 +1,11 @@
-`synchronized` gives two guarantees: **mutual exclusion** and **visibility** (an unlock
-happens-before the next lock of the **same** monitor). The page's pitfalls show how both
-are lost: locking a different object on one path, synchronizing writes but not reads, and
-locking on something that is not a `private final` monitor. It also notes that a
-`synchronized` block always releases its monitor when an exception leaves it.
+The account service records an audit event for every sensitive action. Each request thread has
+an `AuditRecorder` that collects its events into batches and puts every full batch on an outbox
+queue; a sender thread takes batches from the outbox and ships them to the archive. Since the
+last release, which cut the recorder's allocations, the archive is missing most events, holds
+some of them twice, and the sender logs `ConcurrentModificationException` every few seconds.
 
-Write the `Ledger` of an account:
+Finish `handOff()` in `src/main/java/practice/AuditRecorder.java`. When you're done, every
+event a recorder records reaches the sender exactly once, in the batch it was recorded in, no
+matter how far the recorder has got by the time the sender takes that batch. About two lines.
 
-- `deposit(long amount, Runnable whileLocked)` adds `amount` to the balance, then runs
-  `whileLocked` **while still holding the lock** (an audit hook; tests use it to hold the
-  lock open);
-- `withdraw(long amount)` takes `amount` off the balance, or throws
-  `IllegalStateException` when the balance is smaller, leaving the balance unchanged;
-- `balance()` returns the balance.
-
-Every one of them must use one and the same lock, so that no thread ever sees or changes
-the balance while another thread is inside a deposit. Keep that lock out of other code's
-reach: code outside the class that holds `synchronized (ledger)` must not hold up any of
-them.
-
-| calls | answer |
-|---|---|
-| `deposit(100)`, `withdraw(30)`, `balance()` | `70` |
-| then `withdraw(500)` | `IllegalStateException`, and `balance()` is still `70` |
-| a `balance()` from another thread while a deposit's hook runs | waits until the deposit leaves its lock |
-| a `balance()` while another thread holds `synchronized (ledger)` | answers at once |
+The tests record on one thread and take batches from the outbox on another.
