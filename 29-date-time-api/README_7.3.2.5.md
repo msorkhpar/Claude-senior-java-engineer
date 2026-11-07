@@ -1,291 +1,227 @@
 # 7.3.2.5. Zoned and Offset Date and Time
 
-## Concept Explanation
+A team calendar stores its events as `OffsetDateTime`, the form its JSON API sends. The Amsterdam
+office's weekly planning meeting was created for Thursday 26 March 2026 at 09:00. On 2 April every
+phone in the office shows it at 10:00. Nobody edited it.
 
-`ZonedDateTime` and `OffsetDateTime` are the timezone-aware temporal types in `java.time`. They build on `LocalDateTime` (each one wraps a `LocalDateTime`; there is no inheritance) by adding timezone context, making them suitable for scenarios where the exact point on the global timeline matters.
+Outputs are from Java 21.0.12 with tzdata 2026b, run with `-Duser.timezone=UTC`; every zone in
+the code is explicit, and `-Duser.timezone=Asia/Kolkata` printed the same lines.
 
-**Real-world analogy**: Imagine a global conference call. If you say "let's meet at 2:00 PM" (`LocalDateTime`), nobody knows which 2:00 PM you mean. If you say "2:00 PM Eastern Time" (`ZonedDateTime`), everyone can convert to their local time. If you say "2:00 PM UTC-5" (`OffsetDateTime`), the meaning is unambiguous but you lose the semantic connection to "Eastern Time" (which might be -4 during daylight saving).
+## An OffsetDateTime Keeps One Offset; Only a ZonedDateTime Follows the Zone's Rules
 
-- **`ZonedDateTime`**: Date + time + timezone rules (e.g., `America/New_York`). Knows about DST transitions and automatically adjusts.
-- **`OffsetDateTime`**: Date + time + fixed UTC offset (e.g., `+05:30`). Simpler, no DST awareness.
-- **`ZoneId`**: A timezone identifier (e.g., `America/New_York`, `Europe/London`). Contains the rules for DST and historical offset changes.
-- **`ZoneOffset`**: A fixed offset from UTC (e.g., `+05:30`, `-04:00`, `Z`).
-
-## Key Points to Remember
-
-1. **`ZonedDateTime` handles DST automatically** -- gap and overlap adjustments are built in.
-2. **`OffsetDateTime` is simpler** -- no DST rules, just a fixed offset.
-3. **`ZoneId.of("UTC")` vs `ZoneOffset.UTC`** -- both represent UTC, but `ZoneId` is a zone (with rules), `ZoneOffset` is a fixed offset.
-4. **`withZoneSameInstant()`** converts timezone, preserving the instant (different local time).
-5. **`withZoneSameLocal()`** changes timezone, preserving local time (different instant).
-6. **600+ timezone IDs** are available via `ZoneId.getAvailableZoneIds()`.
-7. **Prefer `ZonedDateTime` for user-facing times** and `OffsetDateTime` for API/database storage.
-8. **`equals()` checks zone too** -- use `isEqual()` or compare `toInstant()` for same-instant checks.
-
-## Relevant Java 21 Features
-
-- ZonedDateTime and OffsetDateTime have been stable since Java 8.
-- Timezone database (IANA/Olson) is updated with each JDK release to reflect geopolitical timezone changes.
-- Virtual threads commonly use `ZonedDateTime` for scheduling tasks across timezones.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using `equals()` to compare across timezones**:
-   ```java
-   // Problem: equals() checks zone, not just the instant
-   ZonedDateTime ny = ZonedDateTime.parse("2024-03-15T12:00-04:00[America/New_York]");
-   ZonedDateTime utc = ny.withZoneSameInstant(ZoneId.of("UTC"));
-   ny.equals(utc); // false!
-
-   // Fix: Use isEqual() or compare instants
-   ny.isEqual(utc); // true -- same moment in time
-   ny.toInstant().equals(utc.toInstant()); // true
-   ```
-
-2. **Ignoring DST gaps**:
-   ```java
-   // Problem: Creating a time that doesn't exist during spring forward
-   ZoneId ny = ZoneId.of("America/New_York");
-   // On March 10, 2024, 2:00 AM doesn't exist (clocks skip to 3:00 AM)
-   ZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);
-   // Silently adjusted to 3:30 AM!
-
-   // Awareness: Always check if the resulting time matches your input
-   ```
-
-3. **Confusing `OffsetDateTime` with `ZonedDateTime`**:
-   ```java
-   // Problem: OffsetDateTime doesn't track DST
-   OffsetDateTime odt = OffsetDateTime.of(2024, 1, 15, 12, 0, 0, 0, ZoneOffset.ofHours(-5));
-   // In summer, Eastern Time is -4, not -5. OffsetDateTime doesn't know this.
-
-   // Fix: Use ZonedDateTime when DST matters
-   ZonedDateTime zdt = ZonedDateTime.of(2024, 7, 15, 12, 0, 0, 0, ZoneId.of("America/New_York"));
-   // Automatically uses -4 (EDT) in summer
-   ```
-
-4. **Using three-letter timezone abbreviations**:
-   ```java
-   // Problem: "CST" is ambiguous (Central Standard Time? China Standard Time?)
-   ZoneId.of("CST"); // Throws ZoneRulesException: Unknown time-zone ID
-   // Only ZoneId.of("CST", ZoneId.SHORT_IDS) resolves it -- to America/Chicago
-   // (while the legacy TimeZone.getTimeZone("CST") silently accepts it)
-
-   // Fix: Use IANA timezone IDs
-   ZoneId.of("America/Chicago");  // Central US
-   ZoneId.of("Asia/Shanghai");    // China
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use IANA timezone IDs** (e.g., `America/New_York`) instead of abbreviations.
-2. **Store timestamps as `Instant`** in databases; convert to `ZonedDateTime` for display.
-3. **Use `OffsetDateTime`** for API responses and database columns (simpler, no DST ambiguity).
-4. **Use `ZonedDateTime`** for scheduling and user-facing features where DST matters.
-5. **Cache `ZoneId.of()` results** in constants for frequently used timezones.
-
-## Edge Cases and Their Handling
-
-1. **DST gap (spring forward)**: `ZonedDateTime` adjusts the time forward past the gap.
-2. **DST overlap (fall back)**: `ZonedDateTime` uses the earlier offset by default; use `withEarlierOffsetAtOverlap()`/`withLaterOffsetAtOverlap()` to choose.
-3. **Historical timezone changes**: `ZoneId` respects historical rules (e.g., timezone changes in past decades).
-4. **Comparing dates across the date line**: Two ZonedDateTimes can show different calendar dates but represent the same instant.
-5. **`ZoneId.of("Z")`** returns `ZoneOffset.UTC`, not a ZoneId with "Z" as its name.
-
-## Interview-specific Insights
-
-Interviewers probe:
-- Understanding of DST and its impact on time calculations
-- Difference between `ZonedDateTime` and `OffsetDateTime`
-- `withZoneSameInstant()` vs `withZoneSameLocal()`
-- How to properly compare times across timezones
-- When to use each timezone-aware type
-
-## Interview Q&A Section
-
-**Q1: What is the difference between `ZonedDateTime` and `OffsetDateTime`?**
-
-```text
-A1: The key difference is DST awareness:
-
-ZonedDateTime:
-- Carries a ZoneId (e.g., "America/New_York")
-- Knows about DST rules -- automatically adjusts offset as DST changes
-- Same zone ID can have different offsets at different times of year
-- Best for: scheduling, user-facing times, calendar applications
-
-OffsetDateTime:
-- Carries a fixed ZoneOffset (e.g., "-04:00")
-- No DST awareness -- the offset never changes
-- Simpler and more predictable
-- Best for: API responses, database storage, log timestamps
-
-Conversion: ZonedDateTime -> OffsetDateTime is lossless (via toOffsetDateTime()).
-OffsetDateTime -> ZonedDateTime requires specifying which zone the offset belongs to.
-
-SQL/JDBC: OffsetDateTime maps directly to TIMESTAMP WITH TIME ZONE.
-```
+An `Instant` is seconds and nanoseconds from 1970 (unit 7.3.2.2). An `OffsetDateTime` is a local
+date-time plus an offset from UTC. A `ZonedDateTime` holds those two plus a `ZoneId`, whose rules
+give the offset for any date:
 
 ```java
-// ZonedDateTime: DST-aware
-ZoneId ny = ZoneId.of("America/New_York");
-ZonedDateTime winter = ZonedDateTime.of(2024, 1, 15, 12, 0, 0, 0, ny);
-ZonedDateTime summer = ZonedDateTime.of(2024, 7, 15, 12, 0, 0, 0, ny);
-System.out.println(winter.getOffset()); // -05:00 (EST)
-System.out.println(summer.getOffset()); // -04:00 (EDT)
-
-// OffsetDateTime: Fixed offset
-OffsetDateTime odt = OffsetDateTime.of(2024, 3, 15, 12, 0, 0, 0, ZoneOffset.ofHours(-5));
-// Always -05:00, regardless of DST
+ZoneId amsterdam = ZoneId.of("Europe/Amsterdam");
+ZonedDateTime zoned = ZonedDateTime.of(LocalDateTime.parse("2026-03-26T09:00"), amsterdam);
+OffsetDateTime offset = zoned.toOffsetDateTime();
+Instant instant = zoned.toInstant();
+System.out.println(zoned + "   " + offset + "   " + instant);
+System.out.println(zoned.plusWeeks(1));
+System.out.println(offset.plusWeeks(1));
+System.out.println(offset.plusWeeks(1).atZoneSameInstant(amsterdam));
 ```
-
-**Q2: How does java.time handle DST gaps and overlaps?**
 
 ```text
-A2: During DST transitions, two special cases occur:
-
-1. Gap (spring forward): A range of local times does not exist. For example, on 
-   March 10, 2024 in US Eastern, 2:00 AM to 2:59 AM is skipped.
-   - ZonedDateTime.of() for a time in the gap adjusts FORWARD to the post-gap time
-   - 2:30 AM becomes 3:30 AM EDT
-
-2. Overlap (fall back): A range of local times occurs twice. For example, on 
-   November 3, 2024 in US Eastern, 1:00 AM to 1:59 AM occurs twice (EDT then EST).
-   - ZonedDateTime.of() for a time in the overlap uses the EARLIER offset (pre-transition)
-   - Use withLaterOffsetAtOverlap() to select the later occurrence
-   - Use withEarlierOffsetAtOverlap() to explicitly select the earlier occurrence
-
-The API never throws an exception for DST transitions -- it makes a reasonable 
-default choice and provides methods to override it.
+2026-03-26T09:00+01:00[Europe/Amsterdam]   2026-03-26T09:00+01:00   2026-03-26T08:00:00Z
+2026-04-02T09:00+02:00[Europe/Amsterdam]
+2026-04-02T09:00+01:00
+2026-04-02T10:00+02:00[Europe/Amsterdam]
 ```
+
+Amsterdam moved its clocks to `+02:00` on 29 March. The `ZonedDateTime` added a week to the wall
+clock and asked the rules for the new offset. The `OffsetDateTime` has no rules to ask, so it kept
+`+01:00`: its 09:00 is 08:00 UTC, which an Amsterdam phone shows as 10:00. (Adding a seven-day
+`Duration` instead of a week is a different trap, unit 7.3.2.3.)
+
+An `OffsetDateTime` suits a moment already fixed, such as a log line. Calendar arithmetic belongs
+on a `ZonedDateTime`, converted to an offset for the wire at the end.
+
+## A Zone Written as an Offset Has No Rules
+
+A `ZoneOffset` is a `ZoneId`, and text without a region name produces one:
 
 ```java
-ZoneId ny = ZoneId.of("America/New_York");
-
-// Gap: March 10, 2024, 2:00 AM doesn't exist
-ZonedDateTime gap = ZonedDateTime.of(2024, 3, 10, 2, 30, 0, 0, ny);
-System.out.println(gap); // 2024-03-10T03:30-04:00[America/New_York]
-// Adjusted forward to 3:30 AM EDT
-
-// Overlap: November 3, 2024, 1:00 AM occurs twice
-ZonedDateTime overlap = ZonedDateTime.of(2024, 11, 3, 1, 30, 0, 0, ny);
-System.out.println(overlap); // 2024-11-03T01:30-04:00[America/New_York] (EDT -- earlier offset)
-
-ZonedDateTime later = overlap.withLaterOffsetAtOverlap();
-System.out.println(later); // 2024-11-03T01:30-05:00[America/New_York] (EST -- later offset)
+ZonedDateTime fromApi = ZonedDateTime.parse("2026-03-26T09:00+01:00");
+System.out.println(fromApi.getZone() + " -> " + fromApi.plusWeeks(1));
+ZonedDateTime withRegion = ZonedDateTime.parse("2026-03-26T09:00+01:00[Europe/Amsterdam]");
+System.out.println(withRegion.getZone() + " -> " + withRegion.plusWeeks(1));
 ```
-
-**Q3: What is the difference between `withZoneSameInstant()` and `withZoneSameLocal()`?**
 
 ```text
-A3: These two methods change the timezone of a ZonedDateTime in fundamentally 
-different ways:
-
-withZoneSameInstant(zone):
-- Preserves the INSTANT (same point in time)
-- Changes the local date/time to match the new zone
-- Example: 2 PM in New York = 7 PM in London (same moment)
-- Use case: "What time is it in London right now?"
-
-withZoneSameLocal(zone):
-- Preserves the LOCAL DATE/TIME (same wall clock reading)
-- Changes the instant (different point in time)
-- Example: 2 PM in New York becomes "2 PM in London" (different moment)
-- Use case: "Schedule this meeting at 2 PM London time instead"
-
-This is one of the most important distinctions in timezone programming.
++01:00 -> 2026-04-02T09:00+01:00
+Europe/Amsterdam -> 2026-04-02T09:00+02:00[Europe/Amsterdam]
 ```
+
+The first value's zone is a `ZoneOffset`, as `ZoneId.of("+01:00")` would give, so its rules are
+"`+01:00` forever" and it behaves like the `OffsetDateTime` above. Nor can an offset name the region: in March
+`+01:00` is Amsterdam, Lagos and Algiers, and only Amsterdam changes on 29 March. An API
+carrying future times sends the region id too. Abbreviations are no substitute:
+`ZoneId.of("CST")` throws `ZoneRulesException`, while `"CET"` parses as a legacy id.
+
+## withZoneSameInstant Converts a Moment; withZoneSameLocal Moves It
+
+A call is set for 15:00 on 20 March in Amsterdam, and a colleague in New York opens the invite:
 
 ```java
-ZonedDateTime nyNoon = ZonedDateTime.of(2024, 3, 15, 12, 0, 0, 0,
-        ZoneId.of("America/New_York"));
-
-// withZoneSameInstant: SAME moment, different local time
-ZonedDateTime londonSameInstant = nyNoon.withZoneSameInstant(ZoneId.of("Europe/London"));
-// 2024-03-15T16:00Z[Europe/London] -- 4 PM London = 12 PM New York
-// Same instant: nyNoon.toInstant().equals(londonSameInstant.toInstant()) == true
-
-// withZoneSameLocal: SAME local time, different moment
-ZonedDateTime londonSameLocal = nyNoon.withZoneSameLocal(ZoneId.of("Europe/London"));
-// 2024-03-15T12:00Z[Europe/London] -- 12 PM London (different moment!)
-// Different instant: nyNoon.toInstant().equals(londonSameLocal.toInstant()) == false
+ZonedDateTime call = ZonedDateTime.of(LocalDateTime.parse("2026-03-20T15:00"), amsterdam);
+ZoneId newYork = ZoneId.of("America/New_York");
+System.out.println(call.withZoneSameInstant(newYork));
+System.out.println(call.withZoneSameLocal(newYork));
 ```
-
-**Q4: How do you find the current time in multiple timezones?**
 
 ```text
-A4: Get the current Instant and convert to each desired timezone:
-
-1. Instant.now() gives you the current moment
-2. instant.atZone(ZoneId) converts to any timezone
-3. ZonedDateTime.now(ZoneId) is a shortcut for the above
-
-This pattern is correct because it ensures all conversions are based on the 
-same instant, avoiding subtle timing issues.
+2026-03-20T10:00-04:00[America/New_York]
+2026-03-20T15:00-04:00[America/New_York]
 ```
+
+`withZoneSameInstant` keeps the moment: 10:00, five hours behind
+rather than the usual six, because New York started summer time on 8 March and Amsterdam waits
+until 29 March. A hard-coded "minus six hours" is wrong for three weeks in spring and one in autumn.
+`withZoneSameLocal` keeps the wall clock, which names a moment five hours later: a colleague shown
+that invite joins after the call has ended. Use it only when the meeting itself moves.
+
+<!-- practice 1 -->
+
+## Near a Clock Change a Local Time Can Be Missing or Doubled, and ZonedDateTime Picks One Without Telling You
+
+On 29 March 2026 Amsterdam's clocks jump from 02:00 to 03:00, so 02:30 never happens. On 25 October
+they go from 03:00 back to 02:00, so 02:30 happens twice, first at `+02:00` and an hour later at
+`+01:00`. A maintenance window set for 02:30 on both Sundays:
 
 ```java
-// Get current time in multiple zones
-Instant now = Instant.now();
-
-ZonedDateTime newYork = now.atZone(ZoneId.of("America/New_York"));
-ZonedDateTime london = now.atZone(ZoneId.of("Europe/London"));
-ZonedDateTime tokyo = now.atZone(ZoneId.of("Asia/Tokyo"));
-ZonedDateTime sydney = now.atZone(ZoneId.of("Australia/Sydney"));
-
-// Or use the shortcut
-ZonedDateTime nyDirect = ZonedDateTime.now(ZoneId.of("America/New_York"));
-
-// Format for display
-DateTimeFormatter displayFmt = DateTimeFormatter.ofPattern("HH:mm z");
-System.out.println("New York: " + newYork.format(displayFmt));
-System.out.println("London:   " + london.format(displayFmt));
-System.out.println("Tokyo:    " + tokyo.format(displayFmt));
-System.out.println("Sydney:   " + sydney.format(displayFmt));
+ZonedDateTime gap = ZonedDateTime.of(LocalDateTime.parse("2026-03-29T02:30"), amsterdam);
+ZonedDateTime twice = ZonedDateTime.of(LocalDateTime.parse("2026-10-25T02:30"), amsterdam);
+System.out.println(gap);
+System.out.println(twice);
+System.out.println(twice.withLaterOffsetAtOverlap());
 ```
-
-**Q5: When should you use `ZoneId` vs `ZoneOffset`?**
 
 ```text
-A5: Use ZoneId when:
-- You need DST awareness (most user-facing scenarios)
-- You're working with named timezones ("America/New_York")
-- You're scheduling future events (DST rules may change offset)
-- You need historical accuracy (past timezone changes)
-
-Use ZoneOffset when:
-- You have a fixed offset from UTC
-- You're storing/transmitting timestamps (API, database)
-- DST is not relevant (e.g., UTC-based timestamps)
-- You need maximum simplicity and predictability
-
-ZoneOffset is a subclass of ZoneId (ZoneId is an abstract class and ZoneOffset 
-extends it). Every ZoneOffset is also a valid ZoneId, but not every ZoneId is a 
-ZoneOffset.
-
-Special note: ZoneId.of("UTC"), ZoneId.of("Z"), and ZoneOffset.UTC all 
-represent UTC, but not with the same type: ZoneId.of("Z") returns ZoneOffset.UTC 
-itself, while ZoneId.of("UTC") returns a region ID (a ZoneRegion) whose rules 
-have a fixed zero offset, so it is not equal to ZoneOffset.UTC. Use 
-ZoneOffset.UTC when you specifically need an offset value.
+2026-03-29T03:30+02:00[Europe/Amsterdam]
+2026-10-25T02:30+02:00[Europe/Amsterdam]
+2026-10-25T02:30+01:00[Europe/Amsterdam]
 ```
+
+In a gap, `ZonedDateTime` moves the time later by the gap's length, to 03:30 rather than 03:00.
+In an overlap `of` takes the earlier offset, while arithmetic keeps the current one if it stays
+valid; `withLaterOffsetAtOverlap()` picks the second 02:30. Whether that is right depends on the job: a window an operator confirmed
+for 02:30 should not quietly start at 03:30, and a backup that must follow the night's last write
+wants the second 02:30.
+
+To decide yourself, ask the rules first: `getValidOffsets` returns no offset in a gap, two in an
+overlap and one otherwise:
 
 ```java
-// ZoneId: DST-aware, named timezone
-ZoneId newYork = ZoneId.of("America/New_York"); // DST rules included
-ZonedDateTime zdt = ZonedDateTime.now(newYork);
-// Offset changes between -05:00 (winter) and -04:00 (summer)
-
-// ZoneOffset: Fixed, simple offset
-ZoneOffset utcPlus5 = ZoneOffset.ofHours(5);
-OffsetDateTime odt = OffsetDateTime.now(utcPlus5);
-// Always +05:00, no DST changes
-
-// UTC representations
-ZoneOffset utc1 = ZoneOffset.UTC;              // ZoneOffset
-ZoneId utc2 = ZoneId.of("UTC");                // Region ID "UTC" (a ZoneRegion), not equal to utc1
-ZoneId utc3 = ZoneId.of("Z");                  // Returns ZoneOffset.UTC itself (utc3 == utc1)
+ZoneRules rules = amsterdam.getRules();
+System.out.println(rules.getValidOffsets(LocalDateTime.parse("2026-03-29T02:30")) + " "
+        + rules.getValidOffsets(LocalDateTime.parse("2026-10-25T02:30")) + " "
+        + rules.getValidOffsets(LocalDateTime.parse("2026-10-25T03:30")));
 ```
+
+```text
+[] [+02:00, +01:00] [+01:00]
+```
+
+### Spot the Problem: The Weekly Maintenance Window
+
+The weekly window starts on 22 March at 02:30; the scheduler computes each start from the
+previous one:
+
+```java
+ZonedDateTime first = ZonedDateTime.of(LocalDateTime.parse("2026-03-22T02:30"), amsterdam);
+ZonedDateTime stepped = first;
+for (int week = 1; week <= 2; week++) {
+    stepped = stepped.plusWeeks(1);
+    System.out.println("week " + week + ": stepped " + stepped.toLocalDateTime()
+            + ", from first " + first.plusWeeks(week).toLocalDateTime());
+}
+```
+
+```text
+week 1: stepped 2026-03-29T03:30, from first 2026-03-29T03:30
+week 2: stepped 2026-04-05T03:30, from first 2026-04-05T02:30
+```
+
+The gap moved week 1 to 03:30, and every later start inherits it. Computing occurrence `k` from
+the first one, `first.plusWeeks(k)`, confines the shift to the week the gap falls in.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Store a Future Appointment as Local Time and Zone, and Work Out the Instant Late
+
+A clinic books a check-up for 1 July 2027 at 09:00 in Amsterdam. Saving it as an `Instant` fixes
+today's offset, `+02:00`. Rules change by law, and a JDK learns of it through a tzdata update.
+Suppose the Netherlands abolished summer time before then, modelled as a fixed `+01:00`:
+
+```java
+LocalDateTime booked = LocalDateTime.parse("2027-07-01T09:00");
+Instant saved = booked.atZone(amsterdam).toInstant();       // computed with today's rules
+ZoneRules later = ZoneRules.of(ZoneOffset.ofHours(1));      // suppose summer time is abolished
+System.out.println("saved instant " + saved + " -> " + saved.atOffset(later.getOffset(saved)));
+OffsetDateTime resolved = booked.atOffset(later.getOffset(booked));
+System.out.println("local + zone  " + resolved.toInstant() + " -> " + resolved);
+```
+
+```text
+saved instant 2027-07-01T07:00:00Z -> 2027-07-01T08:00+01:00
+local + zone  2027-07-01T08:00:00Z -> 2027-07-01T09:00+01:00
+```
+
+The saved instant now reads 08:00: the reminder and the doctor's day view both put the
+appointment an hour early. Patient and doctor agreed on "09:00 in Amsterdam", and the instant
+follows from that and the rules in force on the day. Store a future appointment as a
+`LocalDateTime` and a region id, and convert with `atZone` when a reminder is due. A past event,
+such as a payment, is an `Instant`.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **An `OffsetDateTime` keeps one offset; a `ZonedDateTime` follows the zone's rules.** Calendar
+  arithmetic on an offset is off once it crosses a clock change.
+- **A zone written as an offset has no rules.** Carry the region id.
+- **`withZoneSameInstant` converts; `withZoneSameLocal` moves the moment.** The difference between
+  two zones changes during the year.
+- **A local time near a clock change may be missing or doubled.** `ZonedDateTime` resolves both
+  silently; check `getValidOffsets` when it matters, and step from the first occurrence.
+- **A future appointment is a local time and a zone id.** An instant saved today is wrong after
+  the rules change; past events are instants.
+
+## Reference
+
+| Call | Result (Java 21, tzdata 2026b) |
+|---|---|
+| `withEarlierOffsetAtOverlap()`, `withLaterOffsetAtOverlap()` | first or second occurrence; the same object outside an overlap |
+| `ZonedDateTime.ofLocal(local, zone, preferredOffset)` | in an overlap, the preferred offset if it is one of the two |
+| `ZonedDateTime.ofStrict(local, offset, zone)` | `DateTimeException` if the local time and offset don't exist in the zone |
+| `a.equals(b)` on `ZonedDateTime` or `OffsetDateTime` | compares local date-time and offset, and the zone of a `ZonedDateTime`: the same moment in another zone or offset is `false` |
+| `a.isEqual(b)` | compares the instant only |
+| `ZoneId.of("+01:00")` | a `ZoneOffset`: one fixed offset |
+| `ZoneId.of("Z")` | `ZoneOffset.UTC` itself |
+| `ZoneId.of("UTC")` | a region id, not `equals` to `ZoneOffset.UTC` |
+| `ZoneRulesProvider.getVersions(id).lastKey()` | the tzdata version in use |
+
+## Challenges
+
+1. A booking form sends `2026-10-25T02:30` and `Europe/Amsterdam`. Which occurrence do you book,
+   and how does the user choose?
+2. A report lists past payments (instants) and future bookings (local time plus zone id) in time
+   order. Where do you convert, and with which rules?
+3. A JDK update changes the rules of a zone your customers live in. Which stored values change
+   meaning, and how do you find the bookings affected?
+
+## Design Note: Why ZonedDateTime Resolves Instead of Throwing
+
+`ZonedDateTime.of` returns a value for every valid date and time. Arithmetic such as `plusDays`
+near a transition therefore always has a result, and code tested in summer doesn't start throwing
+on the nights the clocks change. The cost is that the choice is silent: a scheduler that has to know asks
+`getValidOffsets` or uses `ofStrict`, and the rest of the code runs on a policy it may not know
+exists.
 
 ## Code Examples
 

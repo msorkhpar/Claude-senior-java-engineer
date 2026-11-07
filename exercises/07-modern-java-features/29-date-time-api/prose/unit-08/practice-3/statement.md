@@ -1,18 +1,15 @@
-An old library hands you `java.util.Calendar` objects and wants them back.
-A `Calendar` is mutable, and the library keeps using the ones it gave you.
+The courier service books pickups through a dispatch library written before Java 8. It takes the
+requested pickup as a `GregorianCalendar`, and returns the confirmed pickup as a `Calendar` in the
+depot's zone. Each depot is configured with a zone ID. Last month a depot was configured with a
+misspelled ID and its pickups were booked hours off for two weeks before anyone noticed, and the
+drivers' app sometimes shows a confirmed pickup at a time that is right on no clock at the depot.
 
-Write two methods on `LegacyCalendars`:
+`DispatchAdapter.book(...)` already calls the library. Finish the three `TODO` methods in
+`src/main/java/practice/DispatchAdapter.java`:
 
-- `toZoned(Calendar calendar)`: the same moment as a `ZonedDateTime` in the
-  calendar's **own time zone**. Most calendars are `GregorianCalendar`s, but
-  **any** `Calendar` must convert, such as the Japanese imperial calendar.
-- `plusOneDay(Calendar calendar)`: a new `Calendar`, one calendar day later at
-  the **same wall-clock time** in the same zone. The caller's calendar is
-  **never changed**.
+- `depotZone(configuredId)`: the depot's zone for the library, refusing an ID that names no zone;
+- `toLibrary(pickup)`: the calendar to hand the library;
+- `fromLibrary(returned)`: the confirmed pickup, as the moment the calendar holds in its own zone.
 
-| calendar (zone, moment) | toZoned | plusOneDay |
-|---|---|---|
-| UTC, `2024-03-15T10:00:00Z` | `2024-03-15T10:00` at that moment | `2024-03-16T10:00:00Z` |
-| `America/New_York`, `2024-03-15T14:00:00Z` | `2024-03-15T10:00-04:00[America/New_York]` | |
-| Japanese, `Asia/Tokyo`, `2024-03-15T10:00:00Z` | `2024-03-15T19:00+09:00[Asia/Tokyo]` | |
-| `America/New_York`, `2024-03-09T17:00:00Z` (noon) | | `2024-03-10T16:00:00Z` (noon again) |
+The servers' default zone must make no difference; the tests use depots in several zones and
+never change it. About three lines in total.

@@ -1,24 +1,12 @@
-A batch scheduler reads each job's start as a local date and time in a zone.
-Twice a year that local time may be special:
+A chain of gyms publishes its weekly classes through a public API, which sends each session as an
+ISO-8601 date-time with an offset, such as `2026-06-03T18:00+10:00`. A class is set up with its
+first session, a `ZonedDateTime` in the gym's own zone, and meets every week at the same time on
+that gym's clocks.
 
-- In the spring **gap** the clocks skip an hour: in `America/New_York`,
-  2024-03-10 goes from 01:59 straight to 03:00, so 02:30 never happens.
-- In the autumn **overlap** they repeat one: on 2024-11-03, 01:00 to 01:59
-  happens first at `-04:00`, then again at `-05:00`.
+Members complain twice a year that the app shows classes an hour off, and the early-morning
+classes of one gym stayed an hour late for the rest of the season after one night in March.
 
-Write `WallClock.at(LocalDateTime local, ZoneId zone)`, the job's start as a
-`ZonedDateTime`, under the scheduler's rules:
-
-- a time the clocks skip is **refused** with `IllegalArgumentException`, so the
-  operator picks a real time; it is not quietly moved;
-- a time the clocks repeat is taken at its **second** occurrence, after the
-  clocks went back.
-
-| local | zone | answer |
-|---|---|---|
-| `2024-03-15T02:30` | `America/New_York` | `2024-03-15T02:30-04:00[America/New_York]` |
-| `2024-03-10T02:30` | `America/New_York` | `IllegalArgumentException` |
-| `2024-11-03T01:30` | `America/New_York` | `2024-11-03T01:30-05:00[America/New_York]` |
-| `2024-03-31T01:30` | `Europe/London` | `IllegalArgumentException` |
-| `2024-10-06T02:15` | `Australia/Lord_Howe` (a 30-minute gap) | `IllegalArgumentException` |
-| `2024-10-27T01:30` | `Europe/London` | `2024-10-27T01:30Z[Europe/London]` |
+Finish `sessions` in `src/main/java/practice/WeeklyFeed.java`: the first `count` sessions,
+starting with the first one. When a session's time doesn't exist that week because the clocks
+skip it, the session is held at the time the zone moves it to, and the weeks after it are not
+affected. About five lines in total.

@@ -1,22 +1,22 @@
-An events feed gives each event's local time as text, but not always in full:
-sometimes with seconds, sometimes without, and for all-day events as a date
-alone.
+A carrier's nightly CSV export has a ship-date column, and the shop prints a line from it on each
+customer's receipt. A few cells from last night's file:
 
-Write `EventTimes.parse(String text)`, returning a `LocalDateTime`:
+```text
+14-Nov-2031
+02-MAR-2032
+28-Feb-2032
+```
 
-- `2024-03-15T10:30:45` is that date and time;
-- `2024-03-15T10:30` has **no seconds**: they are zero;
-- `2024-03-15` has **no time at all**: it means the start of that day, `00:00`.
+The carrier's software writes the month in English, three letters, sometimes in capitals. The
+receipt spells the date out in English, like `Shipped Wednesday 3 December 2031`.
 
-**Any other text throws** `DateTimeParseException`: a fraction of a second, seconds
-without a time, or a date or time that does not exist.
+The shop's servers run in several countries, and their container images don't agree on a default
+locale. One was set up with a German default last month.
 
-| text | answer |
-|---|---|
-| `2024-03-15T10:30:45` | `2024-03-15T10:30:45` |
-| `2024-03-15T10:30` | `2024-03-15T10:30` |
-| `2024-03-15` | `2024-03-15T00:00` |
-| `2024-03-15 10:30` | `DateTimeParseException` |
-| `2024-03-15T10:30:45.5` | `DateTimeParseException` |
-| `2024-03-15:45` | `DateTimeParseException` |
-| `2024-02-30` | `DateTimeParseException` |
+Finish the two `TODO`s in `src/main/java/practice/ShipDates.java`:
+
+- `shipped(...)`: the date in one cell;
+- `receiptDate(...)`: the date as the receipt spells it out.
+
+Every server must read every cell the carrier writes and print the same receipt. About eight lines
+in total.

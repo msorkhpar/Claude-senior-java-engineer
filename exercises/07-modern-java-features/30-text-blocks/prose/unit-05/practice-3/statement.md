@@ -1,29 +1,10 @@
-HTML templates are one of the page's main use cases, and its security answer
-shows the catch: `formatted()` puts text in as it is, so `<script>` from a
-user becomes a real script tag. Its safe version escapes the input first.
+The changelog page publishes a feed of release notes, one XML `<entry>` per release, built from a
+text block in `FeedEntry`. Release managers type the titles and their own names. Since the note
+"Fixes for Q&A and R&D" went out, feed readers show an error instead of the feed, and a title that
+mentioned an HTML tag came out as something else.
 
-Write `Html.card(String title, String body)`. It returns these four lines
-joined by `\n`, with no newline after the last:
+Finish the `TODO` in `src/main/java/practice/FeedEntry.java`: `escape(text)` returns the text so
+that an XML parser reads it back exactly as typed, inside an element and inside an attribute value
+written in double quotes.
 
-```text
-<div class="card">
-    <h1><title></h1>
-    <p><body></p>
-</div>
-```
-
-Both values are escaped before they go in: `&` becomes `&amp;`, `<` becomes
-`&lt;`, `>` becomes `&gt;` and `"` becomes `&quot;`. Escape `&` **first**, or
-the `&` of an escape made earlier would be escaped again. Every `&` is escaped, even one that already
-starts something like `&lt;`: the input is text, not HTML. A single quote is
-left as it is.
-
-| title, body | answer |
-|---|---|
-| `Welcome`, `Hello!` | `<div class="card">` / `    <h1>Welcome</h1>` / `    <p>Hello!</p>` / `</div>` |
-| `<b>News</b>`, `ok` | the title line is `    <h1>&lt;b&gt;News&lt;/b&gt;</h1>` |
-| `Hi`, `Tom & Jerry <3` | the body line is `    <p>Tom &amp; Jerry &lt;3</p>` |
-| `Hi`, `&lt;` | the body line is `    <p>&amp;lt;</p>` |
-| `Hi`, `Say "hi"` | the body line is `    <p>Say &quot;hi&quot;</p>` |
-
-(`/` separates the lines here.)
+About four lines. The tests parse every entry with the JDK's own XML parser.

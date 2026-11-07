@@ -18,225 +18,277 @@
       "text": "7.3.3. Interoperability with Legacy Date and Calendar Classes"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "A payments service uses `java.time` everywhere in its own code. It still writes every payment to an audit library that stores `java.util.Date`, and to an old JDBC layer of `java.sql.Timestamp` columns. The batch host moved from a data centre in Amsterdam to a container in New York. Since then the nightly reconciliation flags every payment as changed, and payments made late in the UTC evening land on another day in the settlement report. Nobody changed the code."
     },
     {
       "type": "para",
-      "text": "While `java.time` is the standard date/time API since Java 8, real-world applications frequently need to interact with legacy code, libraries, and frameworks that use `java.util.Date`, `java.util.Calendar`, `java.sql.Date`, `java.sql.Timestamp`, and `java.sql.Time`. Java provides built-in bridge methods on the legacy classes to enable seamless conversion between old and new APIs."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of this as a currency exchange office at an international airport. Your modern country uses euros (`java.time`), but some shops still only accept dollars (`java.util.Date`). The exchange office provides conversion in both directions -- you exchange at the boundary and use your preferred currency internally."
-    },
-    {
-      "type": "para",
-      "text": "The key principle is: **convert at the boundary**. Use `java.time` throughout your application logic and only convert to/from legacy types at the edges where external APIs require it (JDBC drivers, old libraries, serialization formats)."
+      "text": "Outputs are from Java 21.0.12.1 with tzdata 2026b, run with `-Duser.language=en -Duser.country=US`, once under `-Duser.timezone=Europe/Amsterdam` and once under `America/New_York`. Where the two differ, the page shows both."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Date and Instant Name the Same Moment, but a Date Keeps Only Milliseconds"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**`Date.toInstant()` and `Date.from(Instant)`** -- primary bridge between `Date` and `java.time`.",
-        "**`Calendar.toInstant()`** -- converts any Calendar to an Instant.",
-        "**`GregorianCalendar.toZonedDateTime()` and `GregorianCalendar.from(ZonedDateTime)`** -- direct Calendar-ZonedDateTime bridge.",
-        "**`TimeZone.toZoneId()` and `TimeZone.getTimeZone(ZoneId)`** -- timezone conversion.",
-        "**`java.sql.Date.toLocalDate()` and `java.sql.Date.valueOf(LocalDate)`** -- SQL date bridge.",
-        "**`Timestamp.toLocalDateTime()` and `Timestamp.valueOf(LocalDateTime)`** -- SQL timestamp bridge.",
-        "**`Timestamp.toInstant()` and `Timestamp.from(Instant)`** -- SQL timestamp to Instant.",
-        "**Converting `Date` to `LocalDate` or `LocalDateTime` requires a timezone** because `Date` is UTC-based."
+      "type": "para",
+      "text": "`Date.from(instant)` and `date.toInstant()` need no zone, because both types count from 1970-01-01T00:00Z. They don't count in the same unit:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Instant event = Instant.parse(\"2026-05-04T09:15:30.123456789Z\");\nInstant viaDate = Date.from(event).toInstant();\nInstant viaTimestamp = Timestamp.from(event).toInstant();\nSystem.out.println(viaDate + \"       equals: \" + viaDate.equals(event));\nSystem.out.println(viaTimestamp + \" equals: \" + viaTimestamp.equals(event));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "2026-05-04T09:15:30.123Z       equals: false\n2026-05-04T09:15:30.123456789Z equals: true"
+    },
+    {
+      "type": "para",
+      "text": "A `Date` holds milliseconds, so `Date.from` drops the rest; `Timestamp` keeps a separate nanosecond field. `Instant.now()` on Linux fills digits below the millisecond (unit 7.3.2.2), so almost every payment comes back from the audit library as a different `Instant`, and `equals` reports a change."
+    },
+    {
+      "type": "para",
+      "text": "Compare at the precision of the narrower side: `date.getTime() == instant.toEpochMilli()`, or `instant.truncatedTo(ChronoUnit.MILLIS)` before `equals`. Both truncate, like `Date.from`; rounding would turn .123987 into .124 and report a change again."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Timestamp and java.sql.Date Turn Local Values into Moments in the JVM's Default Zone"
+    },
+    {
+      "type": "para",
+      "text": "`Timestamp` and `java.sql.Date` are moments too, but they also convert to and from local values, with no zone argument. The same code under `Europe/Amsterdam`, then `America/New_York`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Instant paid = Instant.parse(\"2026-05-04T22:30:00Z\");\nLocalDateTime wall = LocalDateTime.parse(\"2026-05-04T22:30\");\nLocalDate day = LocalDate.parse(\"2026-05-04\");\nSystem.out.println(\"Timestamp.from(paid).toLocalDateTime(): \" + Timestamp.from(paid).toLocalDateTime());\nSystem.out.println(\"Timestamp.valueOf(wall).toInstant():    \" + Timestamp.valueOf(wall).toInstant());\nSystem.out.println(\"java.sql.Date.valueOf(day).getTime():   \"\n        + Instant.ofEpochMilli(java.sql.Date.valueOf(day).getTime()));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Timestamp.from(paid).toLocalDateTime(): 2026-05-05T00:30\nTimestamp.valueOf(wall).toInstant():    2026-05-04T20:30:00Z\njava.sql.Date.valueOf(day).getTime():   2026-05-03T22:00:00Z"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Timestamp.from(paid).toLocalDateTime(): 2026-05-04T18:30\nTimestamp.valueOf(wall).toInstant():    2026-05-05T02:30:00Z\njava.sql.Date.valueOf(day).getTime():   2026-05-04T04:00:00Z"
+    },
+    {
+      "type": "para",
+      "text": "The javadoc of `valueOf(LocalDateTime)` and `toLocalDateTime()` says the local value is read \"in the local time zone\", the JVM's default. The settlement report used `Timestamp.from(paid).toLocalDateTime().toLocalDate()`, so this payment belonged to 5 May in Amsterdam and to 4 May in New York. A `java.sql.Date` is midnight in the default zone, so its milliseconds sent to a JVM in another zone (through a cache or a message) can read back there as the day before."
+    },
+    {
+      "type": "para",
+      "text": "Use the bridges in pairs: `from`/`toInstant` for a moment, `valueOf`/`toLocalDateTime` (and `toLocalDate`) for a wall-clock value. Mixing them shifts the value by the default zone's offset. For a wall-clock column in a known zone, do the zone step in `java.time` (`LocalDateTime.ofInstant(paid, zone)`) and hand `valueOf` only the result."
+    },
+    {
+      "type": "para",
+      "text": "A pair that matches still changes a wall-clock time the default zone skips. Under `Europe/Amsterdam`, around the 2026 clock changes:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ZoneId amsterdam = ZoneId.of(\"Europe/Amsterdam\");\nLocalDateTime gap = LocalDateTime.parse(\"2026-03-29T02:30\");      // clocks jump 02:00 -> 03:00\nLocalDateTime overlap = LocalDateTime.parse(\"2026-10-25T02:30\");  // 02:00-03:00 happens twice\nSystem.out.println(\"gap, round trip:     \" + Timestamp.valueOf(gap).toLocalDateTime());\nSystem.out.println(\"overlap, Timestamp:  \" + Timestamp.valueOf(overlap).toInstant());\nSystem.out.println(\"overlap, atZone:     \" + overlap.atZone(amsterdam).toInstant());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "gap, round trip:     2026-03-29T03:30\noverlap, Timestamp:  2026-10-25T01:30:00Z\noverlap, atZone:     2026-10-25T00:30:00Z"
+    },
+    {
+      "type": "para",
+      "text": "A booking stored at 02:30 comes back at 03:30. In the overlap, `Timestamp` takes the later offset and `java.time` the earlier one (unit 7.3.2.5), so two parts of one service store the same local time as moments an hour apart."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**JDBC 4.2 drivers.** The JDBC 4.2 specification lets `setObject` take `LocalDate`, `LocalDateTime` and `OffsetDateTime`, and `getObject(column, LocalDateTime.class)` return them, with no `Timestamp` in your code. Whether a driver goes through the default zone inside is up to the driver; this unit runs none, so test yours."
+        }
       ]
     },
     {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Build a TimeZone from a ZoneId, So a Wrong ID Fails"
+    },
+    {
+      "type": "para",
+      "text": "`TimeZone.getTimeZone(ZoneId)` and `timeZone.toZoneId()` convert between the two zone types. How you build a `TimeZone` from a configured ID decides what a typo does:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "System.out.println(TimeZone.getTimeZone(\"Europe/Amsterdm\").getID());\nTimeZone.getTimeZone(ZoneId.of(\"Europe/Amsterdm\"));             // throws; caught and printed\nSystem.out.println(TimeZone.getTimeZone(\"PST\").toZoneId() + \", \" + TimeZone.getTimeZone(\"EST\").toZoneId());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "GMT\njava.time.zone.ZoneRulesException: Unknown time-zone ID: Europe/Amsterdm\nAmerica/Los_Angeles, -05:00"
+    },
+    {
+      "type": "para",
+      "text": "`TimeZone.getTimeZone(String)` answers an unknown ID with GMT, so a service configured with a typo runs on UTC all year and nothing fails. `ZoneId.of` rejects it at startup. The old three-letter IDs convert, not always as the name suggests: `EST` becomes a fixed `-05:00` with no summer time, and `ZoneId.of(\"PST\")` throws."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Calendar Converts With Its Own Zone, Not the JVM's"
+    },
+    {
+      "type": "para",
+      "text": "A `Calendar` carries a `TimeZone`. `GregorianCalendar.from(ZonedDateTime)` sets it from the zone, and `toZonedDateTime()` reads it back. `calendar.toInstant()` keeps only the moment, so the zone you attach next decides the hour. Two runs again, Amsterdam then New York:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ZonedDateTime pickup = ZonedDateTime.of(2026, 5, 4, 9, 0, 0, 0, ZoneId.of(\"Asia/Kolkata\"));\nGregorianCalendar cal = GregorianCalendar.from(pickup);\nSystem.out.println(cal.getTimeZone().getID() + \", hour \" + cal.get(Calendar.HOUR_OF_DAY));\nSystem.out.println(\"toZonedDateTime():            \" + cal.toZonedDateTime());\nSystem.out.println(\"toInstant(), default zone:    \" + cal.toInstant().atZone(ZoneId.systemDefault()));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Asia/Kolkata, hour 9\ntoZonedDateTime():            2026-05-04T09:00+05:30[Asia/Kolkata]\ntoInstant(), default zone:    2026-05-04T05:30+02:00[Europe/Amsterdam]"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Asia/Kolkata, hour 9\ntoZonedDateTime():            2026-05-04T09:00+05:30[Asia/Kolkata]\ntoInstant(), default zone:    2026-05-03T23:30-04:00[America/New_York]"
+    },
+    {
+      "type": "para",
+      "text": "A 09:00 pickup in Kolkata shows as 05:30, or as 23:30 the day before. Only `GregorianCalendar` has `toZonedDateTime()`; for any other `Calendar`, use `cal.toInstant().atZone(cal.getTimeZone().toZoneId())`. The old way in, `new GregorianCalendar()` and then `setTime(date)`, has the same flaw: it takes the default zone."
+    },
+    {
+      "type": "para",
+      "text": "`from()` also brings ISO week rules: weeks start on Monday, and week 1 is the first with four days in the new year. A report keyed on `WEEK_OF_YEAR` changes when its calendars start coming from `from()`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "ZonedDateTime newYear = ZonedDateTime.of(2027, 1, 1, 12, 0, 0, 0, ZoneId.of(\"America/New_York\"));\nGregorianCalendar us = new GregorianCalendar(TimeZone.getTimeZone(\"America/New_York\"), Locale.US);\nus.setTimeInMillis(newYear.toInstant().toEpochMilli());\nSystem.out.println(\"WEEK_OF_YEAR, from(): \" + GregorianCalendar.from(newYear).get(Calendar.WEEK_OF_YEAR)\n        + \", Locale.US: \" + us.get(Calendar.WEEK_OF_YEAR));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "WEEK_OF_YEAR, from(): 53, Locale.US: 1"
+    },
+    {
+      "type": "para",
+      "text": "1 January 2027 is a Friday, so under ISO rules it belongs to the last week of 2026."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "All bridge methods have been available since Java 8 and are stable.",
-        "Modern JDBC drivers (JDBC 4.2+) directly support `java.time` types: `LocalDate`, `LocalTime`, `LocalDateTime`, `OffsetDateTime`.",
-        "JPA/Hibernate support for `java.time` types is mature, reducing the need for manual conversion.",
-        "Java 21 records work well for mapping database results with `java.time` fields."
+        "**A `Date` keeps milliseconds.** An `Instant` that goes through one loses the rest, so compare at millisecond precision, truncating; `Timestamp` keeps nanoseconds.",
+        "**`valueOf`, `toLocalDateTime` and `toLocalDate` use the JVM's default zone.** Use `from`/`toInstant` for moments, do any other zone step in `java.time`, and expect a DST gap to move a wall-clock time.",
+        "**`TimeZone.getTimeZone(String)` turns an unknown ID into GMT.** Build the `TimeZone` from `ZoneId.of`.",
+        "**A `Calendar` converts with its own zone**: `GregorianCalendar.from`/`toZonedDateTime`, or `toInstant()` plus `getTimeZone().toZoneId()`. `from()` brings ISO week rules."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "para",
+      "text": "**Bridges (Java 21, from runs or the javadoc):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "From ↔ to",
+        "Calls",
+        "Zone used",
+        "Note"
+      ],
+      "rows": [
         [
-          "**Forgetting timezone when converting `Date` to `LocalDate`**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Date is UTC-based, LocalDate needs a timezone context\nDate date = new Date();\n// Can't directly convert: date has no toLocalDate() method\n\n// Fix: Go through Instant and specify a timezone\nLocalDate localDate = date.toInstant()\n        .atZone(ZoneId.systemDefault())\n        .toLocalDate();"
-          }
+          "`Instant` ↔ `Date`",
+          "`Date.from(i)`, `d.toInstant()`",
+          "none",
+          "milliseconds; `Date.from` throws `IllegalArgumentException` outside `Date`'s range"
         ],
         [
-          "**Using `java.sql.Date` for time information**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: java.sql.Date deliberately zeros out time components\njava.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.now());\nsqlDate.getHours(); // Throws IllegalArgumentException -- java.sql.Date has no time part\n\n// Fix: Use Timestamp for date+time, or java.sql.Date only for dates"
-          }
+          "`Instant` ↔ `Timestamp`",
+          "`Timestamp.from(i)`, `ts.toInstant()`",
+          "none",
+          "nanoseconds"
         ],
         [
-          "**Losing nanosecond precision in conversion**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: java.util.Date has only millisecond precision\nInstant precise = Instant.ofEpochSecond(100, 123_456_789);\nDate date = Date.from(precise); // Truncated to milliseconds\nInstant back = date.toInstant(); // nano = 123_000_000 (lost precision)\n\n// Fix: Use Timestamp for nanosecond preservation\nTimestamp ts = Timestamp.from(precise); // Preserves nanoseconds\nInstant restored = ts.toInstant(); // nano = 123_456_789"
-          }
+          "`LocalDateTime` ↔ `Timestamp`",
+          "`Timestamp.valueOf(ldt)`, `ts.toLocalDateTime()`",
+          "default",
+          "a gap time moves forward; an overlap takes the later offset"
         ],
         [
-          "**System default timezone dependency**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Using ZoneId.systemDefault() makes code timezone-dependent\nLocalDate ld = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();\n// Result changes if JVM timezone changes!\n\n// Fix: Use an explicit timezone\nLocalDate ld = date.toInstant().atZone(ZoneId.of(\"UTC\")).toLocalDate();"
-          }
+          "`LocalDate` ↔ `java.sql.Date`",
+          "`java.sql.Date.valueOf(ld)`, `d.toLocalDate()`",
+          "default",
+          "midnight in the default zone"
+        ],
+        [
+          "`ZonedDateTime` ↔ `GregorianCalendar`",
+          "`GregorianCalendar.from(z)`, `gc.toZonedDateTime()`",
+          "the calendar's",
+          "`from` gives a pure Gregorian calendar with ISO weeks"
+        ],
+        [
+          "`ZoneId` ↔ `TimeZone`",
+          "`TimeZone.getTimeZone(zoneId)`, `tz.toZoneId()`",
+          "—",
+          "`getTimeZone(String)` gives GMT for an unknown ID"
         ]
       ]
     },
     {
+      "type": "para",
+      "text": "On Java 21.0.12.1, `Timestamp.from(Instant.MAX)` returned a wrong date, not the `IllegalArgumentException` its javadoc promises."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Convert at the boundary** -- use `java.time` internally and convert only when interfacing with legacy APIs.",
-        "**Always specify an explicit timezone** when converting between `Date`/`Instant` and `LocalDate`/`LocalDateTime`.",
-        "**Use `Timestamp` (not `Date`) when nanosecond precision matters**.",
-        "**Prefer modern JDBC drivers** that support `java.time` types directly to avoid conversion altogether.",
-        "**Create utility methods** for common conversions to ensure consistency across your codebase."
+        "The audit library returns `Date`s that someone else's code already rounded. How do you reconcile against them, and what false matches can you get?",
+        "A `TIMESTAMP` column was written for years by servers in two zones. How do you find which rows were written where, and what do you migrate the column to?",
+        "Which calls that use the JVM's default zone can a static check find, and which only a test run under two `-Duser.timezone` values?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null handling**: Bridge methods (`Date.from()`, `Timestamp.from()`) throw `NullPointerException` for null arguments.",
-        "**Date boundary**: A `Date` at 23:59 UTC might be a different `LocalDate` in UTC+1 vs UTC-1.",
-        "**Pre-epoch dates**: Negative epoch milliseconds in `Date` convert to `Instant` values before 1970-01-01.",
-        "**`java.sql.Date` vs `java.util.Date`**: `java.sql.Date` extends `java.util.Date` but throws `IllegalArgumentException` from time-related methods.",
-        "**Non-Gregorian calendars**: Only `GregorianCalendar` has `toZonedDateTime()`; other Calendar implementations need to go through `toInstant()`."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Bridges Live on the Legacy Classes"
     },
     {
       "type": "para",
-      "text": "Interviewers test:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Knowledge of conversion paths between legacy and modern APIs",
-        "Awareness of precision loss in conversions",
-        "Understanding of timezone requirements when converting",
-        "Best practices for migration strategies",
-        "JDBC/JPA integration with `java.time`"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: How do you convert between `java.util.Date` and `java.time` types?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The primary conversion path goes through Instant:\n\nDate -> Instant: date.toInstant()\nInstant -> Date: Date.from(instant)\n\nFor LocalDate/LocalDateTime, you need a timezone:\nDate -> LocalDate: date.toInstant().atZone(zoneId).toLocalDate()\nDate -> LocalDateTime: date.toInstant().atZone(zoneId).toLocalDateTime()\nLocalDate -> Date: Date.from(localDate.atStartOfDay(zoneId).toInstant())\nLocalDateTime -> Date: Date.from(localDateTime.atZone(zoneId).toInstant())\n\nThe timezone requirement exists because Date stores UTC milliseconds, while \nLocalDate/LocalDateTime have no timezone. You must specify which timezone to \nuse for the interpretation."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Date to Instant (direct)\nDate date = new Date();\nInstant instant = date.toInstant();\n\n// Instant to Date (direct)\nDate backToDate = Date.from(instant);\n\n// Date to LocalDate (requires timezone)\nLocalDate localDate = date.toInstant()\n        .atZone(ZoneId.of(\"America/New_York\"))\n        .toLocalDate();\n\n// LocalDate to Date (requires timezone)\nDate fromLocalDate = Date.from(\n        localDate.atStartOfDay(ZoneId.of(\"America/New_York\")).toInstant());\n\n// Date to LocalDateTime (requires timezone)\nLocalDateTime localDateTime = date.toInstant()\n        .atZone(ZoneId.of(\"UTC\"))\n        .toLocalDateTime();"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How do you convert between `Calendar` and `ZonedDateTime`?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: For GregorianCalendar (the most common Calendar implementation):\n\nGregorianCalendar -> ZonedDateTime: gc.toZonedDateTime()\nZonedDateTime -> GregorianCalendar: GregorianCalendar.from(zonedDateTime)\n\nFor other Calendar implementations (rare):\nCalendar -> Instant: calendar.toInstant()\nThen: instant.atZone(calendar.getTimeZone().toZoneId())\n\nThe GregorianCalendar bridge is the most complete because ZonedDateTime uses \nthe same calendar system (ISO/Gregorian)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// GregorianCalendar to ZonedDateTime\nGregorianCalendar gc = new GregorianCalendar(2024, Calendar.MARCH, 15);\ngc.setTimeZone(TimeZone.getTimeZone(\"America/New_York\"));\nZonedDateTime zdt = gc.toZonedDateTime();\n// 2024-03-15T00:00-04:00[America/New_York]\n\n// ZonedDateTime to GregorianCalendar\nZonedDateTime zdt2 = ZonedDateTime.of(2024, 6, 15, 14, 30, 0, 0,\n        ZoneId.of(\"Europe/London\"));\nGregorianCalendar gc2 = GregorianCalendar.from(zdt2);\n\n// Generic Calendar to java.time (through Instant)\nCalendar cal = Calendar.getInstance();\nInstant instant = cal.toInstant();\nZoneId zone = cal.getTimeZone().toZoneId();\nZonedDateTime fromCal = instant.atZone(zone);"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How does JDBC integration work with `java.time` types?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Modern JDBC (4.2+, since Java 8) supports java.time types directly:\n\nWriting:\n- preparedStatement.setObject(1, localDate)       // DATE column\n- preparedStatement.setObject(1, localTime)        // TIME column\n- preparedStatement.setObject(1, localDateTime)    // TIMESTAMP column\n- preparedStatement.setObject(1, offsetDateTime)   // TIMESTAMP WITH TIME ZONE\n\nReading:\n- resultSet.getObject(1, LocalDate.class)\n- resultSet.getObject(1, LocalTime.class)\n- resultSet.getObject(1, LocalDateTime.class)\n- resultSet.getObject(1, OffsetDateTime.class)\n\nIf using older drivers, convert at the boundary:\n- java.sql.Date.valueOf(localDate) / sqlDate.toLocalDate()\n- Timestamp.valueOf(localDateTime) / timestamp.toLocalDateTime()\n\nFor JPA/Hibernate: java.time types are supported natively since Hibernate 5+ \nand JPA 2.2+. No converter needed."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Modern JDBC: direct java.time support\ntry (PreparedStatement ps = conn.prepareStatement(\n        \"INSERT INTO events (name, event_date, event_time) VALUES (?, ?, ?)\")) {\n    ps.setString(1, \"Meeting\");\n    ps.setObject(2, LocalDate.of(2024, 3, 15));           // Direct\n    ps.setObject(3, LocalDateTime.of(2024, 3, 15, 14, 30)); // Direct\n    ps.executeUpdate();\n}\n\n// Reading\ntry (ResultSet rs = stmt.executeQuery(\"SELECT * FROM events\")) {\n    LocalDate date = rs.getObject(\"event_date\", LocalDate.class);\n    LocalDateTime dateTime = rs.getObject(\"event_time\", LocalDateTime.class);\n}\n\n// Legacy JDBC: manual conversion\njava.sql.Date sqlDate = java.sql.Date.valueOf(LocalDate.of(2024, 3, 15));\nTimestamp sqlTs = Timestamp.valueOf(LocalDateTime.of(2024, 3, 15, 14, 30));"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What precision is lost when converting between legacy and modern types?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Precision differs across types:\n\njava.util.Date: millisecond precision (10^-3 seconds)\njava.sql.Timestamp: nanosecond precision (10^-9 seconds)\njava.time.Instant: nanosecond precision (10^-9 seconds)\n\nConversions and precision loss:\n- Instant -> Date -> Instant: loses sub-millisecond precision\n- Instant -> Timestamp -> Instant: preserves nanosecond precision\n- LocalDateTime -> Timestamp -> LocalDateTime: preserves nanoseconds\n- LocalDate -> java.sql.Date -> LocalDate: no precision issue (date-only)\n\nBest practice: Use Timestamp (not Date) as the bridge type when nanosecond \nprecision matters."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Nanosecond precision test\nInstant precise = Instant.ofEpochSecond(1710523800, 123_456_789);\n\n// Through Date: LOSES nanosecond precision\nDate date = Date.from(precise);\nInstant fromDate = date.toInstant();\nSystem.out.println(fromDate.getNano()); // 123_000_000 (lost 456_789 nanos)\n\n// Through Timestamp: PRESERVES nanosecond precision\nTimestamp ts = Timestamp.from(precise);\nInstant fromTs = ts.toInstant();\nSystem.out.println(fromTs.getNano()); // 123_456_789 (fully preserved)"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the recommended migration strategy from legacy Date to java.time?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: A phased migration approach works best:\n\nPhase 1 - Boundary conversion:\n- Add conversion methods at API boundaries\n- Keep internal logic using java.time\n- Legacy types only at integration points (JDBC, old libraries)\n\nPhase 2 - Internal migration:\n- Replace Date/Calendar fields with java.time types\n- Update method signatures to accept/return java.time types\n- Keep legacy-compatible overloads for backward compatibility\n\nPhase 3 - API migration:\n- Update public APIs to use java.time types\n- Deprecate legacy-type methods\n- Update database column types if applicable\n\nPhase 4 - Cleanup:\n- Remove deprecated legacy-type methods\n- Remove conversion utilities no longer needed\n\nKey principles:\n1. Never mix legacy and modern types in the same method\n2. Convert as early as possible (at the boundary)\n3. Use java.time types for all new code\n4. Test timezone behavior explicitly during migration"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Phase 1: Boundary conversion pattern\npublic class EventService {\n    // Modern internal representation\n    private final Instant createdAt;\n\n    // Legacy-compatible getter (for old callers)\n    @Deprecated\n    public Date getCreatedAtLegacy() {\n        return Date.from(createdAt);\n    }\n\n    // Modern getter\n    public Instant getCreatedAt() {\n        return createdAt;\n    }\n\n    // Legacy-compatible factory (for old callers)\n    @Deprecated\n    public static EventService fromDate(Date date) {\n        return new EventService(date.toInstant());\n    }\n\n    // Modern factory\n    public static EventService create() {\n        return new EventService(Instant.now());\n    }\n\n    private EventService(Instant createdAt) {\n        this.createdAt = createdAt;\n    }\n}"
+      "text": "Java 8 put every conversion on the old classes (`Date.from`, `Timestamp.valueOf`, `GregorianCalendar.from`, `TimeZone.toZoneId`), and no public `java.time` type mentions `Date`, `Calendar`, `TimeZone` or `java.sql`. The new API stays free of the old one, and the legacy types can go without touching `java.time`. The cost is that each bridge keeps its old class's rules, so convert once, where the legacy API is called, with the zone as an argument."
     },
     {
       "type": "heading",
@@ -257,16 +309,16 @@
   "attachments": [],
   "counts": {
     "headings": 10,
-    "paras": 9,
-    "code": 10,
-    "tables": 0,
-    "lists": 7,
+    "paras": 19,
+    "code": 14,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "7e53b384d95e0f66a2f3e3fa15b85274d5017fe2727a112d97e024c55a4d17b9"
+  "content_sha256": "c27b91ad7899cda20e45b6fe9e0fe4d717b7ebfdc9667f0c2719198d7154e6e9"
 }

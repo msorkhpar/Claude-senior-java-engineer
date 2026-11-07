@@ -1,509 +1,318 @@
 # 7.4.2. Syntax and Usage of Text Blocks
 
-## Concept Explanation
+A contract test compares the order service's JSON with a fixture written as a text block, and it
+fails. The failure message prints both values, and they match line for line. The serializer returned
+34 characters and the fixture holds 35. The extra one is a newline, and it comes from where the
+fixture's closing `"""` sits.
 
-A text block is a multi-line string literal that was introduced as a standard feature in Java 15 (JEP 378). It avoids
-the need for most escape sequences, automatically formats the string in a predictable way, and gives the developer
-control over the format of the string.
+A text block is a string literal written over several lines, with stricter delimiter rules than a
+quote, and each rule decides something about the value. What plain literals cost for
+multi-line text is unit 7.4.1; literals, `equals` and interning in general are units 1.4.x.
 
-**Real-world analogy**: Think of traditional strings as writing on a single-line label maker versus text blocks as
-writing on a full sheet of paper. With the label maker, you need special codes for every line break and special
-character. With the paper, you simply write naturally, and the formatting is preserved as-is.
+## The Opening Delimiter Ends Its Line, So Even One Line of Text Takes Two
 
-The syntax of a text block is:
+Two attempts at a short text block, and javac 21's errors:
 
 ```java
-String block = """
-        content goes here
-        across multiple lines
+class Opening {
+    String a = """Hello""";
+}
+```
+
+```java
+class Comment {
+    String b = """   // the greeting
+            Hello""";
+}
+```
+
+```text
+bad/Opening.java:2: error: illegal text block open delimiter sequence, missing line terminator
+    String a = """Hello""";
+                  ^
+bad/Opening.java:2: error: illegal text block open delimiter sequence, missing line terminator
+    String a = """Hello""";
+                          ^
+bad/Comment.java:2: error: illegal text block open delimiter sequence, missing line terminator
+    String b = """   // the greeting
+                     ^
+bad/Comment.java:3: error: illegal text block open delimiter sequence, missing line terminator
+            Hello""";
+                    ^
+```
+
+After the opening `"""` only white space and a line terminator may follow, and a comment is not
+allowed there either. The second error in each file points at the closing quotes: javac has read
+them as another opening delimiter, so editing that end fixes nothing. For the same
+reason `"""a""" + """b"""` gives four errors, one per delimiter.
+
+So a single word takes two lines. A closing delimiter at the end of the content line gives the word
+alone, and one on the line right after the opener gives the empty string:
+
+```java
+String empty = """
+        """;
+String oneLine = """
+        Hello""";
+```
+
+```text
+empty: length 0, isEmpty true
+one line: [Hello] equals "Hello": true
+```
+
+For one line, use a plain literal.
+
+## The Closing Delimiter's Line Decides Whether the Value Ends With a Newline
+
+The fixture from the start of the unit, beside the same text closed on its last content line, and
+the length and last three bytes of each:
+
+```java
+String serialized = "{\n  \"id\": 42,\n  \"status\": \"PAID\"\n}";   // what the serializer returns
+String expected = """
+        {
+          "id": 42,
+          "status": "PAID"
+        }
+        """;
+String expectedNoNewline = """
+        {
+          "id": 42,
+          "status": "PAID"
+        }""";
+```
+
+```text
+serialized:       length 34, ends with 220a7d
+expected:         length 35, ends with 0a7d0a
+expected, closed on the last line: length 34, ends with 220a7d
+equals: false / true
+lines: 4 / 4
+```
+
+Each line break inside the text block becomes `\n`, including the one before a closing delimiter on
+its own line, which leaves a `\n` (`0a`) after the `}`. A closing delimiter on the last content line
+ends that line before any line break, and the value has none. Counting with `lines()` hides the
+difference: both hold four lines, because a final terminator ends a line without starting another.
+
+The extra byte matters wherever text is compared or hashed rather than read: an `equals`, an HMAC
+over a request body, a checksum of a generated file. A format that wants a final newline, as POSIX text files do, needs
+the closing delimiter on its own line.
+
+The closing delimiter's column matters as well: placed to the left of the content it keeps that much
+indentation in every line. Unit 7.4.3 covers how the margin is computed.
+
+<!-- practice 1 -->
+
+## A Text Block Is a Compile-Time Constant, the Same Object as the Equal Literal
+
+A text block has type `String`, and javac turns it into the same constant a quoted literal would
+be. The comparisons below go through a helper, so that javac cannot fold the `==`:
+
+```java
+static final String PAID = """
+        PAID""";
+static final String HEADER = """
+        id,status
+        """;
+static final String HEADER_V2 = """
+        id,status""" + ",amount\n";
+static final String GREETING = """
+        Hello, %s""".formatted("Ops");
+```
+
+```java
+static boolean same(Object a, Object b) { return a == b; }   // a call, so javac can't fold the ==
+```
+
+```java
+String fromNetwork = new StringBuilder("PA").append("ID").toString();
+System.out.println("fromNetwork, PAID:       " + same(fromNetwork, PAID));
+```
+
+```text
+PAID, "PAID":           true
+HEADER, "id,status\n": true
+HEADER_V2, literal:      true
+GREETING, literal:       false
+fromNetwork, PAID:       false
+fromNetwork.equals(PAID): true
+```
+
+`javap -v` shows why. `PAID`, `HEADER` and `HEADER_V2` are stored in the class file as
+`ConstantValue` strings, and the JVM interns string constants, so each is the one pooled instance of
+its characters. A text block joined with `+` to another constant is still a constant. `GREETING` is
+computed in the static initializer by a call to `String.formatted`, which returns a new object.
+
+A string from a request, a file or a `StringBuilder` is a separate object with the same characters,
+and `==` against the constant is `false`. Tests that pass literals to an `==` check never see this.
+
+Being a constant also lets a text block go where Java requires one: a `case` label, an annotation
+element, a `static final` field that other classes inline when they compile. The `formatted`
+constant can't be a label:
+
+```java
+static final String VERSION = "v2";
+static final String PING = """
+        PING %s""".formatted(VERSION);
+
+static String answer(String command) {
+    return switch (command) {
+        case PING -> "PONG";
+        default -> "?";
+    };
+}
+```
+
+```text
+bad/Labels.java:8: error: constant string expression required
+            case PING -> "PONG";
+                 ^
+```
+
+Written as `"""` … `PING""" + " " + VERSION` it compiles, and `answer("PING v2")` returns `PONG`.
+
+Indentation stripping and escape translation happen in javac, so text read at run time gets
+neither. A template read from a file keeps its source indentation, and its `\t` stays two
+characters. `String.stripIndent()` and `String.translateEscapes()` apply the compiler's two steps
+at run time (units 7.4.3 and 7.4.4):
+
+```java
+String inSource = """
+        id\tstatus
+          42\tPAID
+        """;
+String fromFile = "        id\\tstatus\n          42\\tPAID\n        ";
+System.out.println("as read:   " + fromFile.equals(inSource));
+System.out.println("processed: " + fromFile.stripIndent().translateEscapes().equals(inSource));
+```
+
+```text
+as read:   false
+processed: true
+```
+
+<!-- practice 3 -->
+
+## formatted() Is String.format With the Default Locale, and Every % Is a Specifier
+
+Text blocks have no interpolation. String templates (`STR."..."`) were a preview in Java 21 and
+were later dropped (javac 25 rejects their syntax), so a text block is filled with format
+specifiers and `formatted(...)`. Its javadoc defines it as `String.format(this, args)`, and that
+includes the locale. On a server whose default locale is German:
+
+```java
+static final String LINE = """
+        invoice %s: EUR %.2f, due %s
         """;
 ```
 
-Key syntax rules:
-1. A text block begins with three double-quote characters (`"""`), followed by optional whitespace, and a **mandatory
-   line terminator** (newline). No content is allowed on the opening delimiter line.
-2. The content starts on the next line after the opening delimiter.
-3. A text block ends with three double-quote characters (`"""`). The closing delimiter may appear on the same line as
-   content or on its own line.
-4. Text blocks produce a `String` object and can be used anywhere a `String` is expected.
-
-## Key Points to Remember
-
-1. The opening `"""` must be followed by a newline; content cannot start on the same line.
-2. The closing `"""` position determines how much incidental whitespace is removed.
-3. Text blocks are compiled to the same bytecode as equivalent traditional strings.
-4. Text blocks are interned in the string pool just like regular string literals.
-5. Text blocks support the `formatted()` instance method (Java 15+) for parameterization.
-6. All standard `String` methods work on text blocks (`length()`, `substring()`, `toUpperCase()`, etc.).
-7. Text blocks can be concatenated with `+` just like traditional strings.
-8. The type of a text block expression is `java.lang.String`.
-
-## Relevant Java 21 Features
-
-- Text blocks became standard in Java 15 and remain unchanged in Java 21.
-- The `formatted()` instance method, introduced alongside text blocks, is the idiomatic way to parameterize text blocks.
-- `String.stripIndent()` and `String.translateEscapes()` methods, added in Java 15, provide programmatic access to the
-  same algorithms the compiler uses for text blocks.
-- In Java 21, text blocks are widely used in the standard library documentation and examples.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Putting content on the opening delimiter line**:
-   ```java
-   // Compilation error! Content cannot be on the same line as opening """
-   String bad = """content""";
-   
-   // Correct: content must start on the next line
-   String good = """
-           content""";
-   ```
-
-2. **Forgetting that the closing delimiter position matters**:
-   ```java
-   // This adds 4 spaces of indentation to every line
-   String indented = """
-           Hello
-           World
-       """;
-   // Result: "    Hello\n    World\n"
-   
-   // This removes all common indentation
-   String noIndent = """
-           Hello
-           World""";
-   // Result: "Hello\nWorld"
-   ```
-
-3. **Unexpected trailing newline**:
-   ```java
-   // Closing delimiter on its own line adds trailing newline
-   String withNewline = """
-           Hello
-           """;
-   // Result: "Hello\n"
-   
-   // Closing delimiter on the last content line - no trailing newline
-   String noTrailingNewline = """
-           Hello""";
-   // Result: "Hello"
-   ```
-
-4. **Assuming text blocks don't process escape sequences**:
-   ```java
-   // Escape sequences ARE processed in text blocks
-   String block = """
-           Tab here:\tEnd
-           Newline here:\nExtra line""";
-   // \t and \n are interpreted as tab and newline characters
-   ```
-
-5. **Using `String.format()` instead of `formatted()`**:
-   ```java
-   // Works but less idiomatic
-   String old = String.format("""
-           Name: %s
-           Age: %d""", name, age);
-   
-   // Preferred: use the instance method
-   String preferred = """
-           Name: %s
-           Age: %d""".formatted(name, age);
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Align closing delimiter with the content** to remove all incidental indentation:
-   ```java
-   String clean = """
-           SELECT *
-           FROM users
-           WHERE active = true""";
-   ```
-
-2. **Use `formatted()` for parameterized text blocks**:
-   ```java
-   String query = """
-           SELECT * FROM %s WHERE %s = ?""".formatted(table, column);
-   ```
-
-3. **Place closing delimiter on its own line** when a trailing newline is desired (e.g., for file content):
-   ```java
-   String fileContent = """
-           line 1
-           line 2
-           """; // Trailing newline included
-   ```
-
-4. **Use text blocks for test assertions** to make expected values readable:
-   ```java
-   assertThat(result).isEqualTo("""
-           Expected output line 1
-           Expected output line 2""");
-   ```
-
-5. **Do not use text blocks for single-line strings**; traditional literals are cleaner.
-
-## Edge Cases and Their Handling
-
-1. **Empty text block**: `"""\n"""` produces an empty string `""`.
-2. **Text block with only whitespace lines**: The result depends on the closing delimiter position.
-3. **Text block with the closing delimiter at column 0**: No indentation is removed.
-4. **Text block used in a constant expression**: Text blocks can be used as compile-time constants.
-5. **Text block in annotation values**: Text blocks work in annotation string elements.
-6. **Concatenation of text blocks**: two text blocks can be joined with `+` (each still needs its own line
-   terminator after the opening `"""`, so `"""a""" + """b"""` does not compile); it works but is unusual; use a
-   single text block.
-
-## Interview-specific Insights
-
-Interviewers test understanding of:
-
-- The three-step compile-time processing (line ending normalization, whitespace removal, escape processing)
-- How the closing delimiter controls indentation
-- The difference between a trailing newline and no trailing newline
-- String interning behavior with text blocks
-- When to use `formatted()` vs `String.format()`
-
-Common tricky questions:
-
-- "What happens if you put content on the same line as the opening `"""`?"
-- "How do you control whether a text block ends with a newline?"
-- "Are text blocks the same type as regular strings?"
-- "Can you use a text block as a switch case label?"
-
-## Interview Q&A Section
-
-**Q1: What is the basic syntax of a text block and what are the rules for the opening and closing delimiters?**
+```java
+Locale.setDefault(Locale.GERMANY);                     // as on a server set up with de_DE
+System.out.print(LINE.formatted("INV-7", 1234.5, "2026-12-01"));
+System.out.print(String.format(Locale.ROOT, LINE, "INV-7", 1234.5, "2026-12-01"));
+```
 
 ```text
-A1: A text block is delimited by triple double-quote characters (""").
-
-Opening delimiter rules:
-- Must be three double-quote characters: """
-- May be followed by optional whitespace (spaces/tabs), but NO content
-- Must be followed by a line terminator (newline)
-- Content begins on the next line
-
-Closing delimiter rules:
-- Must be three double-quote characters: """
-- Can appear on the same line as the last line of content
-- Can appear on its own line (which adds a trailing newline to the result)
-- Its column position determines how much leading whitespace is "incidental"
-  and gets removed
-
-The content between the delimiters is processed at compile time through three steps:
-1. Line terminators are normalized to \n (LF)
-2. Incidental whitespace is removed based on the common indent
-3. Escape sequences are interpreted
-
-The result is a standard java.lang.String object.
+invoice INV-7: EUR 1234,50, due 2026-12-01
+invoice INV-7: EUR 1234.50, due 2026-12-01
 ```
+
+`formatted` has no overload that takes a `Locale`. When the text goes to a machine (a file another
+system parses, a protocol message, a log someone greps), use `String.format(Locale.ROOT, template,
+…)`. Keep `formatted` for text meant for people, where the reader's locale is what you want.
+
+The template is a format string, so every `%` in it starts a specifier. Text blocks hold CSS, SQL
+and prose, which use `%` freely (`attempt` prints the exception a call throws):
 
 ```java
-// Syntax demonstrations
-public class TextBlockSyntaxDemo {
-    // Basic text block
-    String basic = """
-            Hello, World!""";
-    // Result: "Hello, World!"
-
-    // Multi-line text block
-    String multiLine = """
-            Line 1
-            Line 2
-            Line 3""";
-    // Result: "Line 1\nLine 2\nLine 3"
-
-    // With trailing newline (closing delimiter on its own line)
-    String trailing = """
-            Hello
-            """;
-    // Result: "Hello\n"
-
-    // Compilation errors:
-    // String bad1 = """content""";    // Content on opening line
-    // String bad2 = """ content""";   // Content on opening line (after spaces)
-}
-```
-
-**Q2: How does the position of the closing delimiter affect the text block output?**
-
-```text
-A2: The closing delimiter's position is critical because it determines:
-
-1. How much leading whitespace is considered "incidental" and removed
-2. Whether the result includes a trailing newline
-
-Indentation rule:
-- The compiler calculates the minimum indentation across all non-blank content lines
-  AND the closing delimiter line
-- This minimum indentation is the "incidental" whitespace that gets stripped
-- Any indentation beyond the minimum is preserved as "essential" whitespace
-
-Trailing newline rule:
-- If the closing delimiter is on its own line: trailing newline is added
-- If the closing delimiter is on the same line as the last content: no trailing newline
-
-This gives developers precise control over the output without any runtime processing.
-```
-
-```java
-public class ClosingDelimiterPosition {
-    // Case 1: Closing delimiter aligned with content - no extra indent
-    String noIndent = """
-            Hello
-            World""";
-    // Result: "Hello\nWorld"
-
-    // Case 2: Closing delimiter left of content - content retains relative indent
-    String withIndent = """
-            Hello
-            World
+String css = """
+        .bar { width: %d%; }
         """;
-    // Result: "    Hello\n    World\n"
-    // (4 spaces preserved because closing is 4 columns left of content)
-
-    // Case 3: Closing delimiter on its own line, aligned - just adds newline
-    String trailingNewline = """
-            Hello
-            World
-            """;
-    // Result: "Hello\nWorld\n"
-
-    // Case 4: Closing delimiter at column 0
-    String maxIndent = """
-            Hello
-            World
-""";
-    // Result: "            Hello\n            World\n"
-    // (all source indentation preserved)
-}
+attempt("width: ", () -> css.formatted(80));
+String note = "Paid 50% upfront";
+attempt("note:  ", () -> ("""
+        Dear %s,
+        """ + note).formatted("Jane Doe"));
 ```
-
-**Q3: Are text blocks the same as regular `String` objects? Can they be used interchangeably?**
 
 ```text
-A3: Yes, text blocks produce exactly the same java.lang.String objects as traditional
-string literals. There is no new type or class.
-
-Key facts:
-- The type of a text block expression is String
-- Text blocks are interned in the string pool (just like traditional string literals)
-- A text block and a traditional string with identical content are == equal
-  (when both are compile-time constants)
-- All String methods work: length(), charAt(), substring(), equals(), hashCode(), etc.
-- Text blocks can be used anywhere a String is expected: variable assignment,
-  method arguments, return values, switch cases, annotation values, etc.
-- Text blocks can be concatenated with + and other strings
-- Text blocks are compile-time constant expressions when they don't use formatted()
-
-The only difference is in source code representation, not in the compiled result.
+width: java.util.UnknownFormatConversionException: Conversion = ';'
+note:  java.util.UnknownFormatConversionException: Conversion = 'u'
 ```
 
-```java
-public class TextBlockEquality {
-    public static void main(String[] args) {
-        String traditional = "Hello\nWorld";
-        String textBlock = """
-                Hello
-                World""";
-
-        // Content equality
-        System.out.println(traditional.equals(textBlock)); // true
-
-        // Reference equality (both are interned constants)
-        System.out.println(traditional == textBlock); // true
-
-        // All String methods work
-        System.out.println(textBlock.length());        // 11
-        System.out.println(textBlock.contains("Hello")); // true
-        System.out.println(textBlock.toUpperCase());   // "HELLO\nWORLD"
-        System.out.println(textBlock.split("\n").length); // 2
-
-        // Text block in switch expression
-        String greeting = """
-                Hi""";
-        switch (greeting) {
-            case "Hi" -> System.out.println("Matched!"); // Works
-            default -> System.out.println("No match");
-        }
-    }
-}
-```
-
-**Q4: How does the `formatted()` method work with text blocks?**
+Write a literal percent sign as `%%`, and never put data into the template. The second example
+appended a note to the template and failed on `% u`. Passed to `%s`, the note is copied unchanged:
 
 ```text
-A4: The formatted() instance method was added to String in Java 15, specifically to
-complement text blocks. It is equivalent to String.format() but called on the string
-instance itself.
-
-Syntax: textBlock.formatted(args...)
-
-How it works:
-- It uses the same format specifiers as String.format() (%s, %d, %f, %n, etc.)
-- It returns a new String with the format specifiers replaced by the arguments
-- It does NOT modify the original string (strings are immutable)
-
-Advantages over String.format():
-- More natural reading order: the template comes first, then the arguments
-- Chains nicely with text blocks without wrapping in String.format()
-- Reads left-to-right: template.formatted(values)
-
-The formatted() method is the idiomatic way to parameterize text blocks in modern Java.
+Dear Jane Doe,
+Paid 50% upfront
 ```
 
-```java
-public class FormattedMethod {
-    // Using formatted() with text blocks
-    String createUser(String name, int age, String email) {
-        return """
-                {
-                    "name": "%s",
-                    "age": %d,
-                    "email": "%s"
-                }""".formatted(name, age, email);
-    }
+SQL built this way is also open to injection; unit 7.4.5 uses bind parameters instead.
 
-    // Compared to String.format() - less readable
-    String createUserOldStyle(String name, int age, String email) {
-        return String.format("""
-                {
-                    "name": "%s",
-                    "age": %d,
-                    "email": "%s"
-                }""", name, age, email);
-    }
+<!-- practice 2 -->
 
-    // Chaining with other String methods
-    String createAndUpperCase(String name) {
-        return """
-                Hello, %s!""".formatted(name).toUpperCase();
-        // Result: "HELLO, ALICE!" (if name is "Alice")
-    }
+## Summary
 
-    // Multiple parameters
-    String sqlInsert(String table, String col1, String col2, Object val1, Object val2) {
-        return """
-                INSERT INTO %s (%s, %s)
-                VALUES ('%s', '%s')""".formatted(table, col1, col2, val1, val2);
-    }
-}
-```
+- **The opening `"""` must end its line.** A comment after it doesn't compile, a one-line text block
+  takes two source lines, and a closing delimiter on the next line gives `""`.
+- **The closing delimiter's line decides the final newline.** On its own line the value ends with
+  `\n`; on the last content line it doesn't. `lines()` can't tell them apart; `equals` and a hash can.
+- **A text block is a compile-time constant `String`.** It is `==` to the equal literal and can be a
+  case label, but a string built at run time is a different object, and `formatted(...)` makes a
+  run-time value.
+- **`formatted` is `String.format` with the default locale.** Use `String.format(Locale.ROOT, …)`
+  for machine-read text, write `%%` for a percent sign, and pass data only as arguments.
 
-**Q5: Can text blocks be used as compile-time constant expressions?**
+## Reference
 
-```text
-A5: Yes, text blocks can be compile-time constant expressions, with the same rules
-as traditional string literals:
+**Delimiter forms (javac 21):**
 
-A text block IS a compile-time constant when:
-- It consists entirely of literal content (no formatted() call)
-- It doesn't include any non-constant concatenation
+| Source | Value |
+|---|---|
+| `"""` + line break + `"""` | `""` |
+| `"""` + line break + `Hello"""` | `"Hello"` |
+| `"""` + line break + `Hello` + line break + `"""` | `"Hello\n"` |
+| a whitespace-only content line | `"\n"` for that line, wherever the closing delimiter sits |
+| `"""Hello"""`, or a comment after the opening `"""` | compile error: missing line terminator |
 
-A text block is NOT a compile-time constant when:
-- formatted() is called on it (the result is computed at runtime)
-- It is concatenated with a non-constant expression
+**Constant or not:**
 
-Where compile-time constants matter:
-1. switch case labels: Only compile-time constants are allowed
-2. String interning: Compile-time constant strings are automatically interned
-3. Annotation values: Only compile-time constants are allowed
-4. Final field optimization: The compiler can inline constant values
+| Expression | Compile-time constant? |
+|---|---|
+| a text block alone | yes: interned, usable as a `case` label or annotation value |
+| text block `+` a literal or constant variable | yes |
+| text block `+` a parameter or method result | no |
+| a text block with any method call, such as `.formatted(...)` | no: computed at run time |
 
-This means text blocks can be used in switch cases and annotations without issue,
-as long as they don't use formatted() or runtime concatenation.
-```
+**Run-time counterparts (`java.lang.String`, since 15):**
 
-```java
-public class TextBlockConstants {
-    // Compile-time constant
-    static final String GREETING = """
-            Hello, World!""";
+| Method | Does |
+|---|---|
+| `formatted(Object...)` | `String.format(this, args)`, with the default `FORMAT` locale |
+| `stripIndent()` | removes incidental indentation and trailing white space, as javac does (unit 7.4.3) |
+| `translateEscapes()` | interprets escape sequences such as `\t`, `\n`, `\s` (unit 7.4.4) |
 
-    // Also a compile-time constant (concatenation of constants)
-    static final String FULL = """
-            Hello""" + ", " + """
-            World!""";
+## Challenges
 
-    // NOT a compile-time constant (uses formatted())
-    static final String DYNAMIC = """
-            Hello, %s!""".formatted("World");
+1. Your team's fixtures mix both closing styles. Would you normalise the fixtures, the comparison,
+   or the code under test, and what does each choice hide?
+2. A library exposes `public static final String SCHEMA` as a text block. You change it and ship
+   only the library jar. Which callers see the change? Try it with two classes compiled separately.
+3. Find the `formatted` calls in a codebase you know. Which produce text that a machine parses, and
+   which would change if the server's locale changed?
 
-    // Text block in switch case (must be compile-time constant)
-    void process(String input) {
-        switch (input) {
-            case """
-                 Hello""" -> System.out.println("Greeting");
-            case """
-                 Bye""" -> System.out.println("Farewell");
-            default -> System.out.println("Unknown");
-        }
-    }
+## Design Note: Why the Opening Delimiter Must End Its Line
 
-    // Text block in annotation
-    @SuppressWarnings("""
-            unchecked""")
-    void annotatedMethod() {
-    }
-}
-```
+A language could allow text right after the opening `"""`, and some do. Requiring a line break
+means every content line starts at a column javac can measure. The incidental indentation is the
+smallest of those columns. Text on the opener's line would start at a column set by the code before it, such as
+`String json = `, which has nothing to do with the content.
 
-**Q6: What are the three steps the compiler applies to process a text block?**
-
-```text
-A6: The Java compiler processes text blocks through three sequential steps at compile time:
-
-Step 1 - Line terminator normalization:
-- All line terminators (CR, LF, CRLF) are normalized to LF (\n)
-- This ensures consistent behavior across Windows, macOS, and Linux
-- The content is the same regardless of the OS where the source code was written
-
-Step 2 - Incidental whitespace removal:
-- The compiler determines the "common white space prefix" across all non-blank
-  content lines and the closing delimiter line
-- This common prefix (incidental whitespace) is removed from the beginning
-  of every line
-- Trailing whitespace on each line is also removed (unless preserved with \s)
-- This step is what makes text blocks insensitive to source code indentation
-
-Step 3 - Escape sequence interpretation:
-- All Java escape sequences are processed: \n, \t, \\, \", \', \s, \<newline>, etc.
-- This happens AFTER whitespace processing, so \s and \ (line continuation)
-  affect the final result after indentation has been resolved
-- Unicode escapes (\uXXXX) are processed even earlier (by the lexer), before
-  all three steps
-
-The result of these three steps is a plain String constant in the class file.
-```
-
-```java
-public class ThreeStepProcessing {
-    // Step 1: Line terminator normalization
-    // Source file may have \r\n (Windows) or \n (Unix) or \r (old Mac)
-    // All become \n in the result
-    String normalized = """
-            Line 1
-            Line 2""";
-    // Always "Line 1\nLine 2" regardless of source file line endings
-
-    // Step 2: Incidental whitespace removal
-    // In source, each line has 12 spaces of indentation
-    // The closing delimiter is at column 12 (same alignment)
-    // So 12 spaces are "incidental" and removed
-    String stripped = """
-            Hello
-            World""";
-    // Result: "Hello\nWorld" (no leading spaces)
-
-    // Step 3: Escape sequence interpretation
-    String escaped = """
-            Tab:\there
-            Quote: \"""";
-    // Result: "Tab:\there\nQuote: \""
-    // (After step 2 removes indentation, step 3 processes \t and \")
-}
-```
+The cost is that a text block is never a compact inline literal: it spans at least two lines, even
+when it holds one word.
 
 ## Code Examples
 

@@ -1,27 +1,15 @@
-A form lets users type a date in any of three forms:
+A hotel's booking form takes the arrival date as text, the way guests in Germany and the Netherlands
+write it: day, month and year separated by dots. Some guests pad with zeros and some don't:
 
-| form | example |
+| Typed | Arrival |
 |---|---|
-| year-month-day | `2024-03-15` |
-| month/day/year | `03/15/2024` |
-| day-month abbreviation-year, in US English | `15-Mar-2024`, `15-Sep-2024` |
+| `05.01.2032` | 5 January 2032 |
+| `5.1.2032` | 5 January 2032 |
+| `30.4.2031` | 30 April 2031 |
 
-Write `UserDates.parse(String text)`. It returns the date in an `Optional`, or
-an empty `Optional` when the text is not a date in one of these forms. It never
-throws.
+Last spring the front desk found guests booked for nights they never asked for. A guest who mistyped
+the date should get "please check the arrival date" from the form, never a booking for some other
+day.
 
-- A day the month does not have is **refused**: `2024-02-30` is not a date, and
-  must not become February 29.
-- A `null` text gives an empty result.
-- The month abbreviations are US English (`Jan`, `Feb`, `Mar`, ... `Sep`, ...) **whatever the
-  server's default locale** is.
-
-| text | answer |
-|---|---|
-| `"2024-03-15"` | `Optional[2024-03-15]` |
-| `"03/15/2024"` | `Optional[2024-03-15]` |
-| `"15-Mar-2024"` | `Optional[2024-03-15]` |
-| `"2024/03/15"` | `Optional.empty` |
-| `"2024-02-30"` | `Optional.empty` |
-| `"02/29/2024"` | `Optional[2024-02-29]` |
-| `null` | `Optional.empty` |
+Finish `arrival(...)` in `src/main/java/practice/ArrivalDates.java`: the date the guest typed, or
+an empty `Optional` for text that names no date the calendar has. About six lines in total.

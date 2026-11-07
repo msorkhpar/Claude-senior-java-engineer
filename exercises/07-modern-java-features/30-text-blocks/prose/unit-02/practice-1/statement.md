@@ -1,27 +1,12 @@
-The page shows that the **closing** `"""` decides two things about a text
-block's value: whether it ends with a newline, and how much indentation is
-removed. Here you compute a value the way the compiler does.
+The deploy tool produces two pieces of text, and both have bitten the team.
 
-Write `TextBlockValue.evaluate(String body)`. `body` is the source text that
-follows the opening `"""` and its line terminator, **up to and including the
-closing `"""`**. Content lines never contain a quote, a backslash, a tab, a
-blank line or trailing spaces. The value is found like this:
+- The **crontab** it installs on every host has a header line and three jobs. The host's installer
+  rejects a crontab unless every line, the last one included, ends with a line break, and last
+  week it rejected ours.
+- For each request to the artifact gateway, the tool signs a **string to sign**: the method, the
+  path and the date, one per line. The gateway computes its HMAC over exactly those characters,
+  with nothing after the date, and answers `403` when the two signatures differ.
 
-1. Line terminators in the source (`\n`, `\r\n` or `\r`) all count as one
-   line break, and the value uses `\n` between lines.
-2. If only spaces come before the closing `"""` on its line, the closing
-   delimiter is **on its own line**: that line is not content, and the value
-   ends with a newline after the last content line. Otherwise the text before
-   `"""` is the last content line and the value has no newline after it.
-3. The indentation removed from every content line is the smallest number of
-   leading spaces among the content lines **and the closing delimiter's line**
-   when it is on its own line.
-
-| body (`·` is a space, `⏎` a line break) | answer |
-|---|---|
-| `········Hello⏎········World"""` | `"Hello\nWorld"` |
-| `············child⏎········root"""` | `"    child\nroot"` |
-| `········Hello⏎········"""` | `"Hello\n"` |
-| `············Hello⏎········"""` | `"    Hello\n"` |
-| `····Hello⏎········"""` | `"Hello\n"` |
-| `········"""` | `""` |
+Write both methods in `src/main/java/practice/DeployTexts.java` as text blocks; the javadoc of
+`crontab()` lists its lines. The tests compare the exact characters each method returns, with
+requests of their own. About ten lines in total.

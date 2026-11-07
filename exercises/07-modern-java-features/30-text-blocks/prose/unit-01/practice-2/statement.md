@@ -1,20 +1,20 @@
-The page calls escape sequences the *mental parsing burden* of traditional
-literals: a reader has to translate `\n`, `\t`, `\"` and `\\` back into the
-characters they stand for, and a doubled backslash is easy to misread.
+The health checker probes each service over a plain socket and writes its HTTP/1.1 request by
+hand. On a developer's Windows laptop the probes pass. On the Linux monitoring host the load
+balancer answers every one of them with `400 Bad Request`, and the service behind it never sees
+the request.
 
-Write `EscapeCount.count(String body)`. `body` is what sits **between the
-quotes** of a traditional string literal, exactly as written in the source. It
-returns how many escape sequences `body` holds. An escape sequence is a
-backslash **together with the one character after it**, so `\\` is a single
-escape (standing for one backslash), and the character after an escape's
-backslash never starts another escape. Every `body` is well formed: no
-backslash is the last character.
+`HealthProbe.send` already writes the request head to the socket. Build that head in the `TODO`
+of `src/main/java/practice/HealthProbe.java`: `head(host, path, accept)` returns
 
-| body (as written in the source) | answer |
-|---|---|
-| `{\"name\": \"Alice\"}` | `4` |
-| `Line 1\n\tIndented` | `2` |
-| `C:\\Users\\admin` | `2` |
-| `\\n` | `1` |
-| `It\'s\r\b` | `3` |
-| `plain text` | `0` |
+```text
+GET <path> HTTP/1.1
+Host: <host>
+Accept: <accept>
+
+```
+
+where every line, the empty last one included, ends with a carriage return and a line feed, as
+HTTP/1.1 requires.
+
+When you're done, the probe sends the same bytes from Linux and from Windows, and a strict
+server reads three lines and an empty one. About four lines in total.

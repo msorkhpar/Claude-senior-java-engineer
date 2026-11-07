@@ -1,27 +1,17 @@
-The page's first use case is a JSON response body: a text block holds the
-template, and `formatted()` fills it. The page also warns that `formatted()`
-does no escaping of its own.
+The support tool lists a customer's orders: the agent types the customer's e-mail address, may
+pick a status, and can sort the result page by clicking a column header, which puts `?sort=total`
+or similar into the URL. A penetration test got every customer's orders back by typing a quote
+and a condition into the e-mail box, and another one appended its own SQL to the `sort`
+parameter.
 
-Write `ApiResponse.json(int status, String message, String data)`. It returns
-these five lines joined by `\n`, with no newline after the last:
+`OrderSearch.search(...)` builds a `Query`: the SQL text, which the caller passes to
+`Connection.prepareStatement`, and the values the caller binds to it, in order. The text block and
+the assembly around it are done. Finish the two `TODO`s in
+`src/main/java/practice/OrderSearch.java`:
 
-```text
-{
-    "status": <status>,
-    "message": "<message>",
-    "data": <data>
-}
-```
+- `condition(column, value, params)`: the condition for one column and the value the agent typed;
+- `orderBy(sortColumn)`: the column to sort by, `placed_at` when the URL has none. The page offers
+  the columns in `SORTABLE`; anything else is refused with `IllegalArgumentException`.
 
-- `data` is already JSON (an array, an object, `null`) and goes in as it is.
-- `message` is a JSON string: a backslash in it is written `\\` and a double
-  quote `\"`. Escape the backslashes before the quotes.
-- The values are **arguments** to `formatted()`, never part of the template,
-  so a `%` in the message is printed as it is.
-
-| status, message, data | the message line |
-|---|---|
-| `200`, `OK`, `[1, 2]` | `    "message": "OK",` |
-| `400`, `She said "Hi"`, `null` | `    "message": "She said \"Hi\"",` |
-| `500`, `C:\temp`, `null` | `    "message": "C:\\temp",` |
-| `200`, `50% done`, `{}` | `    "message": "50% done",` |
+When you're done, nothing an agent types or puts in the URL can change what the statement does.
+About six lines in total. The tests read the `Query` you return; no database runs.
