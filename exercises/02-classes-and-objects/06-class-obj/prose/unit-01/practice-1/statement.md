@@ -1,26 +1,12 @@
-A class bundles **fields** (its state), **constructors** (how that state is first
-set), **methods** (its behaviour) and, sometimes, **nested classes**. Keep the
-fields private, so every change goes through a method that can check it.
+The invoicing service runs one router for many tenants. Each tenant gets its own handler,
+`new InvoiceHandler("northwind")`, whose `paths()` builds `/northwind/invoices` and
+`/northwind/invoices/{id}` from the tenant it was given. The first version of the new `Handler`
+base class built each handler's routes as the handler was created, and every tenant's handler
+registered `/null/invoices`: every invoice request got a 404. The router asks each handler for
+its `routes()` when it registers it, and again on every configuration reload, a few times a
+minute.
 
-Write the class `Person`:
-
-- `Person(String name, int age)` creates a person.
-- `getName()` and `getAge()` return the current values.
-- `setAge(int age)` changes the age. A negative age is refused with an
-  `IllegalArgumentException` whose message is `Age cannot be negative`, and the
-  person keeps the age it had.
-- The constructor applies the same rule: a negative age is refused.
-- `introduce()` returns `Hello, my name is <name> and I am <age> years old.`
-
-Also write the static nested class `Person.Address`:
-
-- `Address(String street, String city)`;
-- `getFullAddress()` returns the street, a comma and a space, then the city.
-
-**Examples**
-
-```
-new Person("Ada", 36).introduce()      -> "Hello, my name is Ada and I am 36 years old."
-p.setAge(-1)                            -> IllegalArgumentException("Age cannot be negative")
-new Person.Address("1 Main St", "Springfield").getFullAddress() -> "1 Main St, Springfield"
-```
+Finish `routes()` in `src/main/java/practice/Handler.java`. When you're done, every handler
+serves the paths its own `paths()` builds from its own fields, and a reload hands back the same
+routes without making the handler build its paths again. Subclasses of `Handler` stay as they
+are. About four lines in total.

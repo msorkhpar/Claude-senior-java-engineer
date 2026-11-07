@@ -1,15 +1,13 @@
-`obj instanceof Type` is `true` when `obj` is a `Type` or any subtype of it, and `false` for
-`null`. So a chain of checks tests the most specific type first: every `Integer` is also a
-`Number`. It works with arrays too, and an `int[]` is not an `Object[]`.
+The billing service delivers its internal events through `EventBus`. Handlers subscribe to a
+type: the audit log to `Auditable`, the dunning job to `InvoiceEvent`, a debug tap to `Object`.
+Since the last refactoring the audit log stays empty, and the startup check warns that nobody
+handles `InvoicePaid`, although the dunning job does.
 
-Write `kind(Object obj)` in `Kinds`:
+`publish` and `unhandled` already loop over the subscriptions. Finish the two `TODO`s in
+`src/main/java/practice/EventBus.java`:
 
-| obj | result |
-|---|---|
-| an `Integer` | `"integer"` |
-| any other `Number` (`Long`, `Double`, ...) | `"number"` |
-| a `CharSequence` (`String`, `StringBuilder`, ...) | `"text"` |
-| an `int[]` | `"int array"` |
-| an `Object[]` (`String[]` included) | `"object array"` |
-| `null` | `"null"` |
-| anything else | `"other"` |
+- `accepts(type, event)`: whether a handler subscribed to `type` receives this event;
+- `handles(type, eventClass)`: the same answer for a class, before any event exists.
+
+A message the decoder can't map is published as `null`; it must reach no handler and must not
+throw. Two lines in total.

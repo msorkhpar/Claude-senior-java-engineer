@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Classify an object, most specific type first",
+  "title": "Route events to the handlers that subscribed to their type",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`obj instanceof Type` is `true` when `obj` is a `Type` or any subtype of it, and `false` for `null`. So a chain of checks tests the most specific type first: every `Integer` is also a `Number`. It works with arrays too, and an `int[]` is not an `Object[]`."
+      "text": "The billing service delivers its internal events through `EventBus`. Handlers subscribe to a type: the audit log to `Auditable`, the dunning job to `InvoiceEvent`, a debug tap to `Object`. Since the last refactoring the audit log stays empty, and the startup check warns that nobody handles `InvoicePaid`, although the dunning job does."
     },
     {
       "type": "para",
-      "text": "Write `kind(Object obj)` in `Kinds`:"
+      "text": "`publish` and `unhandled` already loop over the subscriptions. Finish the two `TODO`s in `src/main/java/practice/EventBus.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "obj",
-        "result"
-      ],
-      "rows": [
-        [
-          "an `Integer`",
-          "`\"integer\"`"
-        ],
-        [
-          "any other `Number` (`Long`, `Double`, ...)",
-          "`\"number\"`"
-        ],
-        [
-          "a `CharSequence` (`String`, `StringBuilder`, ...)",
-          "`\"text\"`"
-        ],
-        [
-          "an `int[]`",
-          "`\"int array\"`"
-        ],
-        [
-          "an `Object[]` (`String[]` included)",
-          "`\"object array\"`"
-        ],
-        [
-          "`null`",
-          "`\"null\"`"
-        ],
-        [
-          "anything else",
-          "`\"other\"`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`accepts(type, event)`: whether a handler subscribed to `type` receives this event;",
+        "`handles(type, eventClass)`: the same answer for a class, before any event exists."
       ]
+    },
+    {
+      "type": "para",
+      "text": "A message the decoder can't map is published as `null`; it must reach no handler and must not throw. Two lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Kinds {\n\n    private Kinds() {\n    }\n\n    /** Names the kind of obj, most specific type first. */\n    public static String kind(Object obj) {\n        if (obj instanceof Integer) {\n            return \"integer\";\n        } else if (obj instanceof Number) {\n            return \"number\";\n        } else if (obj instanceof CharSequence) {\n            return \"text\";\n        } else if (obj instanceof int[]) {\n            return \"int array\";\n        } else if (obj instanceof Object[]) {\n            return \"object array\";\n        } else if (obj == null) {\n            return \"null\";\n        }\n        return \"other\";\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Delivers events inside one service. A handler subscribes to a type, a class or an interface,\n * and receives every published event that belongs to that type.\n */\npublic class EventBus {\n\n    private record Subscription(Class<?> type, Consumer<Object> handler) {\n    }\n\n    private final List<Subscription> subscriptions = new ArrayList<>();\n\n    public <T> void subscribe(Class<T> type, Consumer<? super T> handler) {\n        subscriptions.add(new Subscription(type, event -> handler.accept(type.cast(event))));\n    }\n\n    /** Delivers the event to every handler whose type it belongs to, in subscription order; returns how many. */\n    public int publish(Object event) {\n        int delivered = 0;\n        for (Subscription subscription : subscriptions) {\n            if (accepts(subscription.type(), event)) {\n                subscription.handler().accept(event);\n                delivered++;\n            }\n        }\n        return delivered;\n    }\n\n    /** At startup: the event classes that no subscribed handler would receive, in the order given. */\n    public List<Class<?>> unhandled(List<Class<?>> eventClasses) {\n        List<Class<?>> missing = new ArrayList<>();\n        for (Class<?> eventClass : eventClasses) {\n            boolean handled = false;\n            for (Subscription subscription : subscriptions) {\n                if (handles(subscription.type(), eventClass)) {\n                    handled = true;\n                }\n            }\n            if (!handled) {\n                missing.add(eventClass);\n            }\n        }\n        return missing;\n    }\n\n    /** Whether a handler subscribed to {@code type} receives this event. */\n    boolean accepts(Class<?> type, Object event) {\n        return type.isInstance(event);\n    }\n\n    /** Whether a handler subscribed to {@code type} would receive events of class {@code eventClass}. */\n    boolean handles(Class<?> type, Class<?> eventClass) {\n        return type.isAssignableFrom(eventClass);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Kinds {\n\n    private Kinds() {\n    }\n\n    /** Names the kind of obj, most specific type first. */\n    public static String kind(Object obj) {\n        throw new UnsupportedOperationException(\"write kind\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Delivers events inside one service. A handler subscribes to a type, a class or an interface,\n * and receives every published event that belongs to that type.\n */\npublic class EventBus {\n\n    private record Subscription(Class<?> type, Consumer<Object> handler) {\n    }\n\n    private final List<Subscription> subscriptions = new ArrayList<>();\n\n    public <T> void subscribe(Class<T> type, Consumer<? super T> handler) {\n        subscriptions.add(new Subscription(type, event -> handler.accept(type.cast(event))));\n    }\n\n    /** Delivers the event to every handler whose type it belongs to, in subscription order; returns how many. */\n    public int publish(Object event) {\n        int delivered = 0;\n        for (Subscription subscription : subscriptions) {\n            if (accepts(subscription.type(), event)) {\n                subscription.handler().accept(event);\n                delivered++;\n            }\n        }\n        return delivered;\n    }\n\n    /** At startup: the event classes that no subscribed handler would receive, in the order given. */\n    public List<Class<?>> unhandled(List<Class<?>> eventClasses) {\n        List<Class<?>> missing = new ArrayList<>();\n        for (Class<?> eventClass : eventClasses) {\n            boolean handled = false;\n            for (Subscription subscription : subscriptions) {\n                if (handles(subscription.type(), eventClass)) {\n                    handled = true;\n                }\n            }\n            if (!handled) {\n                missing.add(eventClass);\n            }\n        }\n        return missing;\n    }\n\n    /** Whether a handler subscribed to {@code type} receives this event. */\n    boolean accepts(Class<?> type, Object event) {\n        // TODO: Decide from the event object. A message the decoder can't map arrives as null,\n        //       and publishing it must reach no handler rather than fail.\n        throw new IllegalStateException(\"TODO: accepts\");\n    }\n\n    /** Whether a handler subscribed to {@code type} would receive events of class {@code eventClass}. */\n    boolean handles(Class<?> type, Class<?> eventClass) {\n        // TODO: The same decision as accepts(), made from a class before any event exists, so the\n        //       startup check and publish() never disagree.\n        throw new IllegalStateException(\"TODO: handles\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "151100ceb3d2f84af2f762501cf2ed63c1c32ba9ad91ed14fd5971f8d12ab7a8",
-  "starting_code": "package practice;\n\npublic final class Kinds {\n\n    private Kinds() {\n    }\n\n    /** Names the kind of obj, most specific type first. */\n    public static String kind(Object obj) {\n        throw new UnsupportedOperationException(\"write kind\");\n    }\n}\n",
+  "content_sha256": "3ea5bed79f7ee79e34751872841e3d0073ad3662f7738716b68d4f4eeb9ce1b8",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.function.Consumer;\n\n/**\n * Delivers events inside one service. A handler subscribes to a type, a class or an interface,\n * and receives every published event that belongs to that type.\n */\npublic class EventBus {\n\n    private record Subscription(Class<?> type, Consumer<Object> handler) {\n    }\n\n    private final List<Subscription> subscriptions = new ArrayList<>();\n\n    public <T> void subscribe(Class<T> type, Consumer<? super T> handler) {\n        subscriptions.add(new Subscription(type, event -> handler.accept(type.cast(event))));\n    }\n\n    /** Delivers the event to every handler whose type it belongs to, in subscription order; returns how many. */\n    public int publish(Object event) {\n        int delivered = 0;\n        for (Subscription subscription : subscriptions) {\n            if (accepts(subscription.type(), event)) {\n                subscription.handler().accept(event);\n                delivered++;\n            }\n        }\n        return delivered;\n    }\n\n    /** At startup: the event classes that no subscribed handler would receive, in the order given. */\n    public List<Class<?>> unhandled(List<Class<?>> eventClasses) {\n        List<Class<?>> missing = new ArrayList<>();\n        for (Class<?> eventClass : eventClasses) {\n            boolean handled = false;\n            for (Subscription subscription : subscriptions) {\n                if (handles(subscription.type(), eventClass)) {\n                    handled = true;\n                }\n            }\n            if (!handled) {\n                missing.add(eventClass);\n            }\n        }\n        return missing;\n    }\n\n    /** Whether a handler subscribed to {@code type} receives this event. */\n    boolean accepts(Class<?> type, Object event) {\n        // TODO: Decide from the event object. A message the decoder can't map arrives as null,\n        //       and publishing it must reach no handler rather than fail.\n        throw new IllegalStateException(\"TODO: accepts\");\n    }\n\n    /** Whether a handler subscribed to {@code type} would receive events of class {@code eventClass}. */\n    boolean handles(Class<?> type, Class<?> eventClass) {\n        // TODO: The same decision as accepts(), made from a class before any event exists, so the\n        //       startup check and publish() never disagree.\n        throw new IllegalStateException(\"TODO: handles\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/main/java/practice/Kinds.java",
-    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/test/java/practice/KindsTest.java",
+    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/main/java/practice/EventBus.java",
+    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-01/practice-1/src/test/java/practice/EventBusTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +106,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.KindsTest#classifiesCommonTypes",
+        "id": "practice.EventBusTest#aHandlerReceivesEventsOfTheClassItSubscribedTo",
         "kind": "main",
-        "says": "Doubles and Longs are numbers, Strings and builders are text."
+        "says": "an event reaches a handler subscribed to the event's own class"
       },
       {
-        "id": "practice.KindsTest#anIntegerIsMoreThanANumber",
-        "kind": "edge",
-        "says": "42 is \"integer\": the Integer check comes before the Number one."
+        "id": "practice.EventBusTest#aHandlerIgnoresEventsOfAnUnrelatedClass",
+        "kind": "main",
+        "says": "an event of an unrelated class reaches no handler"
       },
       {
-        "id": "practice.KindsTest#arraysAreTyped",
-        "kind": "edge",
-        "says": "An int[] is \"int array\" and a String[] is \"object array\"."
+        "id": "practice.EventBusTest#theStartupCheckReportsOnlyClassesWithNoHandler",
+        "kind": "main",
+        "says": "the startup check reports a class nobody subscribed to and not one with its own handler"
       },
       {
-        "id": "practice.KindsTest#nullIsNull",
+        "id": "practice.EventBusTest#aHandlerForAParentClassReceivesEventsOfItsSubclasses",
         "kind": "edge",
-        "says": "kind(null) is \"null\"."
+        "says": "a handler subscribed to a parent class receives events of its subclasses"
+      },
+      {
+        "id": "practice.EventBusTest#anEventTheDecoderCouldNotMapReachesNoHandler",
+        "kind": "edge",
+        "says": "publishing null reaches no handler, even one subscribed to Object, and doesn't throw"
+      },
+      {
+        "id": "practice.EventBusTest#theStartupCheckCountsAHandlerForAnInterfaceTheClassImplements",
+        "kind": "edge",
+        "says": "the startup check counts a handler subscribed to an interface as handling every class that implements it"
+      },
+      {
+        "id": "practice.EventBusTest#theStartupCheckCountsAHandlerForAParentClass",
+        "kind": "edge",
+        "says": "the startup check counts a handler subscribed to a parent class as handling its subclasses"
       }
     ],
     "report": {
@@ -157,11 +147,11 @@
     },
     "origin": {
       "path": "05-pattern-matching/README_1.5.1.md",
-      "section": "Best Practices and Optimization Techniques"
+      "section": "instanceof Asks About the Object's Class at Run Time, and null Has None"
     },
     "concepts": [
-      "instanceof works with array types, and an int[] is not an Object[].",
-      "instanceof is true for a type and all its subtypes, so checks go from the most specific type to the least."
+      "instanceof is false for null, whatever the type, because null refers to no object.",
+      "instanceof tests the class of the object at run time, and is true for that class's superclasses and interfaces; Class.isInstance is the same test with the type as a value."
     ]
   }
 }

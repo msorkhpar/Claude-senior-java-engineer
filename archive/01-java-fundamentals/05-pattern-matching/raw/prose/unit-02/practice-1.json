@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Test and bind in one step",
+  "title": "Make the page-size warnings say what the client sent",
   "blocks": [
     {
       "type": "heading",
@@ -19,24 +19,24 @@
     },
     {
       "type": "para",
-      "text": "Pattern matching for `instanceof` tests a type and binds a variable of that type in one step, so no cast follows:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "if (obj instanceof Square square) {\n    // use square directly\n}"
+      "text": "The orders endpoint pages its results, and a client may ask for its own page size with the `pageSize` query parameter. Support keeps getting tickets that read \"my page size is ignored\", and the warnings the endpoint records don't help: they should show what the client sent, and they should only appear when the client sent something unusable."
     },
     {
       "type": "para",
-      "text": "`Areas` holds three records: `Square(side)`, `Circle(radius)` and `Rectangle(width, height)`. Write `area(Object obj)` in `Areas` with one `instanceof` pattern per shape:"
+      "text": "`Pagination` already pages correctly once it knows the size. Finish `pageSizeFor(...)` in `src/main/java/practice/Pagination.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`area(new Areas.Square(3))` is `9.0`, `area(new Areas.Circle(1))` is `Math.PI`, and `area(new Areas.Rectangle(2, 5))` is `10.0`;",
-        "anything else, `null` included, is not a shape: throw `IllegalArgumentException`."
+        "an `Integer` from 1 to `MAX_PAGE_SIZE` is used as it is;",
+        "with no `pageSize` at all, the endpoint's default is used and nothing is recorded;",
+        "anything else gets the default too, and one warning that shows the value the client sent."
       ]
+    },
+    {
+      "type": "para",
+      "text": "About five lines in total."
     },
     {
       "type": "heading",
@@ -51,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Areas {\n\n    /** A square with the given side. */\n    public record Square(double side) {\n    }\n\n    /** A circle with the given radius. */\n    public record Circle(double radius) {\n    }\n\n    /** A rectangle with the given width and height. */\n    public record Rectangle(double width, double height) {\n    }\n\n    private Areas() {\n    }\n\n    /** Returns the area of a Square, Circle or Rectangle; refuses anything else. */\n    public static double area(Object obj) {\n        if (obj instanceof Square square) {\n            return square.side() * square.side();\n        } else if (obj instanceof Circle circle) {\n            return Math.PI * circle.radius() * circle.radius();\n        } else if (obj instanceof Rectangle rectangle) {\n            return rectangle.width() * rectangle.height();\n        }\n        throw new IllegalArgumentException(\"Unknown shape: \" + obj);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Pages the results of one list endpoint. A request may ask for its own page size with the\n * {@code pageSize} query parameter; the JSON decoder hands parameters over as plain objects.\n */\npublic class Pagination {\n\n    /** The largest page size a request may ask for. */\n    static final int MAX_PAGE_SIZE = 500;\n\n    private final int pageSize;                        // this endpoint's default\n    private final List<String> warnings = new ArrayList<>();\n\n    public Pagination(int pageSize) {\n        this.pageSize = pageSize;\n    }\n\n    /** Returns the first page of {@code items} for a request with the given query parameters. */\n    public <T> List<T> firstPage(List<T> items, Map<String, Object> query) {\n        return items.subList(0, Math.min(items.size(), pageSizeFor(query)));\n    }\n\n    /** The warnings recorded so far, oldest first. */\n    public List<String> warnings() {\n        return List.copyOf(warnings);\n    }\n\n    /**\n     * The page size for one request: the query's {@code pageSize} when it is an Integer from 1\n     * to MAX_PAGE_SIZE, this endpoint's default otherwise. A value that is there but can't be\n     * used is recorded in the warnings, so that support can tell the client what was wrong.\n     */\n    int pageSizeFor(Map<String, Object> query) {\n        Object raw = query.get(\"pageSize\");\n        if (raw == null) return pageSize;\n        if (raw instanceof Integer size && size >= 1 && size <= MAX_PAGE_SIZE) return size;\n        warnings.add(\"ignored pageSize \" + raw);\n        return pageSize;\n    }\n}\n"
         }
       ]
     },
@@ -63,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Areas {\n\n    /** A square with the given side. */\n    public record Square(double side) {\n    }\n\n    /** A circle with the given radius. */\n    public record Circle(double radius) {\n    }\n\n    /** A rectangle with the given width and height. */\n    public record Rectangle(double width, double height) {\n    }\n\n    private Areas() {\n    }\n\n    /** Returns the area of a Square, Circle or Rectangle; refuses anything else. */\n    public static double area(Object obj) {\n        throw new UnsupportedOperationException(\"write area\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Pages the results of one list endpoint. A request may ask for its own page size with the\n * {@code pageSize} query parameter; the JSON decoder hands parameters over as plain objects.\n */\npublic class Pagination {\n\n    /** The largest page size a request may ask for. */\n    static final int MAX_PAGE_SIZE = 500;\n\n    private final int pageSize;                        // this endpoint's default\n    private final List<String> warnings = new ArrayList<>();\n\n    public Pagination(int pageSize) {\n        this.pageSize = pageSize;\n    }\n\n    /** Returns the first page of {@code items} for a request with the given query parameters. */\n    public <T> List<T> firstPage(List<T> items, Map<String, Object> query) {\n        return items.subList(0, Math.min(items.size(), pageSizeFor(query)));\n    }\n\n    /** The warnings recorded so far, oldest first. */\n    public List<String> warnings() {\n        return List.copyOf(warnings);\n    }\n\n    /**\n     * The page size for one request: the query's {@code pageSize} when it is an Integer from 1\n     * to MAX_PAGE_SIZE, this endpoint's default otherwise. A value that is there but can't be\n     * used is recorded in the warnings, so that support can tell the client what was wrong.\n     */\n    int pageSizeFor(Map<String, Object> query) {\n        // TODO: Decide this request's page size from the query, as described above. A support\n        //       engineer reading a warning must be able to see what the client actually sent.\n        throw new IllegalStateException(\"TODO: pageSizeFor\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -71,8 +71,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -82,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d13bbbd2d66a62113c3ffb2cd112e366675caa9fcb5facee830a7ab300d6a0d8",
-  "starting_code": "package practice;\n\npublic final class Areas {\n\n    /** A square with the given side. */\n    public record Square(double side) {\n    }\n\n    /** A circle with the given radius. */\n    public record Circle(double radius) {\n    }\n\n    /** A rectangle with the given width and height. */\n    public record Rectangle(double width, double height) {\n    }\n\n    private Areas() {\n    }\n\n    /** Returns the area of a Square, Circle or Rectangle; refuses anything else. */\n    public static double area(Object obj) {\n        throw new UnsupportedOperationException(\"write area\");\n    }\n}\n",
+  "content_sha256": "77f859b3400a22c9b30e426b16495113f319c42798fe86c85c86f26452e7ad51",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Pages the results of one list endpoint. A request may ask for its own page size with the\n * {@code pageSize} query parameter; the JSON decoder hands parameters over as plain objects.\n */\npublic class Pagination {\n\n    /** The largest page size a request may ask for. */\n    static final int MAX_PAGE_SIZE = 500;\n\n    private final int pageSize;                        // this endpoint's default\n    private final List<String> warnings = new ArrayList<>();\n\n    public Pagination(int pageSize) {\n        this.pageSize = pageSize;\n    }\n\n    /** Returns the first page of {@code items} for a request with the given query parameters. */\n    public <T> List<T> firstPage(List<T> items, Map<String, Object> query) {\n        return items.subList(0, Math.min(items.size(), pageSizeFor(query)));\n    }\n\n    /** The warnings recorded so far, oldest first. */\n    public List<String> warnings() {\n        return List.copyOf(warnings);\n    }\n\n    /**\n     * The page size for one request: the query's {@code pageSize} when it is an Integer from 1\n     * to MAX_PAGE_SIZE, this endpoint's default otherwise. A value that is there but can't be\n     * used is recorded in the warnings, so that support can tell the client what was wrong.\n     */\n    int pageSizeFor(Map<String, Object> query) {\n        // TODO: Decide this request's page size from the query, as described above. A support\n        //       engineer reading a warning must be able to see what the client actually sent.\n        throw new IllegalStateException(\"TODO: pageSizeFor\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-1/src/main/java/practice/Areas.java",
-    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-1/src/test/java/practice/AreasTest.java",
+    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-1/src/main/java/practice/Pagination.java",
+    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-02/practice-1/src/test/java/practice/PaginationTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -107,14 +107,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.AreasTest#measuresEachShape",
+        "id": "practice.PaginationTest#usesTheRequestedPageSize",
         "kind": "main",
-        "says": "A square of 3, a circle of 1 and a 2 by 5 rectangle have their areas."
+        "says": "a pageSize the endpoint can use decides the size of the page"
       },
       {
-        "id": "practice.AreasTest#anythingElseIsRefused",
+        "id": "practice.PaginationTest#usesTheDefaultWhenTheRequestAsksForNone",
+        "kind": "main",
+        "says": "a request without a pageSize gets the endpoint's default"
+      },
+      {
+        "id": "practice.PaginationTest#usesTheDefaultForAValueItCannotUse",
+        "kind": "main",
+        "says": "zero, a size over the limit, a string and a Long all get the endpoint's default"
+      },
+      {
+        "id": "practice.PaginationTest#aWarningShowsWhatTheClientSent",
         "kind": "edge",
-        "says": "A String and null are refused with IllegalArgumentException, not measured as 0."
+        "says": "the warning for an unusable pageSize names the value the client sent, not the endpoint's default"
+      },
+      {
+        "id": "practice.PaginationTest#aRequestWithoutAPageSizeLeavesNoWarning",
+        "kind": "edge",
+        "says": "a request that sends no pageSize at all records no warning"
       }
     ],
     "report": {
@@ -123,10 +138,10 @@
     },
     "origin": {
       "path": "05-pattern-matching/README_1.5.2.md",
-      "section": "Key Points to Remember"
+      "section": "Out of Its Scope, a Pattern Variable's Name Means the Field"
     },
     "concepts": [
-      "obj instanceof Square square tests the type and binds a variable of that type, with no cast."
+      "Where a pattern variable is out of scope, a field of the same name is used without any error, so a guard that falls through reads the field."
     ]
   }
 }

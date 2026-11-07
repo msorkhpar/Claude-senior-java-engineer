@@ -1,17 +1,22 @@
-A guard narrows a type pattern: `case Integer i when i < 0 ->`. The cases are tried from the
-top, and the first one that matches wins, so when two guarded cases overlap, the narrower one
-comes first. An unguarded `case Integer i` then catches every remaining `Integer`.
+The payment gateway hands every incoming payment to `PaymentScreen` before it is booked. Risk has
+agreed these rules with finance (amounts in cents):
 
-Write `classify(Object obj)` in `Classifier` as one switch expression, after the page's own
-example:
-
-| obj | result |
+| Payment | Decision |
 |---|---|
-| an `Integer` below 0 | `"Negative integer"` |
-| `0` | `"Zero"` |
-| an `Integer` from 1 to 100 | `"Small positive integer"` |
-| any larger `Integer` | `"Large positive integer"` |
-| `Double.NaN` | `"Not a number"` |
-| an infinite `Double` | `"Infinite"` |
-| any other `Double` | `"Finite double"` |
-| anything else | `"Not a number type"` |
+| a `Transfer` of up to 500,000 | `ACCEPT` |
+| a `Transfer` above 500,000 | `REVIEW` |
+| a `Transfer` above 5,000,000 | `HOLD` |
+| a `Card` whose fraud score is below 60 | `ACCEPT` |
+| a `Card` whose fraud score is 60 or more | `REVIEW` |
+| a `Card` whose fraud score is 90 or more | `DECLINE` |
+| a `Voucher` | `ACCEPT` |
+
+Where two rows match a payment, the stricter one, lower in the table, wins.
+
+The fraud score comes from the card network through `RiskScores`, and the network bills every
+call. Last month's invoice was twice what finance expected for the number of card payments, and
+nobody wants to repeat that.
+
+Write `screen(...)` in `src/main/java/practice/PaymentScreen.java`. Decisions follow the table, a
+card payment costs at most one score call, and any other payment costs none. About eight lines in
+total.

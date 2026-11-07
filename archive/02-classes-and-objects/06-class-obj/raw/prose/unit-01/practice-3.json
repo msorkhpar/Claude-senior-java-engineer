@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "An immutable person",
+  "title": "Make every reindex job keep its own partition",
   "blocks": [
     {
       "type": "heading",
@@ -19,43 +19,11 @@
     },
     {
       "type": "para",
-      "text": "An **immutable** object never changes after it is built. The page's recipe: make the class `final`, make every field `private final`, set them all in the constructor, and offer getters only. Remember what `final` on a field does and does not do: it fixes the **reference**, but a mutable object behind it (a `List`, say) can still change, so such a field needs a copy on the way in and a read-only view on the way out."
+      "text": "The search service rebuilds its index in partitions: `jobs(n)` returns one job per partition, and the jobs go to a pool that runs them in whatever order its threads pick them up, and runs a failed job again. After the last release, a 16-partition rebuild reindexed one partition sixteen times and left the other fifteen stale."
     },
     {
       "type": "para",
-      "text": "Write `ImmutablePerson`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`ImmutablePerson(String name, int age, List<String> nicknames)`;",
-        "`getName()`, `getAge()` and `getNicknames()`;",
-        "`withAge(int age)` returns a **new** `ImmutablePerson` with that age and the same name and nicknames. The original does not change."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Rules:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "the class cannot be subclassed;",
-        "every field is `private` and `final`;",
-        "nothing the caller does to the list it passed in reaches the person;",
-        "the list `getNicknames()` returns cannot be modified (any attempt throws)."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "p = new ImmutablePerson(\"Ada\", 36, [\"Countess\"])\np.withAge(37).getAge()   -> 37\np.getAge()               -> 36\np.getNicknames().add(\"x\") -> throws UnsupportedOperationException"
+      "text": "Finish `jobs(...)` in `src/main/java/practice/Reindex.java`. When you're done, job number `i` reindexes partition `i`: whenever it runs, in whatever order, and as often as the pool runs it. About five lines in total."
     },
     {
       "type": "heading",
@@ -70,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class ImmutablePerson {\n    private final String name;\n    private final int age;\n    private final List<String> nicknames;\n\n    public ImmutablePerson(String name, int age, List<String> nicknames) {\n        this.name = name;\n        this.age = age;\n        this.nicknames = List.copyOf(nicknames);\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public int getAge() {\n        return age;\n    }\n\n    public List<String> getNicknames() {\n        return nicknames;\n    }\n\n    public ImmutablePerson withAge(int age) {\n        return new ImmutablePerson(name, age, nicknames);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\n\n/**\n * Splits a reindex into one job per partition. The jobs go to a pool, which runs them in whatever\n * order its threads pick them up, and runs a failed job again.\n */\npublic class Reindex {\n\n    /** Reindexes one partition and returns how many documents it wrote. */\n    public interface Indexer {\n        int reindex(int partition);\n    }\n\n    private final Indexer indexer;\n\n    public Reindex(Indexer indexer) {\n        this.indexer = indexer;\n    }\n\n    /** The jobs for partitions 0 to partitions - 1, in that order. */\n    public List<Callable<Integer>> jobs(int partitions) {\n        List<Callable<Integer>> jobs = new ArrayList<>();\n        for (int p = 0; p < partitions; p++) {\n            int partition = p;\n            jobs.add(() -> indexer.reindex(partition));\n        }\n        return jobs;\n    }\n}\n"
         }
       ]
     },
@@ -82,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic class ImmutablePerson {\n    String name;\n    int age;\n    List<String> nicknames;\n\n    public ImmutablePerson(String name, int age, List<String> nicknames) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public String getName() {\n        throw new UnsupportedOperationException(\"write getName\");\n    }\n\n    public int getAge() {\n        throw new UnsupportedOperationException(\"write getAge\");\n    }\n\n    public List<String> getNicknames() {\n        throw new UnsupportedOperationException(\"write getNicknames\");\n    }\n\n    public ImmutablePerson withAge(int age) {\n        throw new UnsupportedOperationException(\"write withAge\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\n\n/**\n * Splits a reindex into one job per partition. The jobs go to a pool, which runs them in whatever\n * order its threads pick them up, and runs a failed job again.\n */\npublic class Reindex {\n\n    /** Reindexes one partition and returns how many documents it wrote. */\n    public interface Indexer {\n        int reindex(int partition);\n    }\n\n    private final Indexer indexer;\n\n    public Reindex(Indexer indexer) {\n        this.indexer = indexer;\n    }\n\n    /** The jobs for partitions 0 to partitions - 1, in that order. */\n    public List<Callable<Integer>> jobs(int partitions) {\n        // TODO: Build one job per partition. Job number i reindexes partition i, however the\n        //       pool orders the jobs and however often it runs one of them.\n        throw new IllegalStateException(\"TODO: jobs\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -90,10 +58,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 4,
-    "code": 2,
+    "paras": 2,
+    "code": 1,
     "tables": 0,
-    "lists": 2,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -101,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "15990d3cff2125fd9a7665b34a147a8353265fc8e2b21adc7f30df122512d950",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic class ImmutablePerson {\n    String name;\n    int age;\n    List<String> nicknames;\n\n    public ImmutablePerson(String name, int age, List<String> nicknames) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public String getName() {\n        throw new UnsupportedOperationException(\"write getName\");\n    }\n\n    public int getAge() {\n        throw new UnsupportedOperationException(\"write getAge\");\n    }\n\n    public List<String> getNicknames() {\n        throw new UnsupportedOperationException(\"write getNicknames\");\n    }\n\n    public ImmutablePerson withAge(int age) {\n        throw new UnsupportedOperationException(\"write withAge\");\n    }\n}\n",
+  "content_sha256": "96e7e2d4816701134e36094a86f23791475cc9fea5b051129b8658c9c2c02be7",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.concurrent.Callable;\n\n/**\n * Splits a reindex into one job per partition. The jobs go to a pool, which runs them in whatever\n * order its threads pick them up, and runs a failed job again.\n */\npublic class Reindex {\n\n    /** Reindexes one partition and returns how many documents it wrote. */\n    public interface Indexer {\n        int reindex(int partition);\n    }\n\n    private final Indexer indexer;\n\n    public Reindex(Indexer indexer) {\n        this.indexer = indexer;\n    }\n\n    /** The jobs for partitions 0 to partitions - 1, in that order. */\n    public List<Callable<Integer>> jobs(int partitions) {\n        // TODO: Build one job per partition. Job number i reindexes partition i, however the\n        //       pool orders the jobs and however often it runs one of them.\n        throw new IllegalStateException(\"TODO: jobs\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-3/src/main/java/practice/ImmutablePerson.java",
-    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-3/src/test/java/practice/ImmutablePersonTest.java",
+    "main_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-3/src/main/java/practice/Reindex.java",
+    "test_path": "practice/02-classes-and-objects/06-class-obj/prose/unit-01/practice-3/src/test/java/practice/ReindexTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -126,29 +94,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ImmutablePersonTest#keepsItsValuesAndChangesByCopy",
+        "id": "practice.ReindexTest#thereIsOneJobPerPartitionAndEachReindexesOne",
         "kind": "main",
-        "says": "The person keeps its values, and withAge returns a new person while the original is unchanged."
+        "says": "there is one job per partition, and running a job reindexes one valid partition"
       },
       {
-        "id": "practice.ImmutablePersonTest#theCallersListCannotReachIn",
+        "id": "practice.ReindexTest#runAfterTheyAreBuiltEveryPartitionIsReindexed",
         "kind": "edge",
-        "says": "Changing the list passed to the constructor does not change the person's nicknames."
+        "says": "jobs run after all of them are built reindex every partition once, each its own"
       },
       {
-        "id": "practice.ImmutablePersonTest#theReturnedNicknamesAreReadOnly",
+        "id": "practice.ReindexTest#aJobReindexesItsOwnPartitionWhateverTheOrderAndOnARetry",
         "kind": "edge",
-        "says": "The list getNicknames returns cannot be modified."
-      },
-      {
-        "id": "practice.ImmutablePersonTest#theClassCannotBeSubclassed",
-        "kind": "edge",
-        "says": "The class is final, so no subclass can add mutable state."
-      },
-      {
-        "id": "practice.ImmutablePersonTest#everyFieldIsPrivateAndFinal",
-        "kind": "edge",
-        "says": "Every field is private and final, so no reference can be reassigned."
+        "says": "a job reindexes its own partition whatever order the jobs run in, and again the same one when it is run a second time"
       }
     ],
     "report": {
@@ -157,10 +115,10 @@
     },
     "origin": {
       "path": "06-class-obj/README_2.1.1.md",
-      "section": "Interview-specific Insights"
+      "section": "Local Classes and Lambdas Capture Copies of Effectively Final Locals"
     },
     "concepts": [
-      "An immutable class is final, with private final fields set once in the constructor, and copies any mutable state it takes or gives out."
+      "Local and anonymous classes and lambdas capture copies of effectively final local variables; a shared mutable holder makes every capture read the same changing value."
     ]
   }
 }

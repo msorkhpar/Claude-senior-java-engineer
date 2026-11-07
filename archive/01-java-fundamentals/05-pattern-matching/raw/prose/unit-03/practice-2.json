@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Nested record patterns",
+  "title": "Keep the nightly report going past an uncalibrated sensor",
   "blocks": [
     {
       "type": "heading",
@@ -19,28 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Record patterns nest, so one pattern can take apart a record and the records inside it:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "if (rect instanceof Rectangle(Point(int x1, int y1), Point(int x2, int y2))) { ... }"
+      "text": "The plant's nightly temperature report stops at the first sensor that has not been calibrated yet. The `Reading` record was written by another team: its `celsius()` refuses to hand out the value of an uncalibrated sensor, and also refuses a temperature below absolute zero, which only a broken feed can produce. The report prints nothing that night, and the morning shift has no temperatures at all."
     },
     {
       "type": "para",
-      "text": "`var` can stand for each component's type. A nested pattern such as `Point(var x, var y)` does not match a `null` component, so a rectangle missing a corner simply does not match."
-    },
-    {
-      "type": "para",
-      "text": "`Boxes` holds `record Point(int x, int y)` and `record Rectangle(Point topLeft, Point bottomRight)`. Write `area(Object shape)` in `Boxes`:"
+      "text": "Finish `safeLine(...)` in `src/main/java/practice/SensorReport.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "the area of a rectangle, whichever order its two corners come in: `Rectangle(Point(1, 2), Point(3, 5))` has area `6`, and so does `Rectangle(Point(3, 5), Point(1, 2))`;",
-        "`-1` for anything else: something that is not a rectangle, `null`, or a rectangle with a `null` corner."
+        "an uncalibrated sensor gets the line `<sensor> uncalibrated`, for example `boiler-9 uncalibrated`, and the report goes on with the next event;",
+        "any other failure, a temperature below absolute zero included, still fails the report, and the reason it gives is the record's own."
       ]
+    },
+    {
+      "type": "para",
+      "text": "Leave `Reading` and `line(...)` as they are: other reports use them. About six lines in total."
     },
     {
       "type": "heading",
@@ -55,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Boxes {\n\n    /** A point on a grid. */\n    public record Point(int x, int y) {\n    }\n\n    /** A rectangle given by two opposite corners, in either order. */\n    public record Rectangle(Point topLeft, Point bottomRight) {\n    }\n\n    private Boxes() {\n    }\n\n    /** Returns the rectangle's area, or -1. */\n    public static int area(Object shape) {\n        if (shape instanceof Rectangle(Point(var x1, var y1), Point(var x2, var y2))) {\n            return Math.abs(x2 - x1) * Math.abs(y2 - y1);\n        }\n        return -1;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The nightly temperature report of the plant: one line per event from the sensors. */\npublic class SensorReport {\n\n    /**\n     * A temperature reading. A sensor that has not been calibrated yet sends NaN, and the record\n     * refuses to hand that out; it also refuses a value no thermometer can read.\n     */\n    public record Reading(String sensor, double celsius) {\n        @Override\n        public double celsius() {\n            if (Double.isNaN(celsius)) throw new IllegalStateException(\"sensor \" + sensor + \" is not calibrated\");\n            if (celsius < -273.15) throw new IllegalArgumentException(\"below absolute zero: \" + celsius);\n            return celsius;\n        }\n    }\n\n    /** A sensor that stopped sending for a while. */\n    public record Outage(String sensor, int minutes) {}\n\n    /** The report: one line per event, in order. */\n    public static List<String> report(List<?> events) {\n        List<String> lines = new ArrayList<>();\n        for (Object event : events) lines.add(safeLine(event));\n        return lines;\n    }\n\n    /** The line for one event. An event of any other kind is a bug upstream. */\n    static String line(Object event) {\n        if (event instanceof Reading(var sensor, var celsius)) return sensor + \" \" + celsius + \" C\";\n        if (event instanceof Outage(var sensor, var minutes)) return sensor + \" offline \" + minutes + \" min\";\n        throw new IllegalArgumentException(\"unknown event: \" + event);\n    }\n\n    /** The line for one event, as the report prints it. */\n    static String safeLine(Object event) {\n        try {\n            return line(event);\n        } catch (MatchException e) {\n            if (e.getCause() instanceof IllegalStateException && event instanceof Reading r) {\n                return r.sensor() + \" uncalibrated\";\n            }\n            throw e;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -67,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Boxes {\n\n    /** A point on a grid. */\n    public record Point(int x, int y) {\n    }\n\n    /** A rectangle given by two opposite corners, in either order. */\n    public record Rectangle(Point topLeft, Point bottomRight) {\n    }\n\n    private Boxes() {\n    }\n\n    /** Returns the rectangle's area, or -1. */\n    public static int area(Object shape) {\n        throw new UnsupportedOperationException(\"write area\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The nightly temperature report of the plant: one line per event from the sensors. */\npublic class SensorReport {\n\n    /**\n     * A temperature reading. A sensor that has not been calibrated yet sends NaN, and the record\n     * refuses to hand that out; it also refuses a value no thermometer can read.\n     */\n    public record Reading(String sensor, double celsius) {\n        @Override\n        public double celsius() {\n            if (Double.isNaN(celsius)) throw new IllegalStateException(\"sensor \" + sensor + \" is not calibrated\");\n            if (celsius < -273.15) throw new IllegalArgumentException(\"below absolute zero: \" + celsius);\n            return celsius;\n        }\n    }\n\n    /** A sensor that stopped sending for a while. */\n    public record Outage(String sensor, int minutes) {}\n\n    /** The report: one line per event, in order. */\n    public static List<String> report(List<?> events) {\n        List<String> lines = new ArrayList<>();\n        for (Object event : events) lines.add(safeLine(event));\n        return lines;\n    }\n\n    /** The line for one event. An event of any other kind is a bug upstream. */\n    static String line(Object event) {\n        if (event instanceof Reading(var sensor, var celsius)) return sensor + \" \" + celsius + \" C\";\n        if (event instanceof Outage(var sensor, var minutes)) return sensor + \" offline \" + minutes + \" min\";\n        throw new IllegalArgumentException(\"unknown event: \" + event);\n    }\n\n    /** The line for one event, as the report prints it. */\n    static String safeLine(Object event) {\n        // TODO: A sensor that is not calibrated yet must not stop the report: its line is\n        //       \"<sensor> uncalibrated\", and the report goes on. Any other failure must still\n        //       fail the report.\n        throw new IllegalStateException(\"TODO: safeLine\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -76,7 +71,7 @@
   "counts": {
     "headings": 3,
     "paras": 3,
-    "code": 2,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -86,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "066415ae9f1e54688b72bd30351eb3ab9203117d5a1829b1ba949c792add21ee",
-  "starting_code": "package practice;\n\npublic final class Boxes {\n\n    /** A point on a grid. */\n    public record Point(int x, int y) {\n    }\n\n    /** A rectangle given by two opposite corners, in either order. */\n    public record Rectangle(Point topLeft, Point bottomRight) {\n    }\n\n    private Boxes() {\n    }\n\n    /** Returns the rectangle's area, or -1. */\n    public static int area(Object shape) {\n        throw new UnsupportedOperationException(\"write area\");\n    }\n}\n",
+  "content_sha256": "295a58b3967b381219b74203b6c8be2bfc7dccc433a30386e870d23b04ff9fa4",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\n/** The nightly temperature report of the plant: one line per event from the sensors. */\npublic class SensorReport {\n\n    /**\n     * A temperature reading. A sensor that has not been calibrated yet sends NaN, and the record\n     * refuses to hand that out; it also refuses a value no thermometer can read.\n     */\n    public record Reading(String sensor, double celsius) {\n        @Override\n        public double celsius() {\n            if (Double.isNaN(celsius)) throw new IllegalStateException(\"sensor \" + sensor + \" is not calibrated\");\n            if (celsius < -273.15) throw new IllegalArgumentException(\"below absolute zero: \" + celsius);\n            return celsius;\n        }\n    }\n\n    /** A sensor that stopped sending for a while. */\n    public record Outage(String sensor, int minutes) {}\n\n    /** The report: one line per event, in order. */\n    public static List<String> report(List<?> events) {\n        List<String> lines = new ArrayList<>();\n        for (Object event : events) lines.add(safeLine(event));\n        return lines;\n    }\n\n    /** The line for one event. An event of any other kind is a bug upstream. */\n    static String line(Object event) {\n        if (event instanceof Reading(var sensor, var celsius)) return sensor + \" \" + celsius + \" C\";\n        if (event instanceof Outage(var sensor, var minutes)) return sensor + \" offline \" + minutes + \" min\";\n        throw new IllegalArgumentException(\"unknown event: \" + event);\n    }\n\n    /** The line for one event, as the report prints it. */\n    static String safeLine(Object event) {\n        // TODO: A sensor that is not calibrated yet must not stop the report: its line is\n        //       \"<sensor> uncalibrated\", and the report goes on. Any other failure must still\n        //       fail the report.\n        throw new IllegalStateException(\"TODO: safeLine\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-03/practice-2/src/main/java/practice/Boxes.java",
-    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-03/practice-2/src/test/java/practice/BoxesTest.java",
+    "main_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-03/practice-2/src/main/java/practice/SensorReport.java",
+    "test_path": "practice/01-java-fundamentals/05-pattern-matching/prose/unit-03/practice-2/src/test/java/practice/SensorReportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -111,19 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BoxesTest#measuresARectangle",
+        "id": "practice.SensorReportTest#listsEveryEventOfCalibratedSensors",
         "kind": "main",
-        "says": "A rectangle from (1, 2) to (3, 5) has area 6."
+        "says": "with every sensor calibrated, the report has one line per event, in order"
       },
       {
-        "id": "practice.BoxesTest#cornersMayComeInEitherOrder",
+        "id": "practice.SensorReportTest#anUncalibratedSensorDoesNotStopTheReport",
         "kind": "edge",
-        "says": "Corners (3, 5) and (1, 2) still give area 6."
+        "says": "a reading whose record refuses its value as uncalibrated does not make the report fail"
       },
       {
-        "id": "practice.BoxesTest#aMissingCornerDoesNotMatch",
+        "id": "practice.SensorReportTest#theUncalibratedSensorIsNamedInItsLine",
         "kind": "edge",
-        "says": "A rectangle with a null corner gives -1, not an exception."
+        "says": "the uncalibrated sensor's line names it, and the events after it are still reported"
+      },
+      {
+        "id": "practice.SensorReportTest#aReadingNoThermometerCanTakeStillFailsTheReport",
+        "kind": "edge",
+        "says": "a reading the record refuses for any other reason still fails the report, with that reason"
       }
     ],
     "report": {
@@ -132,10 +132,10 @@
     },
     "origin": {
       "path": "05-pattern-matching/README_1.5.3.md",
-      "section": "Key Points to Remember"
+      "section": "Matching Calls the Accessors, and an Exception From One Arrives as MatchException"
     },
     "concepts": [
-      "Record patterns nest, destructuring a record inside a record, and a nested pattern does not match a null component."
+      "An exception thrown by an accessor during a match arrives as MatchException with the original as its cause, so a catch for the original type misses it."
     ]
   }
 }

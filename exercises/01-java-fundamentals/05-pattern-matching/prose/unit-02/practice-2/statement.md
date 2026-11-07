@@ -1,12 +1,10 @@
-Every `ElectricCar` is also a `Car`, so `vehicle instanceof Car car` matches electric cars
-too. In a chain of patterns over a hierarchy, the subclass is tested first; otherwise its
-branch is never reached.
+The monitoring service routes alerts to the on-call pager, to email, or to a dashboard. Two
+complaints came in this week: disk alerts below the paging level never arrive anywhere, and
+the on-call engineer was woken at night by a read replica, which is supposed to send email
+only.
 
-`Garage` holds a small hierarchy: `Vehicle`, `Car implements Vehicle` (`drive()`),
-`ElectricCar extends Car` (`charge()` as well) and `Bicycle implements Vehicle` (`pedal()`).
-Write `use(Vehicle vehicle)` in `Garage`. It returns what the vehicle does:
+`AlertRouter.routeAll(...)` already groups a batch by channel. Write `channelFor(...)` in
+`src/main/java/practice/AlertRouter.java` so that each alert goes where its javadoc says. A
+`ReplicaDiskAlert` is a `DiskAlert` too.
 
-- an electric car: `drive()` and `charge()` joined by `+`, that is `"drive+charge"`;
-- any other car: `"drive"`;
-- a bicycle: `"pedal"`;
-- anything else, `null` included: `"unknown"`.
+About five lines in total.

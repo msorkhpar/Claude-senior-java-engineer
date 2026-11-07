@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Insert, delete and reverse in a builder",
+  "title": "Keep the shipment journal's lines whole",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A `StringBuilder` changes in place: `insert(position, text)` puts text before the character at `position` (or at the end, when `position` is the length), `delete(start, end)` removes the characters from `start` up to but not including `end`, and `reverse()` turns the sequence around."
+      "text": "The depot's scanner workers record every parcel event in `ShipmentJournal`, many threads at once, and a flusher copies the journal to disk. The journal is a `StringBuffer`, picked because it is thread-safe, yet the night shift's file has lines such as `parcel=NL-5531 depot=parcel=BE-0907 depot=ANR-2 grams=610`. Looking up an event's depot can take a moment, because it asks another service."
     },
     {
       "type": "para",
-      "text": "Write three methods in `Edits`, each building on a `StringBuilder` of its input:"
+      "text": "Write `record(...)` in `src/main/java/practice/ShipmentJournal.java`. When you're done, every line in the journal is exactly one event's line, however the threads overlap, and a thread waiting on a slow depot lookup doesn't stop the other threads from recording. About four lines."
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`insertAt(\"Hello World\", \"Java \", 6)`",
-          "`\"Hello Java World\"`"
-        ],
-        [
-          "`insertAt(\"Hello\", \"!\", 5)`",
-          "`\"Hello!\"`"
-        ],
-        [
-          "`deleteRange(\"Hello World\", 5, 11)`",
-          "`\"Hello\"`"
-        ],
-        [
-          "`deleteRange(\"abcdef\", 1, 3)`",
-          "`\"adef\"`"
-        ],
-        [
-          "`reversed(\"Hello\")`",
-          "`\"olleH\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests make one event's lookup wait while another thread records, so the overlap happens on every run."
     },
     {
       "type": "heading",
@@ -67,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Edits {\n\n    private Edits() {\n    }\n\n    /** Inserts toInsert at position; position may be the length (the end). */\n    public static String insertAt(String original, String toInsert, int position) {\n        return new StringBuilder(original).insert(position, toInsert).toString();\n    }\n\n    /** Deletes the characters from start up to, not including, end. */\n    public static String deleteRange(String original, int start, int end) {\n        return new StringBuilder(original).delete(start, end).toString();\n    }\n\n    /** Returns the text reversed. */\n    public static String reversed(String text) {\n        return new StringBuilder(text).reverse().toString();\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * The depot's shipment journal. Scanner worker threads call record() for every parcel event, all\n * at once, and a flusher copies contents() to disk every few seconds.\n */\npublic class ShipmentJournal {\n\n    /** One scanned parcel. Its getters can be slow: depot() looks the depot up in another service. */\n    public interface Event {\n        String parcel();\n\n        String depot();\n\n        int grams();\n    }\n\n    private final StringBuffer out = new StringBuffer();\n\n    /** Writes the event's line, {@code parcel=<parcel> depot=<depot> grams=<grams>} and a newline. */\n    public void record(Event e) {\n        StringBuilder line = new StringBuilder(64);\n        line.append(\"parcel=\").append(e.parcel()).append(\" depot=\").append(e.depot())\n                .append(\" grams=\").append(e.grams()).append('\\n');\n        out.append(line);\n    }\n\n    /** Everything recorded so far. */\n    public String contents() {\n        return out.toString();\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Edits {\n\n    private Edits() {\n    }\n\n    /** Inserts toInsert at position; position may be the length (the end). */\n    public static String insertAt(String original, String toInsert, int position) {\n        throw new UnsupportedOperationException(\"write insertAt\");\n    }\n\n    /** Deletes the characters from start up to, not including, end. */\n    public static String deleteRange(String original, int start, int end) {\n        throw new UnsupportedOperationException(\"write deleteRange\");\n    }\n\n    /** Returns the text reversed. */\n    public static String reversed(String text) {\n        throw new UnsupportedOperationException(\"write reversed\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * The depot's shipment journal. Scanner worker threads call record() for every parcel event, all\n * at once, and a flusher copies contents() to disk every few seconds.\n */\npublic class ShipmentJournal {\n\n    /** One scanned parcel. Its getters can be slow: depot() looks the depot up in another service. */\n    public interface Event {\n        String parcel();\n\n        String depot();\n\n        int grams();\n    }\n\n    private final StringBuffer out = new StringBuffer();\n\n    /** Writes the event's line, {@code parcel=<parcel> depot=<depot> grams=<grams>} and a newline. */\n    public void record(Event e) {\n        // TODO: Many scanner threads call this at the same time, and depot() can take a while.\n        //       Every line in the journal must be one event's line, whole, and a slow event\n        //       must not hold up the other threads' records.\n        throw new IllegalStateException(\"TODO: record\");\n    }\n\n    /** Everything recorded so far. */\n    public String contents() {\n        return out.toString();\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,9 +62,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -98,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a9946b84f56aeed165227e2679e5fa186263e1a6661128030df43bcc0093429e",
-  "starting_code": "package practice;\n\npublic final class Edits {\n\n    private Edits() {\n    }\n\n    /** Inserts toInsert at position; position may be the length (the end). */\n    public static String insertAt(String original, String toInsert, int position) {\n        throw new UnsupportedOperationException(\"write insertAt\");\n    }\n\n    /** Deletes the characters from start up to, not including, end. */\n    public static String deleteRange(String original, int start, int end) {\n        throw new UnsupportedOperationException(\"write deleteRange\");\n    }\n\n    /** Returns the text reversed. */\n    public static String reversed(String text) {\n        throw new UnsupportedOperationException(\"write reversed\");\n    }\n}\n",
+  "content_sha256": "f6f4076a388b69ebdf03c5f1a6af08980e08c0835519de43bcbce74fe8888adc",
+  "starting_code": "package practice;\n\n/**\n * The depot's shipment journal. Scanner worker threads call record() for every parcel event, all\n * at once, and a flusher copies contents() to disk every few seconds.\n */\npublic class ShipmentJournal {\n\n    /** One scanned parcel. Its getters can be slow: depot() looks the depot up in another service. */\n    public interface Event {\n        String parcel();\n\n        String depot();\n\n        int grams();\n    }\n\n    private final StringBuffer out = new StringBuffer();\n\n    /** Writes the event's line, {@code parcel=<parcel> depot=<depot> grams=<grams>} and a newline. */\n    public void record(Event e) {\n        // TODO: Many scanner threads call this at the same time, and depot() can take a while.\n        //       Every line in the journal must be one event's line, whole, and a slow event\n        //       must not hold up the other threads' records.\n        throw new IllegalStateException(\"TODO: record\");\n    }\n\n    /** Everything recorded so far. */\n    public String contents() {\n        return out.toString();\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/Edits.java",
-    "test_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/test/java/practice/EditsTest.java",
+    "main_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/main/java/practice/ShipmentJournal.java",
+    "test_path": "practice/01-java-fundamentals/04-str-literals/prose/unit-05/practice-1/src/test/java/practice/ShipmentJournalTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,19 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EditsTest#editsText",
+        "id": "practice.ShipmentJournalTest#recordsOneLinePerEventInOrder",
         "kind": "main",
-        "says": "An insert, a delete to the end, and a reverse."
+        "says": "each recorded event becomes one line of the journal, in the order recorded"
       },
       {
-        "id": "practice.EditsTest#deleteStopsBeforeEnd",
+        "id": "practice.ShipmentJournalTest#anotherThreadsLineArrivesWholeWhileOneEventIsSlow",
         "kind": "edge",
-        "says": "deleteRange(\"abcdef\", 1, 3) is \"adef\": the character at end stays."
+        "says": "while one thread is part-way through an event, a line recorded by another thread still reaches the journal whole"
       },
       {
-        "id": "practice.EditsTest#insertCanAppendAtTheEnd",
+        "id": "practice.ShipmentJournalTest#aSlowEventDoesNotHoldUpTheOtherThreads",
         "kind": "edge",
-        "says": "insertAt(\"Hello\", \"!\", 5) is \"Hello!\": the length is a valid position."
+        "says": "a thread waiting on a slow lookup does not block the other threads' records"
+      },
+      {
+        "id": "practice.ShipmentJournalTest#theSlowEventsOwnLineComesOutWhole",
+        "kind": "edge",
+        "says": "the slow event's own line comes out whole too, with no text from the other event in it, and each event is written once"
       }
     ],
     "report": {
@@ -144,10 +124,12 @@
     },
     "origin": {
       "path": "04-str-literals/README_1.4.5.md",
-      "section": "Key Points to Remember"
+      "section": "StringBuffer Locks Each Call, So a Line Built from Several Calls Still Interleaves"
     },
     "concepts": [
-      "insert, delete and reverse change a builder in place, and delete(start, end) stops before end."
+      "StringBuffer makes each method call atomic, so a line written with several calls to a shared buffer can be interleaved with another thread's; building the line locally and appending it in one call keeps it whole.",
+      "Where several calls on a shared object must stay together, the text is built before the lock is taken, so a slow part of one record doesn't hold up the other threads.",
+      "One StringBuilder shared between threads, even a scratch builder cleared before each use, mixes or loses their text, and can throw ArrayIndexOutOfBoundsException."
     ]
   }
 }
