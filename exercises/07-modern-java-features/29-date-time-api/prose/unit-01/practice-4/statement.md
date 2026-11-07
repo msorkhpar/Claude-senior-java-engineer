@@ -1,17 +1,8 @@
-The legacy `TimeZone.getTimeZone(id)` never complains: an ID it does not
-recognise silently gives GMT, and it still accepts three-letter abbreviations
-such as `"CST"`, which could mean Central Standard Time or China Standard Time.
-A typo in a configuration file therefore turns into wrong times, not an error.
+A card processor settles with an exchange in Tokyo and totals its payments per business day of
+that exchange. The ledger API it reads still returns `java.util.Date`. Since part of the fleet moved
+to a data centre in São Paulo, the totals from those servers disagree with the exchange's for
+payments made in the evening there. One older caller passes, instead of a payment moment, the
+settlement day it read from a `DATE` column with `ResultSet.getDate`; its report has been crashing,
+and once fixed it must show the same day the column holds, on servers in any zone.
 
-Write `ZoneLookup.zone(String id)`. It returns the `ZoneId` for a region ID
-such as `"Europe/Paris"`. An ID that names no zone is refused with an
-`IllegalArgumentException`, and so are the ambiguous abbreviations `"CST"`
-(Central or China Standard Time) and `"IST"` (India, Israel or Irish Standard
-Time).
-
-| id | answer |
-|---|---|
-| `"Europe/Paris"` | `ZoneId.of("Europe/Paris")` |
-| `"Asia/Tokyo"` | `ZoneId.of("Asia/Tokyo")` |
-| `"Mars/Olympus_Mons"` | throws `IllegalArgumentException` |
-| `"CST"`, `"IST"` | throws `IllegalArgumentException` |
+Finish `businessDay(...)` in `src/main/java/practice/SettlementReport.java`. About four lines.

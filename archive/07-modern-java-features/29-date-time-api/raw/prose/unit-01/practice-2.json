@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Parse a date strictly",
+  "title": "Migrate birth dates out of an old table",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,11 @@
     },
     {
       "type": "para",
-      "text": "`SimpleDateFormat.parse` is lenient by default: it reads `2024-13-01` as a date in the next year and `2024-02-30` as a day in March, without a word. Even when made strict, it stops reading once it has a date and ignores any text left over. `java.time` validates strictly and fails fast instead."
+      "text": "The loyalty system is moving customers' birth dates to a `DATE` column. The old table has three `int` columns, `year`, `month` and `day`, which a service from 2003 filled straight from `Date.getYear()`, `Date.getMonth()` and `Date.getDate()`. Some rows were typed in by hand over the years and name days that never existed; the migration must set those aside for a person to fix, not guess a date for them. The old reports keep reading the table until the switch, so new rows must still be written in the old form."
     },
     {
       "type": "para",
-      "text": "Write `DateInput.parse(String text)`. `text` must be **exactly** a date in the form `yyyy-MM-dd` (a four-digit year, a two-digit month, a two-digit day). Return it as a `LocalDate`. For any other text, including a date that does not exist, throw an `IllegalArgumentException`."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "text",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`\"2024-03-15\"`",
-          "`2024-03-15`"
-        ],
-        [
-          "`\"2024-02-29\"`",
-          "`2024-02-29` (2024 is a leap year)"
-        ],
-        [
-          "`\"2023-02-29\"`",
-          "throws `IllegalArgumentException`"
-        ],
-        [
-          "`\"2024-13-01\"`",
-          "throws `IllegalArgumentException`"
-        ],
-        [
-          "`\"2024-03-15 extra\"`",
-          "throws `IllegalArgumentException`"
-        ],
-        [
-          "`\"+12024-03-15\"`, `\"2024-3-5\"`, `\" 2024-03-15\"`",
-          "throws `IllegalArgumentException`"
-        ]
-      ]
+      "text": "`migrate(...)` already loops over the rows. Finish the two `TODO` methods in `src/main/java/practice/BirthDates.java`: `toLocalDate(...)`, from the old columns to a `LocalDate`, and `toColumns(...)`, the other way. About two lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.time.format.DateTimeFormatter;\nimport java.time.format.DateTimeParseException;\nimport java.time.format.ResolverStyle;\nimport java.util.regex.Pattern;\n\npublic final class DateInput {\n\n    private static final Pattern SHAPE = Pattern.compile(\"\\\\d{4}-\\\\d{2}-\\\\d{2}\");\n\n    // Immutable and thread-safe, so one shared constant is fine\n    private static final DateTimeFormatter FORMAT =\n            DateTimeFormatter.ofPattern(\"uuuu-MM-dd\").withResolverStyle(ResolverStyle.STRICT);\n\n    private DateInput() {\n    }\n\n    /** Reads text that is exactly a yyyy-MM-dd date; anything else is an IllegalArgumentException. */\n    public static LocalDate parse(String text) {\n        if (!SHAPE.matcher(text).matches()) {\n            // exactly four year digits, two month digits, two day digits: no sign, no padding, no spaces\n            throw new IllegalArgumentException(\"not in yyyy-MM-dd form: \" + text);\n        }\n        try {\n            return LocalDate.parse(text, FORMAT);\n        } catch (DateTimeParseException e) {\n            throw new IllegalArgumentException(\"not a date: \" + text, e);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.DateTimeException;\nimport java.time.LocalDate;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Moves customers' birth dates out of an old table. Its three int columns were written with\n * Date.getYear(), Date.getMonth() and Date.getDate().\n */\npublic class BirthDates {\n\n    /** One row of the old table. */\n    public record Row(String customer, int year, int month, int day) {}\n\n    /** The new table's birth dates by customer; rows that name no real date go to {@code rejected}. */\n    public static Map<String, LocalDate> migrate(List<Row> rows, List<Row> rejected) {\n        Map<String, LocalDate> out = new TreeMap<>();\n        for (Row row : rows) {\n            try {\n                out.put(row.customer(), toLocalDate(row.year(), row.month(), row.day()));\n            } catch (DateTimeException e) {\n                rejected.add(row);\n            }\n        }\n        return out;\n    }\n\n    // TODO: the calendar date the three old columns name. Columns that name no real date throw\n    // java.time.DateTimeException, so that migrate() can set the row aside.\n    static LocalDate toLocalDate(int year, int month, int day) {\n        return LocalDate.of(year + 1900, month + 1, day);\n    }\n\n    // TODO: the three old columns {year, month, day} for a date, as the old system would have written\n    // them; the old reports still read the table during the migration.\n    static int[] toColumns(LocalDate date) {\n        return new int[] {date.getYear() - 1900, date.getMonthValue() - 1, date.getDayOfMonth()};\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.LocalDate;\n\npublic final class DateInput {\n\n    private DateInput() {\n    }\n\n    /** Reads text that is exactly a yyyy-MM-dd date; anything else is an IllegalArgumentException. */\n    public static LocalDate parse(String text) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.DateTimeException;\nimport java.time.LocalDate;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Moves customers' birth dates out of an old table. Its three int columns were written with\n * Date.getYear(), Date.getMonth() and Date.getDate().\n */\npublic class BirthDates {\n\n    /** One row of the old table. */\n    public record Row(String customer, int year, int month, int day) {}\n\n    /** The new table's birth dates by customer; rows that name no real date go to {@code rejected}. */\n    public static Map<String, LocalDate> migrate(List<Row> rows, List<Row> rejected) {\n        Map<String, LocalDate> out = new TreeMap<>();\n        for (Row row : rows) {\n            try {\n                out.put(row.customer(), toLocalDate(row.year(), row.month(), row.day()));\n            } catch (DateTimeException e) {\n                rejected.add(row);\n            }\n        }\n        return out;\n    }\n\n    // TODO: the calendar date the three old columns name. Columns that name no real date throw\n    // java.time.DateTimeException, so that migrate() can set the row aside.\n    static LocalDate toLocalDate(int year, int month, int day) {\n        throw new IllegalStateException(\"TODO: read the old columns\");\n    }\n\n    // TODO: the three old columns {year, month, day} for a date, as the old system would have written\n    // them; the old reports still read the table during the migration.\n    static int[] toColumns(LocalDate date) {\n        throw new IllegalStateException(\"TODO: write the old columns\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,7 +60,7 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -102,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "aac149249260950064f326488f3bb0cee7807343061066886698fc78f6c30de0",
-  "starting_code": "package practice;\n\nimport java.time.LocalDate;\n\npublic final class DateInput {\n\n    private DateInput() {\n    }\n\n    /** Reads text that is exactly a yyyy-MM-dd date; anything else is an IllegalArgumentException. */\n    public static LocalDate parse(String text) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n",
+  "content_sha256": "7cfefdfbba7983b0916bf67b9b0cdef4f5dc86d4c2a82e9b6a264ccedb58eb45",
+  "starting_code": "package practice;\n\nimport java.time.DateTimeException;\nimport java.time.LocalDate;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Moves customers' birth dates out of an old table. Its three int columns were written with\n * Date.getYear(), Date.getMonth() and Date.getDate().\n */\npublic class BirthDates {\n\n    /** One row of the old table. */\n    public record Row(String customer, int year, int month, int day) {}\n\n    /** The new table's birth dates by customer; rows that name no real date go to {@code rejected}. */\n    public static Map<String, LocalDate> migrate(List<Row> rows, List<Row> rejected) {\n        Map<String, LocalDate> out = new TreeMap<>();\n        for (Row row : rows) {\n            try {\n                out.put(row.customer(), toLocalDate(row.year(), row.month(), row.day()));\n            } catch (DateTimeException e) {\n                rejected.add(row);\n            }\n        }\n        return out;\n    }\n\n    // TODO: the calendar date the three old columns name. Columns that name no real date throw\n    // java.time.DateTimeException, so that migrate() can set the row aside.\n    static LocalDate toLocalDate(int year, int month, int day) {\n        throw new IllegalStateException(\"TODO: read the old columns\");\n    }\n\n    // TODO: the three old columns {year, month, day} for a date, as the old system would have written\n    // them; the old reports still read the table during the migration.\n    static int[] toColumns(LocalDate date) {\n        throw new IllegalStateException(\"TODO: write the old columns\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-2/src/main/java/practice/DateInput.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-2/src/test/java/practice/DateInputTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-2/src/main/java/practice/BirthDates.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-01/practice-2/src/test/java/practice/BirthDatesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,29 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DateInputTest#readsAValidDate",
+        "id": "practice.BirthDatesTest#columnsWrittenForADateReadBackAsThatDate",
         "kind": "main",
-        "says": "A real date written as yyyy-MM-dd, leap day included, is read as that LocalDate."
+        "says": "the columns written for a date read back as the same date"
       },
       {
-        "id": "practice.DateInputTest#monthThirteenIsRefused",
+        "id": "practice.BirthDatesTest#theMonthColumnCountsFromZero",
         "kind": "edge",
-        "says": "A month of 13 is refused rather than rolled into the next year."
+        "says": "the old month column holds the month counted from zero"
       },
       {
-        "id": "practice.DateInputTest#februaryThirtiethIsRefused",
+        "id": "practice.BirthDatesTest#theYearColumnCountsFrom1900",
         "kind": "edge",
-        "says": "A day that its month does not have, such as February 30, is refused rather than moved to a valid day."
+        "says": "the old year column holds the year minus 1900"
       },
       {
-        "id": "practice.DateInputTest#trailingTextIsRefused",
+        "id": "practice.BirthDatesTest#aRowThatNamesNoRealDateIsSetAside",
         "kind": "edge",
-        "says": "Text after the date is refused rather than silently ignored."
-      },
-      {
-        "id": "practice.DateInputTest#onlyTheExactFormIsAccepted",
-        "kind": "edge",
-        "says": "A signed or five-digit year, one-digit months or days, a two-digit year and surrounding spaces are all refused."
+        "says": "a row naming a day that does not exist is set aside, not rolled into the next month"
       }
     ],
     "report": {
@@ -158,10 +120,11 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.1.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "Months Count From 0, Years From 1900, and Out-of-Range Values Roll Over"
     },
     "concepts": [
-      "SimpleDateFormat parsing accepts impossible dates such as 2024-13-01, so input must be parsed with strict java.time validation."
+      "A lenient Calendar, the default, carries out-of-range fields into the next field, so 30 February becomes 2 March instead of an error.",
+      "Calendar and the deprecated Date constructors and getters count months from 0, and Date counts years from 1900."
     ]
   }
 }

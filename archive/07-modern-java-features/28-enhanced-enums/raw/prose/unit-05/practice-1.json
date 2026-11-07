@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "An order lifecycle as an enum state machine",
+  "title": "Keep one user's grants from reaching everyone with the same role",
   "blocks": [
     {
       "type": "heading",
@@ -19,90 +19,24 @@
     },
     {
       "type": "para",
-      "text": "A state machine is the page's first use case: the states are enum constants, each state declares its own valid transitions, and `transitionTo` enforces them. The page's pitfall is a `moveTo(next)` that just returns `next`."
+      "text": "The document service checks every request against the user's grants: the base grants of their role, plus extra grants an owner gave them, which are stored in the `extra_grants` column as the grants' names separated by commas (`COMMENT,SHARE`). Support has two tickets open. Since Monday's release, every editor can share documents, although only one editor was ever given that right. And the members page fails to open for any user with no extra grants at all."
     },
     {
       "type": "para",
-      "text": "Fill in each constant's `validTransitions()` from this table, and write the three shared methods:"
-    },
-    {
-      "type": "table",
-      "headers": [
-        "state",
-        "may move to"
-      ],
-      "rows": [
-        [
-          "`CREATED`",
-          "`PENDING_PAYMENT`, `CANCELLED`"
-        ],
-        [
-          "`PENDING_PAYMENT`",
-          "`PAID`, `CANCELLED`"
-        ],
-        [
-          "`PAID`",
-          "`PROCESSING`, `REFUNDED`"
-        ],
-        [
-          "`PROCESSING`",
-          "`SHIPPED`, `CANCELLED`"
-        ],
-        [
-          "`SHIPPED`",
-          "`DELIVERED`, `RETURNED`"
-        ],
-        [
-          "`DELIVERED`",
-          "`RETURNED`"
-        ],
-        [
-          "`RETURNED`",
-          "`REFUNDED`"
-        ],
-        [
-          "`CANCELLED`, `REFUNDED`",
-          "nothing (terminal)"
-        ]
-      ]
+      "text": "The role table in `src/main/java/practice/Grants.java` is right. Finish its three `TODO`s:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`boolean canTransitionTo(OrderState target)`: whether `target` is one of this state's valid transitions.",
-        "`OrderState transitionTo(OrderState target)`: returns `target` when the move is valid, and throws `IllegalStateException` otherwise.",
-        "`boolean isTerminal()`: whether the state has no valid transitions."
+        "`base(...)`: a role's base grants, as handed to the rest of the service;",
+        "`effective(...)`: what one user may do;",
+        "`decode(...)`: reading a stored `extra_grants` value."
       ]
     },
     {
       "type": "para",
-      "text": "The enum's states are shared by every order in the program, so a caller that changes the set `validTransitions()` returned must not change what the state allows."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`CREATED.transitionTo(PENDING_PAYMENT)`",
-          "`PENDING_PAYMENT`"
-        ],
-        [
-          "`CREATED.transitionTo(DELIVERED)`",
-          "throws `IllegalStateException`"
-        ],
-        [
-          "`CANCELLED.isTerminal()`",
-          "`true`"
-        ],
-        [
-          "`DELIVERED.isTerminal()`",
-          "`false`"
-        ]
-      ]
+      "text": "When you're done, nothing a caller does with the sets it receives, and no user's grants, change what a role grants, and every value in the column reads back. About ten lines in total."
     },
     {
       "type": "heading",
@@ -117,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\npublic enum OrderState {\n    CREATED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(PENDING_PAYMENT, CANCELLED);\n        }\n    },\n    PENDING_PAYMENT {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(PAID, CANCELLED);\n        }\n    },\n    PAID {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(PROCESSING, REFUNDED);\n        }\n    },\n    PROCESSING {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(SHIPPED, CANCELLED);\n        }\n    },\n    SHIPPED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(DELIVERED, RETURNED);\n        }\n    },\n    DELIVERED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(RETURNED);\n        }\n    },\n    CANCELLED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.noneOf(OrderState.class);\n        }\n    },\n    REFUNDED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.noneOf(OrderState.class);\n        }\n    },\n    RETURNED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            return EnumSet.of(REFUNDED);\n        }\n    };\n\n    /** The states this state may move to. */\n    public abstract Set<OrderState> validTransitions();\n\n    /** Whether {@code target} is one of this state's valid transitions. */\n    public boolean canTransitionTo(OrderState target) {\n        return validTransitions().contains(target);\n    }\n\n    /** Moves to {@code target}, refusing a transition this state does not allow. */\n    public OrderState transitionTo(OrderState target) {\n        if (!canTransitionTo(target)) {\n            throw new IllegalStateException(\"Cannot transition from \" + this + \" to \" + target);\n        }\n        return target;\n    }\n\n    /** Whether this state has no valid transitions. */\n    public boolean isTerminal() {\n        return validTransitions().isEmpty();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * What each role may do on a shared document. A user has a role and may hold extra grants on\n * top of it; the extra grants are stored in the {@code extra_grants} text column of the\n * {@code memberships} table.\n */\npublic final class Grants {\n\n    public enum Access { VIEW, COMMENT, EDIT, SHARE, DELETE }\n\n    public enum Role { VIEWER, COMMENTER, EDITOR, MANAGER, OWNER }\n\n    /** The base grants of each role. Every request reads them. */\n    private static final Map<Role, Set<Access>> BASE = new EnumMap<>(Role.class);\n    static {\n        BASE.put(Role.VIEWER, EnumSet.of(Access.VIEW));\n        BASE.put(Role.COMMENTER, EnumSet.of(Access.VIEW, Access.COMMENT));\n        BASE.put(Role.EDITOR, EnumSet.of(Access.VIEW, Access.COMMENT, Access.EDIT));\n        BASE.put(Role.MANAGER, EnumSet.of(Access.VIEW, Access.COMMENT, Access.EDIT, Access.SHARE));\n        BASE.put(Role.OWNER, EnumSet.allOf(Access.class));\n    }\n\n    private Grants() {}\n\n    /** The base grants of a role, as every caller sees them. */\n    public static Set<Access> base(Role role) {\n        return Collections.unmodifiableSet(BASE.get(role));\n    }\n\n    /** What a user with this role and these extra grants may do. */\n    public static Set<Access> effective(Role role, Set<Access> extra) {\n        EnumSet<Access> all = EnumSet.noneOf(Access.class);\n        all.addAll(BASE.get(role));\n        all.addAll(extra);\n        return all;\n    }\n\n    /** The grants held in a value read from the extra_grants column. */\n    public static Set<Access> decode(String column) {\n        EnumSet<Access> grants = EnumSet.noneOf(Access.class);\n        for (String name : column.split(\",\")) {\n            if (!name.isEmpty()) grants.add(Access.valueOf(name));\n        }\n        return grants;\n    }\n}\n"
         }
       ]
     },
@@ -129,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\npublic enum OrderState {\n    CREATED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    PENDING_PAYMENT {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    PAID {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    PROCESSING {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    SHIPPED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    DELIVERED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    CANCELLED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    REFUNDED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    RETURNED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    };\n\n    /** The states this state may move to. */\n    public abstract Set<OrderState> validTransitions();\n\n    /** Whether {@code target} is one of this state's valid transitions. */\n    public boolean canTransitionTo(OrderState target) {\n        throw new UnsupportedOperationException(\"write canTransitionTo\");\n    }\n\n    /** Moves to {@code target}, refusing a transition this state does not allow. */\n    public OrderState transitionTo(OrderState target) {\n        throw new UnsupportedOperationException(\"write transitionTo\");\n    }\n\n    /** Whether this state has no valid transitions. */\n    public boolean isTerminal() {\n        throw new UnsupportedOperationException(\"write isTerminal\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * What each role may do on a shared document. A user has a role and may hold extra grants on\n * top of it; the extra grants are stored in the {@code extra_grants} text column of the\n * {@code memberships} table.\n */\npublic final class Grants {\n\n    public enum Access { VIEW, COMMENT, EDIT, SHARE, DELETE }\n\n    public enum Role { VIEWER, COMMENTER, EDITOR, MANAGER, OWNER }\n\n    /** The base grants of each role. Every request reads them. */\n    private static final Map<Role, Set<Access>> BASE = new EnumMap<>(Role.class);\n    static {\n        BASE.put(Role.VIEWER, EnumSet.of(Access.VIEW));\n        BASE.put(Role.COMMENTER, EnumSet.of(Access.VIEW, Access.COMMENT));\n        BASE.put(Role.EDITOR, EnumSet.of(Access.VIEW, Access.COMMENT, Access.EDIT));\n        BASE.put(Role.MANAGER, EnumSet.of(Access.VIEW, Access.COMMENT, Access.EDIT, Access.SHARE));\n        BASE.put(Role.OWNER, EnumSet.allOf(Access.class));\n    }\n\n    private Grants() {}\n\n    /** The base grants of a role, as every caller sees them. */\n    public static Set<Access> base(Role role) {\n        // TODO: Return the role's base grants. Callers across the service receive this set, and\n        //       whatever one of them does with it must not change what the role grants.\n        throw new IllegalStateException(\"TODO: base\");\n    }\n\n    /** What a user with this role and these extra grants may do. */\n    public static Set<Access> effective(Role role, Set<Access> extra) {\n        // TODO: The role's base grants plus the extra ones. Computing one user's grants must\n        //       leave the role, and every other user of it, as they were.\n        throw new IllegalStateException(\"TODO: effective\");\n    }\n\n    /** The grants held in a value read from the extra_grants column. */\n    public static Set<Access> decode(String column) {\n        // TODO: Turn a stored value such as \"COMMENT,SHARE\" back into grants. Every value the\n        //       table holds must be readable, including a user's who has no extra grants.\n        throw new IllegalStateException(\"TODO: decode\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -139,7 +73,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 2,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -148,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8cc558a4a39e0488ecd31bbede677147a56c72653aa4c2ed573243d4ee6e29b3",
-  "starting_code": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\npublic enum OrderState {\n    CREATED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    PENDING_PAYMENT {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    PAID {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    PROCESSING {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    SHIPPED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    DELIVERED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    CANCELLED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    REFUNDED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    },\n    RETURNED {\n        @Override\n        public Set<OrderState> validTransitions() {\n            throw new UnsupportedOperationException(\"write validTransitions\");\n        }\n    };\n\n    /** The states this state may move to. */\n    public abstract Set<OrderState> validTransitions();\n\n    /** Whether {@code target} is one of this state's valid transitions. */\n    public boolean canTransitionTo(OrderState target) {\n        throw new UnsupportedOperationException(\"write canTransitionTo\");\n    }\n\n    /** Moves to {@code target}, refusing a transition this state does not allow. */\n    public OrderState transitionTo(OrderState target) {\n        throw new UnsupportedOperationException(\"write transitionTo\");\n    }\n\n    /** Whether this state has no valid transitions. */\n    public boolean isTerminal() {\n        throw new UnsupportedOperationException(\"write isTerminal\");\n    }\n}\n",
+  "content_sha256": "bf9e657cf0a53ecdfb48ffefe14da8248292d96e53a7895ba9500757ff5f9279",
+  "starting_code": "package practice;\n\nimport java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * What each role may do on a shared document. A user has a role and may hold extra grants on\n * top of it; the extra grants are stored in the {@code extra_grants} text column of the\n * {@code memberships} table.\n */\npublic final class Grants {\n\n    public enum Access { VIEW, COMMENT, EDIT, SHARE, DELETE }\n\n    public enum Role { VIEWER, COMMENTER, EDITOR, MANAGER, OWNER }\n\n    /** The base grants of each role. Every request reads them. */\n    private static final Map<Role, Set<Access>> BASE = new EnumMap<>(Role.class);\n    static {\n        BASE.put(Role.VIEWER, EnumSet.of(Access.VIEW));\n        BASE.put(Role.COMMENTER, EnumSet.of(Access.VIEW, Access.COMMENT));\n        BASE.put(Role.EDITOR, EnumSet.of(Access.VIEW, Access.COMMENT, Access.EDIT));\n        BASE.put(Role.MANAGER, EnumSet.of(Access.VIEW, Access.COMMENT, Access.EDIT, Access.SHARE));\n        BASE.put(Role.OWNER, EnumSet.allOf(Access.class));\n    }\n\n    private Grants() {}\n\n    /** The base grants of a role, as every caller sees them. */\n    public static Set<Access> base(Role role) {\n        // TODO: Return the role's base grants. Callers across the service receive this set, and\n        //       whatever one of them does with it must not change what the role grants.\n        throw new IllegalStateException(\"TODO: base\");\n    }\n\n    /** What a user with this role and these extra grants may do. */\n    public static Set<Access> effective(Role role, Set<Access> extra) {\n        // TODO: The role's base grants plus the extra ones. Computing one user's grants must\n        //       leave the role, and every other user of it, as they were.\n        throw new IllegalStateException(\"TODO: effective\");\n    }\n\n    /** The grants held in a value read from the extra_grants column. */\n    public static Set<Access> decode(String column) {\n        // TODO: Turn a stored value such as \"COMMENT,SHARE\" back into grants. Every value the\n        //       table holds must be readable, including a user's who has no extra grants.\n        throw new IllegalStateException(\"TODO: decode\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-1/src/main/java/practice/OrderState.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-1/src/test/java/practice/OrderStateTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-1/src/main/java/practice/Grants.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-1/src/test/java/practice/GrantsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -173,19 +107,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.OrderStateTest#followsTheOrderLifecycle",
+        "id": "practice.GrantsTest#eachRoleHasItsBaseGrants",
         "kind": "main",
-        "says": "Each state lists its own valid transitions, an order moves along them with transitionTo(), and states with no way out are terminal."
+        "says": "each role reports its base grants"
       },
       {
-        "id": "practice.OrderStateTest#anInvalidTransitionIsRefused",
-        "kind": "edge",
-        "says": "transitionTo() a state that is not a valid transition throws IllegalStateException instead of moving there."
+        "id": "practice.GrantsTest#extraGrantsAddToTheRole",
+        "kind": "main",
+        "says": "a user's grants are the role's base grants plus the extra ones"
       },
       {
-        "id": "practice.OrderStateTest#validTransitionsCannotBeChangedByACaller",
+        "id": "practice.GrantsTest#storedValuesReadBack",
+        "kind": "main",
+        "says": "a stored list of names reads back as those grants"
+      },
+      {
+        "id": "practice.GrantsTest#whatACallerDoesWithARolesGrantsDoesNotChangeTheRole",
         "kind": "edge",
-        "says": "Changing the set validTransitions() returned, for any state including a terminal one, does not change which transitions any state allows."
+        "says": "a caller that tries to add to a role's grants does not change what the role grants"
+      },
+      {
+        "id": "practice.GrantsTest#oneUsersExtraGrantsDoNotReachTheRole",
+        "kind": "edge",
+        "says": "computing one user's grants leaves the role's base grants unchanged"
+      },
+      {
+        "id": "practice.GrantsTest#aUserWithNoExtraGrantsReadsBackAsNone",
+        "kind": "edge",
+        "says": "an empty stored value reads back as no grants, without an exception"
       }
     ],
     "report": {
@@ -194,11 +143,11 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.5.md",
-      "section": "Q1: How do you implement a state machine using enums?"
+      "section": "EnumSet Is a Typed Bit Mask, and a Shared One Must Be Unmodifiable"
     },
     "concepts": [
-      "An enum state machine has each state declare its valid transitions, with terminal states having none.",
-      "transitionTo() refuses a transition the current state does not allow, rather than simply returning the target."
+      "EnumSet.copyOf(Collection) throws IllegalArgumentException on an empty collection that isn't an EnumSet; noneOf plus addAll handles the empty case.",
+      "A static final EnumSet is still mutable: a caller that adds to it, or a union built on it in place, changes it for every user; shared sets are wrapped unmodifiable and per-user sets are copies."
     ]
   }
 }

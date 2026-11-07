@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Composable validation rules",
+  "title": "Stop the upload service from starting without a quota for every tier",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page builds a validation framework from an enum: each constant is one rule, built with a message and a `Predicate<Object>`. A rule's `validate` returns an empty `Optional` when the value is valid and the message otherwise, and `validateAll` composes rules. The page's key design point: report **all** violations in one pass, not just the first."
+      "text": "The upload service reads one quota per pricing tier from its properties at startup (`quota.FREE=25`, `quota.TEAM=750`, ...). Last quarter's release added the `ENTERPRISE` tier, and the deployment for one region shipped without `quota.ENTERPRISE`. The service started, passed its health checks, and the first enterprise customer's upload failed with a `NullPointerException` two days later. The on-call engineer wants that kind of mistake, and a mistyped tier in a key, to stop the startup with a message that says what to fix."
     },
     {
       "type": "para",
-      "text": "The starter builds each rule with its message and a placeholder predicate. Replace each placeholder, and write `validate` and `validateAll`:"
+      "text": "`load(...)` in `src/main/java/practice/Quotas.java` already reads the file. Finish its two `TODO`s:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`NOT_NULL`: the value is not `null`.",
-        "`NOT_BLANK`: the value is a `String` that is not blank (not empty and not only whitespace).",
-        "`POSITIVE_NUMBER`: the value is a `Number` greater than zero.",
-        "`VALID_EMAIL`: the value is a `String` matching `^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$`.",
-        "`Optional<String> validate(Object value)`: empty when valid, else the rule's message.",
-        "`static List<String> validateAll(Object value, ValidationRule... rules)`: the messages of every rule `value` violates, in the order the rules are given."
+        "`tier(...)`: the tier a `quota.` key names;",
+        "`checkComplete(...)`: the check that runs before `load` returns."
       ]
     },
     {
       "type": "para",
-      "text": "Every rule must cope with `null`: it is simply a violation for all of them."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`VALID_EMAIL.validate(\"team@example.org\")`",
-          "`Optional.empty`"
-        ],
-        [
-          "`POSITIVE_NUMBER.validate(-1)`",
-          "`Optional[Must be positive]`"
-        ],
-        [
-          "`validateAll(null, NOT_NULL, NOT_BLANK)`",
-          "`[Must not be null, Must not be blank]`"
-        ],
-        [
-          "`validateAll(\"bad-email\", NOT_NULL, NOT_BLANK, VALID_EMAIL)`",
-          "`[Must be a valid email]`"
-        ],
-        [
-          "`NOT_BLANK.validate(\"   \")`",
-          "`Optional[Must not be blank]`"
-        ]
-      ]
+      "text": "When you're done, a file that misses a tier, has no quotas at all, or names a tier that doesn't exist fails the load with an `IllegalStateException` that names the problem. About eight lines in total."
     },
     {
       "type": "heading",
@@ -83,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Predicate;\n\npublic enum ValidationRule {\n    NOT_NULL(\"Must not be null\", Objects::nonNull),\n    NOT_BLANK(\"Must not be blank\", v -> v instanceof String s && !s.isBlank()),\n    POSITIVE_NUMBER(\"Must be positive\", v -> v instanceof Number n && n.doubleValue() > 0),\n    VALID_EMAIL(\"Must be a valid email\", v -> v instanceof String s && s.matches(\"^[\\\\w.-]+@[\\\\w.-]+\\\\.[a-zA-Z]{2,}$\"));\n\n    private final String message;\n    private final Predicate<Object> validator;\n\n    ValidationRule(String message, Predicate<Object> validator) {\n        this.message = message;\n        this.validator = validator;\n    }\n\n    public String message() {\n        return message;\n    }\n\n    /** Empty when {@code value} satisfies this rule, else this rule's message. */\n    public Optional<String> validate(Object value) {\n        return validator.test(value) ? Optional.empty() : Optional.of(message);\n    }\n\n    /** The messages of every rule {@code value} violates, in the order given. */\n    public static List<String> validateAll(Object value, ValidationRule... rules) {\n        return Arrays.stream(rules)\n                .map(rule -> rule.validate(value))\n                .flatMap(Optional::stream)\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Properties;\nimport java.util.Set;\n\n/** The upload quota of each pricing tier, read once at startup from the service's properties. */\npublic final class Quotas {\n\n    public enum Tier { FREE, TEAM, BUSINESS, ENTERPRISE }\n\n    static final String PREFIX = \"quota.\";\n\n    private final Map<Tier, Integer> megabytes;\n\n    private Quotas(Map<Tier, Integer> megabytes) {\n        this.megabytes = megabytes;\n    }\n\n    /** The upload limit of a tier, in megabytes. */\n    public int megabytes(Tier tier) {\n        return megabytes.get(tier);\n    }\n\n    /**\n     * Reads every {@code quota.<TIER>=<megabytes>} entry; other keys belong to other parts of\n     * the service and are ignored.\n     */\n    public static Quotas load(Properties props) {\n        Map<Tier, Integer> megabytes = new EnumMap<>(Tier.class);\n        for (String key : props.stringPropertyNames()) {\n            if (!key.startsWith(PREFIX)) continue;\n            megabytes.put(tier(key), Integer.parseInt(props.getProperty(key).trim()));\n        }\n        checkComplete(megabytes);\n        return new Quotas(megabytes);\n    }\n\n    /** The tier a quota key names. */\n    static Tier tier(String key) {\n        String name = key.substring(PREFIX.length());\n        for (Tier t : Tier.values()) {\n            if (t.name().equals(name)) return t;\n        }\n        throw new IllegalStateException(\"unknown tier in \" + key);\n    }\n\n    /** Refuses a configuration that leaves a tier without a quota. */\n    static void checkComplete(Map<Tier, Integer> megabytes) {\n        Set<Tier> missing = EnumSet.allOf(Tier.class);\n        missing.removeAll(megabytes.keySet());\n        if (!missing.isEmpty()) throw new IllegalStateException(\"no quota for \" + missing);\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Predicate;\n\npublic enum ValidationRule {\n    NOT_NULL(\"Must not be null\", todo()),\n    NOT_BLANK(\"Must not be blank\", todo()),\n    POSITIVE_NUMBER(\"Must be positive\", todo()),\n    VALID_EMAIL(\"Must be a valid email\", todo());\n\n    private final String message;\n    private final Predicate<Object> validator;\n\n    ValidationRule(String message, Predicate<Object> validator) {\n        this.message = message;\n        this.validator = validator;\n    }\n\n    public String message() {\n        return message;\n    }\n\n    /** Empty when {@code value} satisfies this rule, else this rule's message. */\n    public Optional<String> validate(Object value) {\n        throw new UnsupportedOperationException(\"write validate\");\n    }\n\n    /** The messages of every rule {@code value} violates, in the order given. */\n    public static List<String> validateAll(Object value, ValidationRule... rules) {\n        throw new UnsupportedOperationException(\"write validateAll\");\n    }\n\n    private static Predicate<Object> todo() {\n        return v -> {\n            throw new UnsupportedOperationException(\"write this predicate\");\n        };\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Properties;\nimport java.util.Set;\n\n/** The upload quota of each pricing tier, read once at startup from the service's properties. */\npublic final class Quotas {\n\n    public enum Tier { FREE, TEAM, BUSINESS, ENTERPRISE }\n\n    static final String PREFIX = \"quota.\";\n\n    private final Map<Tier, Integer> megabytes;\n\n    private Quotas(Map<Tier, Integer> megabytes) {\n        this.megabytes = megabytes;\n    }\n\n    /** The upload limit of a tier, in megabytes. */\n    public int megabytes(Tier tier) {\n        return megabytes.get(tier);\n    }\n\n    /**\n     * Reads every {@code quota.<TIER>=<megabytes>} entry; other keys belong to other parts of\n     * the service and are ignored.\n     */\n    public static Quotas load(Properties props) {\n        Map<Tier, Integer> megabytes = new EnumMap<>(Tier.class);\n        for (String key : props.stringPropertyNames()) {\n            if (!key.startsWith(PREFIX)) continue;\n            megabytes.put(tier(key), Integer.parseInt(props.getProperty(key).trim()));\n        }\n        checkComplete(megabytes);\n        return new Quotas(megabytes);\n    }\n\n    /** The tier a quota key names. */\n    static Tier tier(String key) {\n        // TODO: The tier after \"quota.\". A key that names no tier must stop the startup with an\n        //       IllegalStateException that names the key.\n        throw new IllegalStateException(\"TODO: tier\");\n    }\n\n    /** Refuses a configuration that leaves a tier without a quota. */\n    static void checkComplete(Map<Tier, Integer> megabytes) {\n        // TODO: Stop the startup with an IllegalStateException naming every tier that has no\n        //       quota, whatever the file holds.\n        throw new IllegalStateException(\"TODO: checkComplete\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -105,7 +72,7 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -114,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "10a791e462c096053a1293e8433d5a90371da89c86194b23b609581d5a68efb7",
-  "starting_code": "package practice;\n\nimport java.util.Arrays;\nimport java.util.List;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.function.Predicate;\n\npublic enum ValidationRule {\n    NOT_NULL(\"Must not be null\", todo()),\n    NOT_BLANK(\"Must not be blank\", todo()),\n    POSITIVE_NUMBER(\"Must be positive\", todo()),\n    VALID_EMAIL(\"Must be a valid email\", todo());\n\n    private final String message;\n    private final Predicate<Object> validator;\n\n    ValidationRule(String message, Predicate<Object> validator) {\n        this.message = message;\n        this.validator = validator;\n    }\n\n    public String message() {\n        return message;\n    }\n\n    /** Empty when {@code value} satisfies this rule, else this rule's message. */\n    public Optional<String> validate(Object value) {\n        throw new UnsupportedOperationException(\"write validate\");\n    }\n\n    /** The messages of every rule {@code value} violates, in the order given. */\n    public static List<String> validateAll(Object value, ValidationRule... rules) {\n        throw new UnsupportedOperationException(\"write validateAll\");\n    }\n\n    private static Predicate<Object> todo() {\n        return v -> {\n            throw new UnsupportedOperationException(\"write this predicate\");\n        };\n    }\n}\n",
+  "content_sha256": "4eb7ea739e1afe179f14f76b4d175e88ded5a669e94921ffbf8b4d866450571c",
+  "starting_code": "package practice;\n\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Properties;\nimport java.util.Set;\n\n/** The upload quota of each pricing tier, read once at startup from the service's properties. */\npublic final class Quotas {\n\n    public enum Tier { FREE, TEAM, BUSINESS, ENTERPRISE }\n\n    static final String PREFIX = \"quota.\";\n\n    private final Map<Tier, Integer> megabytes;\n\n    private Quotas(Map<Tier, Integer> megabytes) {\n        this.megabytes = megabytes;\n    }\n\n    /** The upload limit of a tier, in megabytes. */\n    public int megabytes(Tier tier) {\n        return megabytes.get(tier);\n    }\n\n    /**\n     * Reads every {@code quota.<TIER>=<megabytes>} entry; other keys belong to other parts of\n     * the service and are ignored.\n     */\n    public static Quotas load(Properties props) {\n        Map<Tier, Integer> megabytes = new EnumMap<>(Tier.class);\n        for (String key : props.stringPropertyNames()) {\n            if (!key.startsWith(PREFIX)) continue;\n            megabytes.put(tier(key), Integer.parseInt(props.getProperty(key).trim()));\n        }\n        checkComplete(megabytes);\n        return new Quotas(megabytes);\n    }\n\n    /** The tier a quota key names. */\n    static Tier tier(String key) {\n        // TODO: The tier after \"quota.\". A key that names no tier must stop the startup with an\n        //       IllegalStateException that names the key.\n        throw new IllegalStateException(\"TODO: tier\");\n    }\n\n    /** Refuses a configuration that leaves a tier without a quota. */\n    static void checkComplete(Map<Tier, Integer> megabytes) {\n        // TODO: Stop the startup with an IllegalStateException naming every tier that has no\n        //       quota, whatever the file holds.\n        throw new IllegalStateException(\"TODO: checkComplete\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-3/src/main/java/practice/ValidationRule.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-3/src/test/java/practice/ValidationRuleTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-3/src/main/java/practice/Quotas.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-05/practice-3/src/test/java/practice/QuotasTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ValidationRuleTest#validatesAgainstEachRule",
+        "id": "practice.QuotasTest#everyTierGetsItsQuota",
         "kind": "main",
-        "says": "Each rule tests a value with its own predicate, validate() gives its message for a violation, and validateAll() collects the messages."
+        "says": "a complete file gives every tier its quota and other keys are ignored"
       },
       {
-        "id": "practice.ValidationRuleTest#everyViolationIsReported",
+        "id": "practice.QuotasTest#aTierWithoutAQuotaStopsTheStartup",
         "kind": "edge",
-        "says": "validateAll() reports every violated rule, in the order the rules were given, not only the first."
+        "says": "loading a file that leaves a tier without a quota fails with IllegalStateException naming that tier"
       },
       {
-        "id": "practice.ValidationRuleTest#nullViolatesTheTextRules",
+        "id": "practice.QuotasTest#aFileWithNoQuotasNamesEveryTier",
         "kind": "edge",
-        "says": "null violates NOT_BLANK and VALID_EMAIL without throwing, rather than being read as the text \"null\"."
+        "says": "loading a file with no quota at all fails with IllegalStateException naming every tier"
       },
       {
-        "id": "practice.ValidationRuleTest#blankIsNotTheSameAsEmpty",
+        "id": "practice.QuotasTest#aMistypedTierStopsTheStartupNamingTheKey",
         "kind": "edge",
-        "says": "NOT_BLANK rejects a text of whitespace only, Unicode spaces such as U+2003 included, not just the empty text."
+        "says": "a quota key that names no tier fails the load with IllegalStateException naming the key"
       }
     ],
     "report": {
@@ -165,10 +132,10 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.5.md",
-      "section": "Q3: How do you implement a composable validation framework with enums?"
+      "section": "Enum-Keyed Configuration Belongs in an EnumMap Checked for Every Key at Startup"
     },
     "concepts": [
-      "Validation rules as enum constants with Predicate fields compose, and validateAll() reports every violation, not only the first."
+      "Configuration keyed by an enum is loaded into an EnumMap and checked against EnumSet.allOf before it is used, so a constant without a value stops the startup instead of the first request, and an unknown key is reported by name."
     ]
   }
 }

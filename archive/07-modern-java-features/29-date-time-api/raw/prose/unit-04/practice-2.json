@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Between an instant and a wall clock",
+  "title": "Stop the first edit of every wiki page from conflicting",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,27 @@
     },
     {
       "type": "para",
-      "text": "An `Instant` is a point on the UTC timeline; a `LocalDateTime` is a reading of a wall clock, with no zone. Converting one into the other always needs a `ZoneId`: the same instant is a different wall-clock reading in each zone, and the same wall-clock reading is a different instant in each zone."
+      "text": "A team wiki keeps its pages in a table whose `updated_at` column holds epoch milliseconds. To stop two people from overwriting each other, every edit carries the `updated_at` of the version it was made from, and the store refuses the edit if that is no longer the current version."
     },
     {
       "type": "para",
-      "text": "Write `WallClock`:"
+      "text": "`PageStore` creates, reads and saves pages, and it reads time from the `Clock` it is given. Finish its two `TODO` methods in `src/main/java/practice/PageStore.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`static LocalDateTime localAt(Instant instant, ZoneId zone)` returns the date and time a wall clock in `zone` shows at `instant`.",
-        "`static Instant instantOf(LocalDateTime local, ZoneId zone)` returns the instant at which a wall clock in `zone` shows `local`."
+        "`stamp()`: the moment recorded as a new version's `updated_at` and returned to the client;",
+        "`isCurrent(...)`: whether a client's stamp names the version the column holds."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`localAt(2024-03-15T18:30:00Z, America/New_York)`",
-          "`2024-03-15T14:30`"
-        ],
-        [
-          "`localAt(2024-03-15T18:30:00Z, Asia/Tokyo)`",
-          "`2024-03-16T03:30`"
-        ],
-        [
-          "`instantOf(2024-03-15T14:30, America/New_York)`",
-          "`2024-03-15T18:30:00Z`"
-        ],
-        [
-          "`instantOf(2024-03-15T14:30, Asia/Tokyo)`",
-          "`2024-03-15T05:30:00Z`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a client can edit a page with the stamp it got from `create`, `read` or `save`, and an edit made from a replaced version is refused, however soon after the replacement it arrives. About two lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests drive the store with a clock they move by hand, and its readings carry nanoseconds."
     },
     {
       "type": "heading",
@@ -71,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\n\npublic final class WallClock {\n\n    private WallClock() {\n    }\n\n    /** What a wall clock in the zone shows at the instant. */\n    public static LocalDateTime localAt(Instant instant, ZoneId zone) {\n        return LocalDateTime.ofInstant(instant, zone);\n    }\n\n    /** The instant at which a wall clock in the zone shows the local date-time. */\n    public static Instant instantOf(LocalDateTime local, ZoneId zone) {\n        return local.atZone(zone).toInstant();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.Clock;\nimport java.time.Instant;\nimport java.time.temporal.ChronoUnit;\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Stores wiki pages. Its table keeps each page's updated_at as epoch milliseconds, and an edit is\n * accepted only if it was made from the page's current version, named by its updated_at.\n */\npublic class PageStore {\n\n    /** What the client gets back: the page, and the stamp to send with its next edit. */\n    public record Version(String id, String text, Instant updatedAt) {}\n\n    /** The edit was made from a version that is no longer current. */\n    public static final class EditConflict extends RuntimeException {\n        public EditConflict(String id) {\n            super(\"page \" + id + \" was changed by someone else\");\n        }\n    }\n\n    /** One row of the table: the column updated_at holds epoch milliseconds. */\n    private record Row(String text, long updatedAtMillis) {}\n\n    private final Clock clock;\n    private final Map<String, Row> table = new HashMap<>();\n\n    public PageStore(Clock clock) {\n        this.clock = clock;\n    }\n\n    public synchronized Version create(String id, String text) {\n        Instant now = stamp();\n        table.put(id, new Row(text, now.toEpochMilli()));\n        return new Version(id, text, now);\n    }\n\n    public synchronized Version read(String id) {\n        Row row = table.get(id);\n        return new Version(id, row.text(), Instant.ofEpochMilli(row.updatedAtMillis()));\n    }\n\n    /** Saves an edit made from the version stamped {@code editedFrom}. */\n    public synchronized Version save(String id, String text, Instant editedFrom) {\n        Row row = table.get(id);\n        if (!isCurrent(editedFrom, row.updatedAtMillis())) {\n            throw new EditConflict(id);\n        }\n        Instant now = stamp();\n        table.put(id, new Row(text, now.toEpochMilli()));\n        return new Version(id, text, now);\n    }\n\n    /** The moment to record as a page's updated_at, and to hand to the client. */\n    Instant stamp() {\n        return clock.instant().truncatedTo(ChronoUnit.MILLIS);\n    }\n\n    /** Whether a client's stamp names the version whose updated_at column holds this value. */\n    boolean isCurrent(Instant editedFrom, long updatedAtMillis) {\n        return editedFrom.equals(Instant.ofEpochMilli(updatedAtMillis));\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\n\npublic final class WallClock {\n\n    private WallClock() {\n    }\n\n    /** What a wall clock in the zone shows at the instant. */\n    public static LocalDateTime localAt(Instant instant, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write localAt\");\n    }\n\n    /** The instant at which a wall clock in the zone shows the local date-time. */\n    public static Instant instantOf(LocalDateTime local, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write instantOf\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.Clock;\nimport java.time.Instant;\nimport java.time.temporal.ChronoUnit;\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Stores wiki pages. Its table keeps each page's updated_at as epoch milliseconds, and an edit is\n * accepted only if it was made from the page's current version, named by its updated_at.\n */\npublic class PageStore {\n\n    /** What the client gets back: the page, and the stamp to send with its next edit. */\n    public record Version(String id, String text, Instant updatedAt) {}\n\n    /** The edit was made from a version that is no longer current. */\n    public static final class EditConflict extends RuntimeException {\n        public EditConflict(String id) {\n            super(\"page \" + id + \" was changed by someone else\");\n        }\n    }\n\n    /** One row of the table: the column updated_at holds epoch milliseconds. */\n    private record Row(String text, long updatedAtMillis) {}\n\n    private final Clock clock;\n    private final Map<String, Row> table = new HashMap<>();\n\n    public PageStore(Clock clock) {\n        this.clock = clock;\n    }\n\n    public synchronized Version create(String id, String text) {\n        Instant now = stamp();\n        table.put(id, new Row(text, now.toEpochMilli()));\n        return new Version(id, text, now);\n    }\n\n    public synchronized Version read(String id) {\n        Row row = table.get(id);\n        return new Version(id, row.text(), Instant.ofEpochMilli(row.updatedAtMillis()));\n    }\n\n    /** Saves an edit made from the version stamped {@code editedFrom}. */\n    public synchronized Version save(String id, String text, Instant editedFrom) {\n        Row row = table.get(id);\n        if (!isCurrent(editedFrom, row.updatedAtMillis())) {\n            throw new EditConflict(id);\n        }\n        Instant now = stamp();\n        table.put(id, new Row(text, now.toEpochMilli()));\n        return new Version(id, text, now);\n    }\n\n    /** The moment to record as a page's updated_at, and to hand to the client. */\n    Instant stamp() {\n        // TODO: Read the store's clock. The value you return goes into the updated_at column and\n        //       back to the client, and the client's next edit must still match the column.\n        throw new IllegalStateException(\"TODO: stamp\");\n    }\n\n    /** Whether a client's stamp names the version whose updated_at column holds this value. */\n    boolean isCurrent(Instant editedFrom, long updatedAtMillis) {\n        // TODO: Answer whether the client edited the version this column value belongs to.\n        throw new IllegalStateException(\"TODO: isCurrent\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -102,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "04eff2179b2276612d52fbde50a4cf2246fb3fd42fa65a994ed10e2faae1b914",
-  "starting_code": "package practice;\n\nimport java.time.Instant;\nimport java.time.LocalDateTime;\nimport java.time.ZoneId;\n\npublic final class WallClock {\n\n    private WallClock() {\n    }\n\n    /** What a wall clock in the zone shows at the instant. */\n    public static LocalDateTime localAt(Instant instant, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write localAt\");\n    }\n\n    /** The instant at which a wall clock in the zone shows the local date-time. */\n    public static Instant instantOf(LocalDateTime local, ZoneId zone) {\n        throw new UnsupportedOperationException(\"write instantOf\");\n    }\n}\n",
+  "content_sha256": "82bc54a783a0a1c8ad68f32dc8c2cecb4b43e7e534715e1ff988750e40777944",
+  "starting_code": "package practice;\n\nimport java.time.Clock;\nimport java.time.Instant;\nimport java.time.temporal.ChronoUnit;\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Stores wiki pages. Its table keeps each page's updated_at as epoch milliseconds, and an edit is\n * accepted only if it was made from the page's current version, named by its updated_at.\n */\npublic class PageStore {\n\n    /** What the client gets back: the page, and the stamp to send with its next edit. */\n    public record Version(String id, String text, Instant updatedAt) {}\n\n    /** The edit was made from a version that is no longer current. */\n    public static final class EditConflict extends RuntimeException {\n        public EditConflict(String id) {\n            super(\"page \" + id + \" was changed by someone else\");\n        }\n    }\n\n    /** One row of the table: the column updated_at holds epoch milliseconds. */\n    private record Row(String text, long updatedAtMillis) {}\n\n    private final Clock clock;\n    private final Map<String, Row> table = new HashMap<>();\n\n    public PageStore(Clock clock) {\n        this.clock = clock;\n    }\n\n    public synchronized Version create(String id, String text) {\n        Instant now = stamp();\n        table.put(id, new Row(text, now.toEpochMilli()));\n        return new Version(id, text, now);\n    }\n\n    public synchronized Version read(String id) {\n        Row row = table.get(id);\n        return new Version(id, row.text(), Instant.ofEpochMilli(row.updatedAtMillis()));\n    }\n\n    /** Saves an edit made from the version stamped {@code editedFrom}. */\n    public synchronized Version save(String id, String text, Instant editedFrom) {\n        Row row = table.get(id);\n        if (!isCurrent(editedFrom, row.updatedAtMillis())) {\n            throw new EditConflict(id);\n        }\n        Instant now = stamp();\n        table.put(id, new Row(text, now.toEpochMilli()));\n        return new Version(id, text, now);\n    }\n\n    /** The moment to record as a page's updated_at, and to hand to the client. */\n    Instant stamp() {\n        // TODO: Read the store's clock. The value you return goes into the updated_at column and\n        //       back to the client, and the client's next edit must still match the column.\n        throw new IllegalStateException(\"TODO: stamp\");\n    }\n\n    /** Whether a client's stamp names the version whose updated_at column holds this value. */\n    boolean isCurrent(Instant editedFrom, long updatedAtMillis) {\n        // TODO: Answer whether the client edited the version this column value belongs to.\n        throw new IllegalStateException(\"TODO: isCurrent\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-2/src/main/java/practice/WallClock.java",
-    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-2/src/test/java/practice/WallClockTest.java",
+    "main_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-2/src/main/java/practice/PageStore.java",
+    "test_path": "practice/07-modern-java-features/29-date-time-api/prose/unit-04/practice-2/src/test/java/practice/PageStoreTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.WallClockTest#convertsThroughAZone",
+        "id": "practice.PageStoreTest#acceptsAnEditOfTheCurrentVersionAndRefusesOneOfAnOlderVersion",
         "kind": "main",
-        "says": "An instant reads as New York's and UTC's wall-clock time, and a UTC wall-clock time is the matching instant."
+        "says": "an edit made from the version just read is saved, and a later edit made from that same, now replaced, version is refused"
       },
       {
-        "id": "practice.WallClockTest#theZoneDecidesTheInstant",
+        "id": "practice.PageStoreTest#acceptsTheFirstEditMadeWithTheStampTheCreateReturned",
         "kind": "edge",
-        "says": "14:30 in New York and 14:30 in Tokyo are different instants."
+        "says": "the stamp handed back by create still matches the column, so the first edit goes through"
       },
       {
-        "id": "practice.WallClockTest#theDateCanChange",
+        "id": "practice.PageStoreTest#givesTwoVersionsSavedWithinOneSecondDifferentStamps",
         "kind": "edge",
-        "says": "18:30 UTC on March 15 is already 03:30 on March 16 in Tokyo."
+        "says": "two versions saved 300 ms apart get different stamps"
+      },
+      {
+        "id": "practice.PageStoreTest#refusesAnEditOfAVersionReplacedWithinTheSameSecond",
+        "kind": "edge",
+        "says": "an edit made from a version that was replaced less than a second ago is refused, not saved over the newer one"
       }
     ],
     "report": {
@@ -148,11 +136,11 @@
     },
     "origin": {
       "path": "29-date-time-api/README_7.3.2.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A Timestamp Survives a Store Only at the Store's Precision"
     },
     "concepts": [
-      "Timestamps are stored as Instant and turned into a zone's wall-clock time only for display.",
-      "Converting between Instant and LocalDateTime always needs a zone, and the same wall-clock reading is a different instant in each zone."
+      "Truncating stamps further than the store needs, to seconds, gives two versions in the same second the same stamp, so a stale edit passes the check.",
+      "An instant written to a millisecond store and read back is unequal to the original unless it was truncated to milliseconds when stamped."
     ]
   }
 }

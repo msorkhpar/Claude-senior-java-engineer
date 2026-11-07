@@ -3,24 +3,30 @@ package practice;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.util.List;
-import java.util.Locale;
 
-public final class Timesheet {
+/** A week's timesheet: the shifts worked, compared with the hours in the contract. */
+public class Timesheet {
 
-    private Timesheet() {
-    }
+    /** One shift, from its start to its end on the clock. */
+    public record Shift(LocalTime start, LocalTime end) {}
 
-    /** One shift, from {@code start} to {@code end}. */
-    public record Shift(LocalTime start, LocalTime end) {
-    }
-
-    /** The total time worked, as hours, a colon and two-digit minutes. */
-    public static String total(List<Shift> shifts) {
-        Duration total = Duration.ZERO;
+    /** The time worked minus the contracted time, as shown on the payslip. */
+    public static String balance(List<Shift> shifts, Duration contracted) {
+        Duration worked = Duration.ZERO;
         for (Shift shift : shifts) {
-            Duration worked = Duration.between(shift.start(), shift.end()).abs();
-            total = total.plus(worked);
+            worked = worked.plus(length(shift.start(), shift.end()));
         }
-        return String.format(Locale.ROOT, "%d:%02d", total.toHours(), total.toMinutesPart());
+        return label(worked.minus(contracted));
+    }
+
+    /** How long a shift from {@code start} to {@code end} lasts. No shift lasts 24 hours or more. */
+    static Duration length(LocalTime start, LocalTime end) {
+        return Duration.between(start, end);
+    }
+
+    /** An amount as hours and two-digit minutes: {@code 3:05}, {@code -0:40}. */
+    static String label(Duration amount) {
+        Duration abs = amount.abs();
+        return (amount.isNegative() ? "-" : "") + abs.toHours() + ":" + String.format("%02d", abs.toMinutesPart());
     }
 }

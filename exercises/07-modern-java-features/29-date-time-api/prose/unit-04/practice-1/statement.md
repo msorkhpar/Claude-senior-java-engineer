@@ -1,22 +1,17 @@
-`Instant.now()` always reads the system clock, which a test cannot control.
-`Instant.now(clock)` (or `clock.instant()`) reads whatever `Clock` it is
-given: `Clock.systemUTC()` in production, a fixed or hand-driven clock in a
-test.
+A parcel's tracking page merges three feeds. The line-haul carrier posts JSON such as
+`{"event": "picked up", "sentAt": 1795300000}`, the courier sends ISO-8601 text with a `Z` or an
+offset, and the sorting depot's scanners report what their wall clock showed when the parcel went
+past, such as `2026-11-19T08:20:00`. Customers of the Chicago depot see their parcel arrive at the
+depot hours before the truck that brought it left, and support keeps finding line-haul events
+dated 1970.
 
-Write `AuditLog`, which stamps every action with the moment it happened:
+`ParcelTimeline` already merges and sorts the feeds, and reads the courier's text. Finish the two
+`TODO` methods in `src/main/java/practice/ParcelTimeline.java`:
 
-- `AuditLog(Clock clock)` creates an empty log that reads `clock`.
-- `Entry record(String action)` stores the action with the clock's current
-  instant and returns the entry (`AuditLog.Entry` is a record with
-  `Instant at()` and `String action()`; it is given in the starter).
-- `List<String> actionsWithin(Duration window)` returns, oldest first, the
-  actions recorded no earlier than `window` before the clock's **current**
-  instant. An entry exactly `window` old is still inside.
+- `fromSentAt(long)`: the moment a line-haul `sentAt` value names. The carrier's API documentation
+  says it counts whole seconds since 1970-01-01T00:00Z.
+- `fromScanner(String)`: the moment at which a scanner of this depot showed the given reading. The
+  depot's zone is passed to the constructor.
 
-| steps (clock starts at `2024-03-15T12:00:00Z`) | answer |
-|---|---|
-| `record("login")` | an entry at `2024-03-15T12:00:00Z` |
-| clock moves 5 minutes; `record("view")` | an entry at `2024-03-15T12:05:00Z` |
-| `actionsWithin(Duration.ofMinutes(10))` | `["login", "view"]` |
-| `actionsWithin(Duration.ofMinutes(2))` | `["view"]` |
-| clock moves 1 hour; `actionsWithin(Duration.ofMinutes(10))` | `[]` |
+When you're done, every event sits at the moment it happened, wherever its feed came from. About
+two lines in total.

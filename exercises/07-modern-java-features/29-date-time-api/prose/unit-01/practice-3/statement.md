@@ -1,17 +1,8 @@
-A `java.util.Date` is **mutable**: anyone holding a reference can call
-`setTime` and change it. A class that keeps a `Date` it was handed, or hands
-out the `Date` it keeps, lets outside code change its state behind its back.
-Where the `Date` type cannot be replaced (an old API still uses it), the page's
-fix is a **defensive copy**.
+The hotel's booking form takes the check-in date as typed text. Front-desk staff report guests who
+arrive on a day the hotel has no booking for: one typed `2025-09-31` and was booked for
+1 October, another pasted `2025-10-12 15:00` from an email. A partner site that sends `2025-7-4`
+has asked whether that format is supported; the answer is no, and the form should say so.
 
-Write `Booking`, which must keep its start moment no matter what callers do
-with their `Date` objects:
-
-- `Booking(Date start)` records the start.
-- `Date getStart()` returns the start.
-
-| steps | `getStart().getTime()` |
-|---|---|
-| `new Booking(new Date(1_710_505_800_000L))` | `1710505800000` |
-| keep the `Date` you passed in, call `setTime(0)` on it | still `1710505800000` |
-| call `getStart().setTime(0)` | still `1710505800000` |
+Finish `checkInDate(...)` in `src/main/java/practice/CheckInForm.java`. It returns the date when the
+field holds exactly one real date written as `YYYY-MM-DD`, and throws `IllegalArgumentException`
+for anything else, so that `review(...)` asks the guest again. About five lines.

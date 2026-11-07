@@ -1,22 +1,12 @@
-Contract terms arrive as a `Period` built by other code, so they may look like
-`Period.of(0, 14, 3)`: fourteen months and three days. Write
-`Terms.describe(Period term)`, a label for the term:
+A public library charges a fine for every day an item comes back after its due date: 25 cents a
+day, or 10 cents for members who are under 18 on the day they return it. The auditors found
+items that were out for most of a summer and were fined less than a week's worth, and a member
+who paid the adult rate a few days before turning 18.
 
-- Twelve months are shown as a year: 14 months is `1 year, 2 months`.
-- **Days are never turned into months** (nor into years): 45 days is `45 days`,
-  and 400 days is `400 days`.
-- **Mixed signs are balanced**: 2 years and minus 3 months is `1 year, 9 months`.
-- Parts that are zero are left out; one of a unit is singular.
-- **A term of nothing is `0 days`.**
+`Fines.fineCents(...)` already picks the rate and multiplies. Finish the two `TODO`s in
+`src/main/java/practice/Fines.java`:
 
-The parts are joined with `, ` in the order years, months, days. The whole term
-is never negative.
+- `daysOverdue(due, returned)`: how many days the item is late;
+- `ageOn(born, day)`: the member's age in whole years on that day.
 
-| term | answer |
-|---|---|
-| `Period.of(0, 14, 3)` | `1 year, 2 months, 3 days` |
-| `Period.of(2, 1, 1)` | `2 years, 1 month, 1 day` |
-| `Period.ofMonths(6)` | `6 months` |
-| `Period.ofDays(45)` | `45 days` |
-| `Period.of(2, -3, 0)` | `1 year, 9 months` |
-| `Period.ZERO` | `0 days` |
+About two lines in total.

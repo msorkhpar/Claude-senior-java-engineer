@@ -18,252 +18,334 @@
       "text": "7.2.5. Use Cases and Examples"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "A customer cancelled an order and got a refund. An hour later the warehouse's \"shipped\" event arrived, the handler wrote its status into the order, and the parcel went out anyway. The status field was an enum, and an enum field accepts any constant, in any order. An enum can enforce which states may follow which, but only if you put the table somewhere."
     },
     {
       "type": "para",
-      "text": "Enhanced enums unlock powerful design patterns that go far beyond simple named constants. This section explores real-world use cases where enums serve as state machines, strategy selectors, validation frameworks, singleton services, permission systems, and result containers. These patterns are common in production Java codebases and frequently appear in senior-level interviews."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of enums as the Swiss Army knife of Java design. A regular knife (plain enum) just has a blade (a name). But a Swiss Army knife (enhanced enum) has a blade, screwdriver, bottle opener, scissors, and tweezers — each tool (pattern) serves a different purpose, and they're all compactly bundled in one reliable, pocket-sized package. You always have the right tool, and you never lose any of them because they're all attached."
-    },
-    {
-      "type": "para",
-      "text": "Key use cases covered:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**State Machine** — enum constants as states with valid transitions",
-        "**Strategy Pattern** — enum constants as interchangeable algorithms",
-        "**Validation Framework** — enum constants as composable validation rules",
-        "**Singleton Service Registry** — enum constants as thread-safe singletons with behavior",
-        "**Permission/Flag System** — EnumSet-backed efficient permission combinations",
-        "**Result Type** — enum status combined with generic record for monadic error handling"
-      ]
+      "text": "Here are four jobs enums do in production code: the singleton, flag sets, state machines and configuration keyed by a constant. What an enum can't do is unit 7.2.1. Enums can't be generic (JEP 301 proposed it and was withdrawn; unit 7.2.2), constructor arguments and constant-specific bodies are unit 7.2.3, and generic methods on an enum are unit 7.2.4."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "An Enum With One Constant Is a Singleton That Reflection and Serialization Can't Copy"
+    },
+    {
+      "type": "para",
+      "text": "The usual singleton is a class with a private constructor and one static instance. This one hands out order ids:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.io.Serializable;\nimport java.util.concurrent.atomic.AtomicLong;\n\nfinal class IdSequence implements Serializable {\n    static final IdSequence INSTANCE = new IdSequence();\n    private final AtomicLong next = new AtomicLong();\n    private IdSequence() {}\n    long nextId() { return next.incrementAndGet(); }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.concurrent.atomic.AtomicLong;\n\nenum Ids {\n    INSTANCE;\n    private final AtomicLong next = new AtomicLong();\n    long nextId() { return next.incrementAndGet(); }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Before reading the output, predict how many instances of each exist after a serialization round trip and after a reflective call to the private constructor. The program writes each `INSTANCE` to an `ObjectOutputStream` and reads it back, then calls `getDeclaredConstructors()[0]`, `setAccessible(true)` and `newInstance(...)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "class: deserialized == INSTANCE? false\nclass: reflected  == INSTANCE? false\nenum:  deserialized == INSTANCE? true\nenum:  reflection: java.lang.IllegalArgumentException: Cannot reflectively create enum objects"
+    },
+    {
+      "type": "para",
+      "text": "The private constructor stops other code from writing `new IdSequence()`, nothing more. Deserialization builds a new object without calling it, and `setAccessible` opens it. The reflected copy's counter starts at zero and the deserialized one resumes from the value written, so two parts of the service hand out the same ids and the second insert fails on a duplicate key. A `readResolve` method returning `INSTANCE` fixes the round trip; it does nothing against the reflective call."
+    },
+    {
+      "type": "para",
+      "text": "The enum needs neither. `Constructor.newInstance` refuses any enum class, and an enum is serialized as its name and read back with `valueOf`, so the reader gets the constant that already exists in its own JVM. Its fields don't travel. Here one JVM takes 41 ids and writes `INSTANCE` to a file, and a second JVM reads it:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "writer: next id would be 42\nreader: same constant? true, nextId() = 1"
+    },
+    {
+      "type": "para",
+      "text": "If the state matters elsewhere, store it yourself. Every thread shares the constant's fields, which is why the counter is an `AtomicLong`. And code that names `Ids.INSTANCE` can't be handed another implementation in a test: let the enum implement an interface and pass the interface around."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "EnumSet Is a Typed Bit Mask, and a Shared One Must Be Unmodifiable"
+    },
+    {
+      "type": "para",
+      "text": "Permissions as `int` flags look cheap, but nothing ties a flag to its family:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static final int READ = 1, WRITE = 2, DELETE = 4;\nstatic final int NOTIFY_EMAIL = 1, NOTIFY_SMS = 2;      // another family, same bits"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "int mask = READ | WRITE;\nint oops = NOTIFY_EMAIL | NOTIFY_SMS;                // compiles: it's just an int"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "mask = 3, canDelete = false\nnotification flags as permissions: canDelete = false, mask = 3"
+    },
+    {
+      "type": "para",
+      "text": "A user's notification settings passed as permissions compile, run and give read-write access, and the log shows `3`. With `enum Permission { READ, WRITE, DELETE }` and an `EnumSet`, the same mistake doesn't compile, and the set prints its names:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "WrongFamily.java:12: error: incompatible types: Set<Notify> cannot be converted to Set<Permission>\n        System.out.println(canDelete(alerts));\n                                     ^"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "set = [READ, WRITE], canDelete = false\njava.util.RegularEnumSet"
+    },
+    {
+      "type": "para",
+      "text": "The type costs nothing at run time. The `EnumSet` javadoc describes a bit vector with constant-time basic operations, a typesafe alternative to `int`-based bit flags. In the JDK's source, a set of an enum with up to 64 constants is a `RegularEnumSet`, which keeps one `long`. When the set must be stored, store the names (`READ,WRITE`), not the ordinals or a mask built from them: inserting a constant shifts every later bit, as unit 7.2.1 shows for ordinals."
+    },
+    {
+      "type": "para",
+      "text": "`EnumSet` is mutable, and `final` fixes only the reference. The `Permission` enum in this module's example code declares `public static final Set<Permission> READ_ONLY = EnumSet.of(READ)`, and one caller starts a guest from it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Set<Permission> guest = Permission.READ_ONLY;      // \"start from read-only\"\nguest.add(Permission.WRITE);                      // ...and grant one more to this guest"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "READ_ONLY is now [READ, WRITE]\nauditor can write: true"
+    },
+    {
+      "type": "para",
+      "text": "The `EnumSet.of` call ran once, when the class was initialized; every user of the field holds that one set. Every role built on `READ_ONLY` can now write, until the JVM restarts. Wrap shared sets with `Collections.unmodifiableSet`, so the `add` throws `UnsupportedOperationException`, and build a user's set as a copy: `EnumSet.copyOf(READ_ONLY)`. `copyOf(Collection)` takes the enum type from the first element, so an empty collection that isn't itself an `EnumSet` throws `IllegalArgumentException: Collection is empty`. Start from `EnumSet.noneOf(Permission.class)` and `addAll` instead when the source can be empty."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A State Machine Keeps Its Transitions in an EnumMap Filled After the Constants Exist"
+    },
+    {
+      "type": "para",
+      "text": "The natural place for \"what may follow\" seems to be the constructor:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.EnumSet;\nimport java.util.Set;\n\nenum OrderStatus {\n    PLACED(EnumSet.of(PAID, CANCELLED)),\n    PAID(EnumSet.of(SHIPPED, CANCELLED)),\n    SHIPPED(EnumSet.of(DELIVERED)),\n    DELIVERED(EnumSet.noneOf(OrderStatus.class)),\n    CANCELLED(EnumSet.noneOf(OrderStatus.class));\n\n    final Set<OrderStatus> next;\n    OrderStatus(Set<OrderStatus> next) { this.next = next; }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "OrderStatus.java:5: error: illegal forward reference\n    PLACED(EnumSet.of(PAID, CANCELLED)),\n                      ^"
+    },
+    {
+      "type": "para",
+      "text": "javac reports five of these. When `PLACED` is built, `PAID` doesn't exist yet. Java 21's javac refuses the qualified form `OrderStatus.PAID` too, and a lambda `() -> EnumSet.of(PAID, CANCELLED)` as well. Constant-specific bodies that return the set from a method compile, since a method runs later.They spread the table over every constant, though."
+    },
+    {
+      "type": "para",
+      "text": "The constants are initialized first, in declaration order, so a static block after them sees every one. Fill an `EnumMap` there:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Collections;\nimport java.util.EnumMap;\nimport java.util.EnumSet;\nimport java.util.Map;\nimport java.util.Set;\n\nenum OrderStatus {\n    PLACED, PAID, SHIPPED, DELIVERED, CANCELLED;\n\n    private static final Map<OrderStatus, Set<OrderStatus>> NEXT = new EnumMap<>(OrderStatus.class);\n    static {                                     // runs after every constant exists\n        NEXT.put(PLACED, EnumSet.of(PAID, CANCELLED));\n        NEXT.put(PAID, EnumSet.of(SHIPPED, CANCELLED));\n        NEXT.put(SHIPPED, EnumSet.of(DELIVERED));\n        NEXT.put(DELIVERED, EnumSet.noneOf(OrderStatus.class));\n        NEXT.put(CANCELLED, EnumSet.noneOf(OrderStatus.class));\n        NEXT.replaceAll((from, next) -> Collections.unmodifiableSet(next));\n    }\n\n    boolean canMoveTo(OrderStatus target) {\n        return NEXT.get(this).contains(target);\n    }\n\n    OrderStatus moveTo(OrderStatus target) {\n        if (!canMoveTo(target)) throw new IllegalStateException(this + \" -> \" + target);\n        return target;\n    }\n\n    static Map<OrderStatus, Set<OrderStatus>> table() { return Collections.unmodifiableMap(NEXT); }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The whole lifecycle is one table, printed in declaration order because an `EnumMap` is an array indexed by ordinal. The opening story, first as the handler wrote it and then through `moveTo`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "blind write: SHIPPED\nmoveTo: java.lang.IllegalStateException: CANCELLED -> SHIPPED, status stays CANCELLED\n{PLACED=[PAID, CANCELLED], PAID=[SHIPPED, CANCELLED], SHIPPED=[DELIVERED], DELIVERED=[], CANCELLED=[]}"
+    },
+    {
+      "type": "para",
+      "text": "A terminal state needs a row too, an empty set: a constant added later with no row makes `NEXT.get` return `null`, and `canMoveTo` throws a `NullPointerException` on the first order that reaches it. The `EnumSet.allOf` check of the next section, run on `NEXT` at startup, catches that before any order does."
+    },
+    {
+      "type": "para",
+      "text": "`moveTo` checks at run time. Unit 2.5.3 builds the same lifecycle with a record per state, where shipping an unpaid order doesn't compile and each state carries its own data. The enum keeps what the records lose: `values()`, the `EnumMap` table, and a status column that holds a name."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Enum-Keyed Configuration Belongs in an EnumMap Checked for Every Key at Startup"
+    },
+    {
+      "type": "para",
+      "text": "A notification service reads a rate limit per channel from a properties file (`limit.EMAIL=500`, `limit.SMS=20`) into an `EnumMap<Channel, Integer>`. A release adds `Channel.PUSH`, and nobody adds `limit.PUSH` to the file. The service starts cleanly. Hours later the first push notification fails:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "loaded {EMAIL=500, SMS=20}\nfirst push: Cannot invoke \"java.lang.Integer.intValue()\" because the return value of \"java.util.Map.get(Object)\" is null"
+    },
+    {
+      "type": "para",
+      "text": "A map answers a missing key with `null`, so the error waits for the first caller. Since the enum lists every key the map must hold, the loader can check them all before it returns:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Set<Channel> missing = EnumSet.allOf(Channel.class);\nmissing.removeAll(m.keySet());\nif (!missing.isEmpty()) throw new IllegalStateException(\"no limit for \" + missing);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "at startup: no limit for [PUSH]"
+    },
+    {
+      "type": "para",
+      "text": "The deploy fails, with the channel's name, before any traffic. The shorter `EnumSet.complementOf(EnumSet.copyOf(m.keySet()))` gives `[PUSH]` here too, but an `EnumMap`'s key set is not an `EnumSet`, so on an empty file it throws `Collection is empty` instead of naming every channel. A key that names no constant, such as `limit.EMIAL`, makes `Channel.valueOf` throw `IllegalArgumentException`; catch it and report the key."
+    },
+    {
+      "type": "para",
+      "text": "When the values are constants in code rather than a file, a `switch` expression with no `default` gives the same guarantee at compile time: adding `PUSH` breaks the build when the switch is recompiled (unit 1.2.5)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**State machines**: Each state knows its valid transitions; `transitionTo()` enforces invariants at runtime.",
-        "**Strategy pattern with enums**: Fixed set of strategies with singleton semantics — no allocation overhead.",
-        "**Validation rules**: Composable with `validateAll()` that returns all violations, not just the first.",
-        "**EnumSet** is backed by a bit vector — O(1) for `contains()`, `add()`, `remove()` on up to 64 constants.",
-        "**EnumMap** is backed by an array indexed by ordinal — faster and more memory-efficient than HashMap.",
-        "**Enum singletons** are inherently thread-safe, serialization-safe, and reflection-proof.",
-        "**Result type pattern**: Combining enum status with generic records creates a type-safe alternative to exceptions for expected failures.",
-        "**Enum + sealed interface**: Modern Java (17+) allows enums to work alongside sealed hierarchies for exhaustive pattern matching."
+        "**An enum singleton can't be copied.** `Constructor.newInstance` refuses enums and deserialization returns the existing constant; its fields don't travel, and every thread shares them.",
+        "**`EnumSet` is a bit mask with a type.** A set from another enum doesn't compile, it prints names, and a shared one must be unmodifiable or one caller's `add` changes everyone's. Store names, not ordinals.",
+        "**A state machine keeps its transitions in an `EnumMap` filled in a static initializer.** A constant can't name a later one in its arguments, and a state without a row gives `null`.",
+        "**Enum-keyed configuration is an `EnumMap` checked against `EnumSet.allOf` at load**, so a new constant without a value stops the deploy rather than the first request."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Pattern matching for switch**: State machines and strategy enums are naturally dispatched with switch expressions.",
-        "**Record patterns**: The `Result<T>` pattern (enum status + record) benefits from record pattern deconstruction in switches.",
-        "**Sealed interfaces**: Enums implementing sealed interfaces gain exhaustive switch support.",
-        "**Virtual threads**: Enum-based service registries can dispatch work onto virtual threads.",
-        "**Sequenced collections**: EnumSet iterates in declaration order, but in Java 21 it does not implement `SequencedSet` (no `getFirst()` or `reversed()`); copy it into a `List` or use `TreeSet` if you need those."
+      "type": "para",
+      "text": "**`EnumSet` and `EnumMap` (javadoc, Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call or situation",
+        "Result"
+      ],
+      "rows": [
+        [
+          "`EnumSet.noneOf(E.class)` / `allOf(E.class)`",
+          "empty / full set; both mutable"
+        ],
+        [
+          "`EnumSet.of()` with no arguments",
+          "does not compile"
+        ],
+        [
+          "`EnumSet.copyOf(collection)`",
+          "`IllegalArgumentException` if the collection is empty and not an `EnumSet`"
+        ],
+        [
+          "`EnumSet.complementOf(set)`",
+          "the constants not in `set`"
+        ],
+        [
+          "adding `null` to an `EnumSet`, `put(null, v)` on an `EnumMap`",
+          "`NullPointerException`"
+        ],
+        [
+          "iteration order of both",
+          "declaration order"
+        ],
+        [
+          "`EnumMap.get(key)` for a key with no entry",
+          "`null`"
+        ],
+        [
+          "concurrent writes",
+          "not synchronized; wrap with `Collections.synchronizedSet`/`Map`"
+        ],
+        [
+          "`Collections.unmodifiableSet(enumSet).add(x)`",
+          "`UnsupportedOperationException`"
+        ]
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "type": "para",
+      "text": "**Singleton forms (Java 21, run):**"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Attack",
+        "Class with private constructor",
+        "Enum"
+      ],
+      "rows": [
         [
-          "**State machine transitions that don't validate**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: allowing any transition\npublic OrderState moveTo(OrderState next) { return next; }\n\n// RIGHT: validate transitions\npublic OrderState transitionTo(OrderState target) {\n    if (!canTransitionTo(target)) {\n        throw new IllegalStateException(\n            \"Cannot transition from \" + this + \" to \" + target);\n    }\n    return target;\n}"
-          }
+          "`setAccessible(true)` + `newInstance`",
+          "a second instance",
+          "`IllegalArgumentException: Cannot reflectively create enum objects`"
         ],
         [
-          "**Mutable state in singleton enum services**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: non-thread-safe mutable cache\npublic enum Cache {\n    LRU;\n    private Map<String, Object> data = new HashMap<>(); // NOT thread-safe!\n}\n\n// RIGHT: use thread-safe data structures\npublic enum Cache {\n    LRU;\n    private final ConcurrentHashMap<String, Object> data = new ConcurrentHashMap<>();\n}"
-          }
-        ],
-        [
-          "**Negative amounts in discount strategies**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: not validating input\npublic double applyDiscount(double amount) {\n    return calculator.apply(amount);\n}\n\n// RIGHT: validate before applying\npublic double applyDiscount(double amount) {\n    if (amount < 0) throw new IllegalArgumentException(\"Amount cannot be negative\");\n    return Math.max(0, Math.round(calculator.apply(amount) * 100.0) / 100.0);\n}"
-          }
-        ],
-        [
-          "**Using EnumSet.of() for empty sets**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: EnumSet.of() requires at least one element\n// Set<Permission> empty = EnumSet.of(); // COMPILE ERROR\n\n// RIGHT: use EnumSet.noneOf()\nSet<Permission> empty = EnumSet.noneOf(Permission.class);"
-          }
-        ],
-        [
-          "**Forgetting that EnumSet.allOf() is mutable**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: exposing mutable set\npublic static final Set<Permission> ALL = EnumSet.allOf(Permission.class);\n// Callers can modify ALL!\n\n// RIGHT: wrap in unmodifiable set\npublic static final Set<Permission> ALL =\n    Collections.unmodifiableSet(EnumSet.allOf(Permission.class));"
-          }
+          "serialize and read back",
+          "a second instance, unless `readResolve` returns `INSTANCE`",
+          "the existing constant; fields not serialized"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
-      "ordered": false,
+      "ordered": true,
       "items": [
-        "**Use `EnumSet` for any `Set<MyEnum>`** — it's faster and uses less memory than `HashSet`.",
-        "**Use `EnumMap` for any `Map<MyEnum, V>`** — array-backed, O(1) access.",
-        "**Define permission constants as `public static final`** sets for reuse: `READ_ONLY`, `READ_WRITE`, `FULL_ACCESS`.",
-        "**Make state transitions explicit** — a state machine enum should document valid transitions in each constant.",
-        "**Use functional interfaces in constructors** for strategies — `Function<Double, Double>` is cleaner than abstract methods for simple transformations.",
-        "**Return `Optional` from validation** — `Optional.empty()` means valid, `Optional.of(message)` means violation.",
-        "**Prefer the Result pattern over exceptions** for expected business failures (validation errors, not-found, etc.).",
-        "**Combine enums with records** for algebraic data types: `enum Status { SUCCESS, FAILURE }` + `record Result<T>(Status status, T value)`."
+        "Your permission sets are stored as an `int` mask column in 40 million rows. Plan the move to names: what runs during the migration, and what does a reader of half-migrated data see?",
+        "The order lifecycle gains `RETURNED` and `REFUNDED`. Where would you write the test that proves every state has a row and every terminal state is intended?",
+        "A Spring bean and an enum singleton both give one instance per JVM. For an id generator that must be faked in tests, which do you choose, and what does the other cost?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
+      "text": "Design Note: An Enum Fixes Its Instances When the Class Is Compiled"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Terminal state transitions**: `transitionTo()` on a terminal state should always throw — terminal states have no valid transitions.",
-        "**Empty validation rule set**: `validateAll(value)` with no rules should return an empty list (all valid).",
-        "**Null input to validation**: The `NOT_NULL` rule should catch null; other rules should handle null gracefully.",
-        "**Discount on zero amount**: Should return 0.0, not negative.",
-        "**Cache eviction at max size**: LRU and FIFO caches should correctly evict the appropriate entry when full.",
-        "**EnumSet with all constants removed**: Results in an empty set, not null — iteration works but finds nothing.",
-        "**Result.map() on failure**: Should propagate the failure without invoking the mapper function."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**\"Implement a state machine using enums.\"** — One of the most common senior-level design questions. Show the transition validation pattern and terminal state concept.",
-        "**\"When would you use enum singletons vs. static classes?\"** — Enums are serialization-safe, reflection-proof, and can implement interfaces. Static classes can't.",
-        "**\"How do EnumSet and EnumMap work internally?\"** — EnumSet uses a bit vector (RegularEnumSet for ≤64 constants, JumboEnumSet for more). EnumMap uses an array indexed by ordinal.",
-        "**\"Design a permission system.\"** — Show the EnumSet-based approach with combine/intersect operations.",
-        "**\"Compare the Result pattern with exceptions.\"** — Result is for expected failures (validation, business logic); exceptions are for unexpected failures (I/O errors, bugs)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q1: How do you implement a state machine using enums?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A state machine enum encodes:\n1. States as enum constants\n2. Valid transitions per state (returned by an abstract method or stored in a field)\n3. Transition enforcement via a transitionTo() method that checks validity\n4. Terminal states identified by having no valid transitions\n\nAdvantages over other state machine implementations:\n- Compile-time safety: all states are known\n- Self-documenting: each state declares its transitions\n- Thread-safe: enum constants are immutable singletons\n- No external state needed: the current state IS an enum constant\n- Easy to test: just assert transition validity\n\nThe pattern scales well — add a new state by adding a constant and defining its\ntransitions. The compiler won't catch missing transitions (unlike sealed switches),\nbut code review and tests will."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum OrderState {\n    CREATED {\n        @Override public Set<OrderState> validTransitions() {\n            return EnumSet.of(PENDING_PAYMENT, CANCELLED);\n        }\n    },\n    PENDING_PAYMENT {\n        @Override public Set<OrderState> validTransitions() {\n            return EnumSet.of(PAID, CANCELLED);\n        }\n    },\n    PAID {\n        @Override public Set<OrderState> validTransitions() {\n            return EnumSet.of(PROCESSING, REFUNDED);\n        }\n    },\n    SHIPPED {\n        @Override public Set<OrderState> validTransitions() {\n            return EnumSet.of(DELIVERED, RETURNED);\n        }\n    },\n    DELIVERED {\n        @Override public Set<OrderState> validTransitions() {\n            return EnumSet.of(RETURNED);\n        }\n    },\n    CANCELLED {\n        @Override public Set<OrderState> validTransitions() {\n            return EnumSet.noneOf(OrderState.class); // Terminal state\n        }\n    };\n    // ... other states\n\n    public abstract Set<OrderState> validTransitions();\n\n    public boolean canTransitionTo(OrderState target) {\n        return validTransitions().contains(target);\n    }\n\n    public OrderState transitionTo(OrderState target) {\n        if (!canTransitionTo(target))\n            throw new IllegalStateException(this + \" → \" + target + \" is invalid\");\n        return target;\n    }\n\n    public boolean isTerminal() { return validTransitions().isEmpty(); }\n}\n\n// Usage\nOrderState state = OrderState.CREATED;\nstate = state.transitionTo(OrderState.PENDING_PAYMENT); // OK\n// state.transitionTo(OrderState.DELIVERED); // throws IllegalStateException"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q2: Explain EnumSet and EnumMap internals and when to use them."
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "EnumSet internals:\n- RegularEnumSet (≤64 constants): uses a single long as a bit vector.\n  Each bit corresponds to one constant (by ordinal). Operations like\n  contains(), add(), remove() are single bitwise operations — O(1).\n- JumboEnumSet (>64 constants): uses a long[] array. Same principle,\n  more storage.\n- Both are much faster and smaller than HashSet<MyEnum>.\n- Iteration is in declaration order (by ordinal).\n\nEnumMap internals:\n- Uses a plain Object[] array indexed by ordinal.\n- No hashing, no collision resolution — O(1) guaranteed.\n- Less memory than HashMap (no Entry objects, no table resizing).\n- Iteration is in declaration order.\n\nWhen to use:\n- ALWAYS use EnumSet instead of HashSet for Set<MyEnum>\n- ALWAYS use EnumMap instead of HashMap for Map<MyEnum, V>\n- The performance difference is significant: EnumSet operations are\n  1-2 orders of magnitude faster than HashSet equivalents."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// EnumSet — extremely efficient\nSet<Permission> perms = EnumSet.of(Permission.READ, Permission.WRITE);\nperms.contains(Permission.READ);     // Single bit check: O(1)\nperms.add(Permission.EXECUTE);       // Single bit set: O(1)\nperms.retainAll(EnumSet.of(READ));   // Bitwise AND: O(1)\n\n// Common EnumSet patterns\nSet<Permission> all = EnumSet.allOf(Permission.class);\nSet<Permission> none = EnumSet.noneOf(Permission.class);\nSet<Permission> complement = EnumSet.complementOf(EnumSet.of(Permission.ADMIN));\n\n// EnumMap — fastest map for enum keys\nEnumMap<Permission, String> descriptions = new EnumMap<>(Permission.class);\ndescriptions.put(Permission.READ, \"Can read resources\");\ndescriptions.put(Permission.WRITE, \"Can modify resources\");\nString desc = descriptions.get(Permission.READ); // Array index lookup: O(1)\n\n// Real-world: permission-based access control\nMap<Permission, Set<String>> accessLog = new EnumMap<>(Permission.class);\nfor (Permission p : Permission.values()) {\n    accessLog.put(p, new HashSet<>());\n}\naccessLog.get(Permission.READ).add(\"user:alice\");"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q3: How do you implement a composable validation framework with enums?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A validation enum uses parameterized constants with Predicate fields.\nEach constant represents one validation rule. Rules are composable:\n\n1. Single validation: rule.validate(value) returns Optional<String> — empty means valid\n2. Composed validation: validateAll(value, rules...) returns List<String> of all violations\n3. Rules are reusable and combinable for different contexts\n\nThis pattern is common in form validation, API input validation, and domain\nobject invariant checking. It's simpler than a full validation framework\n(like Bean Validation) for focused use cases.\n\nKey design: return ALL violations, not just the first. This gives the user\ncomplete feedback in one pass."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum ValidationRule {\n    NOT_NULL(\"Must not be null\", Objects::nonNull),\n    NOT_BLANK(\"Must not be blank\",\n        v -> v instanceof String s && !s.isBlank()),\n    POSITIVE_NUMBER(\"Must be positive\",\n        v -> v instanceof Number n && n.doubleValue() > 0),\n    VALID_EMAIL(\"Must be a valid email\",\n        v -> v instanceof String s && s.matches(\"^[\\\\w.-]+@[\\\\w.-]+\\\\.[a-zA-Z]{2,}$\"));\n\n    private final String message;\n    private final Predicate<Object> validator;\n\n    ValidationRule(String message, Predicate<Object> validator) {\n        this.message = message;\n        this.validator = validator;\n    }\n\n    public Optional<String> validate(Object value) {\n        return validator.test(value) ? Optional.empty() : Optional.of(message);\n    }\n\n    // Compose rules: returns ALL violations\n    public static List<String> validateAll(Object value, ValidationRule... rules) {\n        return Arrays.stream(rules)\n            .map(r -> r.validate(value))\n            .filter(Optional::isPresent)\n            .map(Optional::get)\n            .toList();\n    }\n}\n\n// Usage\nList<String> errors = ValidationRule.validateAll(null,\n    ValidationRule.NOT_NULL, ValidationRule.NOT_BLANK);\n// [\"Must not be null\", \"Must not be blank\"]\n\nList<String> emailErrors = ValidationRule.validateAll(\"bad-email\",\n    ValidationRule.NOT_NULL, ValidationRule.NOT_BLANK, ValidationRule.VALID_EMAIL);\n// [\"Must be a valid email\"]"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q4: When should you use enum singletons vs. other singleton patterns?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Enum singletons are the recommended singleton pattern in Java (per Effective Java, Item 3).\n\nAdvantages of enum singletons:\n1. Thread-safe: JVM guarantees single instantiation during class loading\n2. Serialization-safe: deserialization always returns the same instance\n3. Reflection-proof: Enum.class constructor check prevents reflective instantiation\n4. Simple: no double-checked locking, no static holder, no volatile fields\n5. Lazy: initialized when the enum class is first accessed\n\nWhen to use enum singletons:\n- Service registries, caches, configuration holders\n- When you need multiple singleton services (multiple constants)\n- When serialization correctness matters\n\nWhen NOT to use:\n- When you need lazy initialization of heavy resources (use static holder instead)\n- When the singleton needs to extend another class (enums extend Enum)\n- When you need the singleton to be replaceable in tests (prefer dependency injection)\n- When the number of instances might change in the future"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Enum singleton — recommended\npublic enum AppConfig {\n    INSTANCE;\n\n    private final Properties props = new Properties();\n\n    AppConfig() {\n        // Load configuration on first access\n        try (var is = getClass().getResourceAsStream(\"/app.properties\")) {\n            if (is != null) props.load(is);\n        } catch (Exception e) {\n            throw new ExceptionInInitializerError(e);\n        }\n    }\n\n    public String get(String key) {\n        return props.getProperty(key);\n    }\n\n    public String get(String key, String defaultValue) {\n        return props.getProperty(key, defaultValue);\n    }\n}\n\n// Multiple singleton services\npublic enum CacheType {\n    LRU {\n        private final Map<String, Object> cache =\n            Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {\n                @Override protected boolean removeEldestEntry(Map.Entry<String, Object> e) {\n                    return size() > 100;\n                }\n            });\n        @Override public void put(String key, Object val) { cache.put(key, val); }\n        @Override public Optional<Object> get(String key) { return Optional.ofNullable(cache.get(key)); }\n    },\n    FIFO { /* ... similar but FIFO eviction ... */ };\n\n    public abstract void put(String key, Object value);\n    public abstract Optional<Object> get(String key);\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q5: How do you combine enums with records for a Result/Either type?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "The Result type pattern combines:\n1. An enum for status (SUCCESS, FAILURE, PENDING) — the \"what happened\"\n2. A generic record for the payload — the \"what's inside\"\n\nThis creates a type-safe alternative to exceptions for expected failures:\n- map() transforms the value if successful, propagates failure otherwise\n- flatMap() chains operations that might fail\n- getValue() returns Optional — forces callers to handle absence\n\nAdvantages over exceptions:\n- Explicit in the type signature — callers see that failure is possible\n- No stack trace overhead — much faster than throwing exceptions\n- Composable — map/flatMap chains vs. nested try-catch\n- Forces handling — Optional return makes ignoring errors harder\n\nUse for: validation results, API responses, business rule outcomes\nDon't use for: truly exceptional conditions (I/O errors, OOM, bugs)"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum ResultStatus {\n    SUCCESS, FAILURE, PENDING;\n}\n\npublic record Result<T>(ResultStatus status, T value, String message) {\n    public static <T> Result<T> success(T value) {\n        return new Result<>(ResultStatus.SUCCESS, value, \"OK\");\n    }\n    public static <T> Result<T> failure(String msg) {\n        return new Result<>(ResultStatus.FAILURE, null, msg);\n    }\n\n    public <R> Result<R> map(Function<T, R> mapper) {\n        if (status == ResultStatus.SUCCESS && value != null)\n            return Result.success(mapper.apply(value));\n        return new Result<>(status, null, message);\n    }\n\n    public <R> Result<R> flatMap(Function<T, Result<R>> mapper) {\n        if (status == ResultStatus.SUCCESS && value != null)\n            return mapper.apply(value);\n        return new Result<>(status, null, message);\n    }\n\n    public Optional<T> getValue() { return Optional.ofNullable(value); }\n}\n\n// Usage — composable chain\nResult<Integer> result = Result.success(\"42\")\n    .map(Integer::parseInt)           // Result<Integer> SUCCESS: 42\n    .map(n -> n * 2);                 // Result<Integer> SUCCESS: 84\n\nResult<Integer> failed = Result.<String>failure(\"not found\")\n    .map(Integer::parseInt);          // Result<Integer> FAILURE: \"not found\"\n    // map was never called — failure propagated"
+      "type": "para",
+      "text": "Every use case on this page rests on one property: the set of instances is closed and known to javac. That is what lets `newInstance` refuse to build one more, lets `EnumSet` give each constant one bit, and lets an `EnumMap` be an array. The cost is that the set can only change with a release. Permissions that an administrator defines at run time, or workflow states that a customer configures, don't fit an enum; they belong in data, with the checks this page gets from the compiler written by hand."
     },
     {
       "type": "heading",
@@ -283,17 +365,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 15,
-    "paras": 3,
-    "code": 10,
-    "tables": 0,
-    "lists": 8,
+    "headings": 10,
+    "paras": 25,
+    "code": 18,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "42ce48c53891403ace9097f84aeef26746db445008f126a45cc8ff1e69f9979b"
+  "content_sha256": "e9d74c9abe6b9f0aa1aca76047271ecd2fa80cd2686d7100e623174a358ba518"
 }

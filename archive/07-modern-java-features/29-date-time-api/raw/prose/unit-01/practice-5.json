@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 5,
   "ingested": "2026-09-24",
-  "title": "Legacy formatting and what a Date holds",
+  "title": "Check yourself: the legacy date classes",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-shared-formatter",
-        "stem": "Per this page, many threads must format dates through one static field without any locking. Which field is safe to share?",
+        "id": "q-static-formatter",
+        "stem": "An order service keeps `private static final SimpleDateFormat DAY = new SimpleDateFormat(\"yyyy-MM-dd\")` and uses it in its request handler to parse the due dates clients send. A load test runs 16 clients at once and checks every parsed date against the text that was sent. What does it find?",
         "options": [
           {
             "id": "a",
-            "text": "A static final SimpleDateFormat that has been set to strict, non-lenient mode",
+            "text": "Some parses throw, and the rest come back right, since a disturbed parse fails instead of returning a value",
             "correct": false,
-            "says": "The page says SimpleDateFormat is unsafe because of the Calendar it mutates while working; strict mode changes validation, not that shared state."
+            "says": "most corrupted parses return a wrong date silently; the exceptions are the minority, and they are NumberFormatException and ArrayIndexOutOfBoundsException"
           },
           {
             "id": "b",
-            "text": "A static final SimpleDateFormat that has been given a fixed UTC time zone",
+            "text": "No parse goes wrong, since each parse copies the Calendar and DecimalFormat it needs before it uses them",
             "correct": false,
-            "says": "The page blames the internal Calendar state for the corruption; fixing the time zone leaves that shared state in place."
+            "says": "the Calendar and DecimalFormat are instance fields the formatter uses as scratch space, shared by every thread"
           },
           {
             "id": "c",
-            "text": "A static final DateTimeFormatter built once from the pattern it needs",
+            "text": "Some parses come back wrong, and nothing is logged, since all threads share one Calendar and DecimalFormat",
             "correct": true,
-            "says": "The page says DateTimeFormatter is immutable and thread-safe, so one static final instance can be shared by all threads."
+            "says": "the shared formatter's Calendar and DecimalFormat are overwritten by concurrent parses, and most failures return a wrong date silently"
+          },
+          {
+            "id": "d",
+            "text": "No parse goes wrong, since parse and format synchronize on the formatter's Calendar while they use it",
+            "correct": false,
+            "says": "SimpleDateFormat is not synchronized; its javadoc asks for one instance per thread"
           }
         ],
         "origin": {
           "path": "29-date-time-api/README_7.3.1.md",
-          "section": "Interview Q&A Section"
+          "section": "One SimpleDateFormat Shared by Threads Returns Wrong Dates"
         }
       },
       {
-        "id": "q-date-contents",
-        "stem": "Per this page, why can the same java.util.Date print as a different day and time on two machines?",
+        "id": "q-two-servers-log",
+        "stem": "Two servers log the same row's `java.util.Date` with `log.info(\"due \" + due)`. One prints `Tue Jun 03 01:15:00 CEST 2025`, the other `Mon Jun 02 19:15:00 EDT 2025`. Operations asks which server holds a wrong value. What do you answer?",
         "options": [
           {
             "id": "a",
-            "text": "It holds only epoch milliseconds, and toString renders them in the default zone",
-            "correct": true,
-            "says": "The page says the internal value is always UTC milliseconds while toString() uses the default time zone."
+            "text": "Neither: both hold the same calendar fields, and each JVM prints them with its own default UTC offset",
+            "correct": false,
+            "says": "a Date holds no calendar fields, only milliseconds; the two lines even show different days"
           },
           {
             "id": "b",
-            "text": "It holds the creating machine's wall-clock fields, and each reader shifts them",
-            "correct": false,
-            "says": "The page says a Date's internal representation is milliseconds since the epoch, not wall-clock fields."
+            "text": "Neither: both hold the same millisecond count, and each JVM prints it in its own default time zone",
+            "correct": true,
+            "says": "a Date is only milliseconds since the epoch; toString() uses the printing JVM's default zone"
           },
           {
             "id": "c",
-            "text": "It holds a rounded clock reading, and each machine rounds it at its own precision",
+            "text": "One of them: a Date holds the time zone ID it was created in, and one server used a wrong ID",
             "correct": false,
-            "says": "The page names the default time zone used by toString() as the cause, not any rounding of the stored value."
+            "says": "a Date stores no zone; the zone printed is the one of the JVM that prints it"
+          },
+          {
+            "id": "d",
+            "text": "One of them: a Date holds the calendar fields it was created with, and one server shifted them",
+            "correct": false,
+            "says": "a Date stores no calendar fields; the same value prints as different days in different zones"
           }
         ],
         "origin": {
           "path": "29-date-time-api/README_7.3.1.md",
-          "section": "Interview Q&A Section"
+          "section": "A Date Has No Zone; toString() Uses the JVM's Default"
+        }
+      },
+      {
+        "id": "q-final-due-date",
+        "stem": "`final class Invoice { private final Date dueDate; Invoice(Date d) { dueDate = d; } Date getDueDate() { return dueDate; } }`. A reminder job runs `Date r = invoice.getDueDate(); r.setTime(r.getTime() - 3 * DAY_MS);` to work out when to send a reminder. What does `invoice.getDueDate()` return afterwards?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The original date, since a final field keeps the Date it refers to from changing",
+            "correct": false,
+            "says": "final fixes the reference, not the contents of the Date"
+          },
+          {
+            "id": "b",
+            "text": "Three days earlier, since setTime made the invoice's field refer to a new Date",
+            "correct": false,
+            "says": "setTime changes the object in place; a final field can't be made to point anywhere else"
+          },
+          {
+            "id": "c",
+            "text": "Three days earlier, since the job changed the Date that the field refers to",
+            "correct": true,
+            "says": "the getter handed out the invoice's own Date, and setTime changes that object; final only fixes which object the field points to"
+          },
+          {
+            "id": "d",
+            "text": "The original date, since a getter gives the caller its own copy of the field",
+            "correct": false,
+            "says": "this getter returns the field itself; Java copies nothing unless the code does"
+          }
+        ],
+        "origin": {
+          "path": "29-date-time-api/README_7.3.1.md",
+          "section": "A Date Is a Mutable Moment, So Anyone Holding It Can Move It"
+        }
+      },
+      {
+        "id": "q-distinct-days",
+        "stem": "A nightly job counts distinct payment days by adding `new java.sql.Date(rs.getTimestamp(\"paid_at\").getTime())` for every payment to a `HashSet`. Two payments were made at 09:10 and 16:40 on one day, and both values print as `2025-05-06`. How many entries does that day contribute?",
+        "options": [
+          {
+            "id": "a",
+            "text": "One, since the constructor drops the time and equals compares the dates",
+            "correct": false,
+            "says": "the constructor keeps the time of day, and equals compares getTime(); only toString() shows just the day"
+          },
+          {
+            "id": "b",
+            "text": "Two, since equals compares object identity and the job built two separate objects",
+            "correct": false,
+            "says": "equals compares the millisecond values, not identity; equal milliseconds would give one entry"
+          },
+          {
+            "id": "c",
+            "text": "One, since toString drops the time and equals compares the printed days",
+            "correct": false,
+            "says": "equals compares getTime(), not the printed day; two values that print the same day differ when their milliseconds differ"
+          },
+          {
+            "id": "d",
+            "text": "Two, since the constructor keeps the time and equals compares the milliseconds",
+            "correct": true,
+            "says": "java.sql.Date's constructor keeps the full millisecond value, and equals compares getTime()"
+          }
+        ],
+        "origin": {
+          "path": "29-date-time-api/README_7.3.1.md",
+          "section": "java.sql.Date Is a java.util.Date That Breaks Its Parent's Contract"
         }
       }
     ],
     "concepts": [
-      "A Date holds only milliseconds since the epoch, so its printed day and time depend on the default time zone and there is no date-only type.",
-      "SimpleDateFormat keeps mutable parsing state, so a shared instance is unsafe across threads and an immutable DateTimeFormatter constant is the replacement."
+      "A final Date field fixes which object the field refers to, not the moment inside it, and a getter that returns the field hands out that object.",
+      "A SimpleDateFormat shared by threads returns wrong dates, most of them without any exception, because it parses into a Calendar of its own; DateTimeFormatter is safe to share.",
+      "The java.sql.Date(long) constructor keeps the time of day, so two values that print the same day are not equal."
     ]
   }
 }

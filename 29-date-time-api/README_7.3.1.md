@@ -1,291 +1,273 @@
 # 7.3.1. Limitations of the Legacy Date and Calendar Classes
 
-## Concept Explanation
+A booking service written before Java 8 gets three tickets in one week. Monday's standup moved
+from 08:00 to 07:45 UTC, and nobody asked for it. A guest booked a room for 30 February and was
+charged for 2 March. The nightly report puts a booking made at 23:30 UTC on Sunday on one server
+and on Monday on another. Each comes from how `java.util.Date`, `Calendar` or `SimpleDateFormat`
+behave by default.
 
-Before Java 8, Java developers relied on `java.util.Date`, `java.util.Calendar`, and `java.text.SimpleDateFormat` for date and time operations. These classes were part of Java since version 1.0 (Date) and 1.1 (Calendar), and they accumulated significant design flaws over the years that made them error-prone and difficult to use correctly.
+Every output below comes from Java 21. Each run sets the default zone and locale explicitly:
+`-Duser.timezone=Europe/Amsterdam` unless stated, and `-Duser.language=en -Duser.country=US`.
 
-**Real-world analogy**: Imagine using a ruler that measures in centimeters but labels everything starting from 1900 instead of 0, where January is labeled "0" and December is labeled "11", and where any colleague can silently change the ruler's length while you are measuring. That is what working with `java.util.Date` and `Calendar` feels like -- confusing conventions, mutable state, and unpredictable behavior.
+## A Date Is a Mutable Moment, So Anyone Holding It Can Move It
 
-The problems were so well-known that the entire `java.time` package (JSR 310) was created as a replacement, drawing heavily from the Joda-Time library designed by Stephen Colebourne.
-
-## Key Points to Remember
-
-1. **`java.util.Date` is mutable** -- any code with a reference can change it, making it unsafe to share between threads or return from methods without defensive copying.
-2. **Year offset from 1900** -- `Date.getYear()` returns years since 1900, so year 2024 is represented as 124.
-3. **Zero-based months** -- `Calendar.JANUARY` is 0, `Calendar.DECEMBER` is 11, leading to constant off-by-one errors.
-4. **`SimpleDateFormat` is NOT thread-safe** -- sharing an instance across threads causes corrupt output or exceptions.
-5. **No separation of concerns** -- `Date` represents both a date and a timestamp; there is no "date-only" or "time-only" type.
-6. **Lenient mode by default** -- `Calendar` silently accepts invalid dates like February 30 and rolls them forward.
-7. **Poor timezone support** -- `TimeZone` still accepts three-letter abbreviations that are ambiguous (e.g., "CST" could be Central Standard Time or China Standard Time), and `TimeZone.getTimeZone()` silently returns GMT for an ID it does not recognise.
-8. **`java.sql.Date` extends `java.util.Date`** with different semantics, causing confusion in JDBC code.
-
-## Relevant Java 21 Features
-
-- The `java.time` API introduced in Java 8 is the standard replacement and has been stable through Java 21.
-- The `Date` methods deprecated back in JDK 1.1 (such as `getYear()` and `setMonth()`) are still deprecated, but not removed, in Java 21; the classes remain for compatibility.
-- Pattern matching and records work well with immutable `java.time` types for cleaner code.
-- Virtual threads benefit from the thread-safe design of `DateTimeFormatter` over `SimpleDateFormat`.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using deprecated `Date` constructors and methods**:
-   ```java
-   // Problem: Year is offset from 1900
-   Date date = new Date(2024, 1, 15); // Actually February 15, 3924! (year + 1900, 0-based month)
-
-   // Fix: Use java.time instead
-   LocalDate date = LocalDate.of(2024, 1, 15);
-   ```
-
-2. **Sharing `SimpleDateFormat` across threads**:
-   ```java
-   // Problem: Thread-unsafe shared formatter
-   private static final SimpleDateFormat SDF = new SimpleDateFormat("yyyy-MM-dd");
-
-   // Fix: Use DateTimeFormatter (immutable and thread-safe)
-   private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-   ```
-
-3. **Month indexing confusion with Calendar**:
-   ```java
-   // Problem: Setting March but passing 3 means April
-   calendar.set(2024, 3, 15); // This is April 15!
-
-   // Fix: Use Calendar constants or java.time
-   calendar.set(2024, Calendar.MARCH, 15);
-   // Better: LocalDate.of(2024, 3, 15) -- 1-based months
-   ```
-
-4. **Returning mutable Date from getters**:
-   ```java
-   // Problem: Caller can modify internal state
-   public Date getStartDate() { return this.startDate; }
-
-   // Fix: Return defensive copy or use LocalDate
-   public Date getStartDate() { return new Date(this.startDate.getTime()); }
-   // Better: public LocalDate getStartDate() { return this.startDate; }
-   ```
-
-5. **Calendar lenient mode silently creating wrong dates**:
-   ```java
-   // Problem: February 30 silently becomes March 1 or 2
-   Calendar cal = Calendar.getInstance();
-   cal.set(2024, Calendar.FEBRUARY, 30); // No error!
-
-   // Fix: Use strict mode or java.time
-   cal.setLenient(false);
-   // Better: LocalDate.of(2024, 2, 30) // Throws DateTimeException
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Always prefer `java.time` classes** over `Date` and `Calendar` in new code.
-2. **Use `DateTimeFormatter` instead of `SimpleDateFormat`** -- it is immutable and thread-safe.
-3. **When interacting with legacy APIs**, convert at the boundary and use `java.time` internally.
-4. **Never expose mutable `Date` objects** from API boundaries without defensive copying.
-5. **When migrating**, use the bridge methods: `Date.toInstant()`, `Calendar.toInstant()`, `Date.from(Instant)`.
-
-## Edge Cases and Their Handling
-
-1. **Calendar lenient mode and month overflow**: `Calendar.set(2024, 12, 1)` with 0-based months means month 12 = January of the next year.
-2. **`Date(long)` constructor with negative values**: Represents dates before the Unix epoch (Jan 1, 1970).
-3. **`SimpleDateFormat.parse()` with lenient mode**: Can accept strings like "2024-13-01" and silently produce incorrect results.
-4. **Timezone ambiguity**: `TimeZone.getTimeZone("CST")` might not return the timezone you expect.
-
-## Interview-specific Insights
-
-Interviewers often ask about legacy date limitations to assess:
-- Awareness of thread-safety issues in Java APIs
-- Understanding of API design principles (immutability, clear naming)
-- Ability to identify and explain why an API is poorly designed
-- Knowledge of migration strategies from legacy to modern APIs
-- Understanding of defensive programming practices
-
-Common tricky questions:
-- "What happens if two threads share a `SimpleDateFormat` instance?"
-- "Why does `new Date(124, 0, 1)` represent January 1, 2024?"
-- "How would you make a `Date` field in a class thread-safe?"
-
-## Interview Q&A Section
-
-**Q1: What are the main problems with `java.util.Date`?**
-
-```text
-A1: The main problems with java.util.Date include:
-
-1. Mutability: Date objects can be modified after creation via setters like setYear(), setMonth(), 
-   etc. This makes them unsafe to share across threads or return from methods without defensive copies.
-
-2. Confusing API: The year is offset from 1900 (so 2024 = 124), months are 0-based (January = 0),
-   and many methods are deprecated without clear replacements in the same class.
-
-3. Mixed semantics: Date represents both a date and a timestamp (milliseconds since epoch).
-   There is no way to represent just a date or just a time.
-
-4. Poor timezone support: Date.toString() uses the default timezone, but the internal representation
-   is always UTC milliseconds, leading to confusion.
-
-5. Thread-unsafe formatting: SimpleDateFormat, the standard way to format/parse Date objects,
-   is not thread-safe.
-
-The java.time package (JSR 310) introduced in Java 8 addresses all of these issues with 
-immutable, well-designed classes.
-```
+A `Date` holds one `long`, milliseconds since 1970-01-01T00:00Z, and `setTime` changes it. The
+meeting keeps its start in a `private final Date` field and returns it from a getter. The reminder
+service wants a time 15 minutes earlier:
 
 ```java
-// Demonstrating mutability problem
-Date date = new Date();
-Date shared = date; // Both point to same mutable object
-shared.setTime(0);  // Modifies the original too!
+static final class Meeting {
+    private final Date start;
+    Meeting(Date start) { this.start = start; }
+    Date getStart() { return start; }
+}
 
-// java.time solution -- immutable by design
-LocalDate today = LocalDate.now();
-LocalDate modified = today.plusDays(1); // Returns NEW object
-// today is unchanged
+Meeting standup = new Meeting(Date.from(Instant.parse("2026-03-16T08:00:00Z")));
+Date reminder = standup.getStart();                       // the reminder service's code
+reminder.setTime(reminder.getTime() - 15 * 60 * 1000);   // remind 15 minutes before
+System.out.println("meeting starts: " + standup.getStart().toInstant());
 ```
-
-**Q2: Why is `SimpleDateFormat` not thread-safe and what is the alternative?**
 
 ```text
-A2: SimpleDateFormat is not thread-safe because it uses internal mutable state (a Calendar instance)
-during formatting and parsing operations. When multiple threads call format() or parse() on the
-same instance concurrently, they corrupt this shared state, producing incorrect results or throwing
-ArrayIndexOutOfBoundsException.
-
-Common workarounds in pre-Java 8 code:
-1. Create a new SimpleDateFormat for each use (expensive)
-2. Synchronize access (reduces concurrency)
-3. Use ThreadLocal<SimpleDateFormat> (complex lifecycle management)
-
-The modern alternative is DateTimeFormatter from java.time.format, which is immutable and 
-thread-safe by design. A single static final instance can be safely shared across all threads
-without any synchronization.
+meeting starts: 2026-03-16T07:45:00Z
 ```
+
+`final` fixes which object the field points to, not what is inside it. The getter handed out the
+meeting's own object, so the reminder service moved the meeting itself. The constructor stores the
+caller's object too, so a caller that reuses its `Date` for the next booking moves this meeting.
+
+Where you must keep `Date`, copy it in the constructor and in the getter: `new Date(d.getTime())`.
+The `java.time` value types are immutable, and their `plus...` methods return a new object
+(unit 7.3.2).
+
+<!-- practice 1 -->
+
+## Months Count From 0, Years From 1900, and Out-of-Range Values Roll Over
+
+`Calendar` numbers months 0 to 11, and the deprecated `Date` constructors also take the year minus
+1900. By default neither rejects an out-of-range value: the excess carries into the next field.
 
 ```java
-// UNSAFE: Shared SimpleDateFormat
-private static final SimpleDateFormat UNSAFE = new SimpleDateFormat("yyyy-MM-dd");
-// Multiple threads calling UNSAFE.format(date) or UNSAFE.parse(text) will produce corrupt results
-// (LegacyDateLimitations.wrongParsesWithSharedSimpleDateFormat measures this: with 8 threads
-// sharing one instance, some of the 40,000 parses per round come back wrong or throw;
-// how many depends on the machine)
-
-// SAFE: Shared DateTimeFormatter
-private static final DateTimeFormatter SAFE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-// Multiple threads can call SAFE.format(localDate) without any issues
+Date d = new Date(2026, 3, 15);                   // each result printed as yyyy-MM-dd
+Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("Europe/Amsterdam"));
+cal.clear(); cal.set(2026, 3, 15);
+cal.clear(); cal.set(2026, 12, 1);
+cal.clear(); cal.set(2026, Calendar.FEBRUARY, 30);
+cal.clear(); cal.setLenient(false); cal.set(2026, Calendar.FEBRUARY, 30);
+cal.getTime();                                    // throws; caught and printed
+Date march = new Date(126, Calendar.MARCH, 15);
+System.out.println("getYear() " + march.getYear() + ", getMonth() " + march.getMonth());
 ```
-
-**Q3: What is the zero-based month problem in Calendar and why does it matter?**
 
 ```text
-A3: In java.util.Calendar, months are indexed from 0 (January = 0, February = 1, ..., 
-December = 11). This is a legacy design decision inherited from C's struct tm.
-
-This causes frequent off-by-one bugs because:
-1. Developers naturally think of months as 1-12
-2. Setting month 3 actually means April, not March
-3. The Calendar class accepts invalid month values in lenient mode (e.g., month 12 silently 
-   becomes January of the next year)
-
-In java.time, months are 1-based (January = 1, December = 12) using the Month enum, which 
-eliminates this entire class of bugs. Additionally, invalid values like month 13 throw a 
-DateTimeException immediately rather than silently wrapping.
+new Date(2026, 3, 15):        3926-04-15
+cal.set(2026, 3, 15):         2026-04-15
+cal.set(2026, 12, 1):         2027-01-01
+cal.set(2026, FEBRUARY, 30):  2026-03-02
+strict getTime():             java.lang.IllegalArgumentException: MONTH: 1 -> 2
+getYear() 126, getMonth() 2
 ```
+
+The year 2026 passed to the constructor became 3926, month 3 is April, month 12 is January of the
+next year, and 30 February is 2 March. The conventions are those of C's `struct tm` (`tm_year`
+since 1900, `tm_mon` from 0). Only the non-lenient calendar refused, and only when it next computed
+its fields. The bug appears wherever values cross into or out of the legacy API: a column written
+from `getMonth()` and read as a calendar month is a month early on every row. `LocalDate.of` counts months from 1 and throws on 30 February.
+
+<!-- practice 2 -->
+
+## Parsing Is Lenient by Default, and Strict Mode Still Ignores What Follows the Date
+
+`SimpleDateFormat.parse` uses the same lenient calendar:
 
 ```java
-// Calendar zero-based month trap
-Calendar cal = Calendar.getInstance();
-cal.set(2024, 3, 15);  // Looks like March 15 but is actually April 15!
-cal.set(2024, Calendar.MARCH, 15);  // Correct but verbose
-
-// java.time -- intuitive 1-based months
-LocalDate date = LocalDate.of(2024, 3, 15);  // March 15, as expected
-LocalDate date2 = LocalDate.of(2024, Month.MARCH, 15);  // Also works
+SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd");
+f.setTimeZone(TimeZone.getTimeZone("UTC"));
+for (String s : new String[] {"2026-02-30", "2026-13-01", "2026-03-15abc"}) {
+    System.out.printf("lenient %-14s -> %s%n", s, out.format(f.parse(s)));   // out: the same pattern, UTC
+}
+f.setLenient(false);                              // then "2026-02-30", "2026-03-15abc", "2026-3-5"
+ParsePosition pos = new ParsePosition(0);
+f.parse("2026-03-15abc", pos);
+System.out.println("parse stopped at index " + pos.getIndex() + " of 13");
 ```
-
-**Q4: How does Calendar's lenient mode cause bugs?**
 
 ```text
-A4: By default, Calendar operates in lenient mode, which means it silently accepts invalid
-date values and "rolls" them to the nearest valid date. For example:
-
-- February 30 becomes March 1 (or March 2 in non-leap years)
-- Month 13 becomes January of the next year
-- Day 0 becomes the last day of the previous month
-
-This is dangerous because:
-1. Input validation errors are silently ignored
-2. The resulting date may be completely different from what was intended
-3. Bugs propagate silently through the application
-
-You can call calendar.setLenient(false) to enable strict mode, which throws an 
-IllegalArgumentException for invalid values. However, this is opt-in, and most developers
-don't know to enable it.
-
-In java.time, strict validation is the default. LocalDate.of(2024, 2, 30) immediately throws
-a DateTimeException, making bugs visible at the point of origin.
+lenient 2026-02-30     -> 2026-03-02
+lenient 2026-13-01     -> 2027-01-01
+lenient 2026-03-15abc  -> 2026-03-15
+strict  2026-02-30     -> java.text.ParseException: Unparseable date: "2026-02-30"
+strict  2026-03-15abc  -> 2026-03-15
+strict  2026-3-5       -> 2026-03-05
+parse stopped at index 10 of 13
 ```
 
-```java
-// Lenient mode silently creates wrong date
-Calendar cal = Calendar.getInstance();
-cal.set(2024, Calendar.FEBRUARY, 30); // No error!
-System.out.println(cal.getTime()); // Prints March 1, 2024
-
-// Strict mode catches the error
-cal.setLenient(false);
-cal.set(2024, Calendar.FEBRUARY, 30);
-cal.getTime(); // Throws IllegalArgumentException
-
-// java.time -- always strict
-LocalDate.of(2024, 2, 30); // Throws DateTimeException immediately
-```
-
-**Q5: What design principles does java.time follow that the legacy API violated?**
+The lenient formatter is how the guest got 2 March. Strict mode rejects impossible fields, but
+`parse(String)` stops reading once it has a date and returns it; the `ParsePosition` shows it
+stopped at index 10 of 13. `MM` does not require two digits, so `2026-3-5` passes.
+`LocalDate.parse(text)` reads the whole text and validates the date (a pattern formatter needs
+`ResolverStyle.STRICT` for the same check, unit 7.3.2.4):
 
 ```text
-A5: The java.time API follows several important design principles:
-
-1. Immutability: All java.time classes are immutable and thread-safe. Operations return new 
-   instances rather than modifying existing ones. This eliminates defensive copying and 
-   synchronization concerns.
-
-2. Clarity of purpose: Each class has a single clear responsibility:
-   - LocalDate for date-only (no time, no timezone)
-   - LocalTime for time-only
-   - Instant for machine timestamps
-   - ZonedDateTime for date+time+timezone
-
-3. Domain-driven design: Methods use domain language (plusDays, minusHours) rather than 
-   generic setters, making code self-documenting.
-
-4. Fail-fast validation: Invalid values throw exceptions immediately rather than silently 
-   adjusting to incorrect values.
-
-5. Fluent API: Method chaining enables readable transformations:
-   LocalDate.now().plusMonths(1).with(TemporalAdjusters.lastDayOfMonth())
-
-6. Separation of human and machine time: Instant represents machine time (epoch seconds), 
-   while LocalDate/LocalTime represent human-readable calendar values.
-
-The legacy Date API violated all of these: it was mutable, mixed concerns (date + time + 
-timestamp in one class), used confusing conventions (year from 1900, 0-based months), 
-and silently accepted invalid values.
+LocalDate.parse: Text '2026-02-30' could not be parsed: Invalid date 'FEBRUARY 30'
 ```
+
+<!-- practice 3 -->
+
+## One SimpleDateFormat Shared by Threads Returns Wrong Dates
+
+Legacy code often keeps one formatter in a `static final` field. Four threads each parse 10,000
+dates (1,000 distinct ones, ten times over) through one shared instance and compare every result
+with the text they passed in (run with `-Duser.timezone=UTC`):
 
 ```java
-// Legacy: Mutable, confusing, error-prone
-Date date = new Date();
-date.setYear(124);        // 2024 (year from 1900)
-date.setMonth(0);         // January (0-based)
-date.setDate(31);
-// date is now January 31, 2024 -- but any code can mutate it
-
-// Modern: Immutable, clear, safe
-LocalDate date2 = LocalDate.of(2024, Month.JANUARY, 31);
-LocalDate nextMonth = date2.plusMonths(1); // Returns Feb 29 (leap year)
-// date2 is still January 31 -- immutable
+SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
+run("SimpleDateFormat ", t -> sdf.parse(t).toInstant().atOffset(ZoneOffset.UTC).toLocalDate());
+DateTimeFormatter dtf = DateTimeFormatter.ofPattern("uuuu-MM-dd");
+run("DateTimeFormatter", t -> LocalDate.parse(t, dtf));
 ```
+
+```text
+SimpleDateFormat  right 12804, wrong date 23468, threw {ArrayIndexOutOfBoundsException=56, NumberFormatException=3672}
+  first wrong date: 2010-01-01 came back as 2222-01-01
+DateTimeFormatter right 40000, wrong date     0, threw {}
+  first wrong date: none
+```
+
+A `SimpleDateFormat` keeps a `Calendar` and a `DecimalFormat` in instance fields and uses them as
+scratch space on every parse, so concurrent parses overwrite each other's partial results. The
+counts vary between runs, but in each one most failures return a date, another thread's or a mix
+that nobody passed in, and nothing logs them; the exceptions are the few you would notice. The
+class is not synchronized, and its javadoc advises a formatter per thread; pre-Java 8 code used a
+`ThreadLocal`, a new instance per call, or a lock. `DateTimeFormatter` is immutable and safe to share (unit 7.3.2.4).
+
+<!-- practice 5 -->
+
+## A Date Has No Zone; toString() Uses the JVM's Default
+
+The same `Date` printed in two JVMs, one started with `-Duser.timezone=Europe/Amsterdam` and one
+with `-Duser.timezone=America/New_York`:
+
+```java
+Date d = Date.from(Instant.parse("2026-03-15T23:30:00Z"));
+System.out.println("getTime():  " + d.getTime());
+System.out.println("toString(): " + d);
+```
+
+```text
+getTime():  1773617400000
+toString(): Mon Mar 16 00:30:00 CET 2026
+```
+
+```text
+getTime():  1773617400000
+toString(): Sun Mar 15 19:30:00 EDT 2026
+```
+
+Both JVMs hold the same `getTime()`. `toString()`, the deprecated `getDate()` and `getHours()`,
+and a `SimpleDateFormat` without `setTimeZone` all use the JVM's default zone. That is the nightly
+report: the code that cut bookings into days never named a zone, so each server used its own, and
+`java.util` has no date-only type to hold the result. To get a day, name the zone:
+`d.toInstant().atZone(zone).toLocalDate()` (zones in unit 7.3.2.5).
+
+## java.sql.Date Is a java.util.Date That Breaks Its Parent's Contract
+
+JDBC's date-only type, `java.sql.Date`, extends `java.util.Date` and still holds milliseconds.
+Its `toString()` prints only the day:
+
+```java
+long nineUtc = Instant.parse("2026-03-15T09:00:00Z").toEpochMilli();
+java.sql.Date fromMillis = new java.sql.Date(nineUtc);
+java.sql.Date fromText = java.sql.Date.valueOf("2026-03-15");
+System.out.println(fromMillis + " equals " + fromText + ": " + fromMillis.equals(fromText));
+System.out.println("getTime(): " + fromMillis.getTime() + " vs " + fromText.getTime());
+java.util.Date asUtil = fromMillis;               // it IS a java.util.Date
+asUtil.toInstant();                               // throws; caught and printed
+asUtil.getHours();                                // throws; caught and printed
+System.out.println("Instant.ofEpochMilli(getTime()): " + Instant.ofEpochMilli(asUtil.getTime()));
+System.out.println("fromText as a moment, in UTC: "
+        + Instant.ofEpochMilli(fromText.getTime()).atZone(ZoneOffset.UTC).toLocalDate());
+System.out.println("fromText.toLocalDate():       " + fromText.toLocalDate());
+```
+
+```text
+2026-03-15 equals 2026-03-15: false
+getTime(): 1773565200000 vs 1773529200000
+toInstant(): java.lang.UnsupportedOperationException
+getHours(): java.lang.IllegalArgumentException
+Instant.ofEpochMilli(getTime()): 2026-03-15T09:00:00Z
+fromText as a moment, in UTC: 2026-03-14
+fromText.toLocalDate():       2026-03-15
+```
+
+The constructor keeps the time of day and `equals` compares `getTime()`, so two values that print
+the same day aren't equal, and a `Set` of them keeps both. The subclass also throws from methods its parent declares: a method that
+takes a `java.util.Date`, calls `toInstant()` and is tested only with `java.util.Date` values fails
+on the first value from `ResultSet.getDate` (`java.sql.Timestamp` doesn't throw). For a moment,
+`Instant.ofEpochMilli(d.getTime())` works on both types. A `java.sql.Date` names a day, though:
+`valueOf` stored midnight in the default zone, 23:00Z the day before, so reading it as a moment in
+another zone gives the wrong day, and `toLocalDate()` gives the right one. Conversions are unit
+7.3.3.
+
+<!-- practice 4 -->
+
+## Summary
+
+- **A `Date` is mutable**: a getter or constructor that shares one lets any caller move your
+  moment, and `final` doesn't stop it.
+- **Months count from 0, years from 1900, and `Calendar` rolls overflow** into the next field
+  instead of rejecting it.
+- **`SimpleDateFormat` parses leniently by default**, and strict mode still ignores text after
+  the date.
+- **A shared `SimpleDateFormat` returns wrong dates under concurrency**, most of them silently.
+- **A `Date` has no zone or day**: `toString()` and `Date`'s deprecated field getters use the JVM
+  default.
+- **`java.sql.Date` breaks `java.util.Date`'s contract**: `toInstant()` throws, values that print
+  the same day can differ, and its day comes from `toLocalDate()`.
+
+## Reference
+
+**Legacy behaviour (Java 21, from runs or the javadoc):**
+
+| Call | Result |
+|---|---|
+| `new Date(y, m, d)` (deprecated) | year `1900 + y`, month `m` from 0 |
+| `date.getYear()`, `getMonth()` | year minus 1900; month from 0 |
+| `Calendar.set(y, 12, 1)` (lenient, the default) | January of `y + 1` |
+| `Calendar.setLenient(false)` | out-of-range fields throw `IllegalArgumentException` when the time is computed |
+| `SimpleDateFormat.parse(String)` | lenient by default; ignores text after the date even when strict |
+| `TimeZone.getTimeZone("Europe/Amsterdm")` | `GMT`: an unknown ID is not an error |
+| `TimeZone.getTimeZone("CST")` | accepted; the javadoc deprecates three-letter IDs as ambiguous |
+| `java.sql.Date.toInstant()`, `getHours()` | `UnsupportedOperationException`, `IllegalArgumentException` |
+
+**Replacements:**
+
+| Legacy | `java.time` | Unit |
+|---|---|---|
+| `Date` as a moment | `Instant` | 7.3.2.2 |
+| `Date` or `java.sql.Date` as a day | `LocalDate` | 7.3.2.1 |
+| `Calendar` with a zone | `ZonedDateTime` | 7.3.2.5 |
+| `SimpleDateFormat` | `DateTimeFormatter` | 7.3.2.4 |
+| `TimeZone` | `ZoneId` | 7.3.2.5 |
+
+## Challenges
+
+1. A library you can't change returns `Date` from its getters and keeps a reference. Where in your
+   code do you convert, and what do you lose if a caller still needs the library's object?
+2. Rerun the shared-formatter test with one thread and with 32. What do the counts tell you about
+   catching this bug in a test suite?
+3. A table stores `Date.getMonth()` values in a column named `month`. How do you migrate its
+   readers without a day on which both conventions are live?
+
+## Design Note: One Type for Every Question
+
+`java.util.Date` answers one question, "which millisecond", but the 1.0 API also made it answer
+"which day" and "which hour" through methods that used the default zone. JDK 1.1 deprecated those
+methods and moved calendar work to `Calendar` and text to `DateFormat`, but kept every type mutable
+and lenient by default. `java.time` (JSR 310, Java 8) gives each question its own immutable type,
+so a moment and a day have different types. The cost is at the boundary: legacy APIs still take
+and return `Date`, and converting to a day or a local time there needs an explicit zone.
 
 ## Code Examples
 
