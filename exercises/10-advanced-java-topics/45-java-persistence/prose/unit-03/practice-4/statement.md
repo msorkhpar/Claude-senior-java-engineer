@@ -9,5 +9,7 @@ table's `CHECK` keeps every balance between 0 and 1000. When you're done, a tran
 with the interest job still completes with the right balances, and a transfer the database refuses
 for its own rules fails at once and changes nothing. About twelve lines.
 
-The tests run on an in-memory H2 database. They start the interest job's transaction before the
-transfer and use the `Pause` after the debit to make the two cross.
+The tests run on an in-memory H2 database and use the `Pause` after the debit to make the transfer
+cross the interest job, twice: once with the job's transaction begun first, once with the
+transfer's. H2 rolls back one side of each crossing; the test's job reruns itself when it is the
+one, and a test fails with a message saying so if H2 never picks the transfer.

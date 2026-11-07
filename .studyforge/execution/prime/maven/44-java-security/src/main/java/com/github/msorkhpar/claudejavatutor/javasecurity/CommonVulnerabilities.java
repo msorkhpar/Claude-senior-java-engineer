@@ -1,322 +1,129 @@
 package com.github.msorkhpar.claudejavatutor.javasecurity;
 
+import org.xml.sax.SAXParseException;
+import org.xml.sax.helpers.DefaultHandler;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputFilter;
+import java.io.ObjectInputStream;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
 
 /**
- * Demonstrates common security vulnerabilities in Java and their mitigations.
- * Covers injection flaws, authentication/access control flaws, and sensitive data exposure.
+ * The four defences of unit 10.6.2, each as a small method: an ORDER BY allow-list, a path check
+ * that stays inside a base directory, a DOM parser that refuses a DOCTYPE, and a serialization
+ * filter set before readObject.
  */
 public class CommonVulnerabilities {
 
-    // ---- SQL Injection ----
+    // ---- SQL: values are bound, identifiers come from an allow-list ----
+
+    /** Public sort keys mapped to SQL text this class wrote; no character of the request reaches the SQL. */
+    static final Map<String, String> SORT_COLUMNS = Map.of(
+            "name", "name",
+            "price", "price",
+            "newest", "added_on");
+
+    static final Map<String, String> DIRECTIONS = Map.of("asc", "ASC", "desc", "DESC");
 
     /**
-     * VULNERABLE: Builds SQL using string concatenation - DO NOT USE in production.
-     * This is shown purely for educational purposes.
-     */
-    public String buildVulnerableQuery(String username) {
-        // INSECURE - vulnerable to SQL injection
-        return "SELECT * FROM users WHERE username = '" + username + "'";
-    }
-
-    /**
-     * SECURE: Uses parameterized queries to prevent SQL injection.
+     * The text after ORDER BY for a sort key and direction taken from a request.
      *
-     * @param connection the database connection
-     * @param username   the username to query
-     * @return list of matching usernames
-     * @throws SQLException if a database error occurs
+     * @throws IllegalArgumentException for any key or direction the API doesn't document
      */
+    public static String orderBy(String sort, String dir) {
+        String column = sort == null ? null : SORT_COLUMNS.get(sort);
+        String direction = dir == null ? null : DIRECTIONS.get(dir);
+        if (column == null || direction == null) {
+            throw new IllegalArgumentException("unsupported sort: " + sort + " " + dir);
+        }
+        return column + " " + direction;
+    }
+
+    /** The product list query for a request; its ORDER BY comes from the allow-list. */
+    public static String productQuery(String sort, String dir) {
+        return "SELECT name FROM product ORDER BY " + orderBy(sort, dir);
+    }
+
+    /** A value goes in a bind parameter (unit 7.4.5); only identifiers need the allow-list. */
     public List<String> findUserSecure(Connection connection, String username) throws SQLException {
-        Objects.requireNonNull(connection, "Connection must not be null");
-        Objects.requireNonNull(username, "Username must not be null");
-
-        String sql = "SELECT username FROM users WHERE username = ?";
-        List<String> results = new ArrayList<>();
-
-        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            stmt.setString(1, username);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    results.add(rs.getString("username"));
-                }
+        List<String> names = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement("SELECT username FROM users WHERE username = ?")) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) names.add(rs.getString(1));
             }
         }
-        return results;
+        return names;
     }
 
-    // ---- XSS Prevention ----
+    // ---- Paths: normalize, compare elements, then follow links ----
 
     /**
-     * VULNERABLE: Returns user input directly without encoding.
+     * The file under {@code base} that a request for {@code name} may open. normalize() and
+     * Path.startsWith refuse {@code ..} and a sibling directory whose name starts like the base;
+     * toRealPath() refuses a symbolic link that leads outside it, and is what decides when the
+     * text and the disk disagree.
+     *
+     * @throws SecurityException when the name leads outside the base
+     * @throws java.nio.file.NoSuchFileException when the file doesn't exist
      */
-    public String renderVulnerableHtml(String userInput) {
-        return "<div>" + userInput + "</div>";
+    public static Path resolveInside(Path base, String name) throws IOException {
+        Path normalized = base.resolve(name).normalize();
+        if (!normalized.startsWith(base.normalize())) {
+            throw new SecurityException("outside the base: " + name);
+        }
+        Path realBase = base.toRealPath();
+        Path real = base.resolve(name).toRealPath();
+        if (!real.startsWith(realBase)) {
+            throw new SecurityException("outside the base through a link: " + name);
+        }
+        return real;
     }
 
-    /**
-     * SECURE: Encodes user input before rendering in HTML.
-     */
-    public String renderSafeHtml(String userInput) {
-        if (userInput == null) {
-            return "<div></div>";
-        }
-        String escaped = userInput
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#x27;");
-        return "<div>" + escaped + "</div>";
+    // ---- XML: refuse any DOCTYPE, so no entity can name a file or a URL ----
+
+    /** A DOM factory for documents that never need a DOCTYPE. */
+    public static DocumentBuilderFactory newSafeDocumentBuilderFactory() throws ParserConfigurationException {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        return factory;
     }
 
-    // ---- Brute Force Protection ----
-
-    /**
-     * Simple rate limiter / brute-force protector for login attempts.
-     */
-    public static class LoginAttemptTracker {
-        private static final int MAX_ATTEMPTS = 5;
-        private static final long LOCKOUT_DURATION_MS = 15 * 60 * 1000L; // 15 minutes
-
-        private final Map<String, AttemptInfo> attempts = new ConcurrentHashMap<>();
-
-        record AttemptInfo(AtomicInteger count, long firstAttemptTime, long lockoutUntil) {
-            AttemptInfo(long currentTime) {
-                this(new AtomicInteger(1), currentTime, 0L);
+    /** The text of the first element named {@code tag}, parsed with the safe factory. */
+    public static String textOf(InputStream xml, String tag) throws Exception {
+        DocumentBuilder builder = newSafeDocumentBuilderFactory().newDocumentBuilder();
+        builder.setErrorHandler(new DefaultHandler() {   // throw, without printing to stderr
+            @Override
+            public void fatalError(SAXParseException e) throws SAXParseException {
+                throw e;
             }
-        }
-
-        /**
-         * Records a failed login attempt and returns whether the account is now locked.
-         * <p>
-         * The whole read-modify-write runs inside {@code ConcurrentHashMap.compute}, which is atomic
-         * per key, so concurrent failures for the same user cannot overwrite each other's counts.
-         * (A separate {@code get} followed by {@code put} would lose updates under concurrency.)
-         *
-         * @param username the username that failed login
-         * @return true if the account is now locked out
-         */
-        public boolean recordFailedAttempt(String username) {
-            Objects.requireNonNull(username, "Username must not be null");
-            long now = System.currentTimeMillis();
-
-            AttemptInfo updated = attempts.compute(username, (user, info) -> {
-                if (info == null) {
-                    return new AttemptInfo(now);
-                }
-                if (info.lockoutUntil > 0 && now < info.lockoutUntil) {
-                    return info; // still locked
-                }
-                if (info.lockoutUntil > 0) {
-                    return new AttemptInfo(now); // lockout expired, reset
-                }
-                int currentCount = info.count.incrementAndGet();
-                if (currentCount >= MAX_ATTEMPTS) {
-                    return new AttemptInfo(
-                            new AtomicInteger(currentCount),
-                            info.firstAttemptTime,
-                            now + LOCKOUT_DURATION_MS
-                    );
-                }
-                return info;
-            });
-            return updated.lockoutUntil > 0 && now < updated.lockoutUntil;
-        }
-
-        /**
-         * Checks whether the given user is currently locked out.
-         */
-        public boolean isLockedOut(String username) {
-            AttemptInfo info = attempts.get(username);
-            if (info == null) {
-                return false;
-            }
-            if (info.lockoutUntil > 0 && System.currentTimeMillis() < info.lockoutUntil) {
-                return true;
-            }
-            return false;
-        }
-
-        /**
-         * Resets attempts after a successful login.
-         */
-        public void resetAttempts(String username) {
-            attempts.remove(username);
-        }
-
-        /**
-         * Returns the number of recorded failed attempts.
-         */
-        public int getFailedAttemptCount(String username) {
-            AttemptInfo info = attempts.get(username);
-            return info == null ? 0 : info.count.get();
-        }
+        });
+        return builder.parse(xml).getElementsByTagName(tag).item(0).getTextContent();
     }
 
-    // ---- Access Control ----
+    // ---- Deserialization: the filter decides each class before it is built ----
 
     /**
-     * Demonstrates role-based access control (RBAC).
+     * Reads an object, allowing only the given classes at any depth. Every other class is
+     * rejected with InvalidClassException before its readObject runs.
      */
-    public static class AccessControl {
-
-        public enum Role {
-            GUEST, USER, ADMIN, SUPER_ADMIN
-        }
-
-        public enum Permission {
-            READ, WRITE, DELETE, MANAGE_USERS
-        }
-
-        private static final Map<Role, List<Permission>> ROLE_PERMISSIONS = Map.of(
-                Role.GUEST, List.of(Permission.READ),
-                Role.USER, List.of(Permission.READ, Permission.WRITE),
-                Role.ADMIN, List.of(Permission.READ, Permission.WRITE, Permission.DELETE),
-                Role.SUPER_ADMIN, Arrays.asList(Permission.values())
-        );
-
-        /**
-         * Checks if a given role has the specified permission.
-         *
-         * @param role       the user's role
-         * @param permission the required permission
-         * @return true if the role grants the permission
-         */
-        public boolean hasPermission(Role role, Permission permission) {
-            Objects.requireNonNull(role, "Role must not be null");
-            Objects.requireNonNull(permission, "Permission must not be null");
-
-            List<Permission> permissions = ROLE_PERMISSIONS.get(role);
-            return permissions != null && permissions.contains(permission);
-        }
-
-        /**
-         * Enforces a permission check and throws if unauthorized.
-         *
-         * @param role       the user's role
-         * @param permission the required permission
-         * @throws SecurityException if the role lacks the permission
-         */
-        public void enforcePermission(Role role, Permission permission) {
-            if (!hasPermission(role, permission)) {
-                throw new SecurityException(
-                        "Role %s does not have permission %s".formatted(role, permission));
-            }
-        }
-
-        /**
-         * Returns all permissions for a given role.
-         */
-        public List<Permission> getPermissions(Role role) {
-            Objects.requireNonNull(role, "Role must not be null");
-            List<Permission> perms = ROLE_PERMISSIONS.get(role);
-            return perms != null ? List.copyOf(perms) : List.of();
-        }
-    }
-
-    // ---- Sensitive Data Exposure ----
-
-    /**
-     * Demonstrates INSECURE storage of sensitive data.
-     * Passwords should NEVER be stored in plain text.
-     */
-    public static class InsecureDataStore {
-        private final Map<String, String> passwords = new HashMap<>();
-
-        public void storePassword(String user, String plainPassword) {
-            // INSECURE - storing plain text passwords
-            passwords.put(user, plainPassword);
-        }
-
-        public boolean verifyPassword(String user, String password) {
-            return password.equals(passwords.get(user));
-        }
-    }
-
-    /**
-     * Demonstrates safe error messages that do not leak internal details.
-     */
-    public static class SafeErrorHandler {
-
-        /**
-         * Returns a generic error message for login failures -
-         * never reveals whether the username or password was wrong.
-         */
-        public String handleLoginFailure(String username, boolean userExists) {
-            // SECURE: same message regardless of whether user exists
-            return "Invalid username or password";
-        }
-
-        /**
-         * Returns a sanitized error message that does not expose stack traces or internals.
-         */
-        public String handleException(Exception e) {
-            // Log the real exception internally (in production, use a logging framework)
-            // Return a generic message to the client
-            return "An internal error occurred. Please try again later.";
-        }
-
-        /**
-         * Demonstrates timing-safe string comparison to prevent timing attacks.
-         * Uses constant-time comparison regardless of where strings differ.
-         * The early return on different lengths reveals only the length, which is
-         * acceptable when the secret's length is public (fixed-length tokens, hashes).
-         */
-        public boolean constantTimeEquals(String a, String b) {
-            if (a == null || b == null) {
-                return a == b;
-            }
-            if (a.length() != b.length()) {
-                return false;
-            }
-            int result = 0;
-            for (int i = 0; i < a.length(); i++) {
-                result |= a.charAt(i) ^ b.charAt(i);
-            }
-            return result == 0;
-        }
-    }
-
-    // ---- Insecure Deserialization Prevention ----
-
-    /**
-     * Demonstrates safe data transfer using records instead of Java serialization.
-     * Java serialization is inherently risky and should be avoided.
-     */
-    public record SafeUserDTO(String username, String email, String role) {
-
-        public SafeUserDTO {
-            Objects.requireNonNull(username, "Username must not be null");
-            Objects.requireNonNull(email, "Email must not be null");
-            Objects.requireNonNull(role, "Role must not be null");
-            if (username.isBlank()) {
-                throw new IllegalArgumentException("Username must not be blank");
-            }
-        }
-
-        /**
-         * Creates a DTO from a map of values (simulating deserialization from JSON).
-         */
-        public static SafeUserDTO fromMap(Map<String, String> data) {
-            return new SafeUserDTO(
-                    data.getOrDefault("username", ""),
-                    data.getOrDefault("email", ""),
-                    data.getOrDefault("role", "GUEST")
-            );
+    public static Object readAllowing(byte[] data, Set<Class<?>> allowed) throws IOException, ClassNotFoundException {
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(data))) {
+            in.setObjectInputFilter(ObjectInputFilter.allowFilter(allowed::contains, ObjectInputFilter.Status.REJECTED));
+            return in.readObject();
         }
     }
 }

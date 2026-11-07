@@ -102,6 +102,7 @@ class ProductTagsTest {
 
         inBackground(() -> tags.addTag(lea, 6, "sale"));
 
+        assertThat(reads.get()).as("reads through load(); the other writers run from there").isPositive();
         assertThat(tagsOf(6)).isEqualTo("oak,outdoor,sale");
     }
 
@@ -116,6 +117,7 @@ class ProductTagsTest {
 
         inBackground(() -> ivysTags.addTag(ivy, 7, "gift"));
 
+        assertThat(reads.get()).as("reads through load(); the other writers run from there").isPositive();
         assertThat(tagsOf(7)).isEqualTo("linen,eco,gift");
     }
 
@@ -131,6 +133,7 @@ class ProductTagsTest {
 
         boolean saved = inBackground(() -> tags.addTag(max, 8, "sale"));
 
+        assertThat(reads.get()).as("reads through load(); the other writers run from there").isPositive();
         assertThat(saved).isTrue();
         assertThat(tagsOf(8)).isEqualTo("wool,warm,winter,sale");
     }

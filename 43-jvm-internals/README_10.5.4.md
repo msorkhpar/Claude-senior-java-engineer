@@ -335,9 +335,18 @@ of the memory, at least 8 MB, and `-Xms` sets it.
 The collector is chosen at startup too: with one CPU the JVM picked Serial instead of G1.
 
 > **`MaxRAM` doesn't stand in for everything.** It changes the heap sizing, but not the collector
-> choice: with `-XX:MaxRAM=1g` the JVM still picked G1. HotSpot's source picks G1 only with at
-> least two CPUs and about 1.8 GB of physical memory, so a real 1 GB container may run Serial. We
-> didn't run a container here; check with `-XX:+PrintFlagsFinal` inside yours.
+> choice: with `-XX:MaxRAM=1g` the JVM still picked G1. A container's limit does change it. We
+> ran Java 21 under `docker run --memory=... --cpus=...` and read `-XX:+PrintFlagsFinal`:
+>
+> ```text
+> --memory=1g     --cpus=2   UseSerialGC
+> --memory=1700m  --cpus=2   UseSerialGC
+> --memory=1800m  --cpus=2   UseG1GC
+> --memory=2g     --cpus=1   UseSerialGC
+> ```
+>
+> Below about 1.8 GB, or with one CPU, the default is Serial. Name the collector yourself in a
+> small container.
 
 ## The Process Is Bigger Than the Heap
 
