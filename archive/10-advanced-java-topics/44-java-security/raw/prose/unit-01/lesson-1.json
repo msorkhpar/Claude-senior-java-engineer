@@ -18,327 +18,301 @@
       "text": "10.6.1. Security Best Practices in Java"
     },
     {
+      "type": "para",
+      "text": "An incident review of an account service lists four findings. A support log holds a line with a user's password in it. Two users received the same password-reset link. An attachment named `%2e%2e%2freport.pdf` passed the name check. A heap dump attached to a vendor's support ticket holds a password that the code wipes after every login."
+    },
+    {
+      "type": "para",
+      "text": "Each finding has a rule, one per section below. Injection, path traversal, XML entities and deserialization are unit 10.6.2; encryption and password hashing are unit 10.6.3. The `SecurityManager` is no part of the answer: JEP 411 deprecated it for removal in Java 17, and on Java 21 `System.setSecurityManager` throws `UnsupportedOperationException` unless the JVM starts with `-Djava.security.manager=allow`."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "Validate the Value the Next Layer Will Use, Against an Allow-List"
     },
     {
       "type": "para",
-      "text": "Security in Java is not a feature you bolt on at the end -- it is a discipline woven into every line of code from the very beginning. Security best practices encompass secure coding guidelines, input validation and sanitization, and secure configuration and deployment."
+      "text": "The upload endpoint checks attachment names with a deny-list: refuse anything containing `../`, `/` or `\\`. The storage service behind it decodes the name with `URLDecoder` (form decoding, which also turns `+` into a space) and normalises it with NFKC. An allow-list instead matches the whole input against a pattern for a good name:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static boolean denyList(String name) {\n    return !name.contains(\"../\") && !name.contains(\"/\") && !name.contains(\"\\\\\");\n}\n\nstatic final Pattern NAME = Pattern.compile(\"[A-Za-z0-9_-]{1,64}\\\\.(pdf|png|txt)\");\n\nstatic boolean allowList(String name) {\n    return NAME.matcher(name).matches();\n}\n\n// Decode and normalise first, then allow-list the value the later layers will use.\nstatic String canonical(String raw) {\n    return Normalizer.normalize(URLDecoder.decode(raw, StandardCharsets.UTF_8), Normalizer.Form.NFKC);\n}"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of building a bank vault. You do not add the steel doors and alarm systems after the building is complete. Instead, the entire structure -- from the foundation to the walls to the locking mechanisms -- is designed with security in mind from day one. Similarly, secure Java code starts with how you validate inputs, handle errors, manage resources, and protect sensitive data."
+      "text": "Six names, each check's verdict, and what the storage layer receives:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "input                deny      later layer     allow     canonical, then allow\nreport.pdf           accepted  report.pdf      accepted  accepted: report.pdf\n../report.pdf        refused   ../report.pdf   refused   refused\n%2e%2e%2freport.pdf  accepted  ../report.pdf   refused   refused\nfull-width ../       accepted  ../report.pdf   refused   refused\nfull-width report    accepted  report.pdf      refused   accepted: report.pdf\nCyrillic \\u0440eport accepted  \\u0440eport.pdf refused   refused"
     },
     {
       "type": "para",
-      "text": "Java provides a rich set of tools and patterns for writing secure code:"
+      "text": "`String.contains` compares characters as they are, and neither `%2e%2e%2f` nor the full-width `．．／` (U+FF0E, U+FF0E, U+FF0F) contains the characters the deny-list looks for. Both became `../` one layer later, after the check had passed them. A deny-list has to name every spelling of every bad input, and each decoder or normaliser downstream adds more."
+    },
+    {
+      "type": "para",
+      "text": "The allow-list refused the encoded and full-width names, because `%`, `．` and `／` are not in its character class, so a spelling nobody thought of is refused. Decoding and normalising first make the check judge the string the storage layer will use, so the full-width `ｒｅｐｏｒｔ.pdf` is accepted and stored as `report.pdf`, not under a second spelling of the same name."
+    },
+    {
+      "type": "para",
+      "text": "NFKC doesn't help with the last row. The Cyrillic `р` (U+0440) is a different letter from the Latin `p`, and normalisation leaves it alone; only the allow-list's ASCII range refuses it. A field that must accept other scripts needs a rule about which ones, or two names that look the same can belong to two people."
+    },
+    {
+      "type": "para",
+      "text": "`URLDecoder.decode` throws `IllegalArgumentException` on a stray `%`, as in `100%.pdf`; treat that as a refusal too."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Token from Random Is a Function of Its Seed; Use SecureRandom"
+    },
+    {
+      "type": "para",
+      "text": "The reset service made each token like this:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static String seededToken() {\n    Random random = new Random(System.currentTimeMillis());\n    byte[] bytes = new byte[16];\n    random.nextBytes(bytes);\n    return HexFormat.of().formatHex(bytes);\n}\n\nstatic final SecureRandom SECURE = new SecureRandom();   // secureToken() is the same with SECURE"
+    },
+    {
+      "type": "para",
+      "text": "Two requests in the same millisecond, then 10,000 tokens from each generator, issued as fast as a loop runs:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "same millisecond, same token: true\nRandom(currentTimeMillis()): 5 distinct of 10000 (4 ms)\nSecureRandom:                10000 distinct of 10000\nSecureRandom algorithm: NativePRNG"
+    },
+    {
+      "type": "para",
+      "text": "The javadoc of `java.util.Random` specifies a 48-bit seed advanced by a linear congruential step, and requires that two instances with the same seed return the same sequence. The seed here is the clock, so requests in the same millisecond share a token, and one second of possible request times is only 1,000 seeds. Seeding from `nanoTime()`, or leaving the seed out, removes the collisions but not the formula: the javadoc says instances of `Random` are not cryptographically secure, and `Math.random()` uses one."
+    },
+    {
+      "type": "para",
+      "text": "`SecureRandom` on Linux defaults to `NativePRNG`, which reads the operating system's generator. A `SHA1PRNG` is different when seeded before its first use: the javadoc says `setSeed` supplements the existing seed, but a `SHA1PRNG` that hasn't produced anything yet has none to supplement:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "SHA1PRNG seeded with the same value, same output: true\nNativePRNG seeded with the same value, same output: false"
+    },
+    {
+      "type": "para",
+      "text": "Create one `new SecureRandom()` (its javadoc says it is safe for concurrent threads), don't seed it, and take 16 bytes or more per token."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Wiping a char[] Removes Your Copy of a Secret; a String Copy Stays Until GC"
+    },
+    {
+      "type": "para",
+      "text": "`Console.readPassword()` returns a `char[]` so that the caller can overwrite it, which a `String` doesn't allow. This program dumps its own heap at each step of a login. `dump(label, liveOnly)` calls `HotSpotDiagnosticMXBean.dumpHeap`, which with `liveOnly` set runs a full GC first and writes only reachable objects. A second JVM then counts the copies of the placeholder password `hunter2-example` in each dump, so the search adds no copies of its own:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "dump(\"before login\", false);\n\nchar[] p1 = readPassword();\nverify(p1);\ndump(\"char[] in use\", false);\nArrays.fill(p1, '\\0');\ndump(\"char[] wiped\", false);\n\nchar[] p2 = readPassword();\nverify(new String(p2));                          // an API that takes a String\nArrays.fill(p2, '\\0');\ndump(\"char[] wiped, String copy unreachable\", false);\ndump(\"after a full GC, live objects only\", true);\ndump(\"after a full GC, whole heap\", false);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "heap-1.hprof: 0 as String bytes, 0 as char[]\nheap-2.hprof: 0 as String bytes, 1 as char[]\nheap-3.hprof: 0 as String bytes, 0 as char[]\nheap-4.hprof: 1 as String bytes, 0 as char[]\nheap-5.hprof: 0 as String bytes, 0 as char[]\nheap-6.hprof: 0 as String bytes, 0 as char[]"
+    },
+    {
+      "type": "para",
+      "text": "`Arrays.fill` removed the array's copy at once (dump 3). The second login wiped its array too, but `new String(p2)` had copied the characters into the `String`'s own byte array, which no public API can overwrite. Unreachable, it stayed in the heap, and in a whole-heap dump, until a full GC reclaimed it (dumps 4 to 6)."
+    },
+    {
+      "type": "para",
+      "text": "An API on the way that takes a `String`, such as `DriverManager.getConnection(url, user, password)`, makes a copy you can't wipe. The program wipes inline; real code wipes in a `finally`, so a failed login wipes too, and wipes every array it copied the secret into."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**What the run can't show.** A heap dump lists objects. Whether a reclaimed object's bytes stay in the process's memory until the space is reused depends on the collector; a collector that moves objects, as G1 does, may leave an earlier copy of the array where it used to be. Swap, core files and the operating system's buffers are out of Java's reach. Wiping shortens the time the characters sit in a live object; it doesn't remove every copy."
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Record's toString Prints Every Component, Password Included"
+    },
+    {
+      "type": "para",
+      "text": "Nobody wrote `log.info(password)`. The login handler logged the request:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record LoginRequest(String username, String password) {}\n\nrecord Session(String id, LoginRequest origin) {}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "var request = new LoginRequest(\"jane\", \"hunter2-example\");\nlog.info(\"login attempt: \" + request);                  // java.util.logging\ntry {\n    if (request.username().length() < 5) throw new IllegalArgumentException(\"username too short: \" + request);\n} catch (IllegalArgumentException e) {\n    System.out.println(e);\n}\nSystem.out.println(new Session(\"s-41\", request));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Nov 07, 2026 1:10:31 AM Leak main\nINFO: login attempt: LoginRequest[username=jane, password=hunter2-example]\njava.lang.IllegalArgumentException: username too short: LoginRequest[username=jane, password=hunter2-example]\nSession[id=s-41, origin=LoginRequest[username=jane, password=hunter2-example]]"
+    },
+    {
+      "type": "para",
+      "text": "A record's generated `toString` prints every component by name and value, and a record that contains it prints it too, because the generated `toString` of `Session` calls the one of `LoginRequest`."
+    },
+    {
+      "type": "para",
+      "text": "Two fixes, run in the same program: override `toString` in the record, or give the secret a type whose `toString` hides it."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record SafeLoginRequest(String username, String password) {\n    @Override\n    public String toString() {\n        return \"SafeLoginRequest[username=\" + username + \", password=***]\";\n    }\n}\n\nrecord ArrayLoginRequest(String username, char[] password) {}\n\nrecord Secret(String value) {\n    @Override\n    public String toString() {\n        return \"***\";\n    }\n}\n\nrecord TypedLoginRequest(String username, Secret password) {}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "SafeLoginRequest[username=jane, password=***]\nArrayLoginRequest[username=jane, password=[C@728938a9]\nTypedLoginRequest[username=jane, password=***]\nequal with a copy of the same array: false"
+    },
+    {
+      "type": "para",
+      "text": "The override protects one record; every other record holding the password as a `String` needs its own. The `Secret` type makes every `toString` that reaches it print `***`. A `char[]` component doesn't print its characters, because arrays inherit `Object.toString`, but the generated `equals` then compares the arrays by identity, as the last line shows."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Input validation** prevents attackers from injecting malicious data",
-        "**Defensive copying** ensures mutable objects cannot be modified externally",
-        "**Path traversal prevention** blocks unauthorized filesystem access",
-        "**Integer overflow protection** avoids silent arithmetic bugs",
-        "**Sensitive data masking** prevents accidental exposure of PII",
-        "**Try-with-resources** guarantees proper resource cleanup"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "The Java platform itself includes the Java Security Architecture (JSA), which provides cryptographic services, authentication, authorization, and secure communication. Modern Java versions (17+, 21+) have deprecated the Security Manager in favor of stronger, more targeted security mechanisms."
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Never trust user input** -- always validate, sanitize, and constrain",
-        "Use `Objects.requireNonNull()` for fail-fast null checking",
-        "Prefer **immutable objects** (records, `List.copyOf()`, `Map.copyOf()`) to prevent unintended state modification",
-        "Use `Math.addExact()` and `Math.multiplyExact()` to detect integer overflow",
-        "Always use **try-with-resources** for I/O operations to prevent resource leaks",
-        "Mask sensitive data (credit cards, emails, SSNs) before logging or displaying",
-        "Validate file paths against a base directory to prevent path traversal",
-        "Limit file sizes when reading user-supplied files",
-        "Use **regex patterns** compiled as static constants for input validation (avoid recompilation)",
-        "Return **generic error messages** to users -- never expose stack traces or internal details"
+        "**Validate the value the next layer will use, against an allow-list.** A deny-list checks one spelling; `%2e%2e%2f` and full-width `．．／` passed it and became `../` downstream. Decode, normalise with NFKC, then match the whole string; normalisation doesn't touch look-alike letters from other scripts.",
+        "**A token from `Random` is a function of its seed.** Seeded from the clock, 10,000 tokens came out as 5 distinct values. Use one unseeded `SecureRandom`; a `SHA1PRNG` seeded before use repeats too.",
+        "**Wiping a `char[]` removes your copy; a `String` copy stays until GC.** A heap dump showed the password after the array was wiped, because an API took a `String`.",
+        "**A record's `toString` prints every component.** Log calls, exception messages and enclosing records all print the password; override `toString`, or wrap the secret in a type that prints `***`."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Records** (JEP 395): Immutable data carriers with built-in validation in compact constructors, ideal for secure DTOs",
-        "**Sealed classes** (JEP 409): Restrict which classes can extend a type, limiting attack surface",
-        "**Pattern matching for switch** (JEP 441): Write cleaner validation logic with exhaustive pattern matching",
-        "**Text blocks** (JEP 378): Avoid escape-sequence errors in SQL queries and HTML templates",
-        "**Deprecation of Security Manager** (JEP 411): Java 17 deprecated the Security Manager; Java 21 continues this path. Use module system (`java.lang.module`) and other targeted mechanisms instead"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Evolution across Java versions"
+      "text": "Reference"
     },
     {
       "type": "table",
       "headers": [
-        "Version",
-        "Security Enhancement"
+        "Call or type (Java 21)",
+        "Behaviour",
+        "Source"
       ],
       "rows": [
         [
-          "Java 1.0",
-          "Basic sandbox model for applets"
+          "`String.contains`, `String.equals`",
+          "compare the characters as given; no decoding or normalisation",
+          "run"
         ],
         [
-          "Java 1.2",
-          "Fine-grained access control with Security Manager"
+          "`Normalizer.normalize(s, Form.NFKC)`",
+          "full-width `．／ｒ` become `./r`; Cyrillic `р` stays",
+          "run"
         ],
         [
-          "Java 9",
-          "Module system (JPMS) for strong encapsulation"
+          "`Matcher.matches()` / `Matcher.find()`",
+          "whole input / any part of it",
+          "javadoc"
         ],
         [
-          "Java 14",
-          "Records (preview) for immutable data"
+          "`new Random(seed)`",
+          "same seed, same sequence, on every implementation",
+          "javadoc"
         ],
         [
-          "Java 17",
-          "Security Manager deprecated (JEP 411)"
+          "`new Random()`, `Math.random()`",
+          "not cryptographically secure",
+          "javadoc"
+        ],
+        [
+          "`new SecureRandom()` on Linux",
+          "`NativePRNG`; thread-safe",
+          "run, javadoc"
+        ],
+        [
+          "`SecureRandom.getInstance(\"SHA1PRNG\")` + `setSeed` before use",
+          "same seed, same output",
+          "run"
+        ],
+        [
+          "`Arrays.fill(chars, '\\0')`",
+          "the array's copy is gone from the next heap dump",
+          "run"
+        ],
+        [
+          "`new String(chars)`",
+          "a copy that no API can overwrite; in a whole-heap dump until GC",
+          "run"
+        ],
+        [
+          "record `toString`",
+          "every component; an array component prints as `[C@…`",
+          "run"
+        ],
+        [
+          "`System.setSecurityManager`",
+          "`UnsupportedOperationException` unless `-Djava.security.manager=allow`",
+          "run"
         ]
       ]
     },
     {
-      "type": "para",
-      "text": "(Java 21's headline feature, virtual threads (JEP 444), is a concurrency feature rather than a security one, so it is not listed here.)"
-    },
-    {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "1. String concatenation in SQL queries"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD - vulnerable to SQL injection\nString query = \"SELECT * FROM users WHERE name = '\" + userInput + \"'\";\n\n// GOOD - use PreparedStatement\nPreparedStatement stmt = conn.prepareStatement(\"SELECT * FROM users WHERE name = ?\");\nstmt.setString(1, userInput);"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "2. Returning mutable internal collections"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD - caller can modify internal state\npublic List<String> getItems() {\n    return this.items;\n}\n\n// GOOD - return defensive copy or unmodifiable view\npublic List<String> getItems() {\n    return List.copyOf(this.items);\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "3. Ignoring integer overflow"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD - silently wraps around\nint total = Integer.MAX_VALUE + 1; // becomes Integer.MIN_VALUE\n\n// GOOD - throws ArithmeticException on overflow\nint total = Math.addExact(Integer.MAX_VALUE, 1);"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "4. Logging sensitive data"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD - exposes password in logs\nlogger.info(\"Login attempt for user {} with password {}\", user, password);\n\n// GOOD - never log sensitive data\nlogger.info(\"Login attempt for user {}\", user);"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "5. Not limiting resource consumption"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// BAD - reads entire file regardless of size\nString content = Files.readString(path);\n\n// GOOD - bound the read itself (MAX_ALLOWED_SIZE is an int number of bytes).\n// A Files.size() check alone is not enough: the file can grow between the check and the read.\nString content;\ntry (InputStream in = Files.newInputStream(path)) {\n    byte[] data = in.readNBytes(MAX_ALLOWED_SIZE + 1);\n    if (data.length > MAX_ALLOWED_SIZE) {\n        throw new SecurityException(\"File too large\");\n    }\n    content = new String(data, StandardCharsets.UTF_8);\n}"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Compile regex patterns once**: Store `Pattern` objects as `static final` fields rather than recompiling in each method call",
-        "**Use the principle of least privilege**: Grant code only the minimum permissions it needs",
-        "**Prefer allow-lists over deny-lists**: Validate that input matches an expected pattern rather than trying to block all bad patterns",
-        "**Clear sensitive data from memory**: Overwrite char arrays (used for passwords) when done; avoid `String` for secrets since strings are immutable and may linger in the string pool",
-        "**Centralize validation logic**: Create reusable validation utilities to ensure consistent enforcement",
-        "**Use Java records for DTOs**: Records are immutable by default and support compact constructors for validation",
-        "**Configure secure defaults**: Set restrictive defaults for timeouts, max sizes, and allowed characters",
-        "**Apply defense in depth**: Do not rely on a single layer of validation; validate at every boundary (API layer, service layer, persistence layer)"
+        "Your API gateway URL-decodes paths, and your service decodes them again. Which string should your validation see, and what does a double-encoded `%252e` turn into at each layer?",
+        "A username field must accept Latin, Greek and Cyrillic names. Which rule stops `аdmin` (with a Cyrillic `а`) from passing for `admin`, and what does it cost legitimate users?",
+        "Find every place in a service where a password exists as a `String`, starting from the HTTP request body. Which of them can you remove, and which belong to libraries you can't change?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null inputs**: Use `Objects.requireNonNull()` with descriptive messages; decide whether null means \"no value\" or \"error\"",
-        "**Empty strings vs blank strings**: An empty string `\"\"` passes non-null checks but may still be invalid; use `isBlank()` for whitespace-only strings",
-        "**Unicode and encoding attacks**: Normalize Unicode input (`java.text.Normalizer`, NFC or NFKC) before validation, so that different encodings of the same text (e.g., a precomposed \"é\" vs. \"e\" plus a combining accent, or full-width letters) are validated as one form. Normalization does **not** stop homoglyph attacks (e.g., Cyrillic \"а\" instead of Latin \"a\" stays a different character); for those, restrict input to an allow-listed script or character set",
-        "**Path traversal with symbolic links**: `normalize()` only removes `.` and `..` from the path text; it does not follow symbolic links, so a link inside the base directory can still point outside it. For paths that exist, also compare the real paths (`toRealPath()`, which resolves links) with `startsWith()`",
-        "**Integer boundary values**: `Integer.MIN_VALUE` and `Integer.MAX_VALUE` behave unexpectedly with negation and absolute value",
-        "**Concurrent modification of shared state**: Use immutable objects or concurrent collections for data shared across threads"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Hide the Secret in Its Type, Not at Each Call Site"
     },
     {
       "type": "para",
-      "text": "Interviewers frequently test:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Awareness of OWASP Top 10 vulnerabilities and how Java mitigates them",
-        "Understanding of input validation vs. sanitization (validation rejects bad input; sanitization cleans it)",
-        "Knowledge of defensive programming techniques (defensive copies, immutable objects)",
-        "Ability to identify security flaws in code snippets",
-        "Understanding of Java's Security Manager deprecation and modern alternatives",
-        "Practical experience with secure resource handling (try-with-resources)"
-      ]
+      "text": "A rule such as \"never log the password\" depends on every developer, at every log call, knowing which objects contain one. The record run shows how it fails: the code logged a request and a session. A `Secret` type makes printing safe wherever the value travels."
     },
     {
       "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Why should passwords be stored in char[] rather than String?\"",
-        "\"What is the difference between validation and sanitization?\"",
-        "\"How does path traversal work and how do you prevent it?\"",
-        "\"Why is `Math.addExact()` preferable to the `+` operator for security-sensitive calculations?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the difference between input validation and input sanitization?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Input validation and input sanitization are complementary but distinct techniques:\n\nInput Validation:\n- Checks whether the input conforms to an expected format, type, length, or range\n- Rejects invalid input entirely (fail-fast approach)\n- Examples: checking email format with regex, ensuring age is between 0-150, verifying username is alphanumeric\n- Preferred for security because it is stricter: if input does not match the whitelist, it is rejected\n\nInput Sanitization:\n- Transforms input to remove or neutralize dangerous content\n- Allows the input through after cleaning it\n- Examples: HTML-encoding special characters (<, >, &), removing control characters or null bytes\n- Used when you must accept a wide range of input (e.g., user comments that may contain HTML-like text)\n\nBest Practice: Validate first, then sanitize. If validation fails, reject the input outright. If the input passes\nvalidation, encode it for the context where it is used (e.g., HTML-encode it for HTML output) as a defense-in-depth\nmeasure. For SQL, do not sanitize: pass values as PreparedStatement parameters, because keyword stripping is easy to\nbypass."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class ValidationVsSanitization {\n    // Validation: rejects invalid input\n    public boolean validateAge(String input) {\n        try {\n            int age = Integer.parseInt(input);\n            return age >= 0 && age <= 150;\n        } catch (NumberFormatException e) {\n            return false;\n        }\n    }\n\n    // Sanitization: cleans input for safe HTML rendering\n    public String sanitizeForHtml(String input) {\n        return input.replace(\"&\", \"&amp;\")\n                    .replace(\"<\", \"&lt;\")\n                    .replace(\">\", \"&gt;\")\n                    .replace(\"\\\"\", \"&quot;\")\n                    .replace(\"'\", \"&#x27;\");\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: Why should passwords be stored in char[] rather than String?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: This is a classic Java security interview question. The reasons are:\n\n1. Strings are immutable: Once a String is created, it cannot be modified. A password stored in a String remains in\n   memory until the garbage collector reclaims it. You have no control over when that happens.\n\n2. String pooling: String literals and some dynamically created strings may be interned in the String pool, keeping\n   them in memory even longer than a regular heap object.\n\n3. Memory dumps: If a memory dump or heap dump is taken (e.g., during debugging, crash analysis, or a security\n   incident), any password stored as a String will be visible in plain text.\n\n4. char[] can be explicitly cleared: After authentication, you can overwrite the char[] with zeros or random\n   characters, immediately removing the password from memory.\n\nThis is why Java's Console.readPassword() returns char[] instead of String, and why the JPasswordField in Swing\nprovides getPassword() returning char[].\n\nNote: This is a defense-in-depth measure, not a complete solution. A determined attacker with memory access can still\ncapture the password before it is cleared. However, it significantly reduces the window of exposure."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public class PasswordHandling {\n    public void authenticateUser() {\n        char[] password = getPasswordFromUser(); // e.g., Console.readPassword()\n        try {\n            boolean authenticated = authenticate(password);\n            if (authenticated) {\n                // proceed\n            }\n        } finally {\n            // Immediately clear the password from memory\n            java.util.Arrays.fill(password, '\\0');\n        }\n    }\n\n    private char[] getPasswordFromUser() {\n        // In real code: return System.console().readPassword(\"Password: \");\n        return new char[]{'s', 'e', 'c', 'r', 'e', 't'};\n    }\n\n    private boolean authenticate(char[] password) {\n        // Compare against hashed password from database\n        return true; // simplified\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: How do you prevent path traversal attacks in Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Path traversal (also called directory traversal) occurs when an attacker manipulates file paths to access files\noutside the intended directory. For example, a user might supply \"../../etc/passwd\" as a filename.\n\nPrevention strategy:\n1. Resolve the user-supplied path against a known safe base directory\n2. Normalize the result (resolve \"..\" and \".\" components)\n3. Verify the normalized path still starts with the base directory\n4. If the path exists and the base directory may contain symbolic links, repeat the check on the real paths\n   (toRealPath()), because normalize() does not follow links\n5. Optionally, check that the filename does not contain path separators\n\nThis approach is essential in any application that serves files based on user input (file upload/download, document\nmanagement, etc.).\n\nAdditional defenses:\n- Use allowlists for permitted file extensions\n- Limit filename length\n- Reject filenames with null bytes (which can truncate paths in some systems)\n- Run the application with minimal filesystem permissions"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.nio.file.Path;\n\npublic class PathTraversalPrevention {\n    private final Path baseDirectory;\n\n    public PathTraversalPrevention(Path baseDirectory) {\n        this.baseDirectory = baseDirectory.toAbsolutePath().normalize();\n    }\n\n    public Path resolveSafely(String userSupplied) {\n        // Resolve against base and normalize\n        Path resolved = baseDirectory.resolve(userSupplied).normalize();\n\n        // Verify the resolved path is still within the base directory\n        if (!resolved.startsWith(baseDirectory)) {\n            throw new SecurityException(\"Path traversal attempt detected: \" + userSupplied);\n        }\n\n        return resolved;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What is defensive copying and when should you use it?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Defensive copying is the practice of creating copies of mutable objects when they cross trust boundaries -\nspecifically when receiving them as constructor/method arguments or returning them from getters.\n\nWhen to use:\n1. In constructors: Copy mutable arguments so external code cannot modify internal state after construction\n2. In getters: Return copies of mutable fields so external code cannot modify internal state through the returned\n   reference\n3. In setters: Copy the incoming value before storing it\n\nWhy it matters for security:\n- Without defensive copies, an attacker (or buggy code) can modify an object's internal state after validation\n   has occurred (a \"time-of-check to time-of-use\" or TOCTOU vulnerability)\n- Example: If a constructor validates a Date parameter but stores the original reference, the caller can modify\n   the Date after construction, bypassing the validation\n\nModern Java alternative:\n- Java records are immutable by default - no defensive copying needed for the record itself\n- List.copyOf(), Map.copyOf(), Set.copyOf() create unmodifiable copies\n- Use these in constructors to ensure collections cannot be modified externally"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.util.List;\nimport java.util.Objects;\n\npublic class DefensiveCopyExample {\n    // INSECURE: stores reference to mutable list\n    static class InsecureConfig {\n        private final List<String> origins;\n        public InsecureConfig(List<String> origins) {\n            this.origins = origins; // Caller can still modify!\n        }\n        public List<String> getOrigins() {\n            return origins; // Caller can modify internal state!\n        }\n    }\n\n    // SECURE: defensive copying on input and output\n    static class SecureConfig {\n        private final List<String> origins;\n        public SecureConfig(List<String> origins) {\n            this.origins = List.copyOf(Objects.requireNonNull(origins)); // Defensive copy\n        }\n        public List<String> getOrigins() {\n            return origins; // Already unmodifiable via List.copyOf\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: How does Java's try-with-resources help with security?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Try-with-resources (introduced in Java 7) ensures that resources implementing AutoCloseable are properly closed\nafter use, even if an exception occurs. This has several security implications:\n\n1. Prevents resource leaks: Unclosed file handles, database connections, or network sockets can lead to denial of\n   service. An attacker could exhaust the system's file descriptors or connection pool.\n\n2. Ensures prompt release: closing frees the file handle, socket or connection as soon as you are done. (It does not\n   wipe buffers: data a stream has read stays in memory until garbage collected, so sensitive data such as keys\n   should be read into arrays you clear yourself.)\n\n3. Prevents data corruption: Unclosed output streams may not flush their buffers, leading to partial writes that\n   could compromise data integrity.\n\n4. Eliminates complex finally blocks: Before try-with-resources, developers had to write error-prone finally blocks\n   to close resources. Missing or incorrect finally blocks were a common source of resource leaks.\n\nIn Java 9+, you can use effectively final variables in try-with-resources:\n    InputStream in = openStream();\n    try (in) { ... }\n\nBest practice: Always use try-with-resources for any AutoCloseable resource. This includes streams, connections,\nreaders, writers, and any custom resources that need cleanup."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "import java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\n\npublic class TryWithResourcesSecurity {\n    // INSECURE: resource leak if exception occurs\n    public String readFileInsecure(Path path) throws IOException {\n        var reader = Files.newBufferedReader(path);\n        return reader.readLine(); // reader is never closed, whether readLine succeeds or throws\n    }\n\n    // SECURE: resource automatically closed\n    public String readFileSecure(Path path) throws IOException {\n        try (var reader = Files.newBufferedReader(path)) {\n            return reader.readLine();\n        } // reader.close() called automatically, even on exception\n    }\n\n    // SECURE with size limit: defense in depth\n    // (the size check is advisory: the file can change after it; to enforce a hard bound,\n    // limit the bytes actually read, as in pitfall 5)\n    public String readFileSafely(Path path, long maxBytes) throws IOException {\n        long size = Files.size(path);\n        if (size > maxBytes) {\n            throw new SecurityException(\"File exceeds maximum allowed size\");\n        }\n        try (var reader = Files.newBufferedReader(path)) {\n            return reader.readLine();\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: What is the principle of least privilege and how do you apply it in Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: The principle of least privilege states that every module, process, or user should have only the minimum\npermissions necessary to perform its function. In Java:\n\n1. Module system (JPMS): Use module-info.java to explicitly declare which packages are exported. Internal\n   implementation packages remain inaccessible to other modules.\n\n2. Access modifiers: Use the most restrictive access level possible:\n   - private for internal implementation details\n   - package-private (default) for module-internal collaboration\n   - protected sparingly, only when subclass access is genuinely needed\n   - public only for the intended API surface\n\n3. Immutable objects: Make fields final, classes final (or sealed), and collections unmodifiable. This prevents\n   code from modifying state it should only read.\n\n4. Database permissions: Use database accounts with minimal privileges (e.g., SELECT-only for read operations).\n\n5. File system permissions: Run applications with a dedicated user that has access only to necessary directories.\n\n6. Container security: In Docker/Kubernetes, run as a non-root user and mount only required volumes as read-only.\n\nThis principle limits the blast radius of a security breach. If an attacker compromises one component, they can\nonly access what that component was permitted to access."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Applying least privilege through access modifiers and sealed types\n// (amounts are java.math.BigDecimal: money must not be a double, which cannot hold most\n// decimal amounts exactly)\npublic sealed interface PaymentProcessor permits CreditCardProcessor, BankTransferProcessor {\n    void processPayment(BigDecimal amount);\n}\n\n// Only these two classes can implement PaymentProcessor\npublic final class CreditCardProcessor implements PaymentProcessor {\n    private final String merchantId; // private - least privilege\n\n    public CreditCardProcessor(String merchantId) {\n        this.merchantId = merchantId;\n    }\n\n    @Override\n    public void processPayment(BigDecimal amount) {\n        // Only has access to credit card processing logic\n    }\n}\n\npublic final class BankTransferProcessor implements PaymentProcessor {\n    @Override\n    public void processPayment(BigDecimal amount) {\n        // Only has access to bank transfer logic\n    }\n}"
+      "text": "Every reader of the value then calls `value()`, and the type changes only `toString`: any code that calls `value()`, a serializer that reads record components included, still sees the text, and the value is still a `String` that a heap dump can show."
     },
     {
       "type": "heading",
@@ -358,17 +332,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 16,
-    "paras": 13,
-    "code": 17,
+    "headings": 10,
+    "paras": 22,
+    "code": 12,
     "tables": 1,
-    "lists": 8,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "5f03eccacbd0b63337863a1a60b43c841a39eaaec7166189414c5e6092c42246"
+  "content_sha256": "59c3a172f2be6be996a66fa6e9260fdae266f08dbd8029bf26bec250c9104ac2"
 }

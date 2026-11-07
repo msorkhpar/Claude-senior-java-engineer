@@ -211,7 +211,7 @@ copied: [Ann [tea, cake], Bo [coffee], Cy [juice, bagel]]
 ```
 
 `List.copyOf` copies only the list, not the elements (unit 1.1.2), and throws
-`NullPointerException` if the list holds a `null`. Unit 2.2.3 covers the other direction, a getter
+`NullPointerException` if the list holds a `null`. Unit 2.2.2 covers the other direction, a getter
 that hands out its field.
 
 <!-- practice 3 -->

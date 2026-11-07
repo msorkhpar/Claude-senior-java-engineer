@@ -1,560 +1,326 @@
 # 10.4.4. Annotation Processing and Code Generation
 
-## Concept Explanation
+The order service finds its commands at startup: it scans the class path for classes marked
+`@Command("refund")`, `@Command("audit")` and so on, and creates each one through its no-arg
+constructor. A refactoring made `Audit`'s constructor private. The build passed, every test that
+didn't create an `Audit` passed, and the service failed in production on the first `audit`
+request.
 
-Annotation processing refers to the mechanisms by which annotations are read and acted upon. In Java, there are two
-primary approaches: **compile-time annotation processing** (using the `javax.annotation.processing` API, also known as
-JSR 269) and **runtime annotation processing** (using the Reflection API). Both approaches enable powerful patterns
-like code generation, validation, dependency injection, and aspect-oriented programming (AOP).
+An annotation processor moves that work into the compile. javac runs it; it writes the registry
+as Java source and can refuse the bad class before anything ships. Declaring annotations is unit
+10.4.2 and retention is unit 10.4.3: a processor reads source, so `RetentionPolicy.SOURCE` is
+enough for `@Command`. Reading annotations at run time through reflection is units 10.3.1 to
+10.3.4.
 
-**Real-world analogy**: Annotation processing is like a building inspection system. Annotations are the blueprints and
-labels on building components. Compile-time processors are like inspectors who check plans before construction begins —
-they can flag issues and even generate additional construction plans (code generation). Runtime processors are like
-inspectors who visit the finished building, read the labels on equipment and systems, and enforce operational rules
-(security checks, logging, caching).
+## A Processor Is Code javac Runs During the Compile, and What It Adds Is New Source Files
 
-### Two Processing Approaches
-
-1. **Compile-time processing** (`javax.annotation.processing.AbstractProcessor`):
-   - Runs during compilation via `javac`
-   - Can generate new source files, resource files, and compilation errors/warnings
-   - Cannot modify existing source files through the standard API
-   - Used by: MapStruct, Dagger, AutoValue, Immutables; Lombok also runs as an annotation processor but
-     modifies the classes being compiled through javac's internal APIs, which the standard API does not allow
-
-2. **Runtime processing** (Reflection API + `java.lang.reflect`):
-   - Runs when the application executes
-   - Reads RUNTIME-retained annotations via reflection
-   - Can dynamically alter behavior using proxies, method invocation, field injection
-   - Used by: Spring, Jakarta EE, Hibernate, JUnit, Jackson
-
-## Key Points to Remember
-
-1. Compile-time processors extend `AbstractProcessor` and are registered via `META-INF/services`.
-2. `@SupportedAnnotationTypes` declares which annotations a processor handles.
-3. `@SupportedSourceVersion` declares the latest Java version supported.
-4. Compile-time processors can only GENERATE new files, not modify existing source code.
-5. Runtime processing requires `setAccessible(true)` for private members — subject to module access rules.
-6. `java.lang.reflect.Proxy` creates dynamic proxy instances for interfaces — the backbone of AOP.
-7. Runtime annotation processing has performance overhead due to reflection.
-8. Compile-time code generation eliminates runtime reflection overhead but increases build complexity.
-9. The `InvocationHandler` interface handles method calls on dynamic proxies.
-10. Annotation-driven frameworks often combine both approaches: compile-time for validation and code generation,
-    runtime for dependency injection and dynamic behavior.
-
-## Relevant Java 21 Features
-
-- **Module system** (Java 9+): Affects `setAccessible()` — private members in other modules may not be accessible
-  without explicit `opens` directives.
-- **Sealed classes**: Can be combined with annotation processing to enforce patterns on a restricted class hierarchy.
-- **Record patterns**: Annotations on record components propagate to constructors, fields, and accessors based on
-  `@Target`, enabling rich annotation-driven processing of records.
-- **Virtual threads**: Runtime annotation processing (especially proxy-based AOP) works with virtual threads, but
-  be aware of pinning when using `synchronized` in proxy handlers.
-- Modern annotation processing tools like Google's Auto and Immutables generate efficient, boilerplate-free code at
-  compile time.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Reflection performance in hot paths**: Reflection is slow compared to direct method calls. Cache reflective lookups.
-   ```java
-   // BAD: Reflecting on every call
-   public void process(Object obj) {
-       if (obj.getClass().isAnnotationPresent(Cacheable.class)) { ... }
-   }
-
-   // GOOD: Cache the reflection result
-   private final Map<Class<?>, Boolean> cacheableCache = new ConcurrentHashMap<>();
-
-   public void process(Object obj) {
-       boolean cacheable = cacheableCache.computeIfAbsent(
-           obj.getClass(), c -> c.isAnnotationPresent(Cacheable.class));
-   }
-   ```
-
-2. **Forgetting setAccessible(true) for private fields**: Reflection cannot access private members without it.
-   ```java
-   Field field = clazz.getDeclaredField("name");
-   field.setAccessible(true); // Required for private fields
-   Object value = field.get(obj);
-   ```
-
-3. **Dynamic proxy only works with interfaces**: `java.lang.reflect.Proxy` can only proxy interfaces, not classes.
-   For class proxying, use bytecode libraries like CGLIB or Byte Buddy.
-   ```java
-   // WORKS: Proxying an interface
-   Calculator proxy = (Calculator) Proxy.newProxyInstance(...);
-
-   // DOES NOT WORK: Cannot proxy a class with java.lang.reflect.Proxy
-   // Use CGLIB or Byte Buddy instead for class proxying
-   ```
-
-4. **Module access violations in Java 9+**: Accessing private members of classes in other modules requires `opens`
-   directives in `module-info.java`.
-
-5. **Not handling `InvocationTargetException` in proxy handlers**: When the handler calls `method.invoke(target, args)`
-   and the target method throws, `Method.invoke()` wraps the exception in `InvocationTargetException`. If the handler
-   lets that checked exception escape, the proxy's caller receives an `UndeclaredThrowableException`. Always unwrap it.
-   ```java
-   try {
-       return method.invoke(target, args);
-   } catch (InvocationTargetException e) {
-       throw e.getCause(); // Unwrap to get the actual exception
-   }
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer compile-time processing** for code generation to avoid runtime reflection overhead.
-2. **Cache reflection results** (Method, Field, annotation instances) — they are immutable and thread-safe.
-3. **Use `MethodHandles` for performance-critical reflection** — they are faster than `Method.invoke()` after lookup.
-4. **Keep proxy handlers simple** — complex logic in `InvocationHandler` makes debugging difficult.
-5. **Validate annotations early** — check for required annotations at startup, not during request processing.
-6. **Use meaningful error messages** in annotation processors — developers see these during compilation.
-7. **Separate concerns** — don't combine logging, caching, and security in a single proxy; use decorator/chain patterns.
-8. **Test annotation processors independently** with compile-testing libraries (e.g., Google's `compile-testing`).
-
-## Edge Cases and Their Handling
-
-1. **Proxying methods from Object class**: `toString()`, `equals()`, `hashCode()` are also intercepted by the proxy.
-   Handle them explicitly in the `InvocationHandler`.
-2. **Proxy with no interfaces**: `Proxy.newProxyInstance` accepts an empty interface array, but the resulting proxy
-   only has `Object`'s methods (`equals`, `hashCode`, `toString`) to intercept, so it is rarely useful.
-3. **Annotation with Class<?> element at compile time**: A processor can call `Element.getAnnotation()`, but reading a
-   `Class<?>` element from the result throws `MirroredTypeException` (the class may not be compiled yet); read it
-   through `AnnotationMirror` in the `javax.lang.model` API, or catch the exception and use its `TypeMirror`.
-4. **Circular dependencies in annotation-driven DI**: Can cause stack overflows during injection. Use lazy initialization
-   or provider patterns.
-5. **Thread safety of injected values**: If fields are injected reflectively after construction, ensure proper
-   happens-before ordering (use volatile or synchronization).
-6. **Multiple annotation processors**: Processors run in rounds. A processor in round N can generate files that are
-   processed by processors in round N+1.
-
-## Interview-specific Insights
-
-Interviewers commonly test:
-
-- Understanding of how frameworks like Spring use annotations at runtime (reflection + proxies)
-- The difference between compile-time and runtime annotation processing
-- How dynamic proxies work (`Proxy.newProxyInstance` + `InvocationHandler`)
-- Performance implications of reflection-based annotation processing
-- How to implement a simple annotation-driven framework (validation, injection, AOP)
-- Understanding of annotation processor rounds and generated code
-- Module system impact on reflection access
-
-## Interview Q&A Section
-
-**Q1: How does Spring use annotations at runtime to implement dependency injection?**
-
-```text
-A1: Spring uses runtime annotation processing via reflection to implement DI:
-
-1. Component Scanning: At startup, Spring scans the classpath for classes annotated with
-   @Component, @Service, @Repository, @Controller (all RUNTIME-retained).
-
-2. Bean Registration: For each annotated class, Spring creates a BeanDefinition that
-   describes how to instantiate and configure it.
-
-3. Dependency Resolution: Spring inspects constructors, fields, and methods for @Autowired
-   or @Inject annotations. It uses reflection to read these annotations and determine
-   which dependencies are needed.
-
-4. Instantiation: Spring creates instances using reflection (Constructor.newInstance()) and
-   injects dependencies via field injection (Field.set()), setter injection (Method.invoke()),
-   or constructor injection.
-
-5. Proxy Creation: For beans requiring AOP (e.g., @Transactional, @Cacheable), Spring creates
-   dynamic proxies (JDK Proxy for interfaces, CGLIB for classes) that intercept method calls
-   and add cross-cutting behavior.
-
-6. Lifecycle Callbacks: Spring processes @PostConstruct and @PreDestroy annotations to invoke
-   lifecycle methods at the appropriate times.
-
-This approach provides flexibility but has runtime overhead from reflection and proxy creation.
-Modern alternatives like Micronaut and Quarkus use compile-time processing instead.
-```
+The annotation, and a processor that writes the registry, `app.CommandIndex`, as a `switch` over
+the command names:
 
 ```java
-// Simulated dependency injection using reflection
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
-@interface Inject {
-    String value() default "";
-}
+package proc;
 
-class InjectableService {
-    @Inject("dataSource")
-    private String dataSource;
+import java.lang.annotation.*;
 
-    @Inject
-    private String config; // Uses field name as key
-}
-
-// Simple injector implementation
-static void inject(Object target, Map<String, Object> registry) throws Exception {
-    for (Field field : target.getClass().getDeclaredFields()) {
-        if (field.isAnnotationPresent(Inject.class)) {
-            Inject ann = field.getAnnotation(Inject.class);
-            String key = ann.value().isEmpty() ? field.getName() : ann.value();
-            Object value = registry.get(key);
-            if (value != null) {
-                field.setAccessible(true);
-                field.set(target, value);
-            }
-        }
-    }
-}
-
-// Usage
-InjectableService svc = new InjectableService();
-Map<String, Object> registry = Map.of(
-    "dataSource", "jdbc:mysql://localhost/db",
-    "config", "production"
-);
-inject(svc, registry);
-// svc.dataSource = "jdbc:mysql://localhost/db"
-// svc.config = "production"
-```
-
-**Q2: How do dynamic proxies work in Java?**
-
-```text
-A2: Java's dynamic proxy mechanism (java.lang.reflect.Proxy) creates proxy objects that
-implement specified interfaces and delegate all method calls to an InvocationHandler.
-
-Components:
-1. Interface(s): The proxy implements one or more interfaces
-2. InvocationHandler: Handles every method call on the proxy
-3. Proxy.newProxyInstance(): Factory method that creates the proxy instance
-
-How it works:
-1. You call Proxy.newProxyInstance(classLoader, interfaces[], handler)
-2. The JVM generates a class at runtime that implements all specified interfaces
-3. Every method call on the proxy is routed to handler.invoke(proxy, method, args)
-4. The handler can: execute the original method, add behavior before/after, skip it entirely,
-   return a different value, or throw an exception
-
-Limitations:
-- Can only proxy interfaces, not concrete classes
-- For class proxying, use CGLIB (subclass-based) or Byte Buddy
-- Every method call has overhead from the handler invocation
-- The generated proxy class is created once per interface set but stays in memory
-
-Use cases: AOP (logging, timing, security), mocking frameworks (Mockito), lazy loading
-(Hibernate), remote method invocation (RMI).
-```
-
-```java
-interface Calculator {
-    int add(int a, int b);
-    int multiply(int a, int b);
-    void adminReset();
-}
-
-class CalculatorImpl implements Calculator {
-    @Timed(label = "addition")
-    public int add(int a, int b) { return a + b; }
-
-    @Timed
-    public int multiply(int a, int b) { return a * b; }
-
-    @RequiresPermission("ADMIN")
-    public void adminReset() { /* reset */ }
-}
-
-// Timing proxy
-@SuppressWarnings("unchecked")
-static <T> T createTimedProxy(T target, Class<T> iface, List<InvocationLog> logs) {
-    return (T) Proxy.newProxyInstance(
-        iface.getClassLoader(),
-        new Class<?>[]{iface},
-        (proxy, method, args) -> {
-            Method targetMethod = target.getClass()
-                .getMethod(method.getName(), method.getParameterTypes());
-
-            if (targetMethod.isAnnotationPresent(Timed.class)) {
-                long start = System.nanoTime();
-                Object result = method.invoke(target, args);
-                long duration = System.nanoTime() - start;
-                logs.add(new InvocationLog(method.getName(), duration, result));
-                return result;
-            }
-            return method.invoke(target, args);
-        }
-    );
-}
-```
-
-**Q3: What is a compile-time annotation processor and how does it work?**
-
-```text
-A3: A compile-time annotation processor is a Java program that runs during compilation
-(as part of javac) and can inspect annotations in source code, generate new files, and
-report compilation errors or warnings.
-
-How it works:
-1. The processor extends javax.annotation.processing.AbstractProcessor
-2. It declares which annotations it supports via @SupportedAnnotationTypes
-3. It is registered via META-INF/services/javax.annotation.processing.Processor
-4. During compilation, javac discovers and invokes the processor
-5. The processor receives a RoundEnvironment containing annotated elements
-6. It can use the javax.lang.model API to inspect types, methods, and annotations
-7. It can use the Filer API to generate new .java or resource files
-8. Processing occurs in rounds — new generated files can trigger additional rounds
-
-Key differences from runtime processing:
-- Runs at compile time, not runtime — zero runtime overhead
-- Cannot modify existing source files — only generate new ones
-- Uses javax.lang.model (mirror API) instead of java.lang.reflect
-- Generated code is type-safe and compiled normally
-
-Popular tools using compile-time processing:
-- Lombok: Generates boilerplate (getters, setters, constructors) -- the exception to the
-  rule above: it modifies the classes being compiled through javac internals
-- MapStruct: Generates type-safe mapper implementations
-- Dagger: Generates dependency injection code
-- AutoValue/Immutables: Generates value objects
-```
-
-```java
-// Example compile-time annotation processor (conceptual)
-@SupportedAnnotationTypes("com.example.GenerateBuilder")
-@SupportedSourceVersion(SourceVersion.RELEASE_21)
-public class BuilderProcessor extends AbstractProcessor {
-
-    @Override
-    public boolean process(Set<? extends TypeElement> annotations,
-                           RoundEnvironment roundEnv) {
-        for (Element element : roundEnv.getElementsAnnotatedWith(GenerateBuilder.class)) {
-            if (element.getKind() == ElementKind.CLASS) {
-                TypeElement typeElement = (TypeElement) element;
-                generateBuilderClass(typeElement);
-            }
-        }
-        return true; // Claim the annotations
-    }
-
-    private void generateBuilderClass(TypeElement typeElement) {
-        String className = typeElement.getSimpleName() + "Builder";
-        try {
-            JavaFileObject file = processingEnv.getFiler()
-                .createSourceFile(className);
-            try (Writer writer = file.openWriter()) {
-                // Write generated builder class source code
-                writer.write("public class " + className + " { ... }");
-            }
-        } catch (IOException e) {
-            processingEnv.getMessager().printMessage(
-                Diagnostic.Kind.ERROR, "Failed to generate: " + e.getMessage());
-        }
-    }
-}
-```
-
-**Q4: How would you implement a security check using annotation processing and dynamic proxies?**
-
-```text
-A4: A security check system using annotations and proxies consists of:
-
-1. A @RequiresPermission annotation (RUNTIME-retained) applied to methods
-2. A dynamic proxy that intercepts method calls
-3. The proxy reads the annotation, checks the user's permissions, and either
-   allows or blocks the call
-
-The proxy's InvocationHandler:
-- Looks up the target method on the implementation class
-- Checks if @RequiresPermission is present
-- If present, compares the required permission against the user's permission set
-- Throws SecurityException if the permission is missing
-- Proceeds with the invocation if permission is present
-- Methods without @RequiresPermission pass through without checks
-
-This is essentially how frameworks like Spring Security implement method-level
-security with @PreAuthorize / @Secured annotations, though they use more sophisticated
-expression evaluation and role hierarchies.
-```
-
-```java
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
-@interface RequiresPermission {
+@Retention(RetentionPolicy.SOURCE)
+@Target(ElementType.TYPE)
+public @interface Command {
     String value();
 }
-
-interface UserService {
-    String getUser(int id);
-    void deleteUser(int id);
-}
-
-class UserServiceImpl implements UserService {
-    public String getUser(int id) { return "User-" + id; }
-
-    @RequiresPermission("ADMIN")
-    public void deleteUser(int id) { /* delete logic */ }
-}
-
-// Security proxy
-@SuppressWarnings("unchecked")
-static <T> T createSecuredProxy(T target, Class<T> iface, Set<String> permissions) {
-    return (T) Proxy.newProxyInstance(
-        iface.getClassLoader(),
-        new Class<?>[]{iface},
-        (proxy, method, args) -> {
-            Method targetMethod = target.getClass()
-                .getMethod(method.getName(), method.getParameterTypes());
-
-            if (targetMethod.isAnnotationPresent(RequiresPermission.class)) {
-                String required = targetMethod.getAnnotation(RequiresPermission.class).value();
-                if (!permissions.contains(required)) {
-                    throw new SecurityException("Missing permission: " + required);
-                }
-            }
-            return method.invoke(target, args);
-        }
-    );
-}
-
-// Usage
-UserService service = createSecuredProxy(
-    new UserServiceImpl(), UserService.class, Set.of("READ"));
-service.getUser(1);       // OK — no permission required
-service.deleteUser(1);    // SecurityException: Missing permission: ADMIN
-```
-
-**Q5: What is the annotation processing "rounds" model?**
-
-```text
-A5: Compile-time annotation processing in Java operates in rounds:
-
-Round 1:
-- The compiler parses all source files
-- Annotation processors are invoked with elements from the original source
-- Processors may generate new source files or report errors
-- If new files were generated, another round begins
-
-Round 2:
-- The compiler parses the newly generated source files
-- Processors are invoked again with elements from the generated files
-- If more files are generated, yet another round begins
-
-Final Round:
-- When no new files are generated, a final round occurs
-- Processors are invoked with an empty set of annotated elements
-- This is the cleanup round — processors can do final validation
-
-Key rules:
-1. A processor's process() method is called once per round
-2. Each round only includes newly generated elements
-3. Processors should not rely on processing order across different annotation types
-4. The RoundEnvironment.processingOver() method returns true in the final round
-5. Processors should return true to "claim" their annotations (prevent other processors
-   from processing them) or false to allow further processing
-
-This rounds model enables annotation processors to generate code that is itself annotated,
-triggering further processing in subsequent rounds.
 ```
 
 ```java
-@SupportedAnnotationTypes("com.example.Entity")
-public class EntityProcessor extends AbstractProcessor {
+package proc;
+
+import java.io.IOException;
+import java.io.Writer;
+import java.util.Set;
+import javax.annotation.processing.*;
+import javax.lang.model.SourceVersion;
+import javax.lang.model.element.*;
+
+@SupportedAnnotationTypes("proc.Command")
+@SupportedSourceVersion(SourceVersion.RELEASE_21)
+public class IndexProcessor extends AbstractProcessor {
 
     @Override
-    public boolean process(Set<? extends TypeElement> annotations,
-                           RoundEnvironment roundEnv) {
-
-        if (roundEnv.processingOver()) {
-            // Final round — do cleanup or validation
-            return false;
+    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {
+        if (annotations.isEmpty()) return false;
+        StringBuilder cases = new StringBuilder();
+        for (Element e : round.getElementsAnnotatedWith(Command.class)) {
+            String name = e.getAnnotation(Command.class).value();
+            String type = ((TypeElement) e).getQualifiedName().toString();
+            cases.append("            case \"").append(name)
+                 .append("\" -> new ").append(type).append("();\n");
         }
+        try (Writer w = processingEnv.getFiler().createSourceFile("app.CommandIndex").openWriter()) {
+            w.write("""
+                package app;
 
-        for (Element element : roundEnv.getElementsAnnotatedWith(Entity.class)) {
-            // Round 1: Process original @Entity classes
-            // Generate repository interfaces (which might have their own annotations)
-            generateRepository((TypeElement) element);
+                public final class CommandIndex {
+                    public static Runnable create(String name) {
+                        return switch (name) {
+                %s            default -> throw new IllegalArgumentException(name);
+                        };
+                    }
+                }
+                """.formatted(cases));
+        } catch (IOException ex) {
+            processingEnv.getMessager().printMessage(javax.tools.Diagnostic.Kind.ERROR, ex.toString());
         }
-
-        // Return true to claim @Entity annotations
         return true;
     }
-
-    // Round 2 might process annotations on the generated repository interfaces
-    // This continues until no new files are generated
 }
 ```
 
-**Q6: What are the performance considerations of runtime annotation processing vs compile-time?**
+The application has `Refund`, marked `@Command("refund")`, and a `Main` that calls
+`CommandIndex.create(args[0]).run()`. No file in the application declares `CommandIndex`. The
+processor is compiled first, on its own, and named when the application is compiled (`out/proc`
+is on `-cp` too, because the sources import `proc.Command`):
 
 ```text
-A6: Performance is a critical factor when choosing between runtime and compile-time processing:
+$ javac -d out/proc proc/src/proc/*.java
+$ javac -processorpath out/proc -cp out/proc -processor proc.IndexProcessor \
+        -s out/gen -d out/app app/src/app/*.java
+$ cat out/gen/app/CommandIndex.java
+package app;
 
-Runtime annotation processing (reflection):
-- Cost: Method.getAnnotation() is relatively expensive (involves synchronization, copying)
-- First access (lookup + call): roughly 100-1000x slower than a direct method call
-- Cached access: roughly 2-20x slower (with proper caching of Method/Field objects)
-  (both are illustrative orders of magnitude that depend on the JVM, the hardware and
-  warmup; they match the figures in 10.3.4 Reflection Performance Considerations)
-- Memory: Each reflective lookup creates temporary objects
-- JIT: The JIT compiler can partially optimize reflective calls but not as well as direct calls
-- Startup: Classpath scanning (e.g., Spring component scan) can slow startup significantly
-
-Compile-time annotation processing:
-- Runtime cost: Zero — generated code is compiled normally
-- Build cost: Adds time to the compilation phase
-- Generated code: Runs at native speed, fully optimizable by JIT
-- Startup: No scanning needed — dependencies are resolved at compile time
-- Trade-off: More complex build setup, generated code may be harder to debug
-
-Mitigation strategies for runtime processing:
-1. Cache Method, Field, and Annotation objects (they're immutable)
-2. Use MethodHandles instead of Method.invoke() for hot paths
-3. Minimize classpath scanning scope (limit base packages)
-4. Use lazy initialization — don't scan everything at startup
-5. Consider GraalVM native image which resolves reflection at build time
-
-Frameworks comparison:
-- Spring: Primarily runtime (reflection + CGLIB proxies), slower startup
-- Micronaut/Quarkus: Primarily compile-time, much faster startup
-- Dagger: Compile-time DI code generation, no runtime reflection
-```
-
-```java
-// Performance comparison example
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-
-class PerformanceComparison {
-
-    // Direct invocation — fastest
-    static int directAdd(int a, int b) { return a + b; }
-
-    // Reflection — slower
-    static int reflectiveAdd(Method method, Object target, int a, int b) throws Exception {
-        return (int) method.invoke(target, a, b);
-    }
-
-    // MethodHandle — middle ground (faster than reflection after warmup)
-    static int methodHandleAdd(MethodHandle handle, int a, int b) throws Throwable {
-        return (int) handle.invoke(a, b);
-    }
-
-    // Best practice: Cache reflection results
-    private static final Map<String, Method> methodCache = new ConcurrentHashMap<>();
-
-    static Method getCachedMethod(Class<?> clazz, String name, Class<?>... params) {
-        String key = clazz.getName() + "." + name + Arrays.toString(params); // overloads need distinct keys
-        return methodCache.computeIfAbsent(key, k -> {
-            try {
-                Method m = clazz.getDeclaredMethod(name, params);
-                m.setAccessible(true);
-                return m;
-            } catch (NoSuchMethodException e) {
-                throw new RuntimeException(e);
-            }
-        });
+public final class CommandIndex {
+    public static Runnable create(String name) {
+        return switch (name) {
+            case "refund" -> new app.Refund();
+            default -> throw new IllegalArgumentException(name);
+        };
     }
 }
+$ java -cp out/app app.Main refund
+refund issued
 ```
+
+`getElementsAnnotatedWith` returns `Element`s from `javax.lang.model`, the compiler's view of the
+declarations. The application's classes aren't compiled yet, so there are no `Class` objects. The file
+the `Filer` creates is compiled along with the sources, which is why `Main` compiled. With
+`-proc:none` the same compile fails:
+
+```text
+app/src/app/Main.java:5: error: cannot find symbol
+        CommandIndex.create(args[0]).run();
+        ^
+  symbol:   variable CommandIndex
+  location: class Main
+1 error
+```
+
+A processor can also be found without `-processor`, through a file
+`META-INF/services/javax.annotation.processing.Processor` in its jar that names the class: the
+`ServiceLoader` file of unit 8.1.5.
+
+> **Discovery changed after Java 21.** With that jar only on `-cp`, javac 21 ran the processor and
+> printed a note that "a future release of javac may disable annotation processing unless at least
+> one processor is specified by name (-processor), or a search path is specified
+> (--processor-path, --processor-module-path), or annotation processing is enabled explicitly
+> (-proc:only, -proc:full)". javac 25, given the same command, ran no processor and failed with
+> the `cannot find symbol` above. Name the processor or the processor path in the build, or pass
+> `-proc:full`.
+
+## An Error Reported at the Element Makes javac Point at the User's Line
+
+Now `Audit` from the opening is in the sources, with its private constructor. Before reading on:
+where does the compile fail, and which file does the error name?
+
+```text
+out/gen/app/CommandIndex.java:6: error: Audit() has private access in Audit
+            case "audit" -> new app.Audit();
+                            ^
+1 error
+```
+
+The build fails, but the error is in a file the developer never wrote and may not know exists. The processor should check what the generated
+code needs, and report a problem through the `Messager`, passing the element that has it:
+
+```java
+if (!hasPublicNoArgConstructor(type)) {
+    processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+            "@Command class needs a public no-arg constructor", type);
+    continue;
+}
+```
+
+Here `type` is the `TypeElement`, and `hasPublicNoArgConstructor` looks through `ElementFilter.constructorsIn(type.getEnclosedElements())`
+for one with no parameters and the `public` modifier. The same compile:
+
+```text
+app/src/app/Audit.java:6: error: @Command class needs a public no-arg constructor
+public class Audit implements Runnable {
+       ^
+1 error
+```
+
+A message of kind `ERROR` fails the compile: javac exited with 1 and wrote no class files. A
+`WARNING` or a `NOTE` leaves the build passing, unless it runs with `-Werror`.
+
+Without the element argument the location is lost: javac printed
+`error: @Command class needs a public no-arg constructor` with no file and no line, and in a large
+build you can't tell which class. Throwing from `process` stops javac with
+`An annotation processor threw an uncaught exception.` and a stack trace through
+`com.sun.tools.javac`, and exit code 3 instead of 1.
+
+<!-- practice 1 -->
+
+## Processing Runs in Rounds, and a Generated File Is Processed in the Next One
+
+A second processor in the build, `CrudProcessor`, generates a delete command for every entity
+marked `@Crud`. For `Customer` it writes:
+
+```java
+package app;
+
+@proc.Command("delete-customer")
+public class DeleteCustomer implements Runnable {
+    public void run() { System.out.println("customer deleted"); }
+}
+```
+
+That class carries `@Command`, but it doesn't exist when `IndexProcessor` reads the sources. Here
+the index processor keeps every `@Command` it sees in a field, `found`, and logs each call with a
+call counter and the simple names of the round's root elements and `@Command` classes:
+
+```java
+processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
+        "round " + roundNo + ": roots " + roots + ", @Command " + commands
+        + ", over=" + round.processingOver());
+```
+
+```text
+Note: round 1: roots [Customer, Main, Refund], @Command [Refund], over=false
+Note: round 2: roots [DeleteCustomer], @Command [DeleteCustomer], over=false
+Note: round 3: roots [], @Command [], over=true
+```
+
+Round 1 hands the processors the sources. Every file created in a
+round is an input of the next round, so `DeleteCustomer` arrives in round 2, where its `@Command`
+is seen. Rounds go on until one creates nothing, and then a last round runs with no inputs and
+`processingOver()` true.
+
+The `Processor` javadoc adds that a processor called in one round is called in every later
+round, including the last, even with no annotations for it, and that javac creates the processor
+object once per compile, not once per round. That is why `found` carries the commands from round
+to round.
+
+## The Filer Creates Each File Once and Never Replaces a Class That Exists
+
+The first section's processor returns early only when `annotations` is empty, so it writes
+`CommandIndex` in every call that has `@Command` classes. With `CrudProcessor` in the build, that
+is rounds 1 and 2:
+
+```text
+Note: round 1: roots [Customer, Main, Refund], @Command [Refund], over=false
+Note: round 2: roots [CommandIndex, DeleteCustomer], @Command [DeleteCustomer], over=false
+error: javax.annotation.processing.FilerException: Attempt to recreate a file for type app.CommandIndex
+Note: round 3: roots [], @Command [], over=true
+1 error
+```
+
+A file can be created once per compile; the second `createSourceFile` throws. The build
+broke only because another processor's output carried `@Command`: a project without `@Crud`
+builds fine with the same processor. Had the second write been skipped instead, the index would
+have compiled without `delete-customer`.
+
+The fix keeps collecting in every round and writes once, when `processingOver()` is true:
+
+```text
+Note: round 3: roots [], @Command [], over=true
+warning: File for type 'app.CommandIndex' created in the last round will not be subject to annotation processing.
+1 warning
+$ java -cp out/app app.Main delete-customer
+customer deleted
+```
+
+`CommandIndex` has no annotations, so no processor needs to see it, and javac still compiled it.
+With `-Werror` the same compile failed on that warning, so a build that sets it must write the file
+earlier, from a round it can tell is the last to bring `@Command` classes. A generated file whose annotations a processor must see has to be
+written before the last round.
+
+The same rule protects the user's classes. A processor that creates a source file named
+`app.Refund`, to replace it with a version that logs, gets:
+
+```text
+app/src/app/Refund.java:6: error: javax.annotation.processing.FilerException: Attempt to recreate a file for type app.Refund
+public class Refund implements Runnable {
+       ^
+1 error
+```
+
+The `Filer` javadoc counts the initial inputs as created by a "zeroth round", so they can't be
+created again. Nor can a processor edit a class in place: `Element` has only getters. (Lombok adds
+methods to the classes being compiled by working on javac's internal syntax trees, outside this
+API.) The `Filer` javadoc's alternative is to generate a subclass of the user's class, or a
+superclass that the user's class names in its own `extends`.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **A processor is code javac runs during the compile.** It reads declarations, not objects, and
+  what it adds are new files that compile with the sources. Name it with `-processor` or a
+  processor path: javac 25 no longer runs one found only on the class path.
+- **Report errors through the `Messager` with the element.** javac then points at the user's
+  line. Without the element there is no location, and an error in generated code points at a
+  file nobody wrote.
+- **Processing runs in rounds.** A generated file is processed in the next round, and one
+  processor object sees every round, the last with `processingOver()` true.
+- **The `Filer` creates each file once and never replaces an input.** An aggregate file written
+  per round fails with `FilerException` once a later round brings more; collect in a field and
+  write once.
+
+## Reference
+
+**javac options for processing (javac 21):**
+
+| Option | Effect |
+|---|---|
+| `-processor a.B,c.D` | runs these processors, skipping discovery |
+| `-processorpath`, `--processor-path` | where processors are looked up; without it, the class path |
+| `-proc:none` | no processing |
+| `-proc:only` | processing only: generated sources written, no class files |
+| `-s dir` | where generated sources go; without it, the `-d` directory |
+| `-Akey=value` | an option for `processingEnv.getOptions()`; a key no processor lists in `@SupportedOptions` gets a warning |
+
+**What happened in the runs on this page (javac 21 unless noted):**
+
+| Situation | Result |
+|---|---|
+| processor jar with a services file, on `-cp` only | javac 21: runs, with a note; javac 25: doesn't run |
+| `@SupportedSourceVersion(RELEASE_21)` under javac 25 | `warning: Supported source version 'RELEASE_21' ... less than -source '25'` |
+| `Messager` `ERROR` with an element | error at the element's file and line; exit code 1; no class files |
+| `Messager` `ERROR` without an element | `error:` with no file or line |
+| exception thrown from `process` | "An annotation processor threw an uncaught exception", stack trace, exit code 3 |
+| `createSourceFile` twice for one name | `FilerException: Attempt to recreate a file for type ...` |
+| `createSourceFile` for a type in the sources | the same `FilerException`, reported at that type |
+| a source file created when `processingOver()` is true | compiled, with a warning that it won't be processed |
+
+## Challenges
+
+1. The check found a private constructor. List what else `new X()` in generated code needs from
+   `X` (not abstract, not an inner class, type arguments), and which of these a `Messager` check
+   reports more clearly than the compile of the generated file.
+2. Your build compiles only the files that changed. The aggregate index then sees only those
+   files' `@Command` classes. What do the `Filer`'s "originating elements" give an incremental
+   build, and what must still be compiled in full?
+3. Compare a build with `IndexProcessor` to a startup scan with reflection, for a service with
+   400 commands: measure the compile time added and the startup time saved on your machine.
+
+## Design Note: Why a Processor Can Only Add Files
+
+JSR 269 gives a processor a read-only model of the program and a `Filer` that refuses to touch
+the inputs. The API offers no way to change a class the developer wrote, and generated code sits
+in files that can be opened, read and diffed.
+
+The cost falls on the design of the user's code: code that wants generated behaviour must call a
+generated class (`CommandIndex.create`) or extend one. Lombok changes the class itself, which ties
+it to javac's internals.
 
 ## Code Examples
 

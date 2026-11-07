@@ -1,576 +1,340 @@
 # 10.5.3. JIT (Just-In-Time) Compilation
 
-## Concept Explanation
+After each deploy, the quote service answers its first requests several times slower than the
+rest. On some days latency steps up again for a moment when a tenant's fee plug-in is loaded,
+although no code on the hot path changed. And a microbenchmark in the same repository reports
+that the hash at the heart of the quote cache costs 0.01 ns per call, less than one CPU cycle.
 
-Just-In-Time (JIT) compilation is one of the JVM's most powerful performance optimization features. It bridges the gap
-between interpreted bytecode execution and native machine code performance by dynamically compiling frequently executed
-bytecode ("hot code") into optimized native machine code at runtime.
+All three come from the JIT compiler: when it compiles, what it assumes while compiling, and what
+it is allowed to leave out. Every output below is from Java 21 (Temurin 21.0.12) on Linux x64, on
+one 20-thread laptop CPU that was also running other work, so only the ratios between timings
+mean anything.
 
-**Real-world analogy**: Imagine you're a translator at an international conference. Initially, you translate each
-sentence one at a time as speakers talk (interpretation). But you notice certain speakers repeat the same phrases often.
-So you prepare pre-translated cards for those common phrases (C1 compilation -- quick but basic optimization). For the
-keynote speaker who talks the longest and most frequently, you prepare a complete, polished translation of their entire
-speech in advance (C2 compilation -- aggressive optimization). This is exactly how the JIT compiler works -- it
-identifies "hot" code and progressively optimizes it.
+## A Method Starts in the Interpreter and Is Compiled in Tiers Once Its Counters Say It Is Hot
 
-### How JIT Compilation Works
-
-The HotSpot JVM uses a **tiered compilation** system (default since Java 8):
-
-1. **Level 0 -- Interpreter**: Bytecode is interpreted directly. Fast startup but slow execution.
-2. **Level 1 -- C1 with full optimization (simple)**: Quick compilation with basic optimizations.
-3. **Level 2 -- C1 with invocation/backedge counters**: C1 compilation plus profiling data collection.
-4. **Level 3 -- C1 with full profiling**: C1 compilation with comprehensive profiling.
-5. **Level 4 -- C2 (Server Compiler)**: Aggressive optimization using profiling data from level 3.
-
-The typical path for hot methods is: Level 0 -> Level 3 -> Level 4.
-
-### Key JIT Optimizations
-
-1. **Method Inlining**: Replaces method calls with the method body, eliminating call overhead and enabling further
-   optimizations. The single most impactful optimization.
-2. **Escape Analysis**: Determines if an object escapes the method/thread scope. If not, the allocation can be
-   eliminated entirely (HotSpot does this by scalar replacement; it does not stack-allocate objects).
-3. **Loop Optimizations**: Loop unrolling, loop-invariant code motion, range check elimination.
-4. **Dead Code Elimination**: Removes code that can never be reached or whose results are never used.
-5. **Null Check Elimination**: Removes redundant null checks based on dominance analysis.
-6. **Devirtualization**: Converts virtual method calls to direct calls when only one implementation exists.
-7. **Intrinsics**: Replaces certain method calls with hand-optimized native code (e.g., `Math.min`, `String.equals`,
-   `Arrays.copyOf`).
-8. **Speculative Optimizations**: Makes optimistic assumptions based on profiling data, with "uncommon traps" as
-   fallback.
-
-### Deoptimization
-
-When the JVM's speculative assumptions become invalid, it must **deoptimize** -- revert from compiled native code back
-to interpreted execution. Common triggers:
-
-- A class is loaded that invalidates a monomorphic call site assumption
-- An uncommon trap is hit (e.g., a branch that was never taken during profiling)
-- Code is replaced via hot-swap (debugging)
-
-## Key Points to Remember
-
-1. The JIT compiler only kicks in after a method has been called enough times (compilation threshold).
-2. **Tiered compilation** (default since Java 8) uses C1 for quick compilation and C2 for aggressive optimization.
-3. **Method inlining** is the most important JIT optimization -- it enables most other optimizations.
-4. **Escape analysis** can eliminate heap allocations entirely (scalar replacement).
-5. The JIT compiler uses **profiling data** (collected during interpretation and C1 execution) to make optimization
-   decisions.
-6. **Deoptimization** can occur when assumptions made during compilation become invalid.
-7. The **on-stack replacement (OSR)** mechanism allows the JVM to switch from interpreted to compiled code mid-execution
-   (e.g., inside a long-running loop).
-8. GraalVM offers an alternative JIT compiler written in Java, enabling advanced optimizations.
-
-## Relevant Java 21 Features
-
-- **Tiered compilation is default**: All modern JVMs use tiered compilation, combining C1 and C2 compilers.
-- **GraalVM integration**: On a JDK that includes the Graal compiler (a GraalVM distribution), it replaces C2 through
-  JVMCI (`-XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI -XX:+UseJVMCICompiler`). The experimental Graal JIT that
-  shipped inside OpenJDK builds was removed in JDK 17 (JEP 410), so a plain OpenJDK 21 has only C1 and C2.
-- **Segmented code cache**: Since Java 9, the code cache is divided into segments (non-method, profiled, non-profiled)
-  for better management.
-- **Compact object headers (Project Lilliput)**: Not available in Java 21. They arrived as an experimental option in
-  JDK 24 (JEP 450) and became a product option in JDK 25 (JEP 519); they shrink object headers, improving cache
-  efficiency.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Benchmarking without warmup**: JIT compilation occurs progressively; cold code is much slower than warmed-up code.
-   ```java
-   // WRONG: Measuring cold performance
-   long start = System.nanoTime();
-   result = compute(data);
-   long elapsed = System.nanoTime() - start; // Includes interpretation + compilation
-
-   // RIGHT: Warm up first, then measure
-   for (int i = 0; i < 10_000; i++) {
-       compute(data); // Warmup iterations
-   }
-   long start = System.nanoTime();
-   result = compute(data); // Now measures JIT-compiled code
-   long elapsed = System.nanoTime() - start;
-
-   // BEST: Use JMH (Java Microbenchmark Harness) which handles warmup properly
-   ```
-   **Solution**: Always use JMH for microbenchmarks, or manually warm up code before measuring.
-
-2. **Megamorphic call sites killing performance**: Having too many implementations at a call site prevents
-   devirtualization.
-   ```java
-   // Monomorphic (1 type) -- JIT can devirtualize and inline
-   Shape s = new Circle();
-   s.draw(); // Always Circle.draw() -- optimized
-
-   // Bimorphic (2 types) -- JIT can handle with type check
-   Shape s = random ? new Circle() : new Square();
-   s.draw(); // Two possibilities -- still optimizable
-
-   // Megamorphic (3+ types) -- JIT gives up on devirtualization
-   Shape s = getRandomShape(); // Circle, Square, Triangle, Hexagon...
-   s.draw(); // Virtual dispatch every time -- slower
-   ```
-   **Solution**: Minimize polymorphism at hot call sites. (`sealed` is a type-system feature, not a performance
-   one: HotSpot's devirtualization comes from receiver-type profiling and class hierarchy analysis of the loaded
-   classes, so do not expect a speed-up from declaring the hierarchy `sealed`.)
-
-3. **Methods too large to inline**: By default HotSpot inlines a method of at most 35 bytes of bytecode at an ordinary
-   call site (`MaxInlineSize`) and at most 325 bytes at a hot, frequently executed call site (`FreqInlineSize`); larger
-   methods are not inlined.
-   ```java
-   // This large method won't be inlined
-   public int computeEverything(int input) {
-       // 500+ lines of code
-   }
-   ```
-   **Solution**: Keep methods small and focused. Use `-XX:MaxInlineSize` and
-   `-XX:FreqInlineSize` for tuning.
-
-4. **Escape analysis defeated by external references**:
-   ```java
-   // Object escapes -- cannot be stack-allocated
-   public Point getPoint() {
-       Point p = new Point(1, 2);
-       return p; // p escapes the method
-   }
-
-   // Object does NOT escape -- the allocation can be eliminated (scalar replacement)
-   public int getDistance() {
-       Point p = new Point(3, 4);
-       return p.x * p.x + p.y * p.y; // p never escapes
-   }
-   ```
-   **Solution**: Design APIs so that intermediate objects don't escape hot methods.
-
-## Best Practices and Optimization Techniques
-
-1. **Write simple, idiomatic code**: The JIT compiler is tuned to optimize common Java patterns. Clever tricks often
-   inhibit optimization.
-2. **Keep hot methods small**: Smaller methods are more likely to be inlined, which enables cascading optimizations.
-3. **Use final classes and methods where the design allows**: A `final` method has exactly one target, so the JIT can
-   bind it directly. (`sealed` documents a closed hierarchy for readers and the compiler; the JIT's devirtualization
-   comes from profiling and class hierarchy analysis, so `sealed` should not be chosen for speed.)
-4. **Favor immutable objects in hot paths**: They enable better escape analysis and elimination.
-5. **Use `@ForceInline` and `@DontInline`** (JDK-internal, for JDK developers) -- for application code, structure
-   methods to be naturally inline-friendly.
-6. **Monitor JIT behavior**: Use `-XX:+PrintCompilation` to see what's being compiled, and
-   `-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining` to see inlining decisions.
-7. **Use JMH for benchmarking**: It handles warmup, dead code elimination prevention, and compiler blackholes correctly.
-8. **Avoid reflection in hot paths**: Reflective calls are harder for the JIT to optimize.
-
-## Edge Cases and Their Handling
-
-1. **Code cache exhaustion**: When the code cache is full, no more methods can be JIT-compiled, and performance degrades.
-   Monitor with `-XX:+PrintCodeCache` and tune with `-XX:ReservedCodeCacheSize`.
-2. **Deoptimization storms**: Rapid deoptimization/recompilation cycles can cause performance oscillation. Diagnose with
-   `-XX:+UnlockDiagnosticVMOptions -XX:+TraceDeoptimization`, or with the JFR `jdk.Deoptimization` event.
-3. **OSR compilation edge cases**: On-stack replacement in deeply nested loops can produce suboptimal code compared to
-   regular compilation.
-4. **Native method boundaries**: JIT cannot optimize across JNI boundaries. Consider the Foreign Function & Memory API
-   (a preview API in Java 21, final in Java 22) as a lower-overhead alternative; native code is still not inlined.
-5. **Uncommon traps**: If a branch that was assumed "never taken" is suddenly taken, the JVM deoptimizes and recompiles
-   with updated profiling data.
-
-## Interview-specific Insights
-
-Interviewers often focus on:
-
-- Understanding tiered compilation and the C1/C2 compiler distinction
-- Explaining key optimizations: inlining, escape analysis, devirtualization
-- Knowledge of when and why deoptimization occurs
-- How to use JIT compiler flags for debugging and tuning
-- Understanding why benchmarking requires warmup
-- The relationship between code structure and JIT optimization
-
-Common tricky questions:
-- "Can you explain why a short method might run faster than an equivalent longer method?"
-- "What is escape analysis and how can it eliminate heap allocations?"
-- "Why might adding a new class to your application make unrelated code slower?"
-
-## Interview Q&A Section
-
-**Q1: Explain tiered compilation in the HotSpot JVM.**
-
-```text
-A1: Tiered compilation is the default compilation strategy in HotSpot JVM (since Java 8)
-that combines two JIT compilers for optimal performance:
-
-C1 (Client Compiler):
-- Fast compilation, basic optimizations
-- Generates reasonably optimized code quickly
-- Collects profiling data for C2
-- Three sub-levels: Level 1 (no profiling), Level 2 (basic), Level 3 (full profiling)
-
-C2 (Server Compiler):
-- Slow compilation, aggressive optimizations
-- Uses profiling data from C1 to make speculative optimizations
-- Produces highly optimized native code
-- Level 4
-
-The typical compilation path:
-1. Method starts as interpreted (Level 0)
-2. After enough invocations, C1 compiles it with profiling (Level 3)
-3. After more invocations and sufficient profiling data, C2 recompiles (Level 4)
-
-Benefits of tiered compilation:
-- Fast startup (C1 compiles quickly for early warmup)
-- High peak performance (C2 optimizes hot code aggressively)
-- Better profiling data (C1 collects data while providing decent performance)
-- Automatic adaptation (no need to choose -client vs -server)
-
-You can control this with:
-- -XX:+TieredCompilation (on by default)
-- -XX:-TieredCompilation (disable, use only C2)
-- -XX:TieredStopAtLevel=N (stop at level N)
-```
+The JVM first runs a method's bytecode (unit 10.5.2) in the interpreter, which counts the method's
+calls and its loop iterations. When those counts cross a threshold, it queues the method for
+compilation on a background thread and keeps interpreting until the machine code is ready. This
+program calls `score` ten million times per round, for five rounds:
 
 ```java
-// Observing JIT compilation with flags:
-// java -XX:+PrintCompilation TieredCompilationDemo
+public class Warmup {
+    record Weights(int factor) {}
 
-public class TieredCompilationDemo {
-    public static int hotMethod(int x) {
-        return x * x + 2 * x + 1;
+    static final Weights WEIGHTS = new Weights(31);
+
+    static int score(int x) {                          // the hot method
+        return (x * WEIGHTS.factor()) ^ (x >>> 3);
+    }
+
+    static long round() {                              // one round: ten million calls
+        long sum = 0;
+        for (int i = 0; i < 10_000_000; i++) sum += score(i);
+        return sum;
     }
 
     public static void main(String[] args) {
-        // Level 0: Interpreted for first few hundred calls
-        for (int i = 0; i < 100; i++) {
-            hotMethod(i);
+        long total = 0;
+        for (int r = 1; r <= 5; r++) {
+            long t0 = System.nanoTime();
+            total += round();
+            System.out.printf("round %d: %,7d us%n", r, (System.nanoTime() - t0) / 1000);
         }
-
-        // Level 3: C1 compiled with profiling after ~hundreds of calls
-        for (int i = 0; i < 10_000; i++) {
-            hotMethod(i);
-        }
-
-        // Level 4: C2 compiled with aggressive optimizations after ~10,000+ calls
-        for (int i = 0; i < 100_000; i++) {
-            hotMethod(i);
-        }
+        System.out.println("total " + total);          // the result is used
     }
 }
 ```
 
-**Q2: What is method inlining and why is it the most important JIT optimization?**
+`java -XX:+PrintCompilation Warmup`, trimmed to this class's methods:
 
 ```text
-A2: Method inlining replaces a method call with the body of the called method at the
-call site. It is considered the most important JIT optimization because:
-
-1. Eliminates call overhead:
-   - No need to create a new stack frame
-   - No parameter passing overhead
-   - No return value handling
-
-2. Enables cascading optimizations:
-   - Constant propagation: If arguments are constants, the inlined code can be
-     simplified at compile time
-   - Dead code elimination: Unreachable branches in the inlined code can be removed
-   - Escape analysis: Objects that don't escape the inlined scope can be
-     stack-allocated or eliminated
-   - Loop optimizations: Inlined loop bodies can be unrolled or vectorized
-
-3. Improves data locality:
-   - Inlined code is physically closer in the code cache
-   - Better CPU cache utilization
-
-HotSpot inlining heuristics:
-- MaxInlineSize (default 35 bytes): Methods smaller than this are always inlined
-- FreqInlineSize (default 325 bytes): Frequently called methods up to this size
-- MaxInlineLevel (default 15): Maximum depth of inlining
-- Methods marked as 'final' or in 'final' classes are easier to inline
-
-Why small methods matter:
-- Getter/setter methods (1-5 bytes) are always inlined
-- Small utility methods get inlined, making abstraction "free"
-- Large methods block inlining of their callers
+15    6       1       Warmup$Weights::factor (5 bytes)
+15    7       3       Warmup::score (13 bytes)
+15    8       4       Warmup::score (13 bytes)
+16    7       3       Warmup::score (13 bytes)   made not entrant
+17    9 %     3       Warmup::round @ 4 (26 bytes)
+17   10       3       Warmup::round (26 bytes)
+17   11 %     4       Warmup::round @ 4 (26 bytes)
+20    9 %     3       Warmup::round @ 4 (26 bytes)   made not entrant
+24   11 %     4       Warmup::round @ 4 (26 bytes)   made not entrant
+46  130 %     4       Warmup::round @ 4 (26 bytes)
+49  131       4       Warmup::round (26 bytes)
+50   10       3       Warmup::round (26 bytes)   made not entrant
 ```
 
-```java
-// Inlining demonstration
-public class InliningDemo {
-    // These small methods will be inlined by the JIT
-    public static int square(int x) {
-        return x * x;
-    }
+The columns are milliseconds since the JVM started, a compile id, attributes and the tier. Tiers 1 to 3 are C1, the fast compiler; tier 4 is C2, the optimising one.
+`score` went from the interpreter to tier 3, which is C1 code that keeps counting and records
+which branches and types it sees, then to tier 4, which C2 compiled from that profile. The getter
+`factor()` went straight to tier 1, plain C1 code without profiling: HotSpot treats a method
+that only returns a field as trivial. Tier 2, C1 with counters only, stands in for tier 3 when C2
+falls behind. It never showed up for this class in ten runs; with a single C2 thread
+(`-XX:CICompilerCount=2`), it did for some of the JDK's own methods, such as
+`StringUTF16::getChar`.
 
-    public static int doubleIt(int x) {
-        return x * 2;
-    }
+**"made not entrant" does not mean something failed.** Compile 7, the tier-3 `score`, was made not
+entrant a millisecond after compile 8 installed tier 4: new calls stop entering the old code and
+go to the new one. The log prints the same words when compiled code is thrown away because an
+assumption broke. What tells them apart is whether a newer compile of the same method was already
+taking calls, as compile 8 was here.
 
-    // After inlining, this becomes equivalent to: return x * x + x * 2 + 1
-    public static int compute(int x) {
-        return square(x) + doubleIt(x) + 1;
-    }
+`round` is called only five times, but its loop runs ten million times inside the first call.
+A `%` line is an **on-stack replacement** (OSR) compile: machine code for the loop starting at
+bytecode 4, which the running call jumps into mid-loop. Without it, round 1's loop would stay
+interpreted to the end.
 
-    // Polymorphic methods may not be inlined (megamorphic call sites)
-    interface Shape {
-        int area();
-    }
+## Until the Compiled Code Is Installed, the Same Loop Runs Tens of Times Slower
 
-    static final class Circle implements Shape {
-        int r;
-        Circle(int r) { this.r = r; }
-        @Override public int area() { return (int)(Math.PI * r * r); }
-    }
-
-    // Sealed classes document every implementation for readers and for switch
-    // exhaustiveness (a type-system feature); the JIT's inlining decisions come from
-    // profiling and class hierarchy analysis, so expect no speed-up from 'sealed' itself
-    sealed interface SealedShape permits SealedCircle, SealedSquare {
-        int area();
-    }
-    static final class SealedCircle implements SealedShape {
-        int r;
-        SealedCircle(int r) { this.r = r; }
-        @Override public int area() { return (int)(Math.PI * r * r); }
-    }
-    static final class SealedSquare implements SealedShape {
-        int s;
-        SealedSquare(int s) { this.s = s; }
-        @Override public int area() { return s * s; }
-    }
-}
-```
-
-**Q3: What is escape analysis and how does it optimize memory allocation?**
+The same program with the JIT off (`-Xint`), with C1 only (`-XX:TieredStopAtLevel=1`), and with the
+defaults, three JVMs each (the script joins each JVM's five lines into one):
 
 ```text
-A3: Escape analysis is a JIT compiler optimization that determines the dynamic scope
-of object references -- specifically, whether an object can be accessed outside the
-method or thread that created it.
-
-Three escape states:
-1. NoEscape: Object is only used within the creating method and never stored in a
-   field or passed to another method.
-2. ArgEscape: Object is passed as an argument to a method but doesn't escape beyond
-   that call (e.g., passed to a method that doesn't store it).
-3. GlobalEscape: Object is stored in a static field, returned from the method, or
-   otherwise accessible globally.
-
-Optimizations enabled:
-1. Scalar Replacement (NoEscape):
-   - Instead of allocating the object on the heap, its fields become local variables
-   - No allocation, no garbage collection needed
-   - Example: Point p = new Point(x, y); return p.x + p.y;
-     Becomes: return x + y; (Point object eliminated entirely)
-
-2. Stack Allocation (NoEscape):
-   - Object is allocated on the thread's stack instead of the heap
-   - Automatically deallocated when the method returns
-   - No GC pressure at all
-   - Note: HotSpot primarily uses scalar replacement rather than stack allocation
-
-3. Lock Elision (NoEscape/ArgEscape):
-   - If an object doesn't escape the thread, its synchronization can be removed
-   - synchronized(localObj) becomes a no-op if localObj doesn't escape
-
-4. Lock Coarsening (related optimization):
-   - Multiple adjacent synchronized blocks on the same object are merged
-
-Limitations:
-- Only works for objects that don't escape
-- Complex control flow can prevent escape analysis
-- Large objects may not benefit (exceeds optimization thresholds)
-- Requires method inlining first (analysis must see the full scope)
+### -Xint run 1
+round 1: 202,929 us round 2: 185,668 us round 3: 185,615 us round 4: 183,388 us round 5: 186,502 us 
+### -Xint run 2
+round 1: 184,432 us round 2: 192,424 us round 3: 189,043 us round 4: 188,896 us round 5: 184,932 us 
+### -Xint run 3
+round 1: 182,570 us round 2: 192,310 us round 3: 183,785 us round 4: 185,834 us round 5: 186,698 us 
+### -XX:TieredStopAtLevel=1 run 1
+round 1:   9,551 us round 2:   6,305 us round 3:   6,302 us round 4:   6,318 us round 5:   6,321 us 
+### -XX:TieredStopAtLevel=1 run 2
+round 1:   9,640 us round 2:   6,298 us round 3:   6,305 us round 4:   6,345 us round 5:   6,343 us 
+### -XX:TieredStopAtLevel=1 run 3
+round 1:   9,845 us round 2:   6,307 us round 3:   6,651 us round 4:   8,919 us round 5:   6,318 us 
+### default run 1
+round 1:   8,947 us round 2:   8,798 us round 3:   4,845 us round 4:   4,848 us round 5:   4,803 us 
+### default run 2
+round 1:   6,958 us round 2:   7,412 us round 3:   3,299 us round 4:   3,313 us round 5:   3,302 us 
+### default run 3
+round 1:   6,773 us round 2:  10,367 us round 3:   4,782 us round 4:   4,233 us round 5:   3,289 us 
 ```
 
-```java
-// Escape analysis scenarios
-public class EscapeAnalysisDemo {
-    record Point(int x, int y) {}
+Interpreted, a round takes about 185 ms. C2's code takes 3.3 to 4.8 ms, 38 to 56 times less, and
+C1's 6.3 ms. A request path that runs a few thousand methods pays the interpreter's price on each
+of them until each one crosses its threshold. That is the slow start after a deploy, and why
+services send warm-up traffic before taking real traffic.
 
-    // NoEscape -- Point can be scalar-replaced (eliminated)
-    public static int sumCoordinates(int x, int y) {
-        Point p = new Point(x, y); // JIT may eliminate this allocation
-        return p.x() + p.y();     // Becomes just: return x + y;
-    }
-
-    // GlobalEscape -- Point escapes via return; cannot be eliminated
-    public static Point createPoint(int x, int y) {
-        return new Point(x, y); // Must be heap-allocated
-    }
-
-    // NoEscape with lock elision
-    public static int synchronizedNoEscape() {
-        Object lock = new Object(); // Doesn't escape
-        synchronized (lock) {        // Lock can be elided
-            return 42;
-        }
-    }
-
-    // ArgEscape -- depends on what the called method does
-    public static void argEscape(int x, int y) {
-        Point p = new Point(x, y);
-        System.out.println(p); // p escapes to println
-    }
-}
-```
-
-**Q4: What is deoptimization and when does it occur?**
+Round 2 of the default runs is no faster than round 1, and slower in two of three. In the log,
+compile 11, C2's loop code, was made not entrant at 24 ms, when round 1 left its loop.
+`-Xlog:deoptimization=debug` names the reason (from another JVM, so the time differs):
 
 ```text
-A4: Deoptimization is the process of reverting from JIT-compiled native code back to
-interpreted execution. It occurs when the assumptions made during JIT compilation
-become invalid.
-
-When deoptimization occurs:
-1. Class loading invalidates assumptions:
-   - JIT assumed a method was monomorphic (only one implementation)
-   - A new class is loaded that provides another implementation
-   - The compiled code's devirtualization is no longer valid
-
-2. Uncommon traps are hit:
-   - JIT compiled code based on profiling that showed a branch was never taken
-   - When that branch is taken for the first time, the compiled code can't handle it
-   - Example: null check that was never triggered during profiling
-
-3. Type profile changes:
-   - JIT optimized for specific types seen during profiling
-   - A new type appears at runtime
-
-4. Hot code replacement:
-   - Debugger replaces code at runtime (JVMTI)
-
-5. Speculative optimizations fail:
-   - Bounds check elimination assumed array was always in bounds
-   - An out-of-bounds access occurs
-
-The deoptimization process:
-1. JVM identifies the current point in compiled code
-2. Reconstructs the interpreter state (stack frame, local variables)
-3. Transfers execution to the interpreter
-4. The method may be recompiled later with updated profiling data
-
-Impact on performance:
-- Deoptimization itself is expensive (state reconstruction)
-- Repeated deopt/recompile cycles ("deoptimization storms") are very costly
-- Usually temporary -- recompilation with better data resolves it
+[0.036s][debug][deoptimization] cid=  11 osr level=4 Warmup.round()J trap_bci=7 osr_bci=4 unstable_if reinterpret
 ```
 
+Bytecode 7 is the loop's exit test. In every iteration profiled before C2 compiled the loop, the
+test had failed, so C2 compiled no code for leaving the loop, only a trap back to the interpreter.
+Round 2 started in the tier-3 code (compile 10), got a new loop compile (130) at 46 ms, and the
+tier-4 `round` that new calls enter (compile 131) arrived only at 49 ms.
+
+<!-- practice 3 -->
+
+## Compiled Code Rests on Assumptions, and a Class Loaded Later Can Make It Not Entrant
+
+C2 compiles for the program it has seen so far. When `Fee.apply` has one implementation among the
+loaded classes, C2 calls it directly and inlines it, and records a dependency: if a class that
+overrides `apply` is loaded, this code is wrong. Here a subclass is loaded in round 6, the way a
+plug-in would be, and never called:
+
 ```java
-// Demonstrating deoptimization trigger
-public class DeoptimizationDemo {
-    interface Processor {
-        int process(int input);
-    }
+static class Fee {
+    long apply(long cents) { return cents + 30; }
+}
 
-    static class SimpleProcessor implements Processor {
-        @Override public int process(int input) { return input * 2; }
-    }
+static class WaivedFee extends Fee {             // loaded in round 6, never called
+    @Override long apply(long cents) { return cents; }
+}
 
-    static class ComplexProcessor implements Processor {
-        @Override public int process(int input) { return input * input + input; }
-    }
-
-    public static int useProcessor(Processor p, int input) {
-        return p.process(input); // Call site for potential deopt
-    }
-
-    public static void main(String[] args) {
-        Processor simple = new SimpleProcessor();
-
-        // Phase 1: JIT profiles this as monomorphic (only SimpleProcessor)
-        // After warmup, devirtualizes and inlines SimpleProcessor.process()
-        for (int i = 0; i < 100_000; i++) {
-            useProcessor(simple, i);
-        }
-
-        // Phase 2: Introducing ComplexProcessor invalidates the assumption
-        // This triggers deoptimization of useProcessor()
-        Processor complex = new ComplexProcessor();
-        for (int i = 0; i < 100_000; i++) {
-            // JIT must now handle bimorphic call site
-            useProcessor(i % 2 == 0 ? simple : complex, i);
-        }
-    }
+static long total(Fee fee, int n) {              // fee.apply has one target until round 6
+    long sum = 0;
+    for (int i = 0; i < n; i++) sum += fee.apply(i);
+    return sum;
 }
 ```
 
-**Q5: How do you diagnose JIT compilation issues in production?**
+Each round calls `total(fee, 10_000)` a thousand times with one `Fee`, and round 6 starts with
+`Class.forName("LateClass$WaivedFee")`, the binary name of the nested class. The rounds, printed with the JVM's uptime, and the log lines
+for `total` from 89 ms on:
 
 ```text
-A5: Several tools and flags help diagnose JIT compilation behavior:
-
-Diagnostic Flags:
-1. -XX:+PrintCompilation
-   - Shows each method as it's compiled
-   - Format: timestamp compile_id flags tier method_name size
-   - Flags: b=blocking, s=synchronized, !=has exception handler
-   - % indicates OSR compilation
-
-2. -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining
-   - Shows inlining decisions and reasons for not inlining
-   - "too big", "callee is too large", "no static binding"
-
-3. -XX:+PrintCodeCache
-   - Shows code cache utilization at shutdown
-   - Helps identify if code cache is exhausted
-
-4. -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation (produces XML log)
-   - Most detailed output, used with JITWatch visualization tool
-   - Generates hotspot_pidXXXX.log
-
-5. JFR (Java Flight Recorder):
-   - jdk.Compilation event: Method compilation details
-   - jdk.CompilerInlining: Inlining decisions
-   - jdk.Deoptimization: Deoptimization events
-   - Low overhead, safe for production
-
-Tools:
-- JITWatch: Visualizes compilation logs and inlining decisions
-- JMH: Microbenchmarking with proper warmup handling
-- async-profiler: Shows actual compiled code and CPU hot spots
-- perf + perf-map-agent: Maps JIT-compiled code to Linux perf events
-
-Key metrics to watch:
-- Compilation rate (compiles per second)
-- Code cache utilization (%)
-- Deoptimization count
-- Time spent in compilation threads
+85 ms  round  5   3,369 us
+90 ms  round  6   8,854 us
+99 ms  round  7   3,392 us
 ```
+
+```text
+89   88 %     4       LateClass::total @ 5 (29 bytes)   made not entrant
+89   89       4       LateClass::total (29 bytes)   made not entrant
+90  174 %     4       LateClass::total @ 5 (29 bytes)
+93  175       4       LateClass::total (29 bytes)
+```
+
+Loading `WaivedFee` invalidated both tier-4 compiles of `total` at 89 ms, and round 6 took 2.6 times
+as long as round 5 (in all three JVMs) until C2 had compiled `total` again for a hierarchy with two
+implementations.
+
+A second program, `LateInterface`, makes `Fee` an interface with `final` implementations. There the
+same load changed nothing: no line for `total` after the load, and round 6 took as long as round
+5. C2 had compiled that call with a check on the receiver's class rather than a dependency. In a
+variant that also passes the new `Surcharge` to `total` in round 6, that first call failed the
+check. Its non-OSR log lines and the round:
+
+```text
+74   90       4       LateInterface::total (31 bytes)   made not entrant
+74  177       4       LateInterface::total (31 bytes)
+74 ms  round  6  Surcharge  6,007 us
+```
+
+In both cases C2 recompiled within a few milliseconds and the rounds after returned to their
+earlier times. A call site that keeps seeing three or more classes, none dominant, is megamorphic
+and isn't inlined, which unit 4.1.3 shows bringing back boxing.
+
+<!-- practice 1 -->
+
+## A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input
+
+The hash from the opening, and three loops that time it:
 
 ```java
-// JIT diagnostic demonstration
-// Run with: java -XX:+PrintCompilation -XX:+UnlockDiagnosticVMOptions
-//           -XX:+PrintInlining JitDiagnostics
+static long mix(long x) {                          // a 64-bit hash finaliser
+    x ^= x >>> 33;
+    x *= 0xff51afd7ed558ccdL;
+    x ^= x >>> 33;
+    x *= 0xc4ceb9fe1a85ec53L;
+    return x ^ (x >>> 33);
+}
 
-public class JitDiagnostics {
-    // Small enough to be inlined (< 35 bytes)
-    static int smallMethod(int x) {
-        return x + 1;
-    }
+static long discarded(int n) {
+    for (int i = 0; i < n; i++) mix(i);            // result thrown away
+    return 0;
+}
 
-    // 36 bytes of bytecode: over MaxInlineSize (35), so C1 and cold call sites do not
-    // inline it; under FreqInlineSize (325), so C2 can inline it at a hot call site
-    static int largeMethod(int x) {
-        int result = x;
-        for (int i = 0; i < 10; i++) {
-            result = result * x + i;
-            if (result < 0) result = -result;
-            result = result % 1000000;
-        }
-        return result;
-    }
+static long consumed(int n) {
+    long sum = 0;
+    for (int i = 0; i < n; i++) sum += mix(i);     // every result reaches the return value
+    return sum;
+}
 
-    public static void main(String[] args) {
-        // Force compilation by calling many times
-        int sum = 0;
-        for (int i = 0; i < 100_000; i++) {
-            sum += smallMethod(i);  // Will be inlined
-            sum += largeMethod(i);  // C1 reports "callee is too large"; C2 can inline it
-                                // ("inline (hot)") if the loop runs long enough for C2
-                                // to compile main -- 100_000 iterations may end first
-        }
-        System.out.println("Sum: " + sum);
-
-        // The number of CPUs also sizes the JIT compiler thread pool
-        System.out.println("Available processors: " +
-            Runtime.getRuntime().availableProcessors());
-    }
+static long constantInput(int n) {
+    long sum = 0;
+    for (int i = 0; i < n; i++) sum += mix(42);    // used, but the input never changes
+    return sum;
 }
 ```
+
+Each loop runs in its own JVM, for ten rounds of ten million calls, and prints the median of rounds
+6 to 10. The returned sums are added up and printed. Before reading on: which of the three costs
+what `mix` costs?
+
+```text
+### default
+discarded      0.00 ns/call   (sink 0)
+discarded      0.00 ns/call   (sink 0)
+discarded      0.00 ns/call   (sink 0)
+consumed       0.41 ns/call   (sink -5689120754516562996)
+consumed       0.42 ns/call   (sink -5689120754516562996)
+consumed       0.41 ns/call   (sink -5689120754516562996)
+constantInput  0.01 ns/call   (sink 9141548895097605120)
+constantInput  0.01 ns/call   (sink 9141548895097605120)
+constantInput  0.01 ns/call   (sink 9141548895097605120)
+### -Xint
+discarded      17.58 ns/call   (sink 0)
+discarded      17.83 ns/call   (sink 0)
+discarded      18.71 ns/call   (sink 0)
+consumed       18.53 ns/call   (sink -5689120754516562996)
+consumed       18.47 ns/call   (sink -5689120754516562996)
+consumed       18.30 ns/call   (sink -5689120754516562996)
+constantInput  18.42 ns/call   (sink 9141548895097605120)
+constantInput  18.31 ns/call   (sink 9141548895097605120)
+constantInput  18.09 ns/call   (sink 9141548895097605120)
+```
+
+Only `consumed`. The interpreter does all the work in all three loops, at about 18 ns per call. C2
+inlined `mix` into each loop. In `discarded` nothing used its result, so it deleted the
+computation and then the empty loop (unit 10.3.4 shows the same for a reflective call).
+`constantInput` uses every result, and still costs nothing: `mix(42)` has the same value on
+every iteration, so C2 folded it to a constant while compiling. A related freedom lets the JIT
+read a plain field once outside a spin loop (unit 6.2.2).
+
+A measurement can be trusted only when the JIT can't predict the work: every result reaches
+something it can't see through (the returned sum, printed at the end), and every input varies the
+way production inputs do. JMH, the OpenJDK project's benchmark harness, consumes results and runs
+fresh JVMs and warm-up rounds for you, but the inputs are still yours to choose. It wasn't
+available for this page, so the loops do it by hand. When a number looks too good, `-Xint` shows
+how much work there was.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **A method starts interpreted and is compiled in tiers once its counters say it is hot.**
+  Tier 3 profiles, tier 4 is C2's code built from that profile, and "made not entrant" on a
+  lower tier is usually a replacement.
+- **Until compiled code is installed, the same loop runs 38 to 56 times slower here.** Warm-up
+  is slow for each method separately, and an OSR compile thrown away at a loop's exit can make
+  the second round slower than the first.
+- **Compiled code rests on assumptions about the loaded classes and the types seen.** Loading a
+  subclass that overrides a method, or calling with a new class, makes the code not entrant and
+  costs a step in latency until C2 compiles again.
+- **A benchmark measures nothing when the JIT can drop the work or fold its input.** Consume every
+  result, vary the input, and compare with `-Xint` when a number looks too good.
+
+## Reference
+
+**Tiers (HotSpot, Java 21, tiered compilation on by default):**
+
+| Tier | Code | Seen on this page |
+|---|---|---|
+| 0 | interpreter | every method at first; `-Xint` keeps it there |
+| 1 | C1, no profiling | `Weights::factor`, a getter |
+| 2 | C1, call and loop counters only | JDK methods, with `-XX:CICompilerCount=2` |
+| 3 | C1, full profiling | `score` and `round` before C2 |
+| 4 | C2, from the profile | `score`, `round`, `total` |
+
+**`-XX:+PrintCompilation` columns:** milliseconds since start, compile id, attributes (`%` OSR,
+`n` native wrapper), tier, `Class::method`, `@ bci` for OSR, bytecode size, then
+`made not entrant` when the code stops taking new calls.
+
+**Thresholds and limits (`java -XX:+PrintFlagsFinal -version`):**
+
+| Flag | Value |
+|---|---|
+| `Tier3InvocationThreshold`, `Tier3CompileThreshold`, `Tier3BackEdgeThreshold` | 200, 2000, 60000 |
+| `Tier4InvocationThreshold`, `Tier4CompileThreshold`, `Tier4BackEdgeThreshold` | 5000, 15000, 40000 |
+| `MaxInlineSize` (largest method inlined at a call site that isn't hot, in bytes) | 35 |
+| `FreqInlineSize` (largest method inlined at a hot call site, in bytes) | 325 |
+| `CICompilerCount` (compiler threads, sized from the CPU count) | 12 on this machine |
+
+**Flags used on this page:**
+
+| Flag | Effect |
+|---|---|
+| `-XX:+PrintCompilation` | one line per compile and per code made not entrant |
+| `-Xlog:deoptimization=debug` | one line per trap taken in compiled code, with its reason |
+| `-Xint` | interpreter only |
+| `-XX:TieredStopAtLevel=1` | C1 only, without profiling |
+
+## Challenges
+
+1. Your service takes traffic 10 seconds after start. Using `-XX:+PrintCompilation`, how would you
+   find out whether its hot paths reach tier 4 before then, and what would you send as warm-up
+   traffic?
+2. A rules engine loads tenants' rule classes on demand under traffic. Run `LateClass` with ten
+   subclasses loaded one per round. Does every load cost a step, or only the first?
+3. Write a benchmark for `String.hashCode` on strings of varying length. What does the JDK's
+   caching of a string's hash do to your measurement, and how do you keep it honest?
+
+## Design Note: Why HotSpot Compiles for the Program It Has Seen
+
+C2 compiles a method for the classes loaded and the types seen so far, instead of for every
+program that could still happen. That lets it call one implementation directly, inline it, leave
+out the code for a branch that was never taken, and compute a value once that never changed. A
+compiler that had to be right for every future class could inline a virtual call only behind a
+type check on every call, and would compile every branch the profile never saw.
+
+The price is that compiled code can become wrong, so the JVM keeps the means to throw it away:
+dependencies on the class hierarchy, traps where it guessed, and the interpreter to fall back to.
+Performance then depends on history: the same method is fast or slow depending on what ran
+before it.
 
 ## Code Examples
 

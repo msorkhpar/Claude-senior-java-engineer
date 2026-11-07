@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Search employees with bound parameters",
+  "title": "Load the night's meter readings in chunks",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,44 @@
     },
     {
       "type": "para",
-      "text": "The page's first pitfall builds SQL by pasting user input between quotes, so the input `' OR '1'='1` rewrites the query. The fix is a `PreparedStatement` whose `?` placeholders are filled with `setString` / `setBigDecimal`: **values are bound, never concatenated into the SQL**."
+      "text": "Every night the utility imports its smart-meter readings, about 2.4 million rows, into a database on another host. `importOneByOne` in `src/main/java/practice/MeterImport.java` does the job correctly, but the import now runs past the start of the morning shift, and the DBA reports that it sends a different SQL text for every reading. Meter names come from the vendor's file unchanged, and some contain quotes."
     },
     {
       "type": "para",
-      "text": "The table (made by the tests) is `employees(id INT PRIMARY KEY, name VARCHAR, department VARCHAR, salary DECIMAL(10,2))`. Write `EmployeeSearch`, which is given an open `Connection`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`byName(name)`: the employees whose name equals `name`, ordered by id.",
-        "`inDepartmentAbove(department, minSalary)`: the department's employees with `salary > minSalary` (strictly above), ordered by id. Money is a `BigDecimal`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Bind every value: no value from the caller appears in the SQL text, not even escaped. **The bound value is sent unchanged**: do not strip or escape quotes yourself, so a name with an apostrophe still matches."
+      "text": "Write `importAll(connection, readings, chunkSize)` so the import reaches the driver once per `chunkSize` readings rather than once per reading, sends the database one SQL text for the whole run, and returns the number of rows the database reports inserted. The connection is the caller's: don't close it or commit. About twelve lines."
     },
     {
       "type": "table",
       "headers": [
-        "rows",
-        "call",
-        "answer"
+        "readings",
+        "`chunkSize`",
+        "rows stored",
+        "calls that send rows to the database"
       ],
       "rows": [
         [
-          "Ada (Engineering, 90000.00), Linus (Engineering, 80000.00), Grace (Sales, 95000.00)",
-          "`inDepartmentAbove(\"Engineering\", 80000.00)`",
-          "`[Ada]`"
+          "12",
+          "4",
+          "12",
+          "3"
         ],
         [
-          "same",
-          "`byName(\"' OR '1'='1\")`",
-          "`[]`"
+          "0",
+          "50",
+          "0",
+          "0"
         ],
         [
-          "O'Brien (Sales, 70000.00)",
-          "`byName(\"O'Brien\")`",
-          "`[O'Brien]`"
+          "7",
+          "3",
+          "7",
+          "3"
         ]
       ]
+    },
+    {
+      "type": "para",
+      "text": "The table is `meter_reading(meter VARCHAR(40), wh BIGINT)`."
     },
     {
       "type": "heading",
@@ -75,7 +71,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Objects;\n\npublic final class EmployeeSearch {\n\n    public record Employee(int id, String name, String department, BigDecimal salary) {\n    }\n\n    private static final String COLUMNS = \"SELECT id, name, department, salary FROM employees \";\n\n    private final Connection connection;\n\n    public EmployeeSearch(Connection connection) {\n        this.connection = Objects.requireNonNull(connection, \"connection\");\n    }\n\n    /** The employees whose name equals {@code name}, ordered by id. */\n    public List<Employee> byName(String name) throws SQLException {\n        try (PreparedStatement statement = connection.prepareStatement(\n                COLUMNS + \"WHERE name = ? ORDER BY id\")) {\n            statement.setString(1, name);\n            return read(statement);\n        }\n    }\n\n    /** The department's employees paid strictly more than {@code minSalary}, ordered by id. */\n    public List<Employee> inDepartmentAbove(String department, BigDecimal minSalary) throws SQLException {\n        try (PreparedStatement statement = connection.prepareStatement(\n                COLUMNS + \"WHERE department = ? AND salary > ? ORDER BY id\")) {\n            statement.setString(1, department);\n            statement.setBigDecimal(2, minSalary);\n            return read(statement);\n        }\n    }\n\n    private static List<Employee> read(PreparedStatement statement) throws SQLException {\n        List<Employee> employees = new ArrayList<>();\n        try (ResultSet rows = statement.executeQuery()) {\n            while (rows.next()) {\n                employees.add(new Employee(rows.getInt(\"id\"), rows.getString(\"name\"),\n                        rows.getString(\"department\"), rows.getBigDecimal(\"salary\")));\n            }\n        }\n        return employees;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.List;\n\n/**\n * Loads the night's smart-meter readings into meter_reading(meter VARCHAR(40), wh BIGINT).\n * The connection belongs to the caller, who also decides when to commit.\n */\npublic final class MeterImport {\n\n    /** One reading: the meter's name and the watt-hours it reported. */\n    public record Reading(String meter, long wattHours) {}\n\n    private MeterImport() {}\n\n    /** The import as it runs today: correct, and one SQL text per reading. */\n    public static int importOneByOne(Connection conn, List<Reading> readings) throws SQLException {\n        int rows = 0;\n        try (Statement st = conn.createStatement()) {\n            for (Reading r : readings) {\n                rows += st.executeUpdate(\"INSERT INTO meter_reading (meter, wh) VALUES ('\"\n                        + r.meter().replace(\"'\", \"''\") + \"', \" + r.wattHours() + \")\");\n            }\n        }\n        return rows;\n    }\n\n    /**\n     * Inserts every reading and returns the number of rows the database reports inserted.\n     * The driver is called at most once per chunkSize readings.\n     */\n    public static int importAll(Connection conn, List<Reading> readings, int chunkSize) throws SQLException {\n        if (chunkSize < 1) throw new IllegalArgumentException(\"chunkSize must be at least 1, was \" + chunkSize);\n        int rows = 0;\n        try (PreparedStatement ps = conn.prepareStatement(\"INSERT INTO meter_reading (meter, wh) VALUES (?, ?)\")) {\n            int queued = 0;\n            for (Reading r : readings) {\n                ps.setString(1, r.meter());\n                ps.setLong(2, r.wattHours());\n                ps.addBatch();\n                if (++queued == chunkSize) {\n                    rows += sum(ps.executeBatch());\n                    queued = 0;\n                }\n            }\n            if (queued > 0) rows += sum(ps.executeBatch());\n        }\n        return rows;\n    }\n\n    private static int sum(int[] counts) {\n        int total = 0;\n        for (int c : counts) total += c;\n        return total;\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +83,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\n\npublic final class EmployeeSearch {\n\n    public record Employee(int id, String name, String department, BigDecimal salary) {\n    }\n\n    public EmployeeSearch(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The employees whose name equals {@code name}, ordered by id. */\n    public List<Employee> byName(String name) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The department's employees paid strictly more than {@code minSalary}, ordered by id. */\n    public List<Employee> inDepartmentAbove(String department, BigDecimal minSalary) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.List;\n\n/**\n * Loads the night's smart-meter readings into meter_reading(meter VARCHAR(40), wh BIGINT).\n * The connection belongs to the caller, who also decides when to commit.\n */\npublic final class MeterImport {\n\n    /** One reading: the meter's name and the watt-hours it reported. */\n    public record Reading(String meter, long wattHours) {}\n\n    private MeterImport() {}\n\n    /** The import as it runs today: correct, and one SQL text per reading. */\n    public static int importOneByOne(Connection conn, List<Reading> readings) throws SQLException {\n        int rows = 0;\n        try (Statement st = conn.createStatement()) {\n            for (Reading r : readings) {\n                rows += st.executeUpdate(\"INSERT INTO meter_reading (meter, wh) VALUES ('\"\n                        + r.meter().replace(\"'\", \"''\") + \"', \" + r.wattHours() + \")\");\n            }\n        }\n        return rows;\n    }\n\n    /**\n     * Inserts every reading and returns the number of rows the database reports inserted.\n     * The driver is called at most once per chunkSize readings.\n     */\n    public static int importAll(Connection conn, List<Reading> readings, int chunkSize) throws SQLException {\n        if (chunkSize < 1) throw new IllegalArgumentException(\"chunkSize must be at least 1, was \" + chunkSize);\n        // TODO: Store every reading in meter_reading and return the number of rows the database\n        //       reports inserted. Tonight's file has 2.4 million readings, the database is across\n        //       the network, and meter names come from the vendor's file as they are.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n\n    private static int sum(int[] counts) {\n        int total = 0;\n        for (int c : counts) total += c;\n        return total;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,7 +94,7 @@
     "paras": 3,
     "code": 1,
     "tables": 1,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +102,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "30c3c19fe799a25dcead3ade5d98ec6b80dfc72923e9db88379a3165476702c4",
-  "starting_code": "package practice;\n\nimport java.math.BigDecimal;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.List;\n\npublic final class EmployeeSearch {\n\n    public record Employee(int id, String name, String department, BigDecimal salary) {\n    }\n\n    public EmployeeSearch(Connection connection) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The employees whose name equals {@code name}, ordered by id. */\n    public List<Employee> byName(String name) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The department's employees paid strictly more than {@code minSalary}, ordered by id. */\n    public List<Employee> inDepartmentAbove(String department, BigDecimal minSalary) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "d5a010f1c2d4c69d92b1a412ee8efc87c6d7cd8298d300688024a6dd05f0f145",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.SQLException;\nimport java.sql.Statement;\nimport java.util.List;\n\n/**\n * Loads the night's smart-meter readings into meter_reading(meter VARCHAR(40), wh BIGINT).\n * The connection belongs to the caller, who also decides when to commit.\n */\npublic final class MeterImport {\n\n    /** One reading: the meter's name and the watt-hours it reported. */\n    public record Reading(String meter, long wattHours) {}\n\n    private MeterImport() {}\n\n    /** The import as it runs today: correct, and one SQL text per reading. */\n    public static int importOneByOne(Connection conn, List<Reading> readings) throws SQLException {\n        int rows = 0;\n        try (Statement st = conn.createStatement()) {\n            for (Reading r : readings) {\n                rows += st.executeUpdate(\"INSERT INTO meter_reading (meter, wh) VALUES ('\"\n                        + r.meter().replace(\"'\", \"''\") + \"', \" + r.wattHours() + \")\");\n            }\n        }\n        return rows;\n    }\n\n    /**\n     * Inserts every reading and returns the number of rows the database reports inserted.\n     * The driver is called at most once per chunkSize readings.\n     */\n    public static int importAll(Connection conn, List<Reading> readings, int chunkSize) throws SQLException {\n        if (chunkSize < 1) throw new IllegalArgumentException(\"chunkSize must be at least 1, was \" + chunkSize);\n        // TODO: Store every reading in meter_reading and return the number of rows the database\n        //       reports inserted. Tonight's file has 2.4 million readings, the database is across\n        //       the network, and meter names come from the vendor's file as they are.\n        throw new IllegalStateException(\"TODO: importAll\");\n    }\n\n    private static int sum(int[] counts) {\n        int total = 0;\n        for (int c : counts) total += c;\n        return total;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/main/java/practice/EmployeeSearch.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/test/java/practice/EmployeeSearchTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/main/java/practice/MeterImport.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-1/src/test/java/practice/MeterImportTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +127,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EmployeeSearchTest#findsTheDepartmentAboveASalary",
+        "id": "practice.MeterImportTest#storesEveryReadingAndReportsTheCount",
         "kind": "main",
-        "says": "inDepartmentAbove() returns the department's employees whose salary is above the minimum, ordered by id."
+        "says": "every reading is stored and the method returns the number of rows inserted"
       },
       {
-        "id": "practice.EmployeeSearchTest#anInjectionAttemptIsJustAName",
-        "kind": "edge",
-        "says": "byName(\"' OR '1'='1\") finds nobody, and the input never appears in the SQL text: it is compared as a value and cannot change the query."
+        "id": "practice.MeterImportTest#anEmptyNightStoresNothing",
+        "kind": "main",
+        "says": "an empty list stores nothing and returns 0"
       },
       {
-        "id": "practice.EmployeeSearchTest#aNameWithAnApostropheIsFound",
+        "id": "practice.MeterImportTest#theDriverIsCalledOncePerChunkNotOncePerReading",
         "kind": "edge",
-        "says": "byName(\"O'Brien\") finds O'Brien: the value is bound, not pasted or escaped into the SQL, and reaches the database with no quote stripped."
+        "says": "30 readings in chunks of 10 reach the driver in three executeBatch calls and no executeUpdate"
       },
       {
-        "id": "practice.EmployeeSearchTest#aSalaryEqualToTheMinimumIsLeftOut",
+        "id": "practice.MeterImportTest#everyReadingIsSentWithTheSameSqlText",
         "kind": "edge",
-        "says": "An employee paid exactly the minimum is not returned (the filter is salary > minimum), and the minimum is bound, not written into the SQL."
+        "says": "one SQL text with placeholders is prepared for the whole import; no reading's value is part of any SQL text, and names with quotes are stored as they are"
+      },
+      {
+        "id": "practice.MeterImportTest#aLastShortChunkIsStoredToo",
+        "kind": "edge",
+        "says": "11 readings in chunks of 4 are all stored, the last three included"
       }
     ],
     "report": {
@@ -157,11 +158,11 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.1.md",
-      "section": "1. SQL Injection via String Concatenation"
+      "section": "A PreparedStatement Is Parsed Once and Bound Per Row; a Batch Sends the Rows in One Call"
     },
     "concepts": [
-      "Money is bound and read as BigDecimal (SQL DECIMAL), never as a double.",
-      "A PreparedStatement binds values to ? placeholders, so user input is data and can never change the SQL, where string concatenation allows SQL injection."
+      "A PreparedStatement is parsed once and executed with new bound values; addBatch/executeBatch sends many rows in one call into the driver instead of one call per row.",
+      "Bound values never become part of the SQL text, so the statement text is the same for every row and a value with quotes can't change it."
     ]
   }
 }

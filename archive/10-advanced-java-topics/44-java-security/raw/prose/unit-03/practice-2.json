@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Sign and verify a webhook with HMAC-SHA256",
+  "title": "Store the support portal's passwords so a leaked table resists guessing",
   "blocks": [
     {
       "type": "heading",
@@ -19,59 +19,25 @@
     },
     {
       "type": "para",
-      "text": "The page's Q4: a plain SHA-256 hash proves only that data was not changed, since anyone can compute it. **HMAC-SHA256 mixes in a secret key**, so a valid tag also proves the sender holds the key. Webhooks are signed this way. The receiver recomputes the tag and compares it with `MessageDigest.isEqual`, in constant time; **any signature that is not exactly the tag fails**, a shortened or malformed one included, and never with an exception."
+      "text": "The support portal is moving its users off a table of password digests that leaked in a penetration test: the testers matched most rows in an afternoon. Each user now gets one `Stored` row (salt, iteration count, hash). The login service, run by another team, verifies against the same rows with `PBKDF2WithHmacSHA256` and a 256-bit output, using the salt and count it finds in the row. Operations raise the iteration count every year or so; nobody wants to force a password reset when they do."
     },
     {
       "type": "para",
-      "text": "Write `Webhook`:"
+      "text": "Finish `hash`, `verify` and `derive` in `src/main/java/practice/PasswordHasher.java`. When you're done:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`sign(byte[] key, String body)`: HMAC-SHA256 of `body`'s UTF-8 bytes under `key`, as 64 lower-case hex digits;",
-        "`verify(byte[] key, String body, String signature)`: `true` only when `signature` is exactly `sign(key, body)`."
+        "`verify` accepts the password a row was made from and refuses any other;",
+        "two users who choose the same password get rows that don't show it;",
+        "a row written under an older iteration count still verifies after the count is raised;",
+        "the login service's own PBKDF2 computation over a row's salt and count gives the row's hash."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "key",
-        "body",
-        "result"
-      ],
-      "rows": [
-        [
-          "`Jefe`",
-          "`what do ya want for nothing?`",
-          "`sign` = `5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843` (RFC 4231)"
-        ],
-        [
-          "`Jefe`",
-          "the same body, that signature",
-          "`verify` = `true`"
-        ],
-        [
-          "`Jefe`",
-          "the same body, the first 32 digits of it",
-          "`false`"
-        ],
-        [
-          "`Jefe`",
-          "the same body, that signature in upper case",
-          "`false`"
-        ],
-        [
-          "`Jefe`",
-          "the same body, `\"not-hex!\"`",
-          "`false`"
-        ],
-        [
-          "another key",
-          "the same body, the `Jefe` signature",
-          "`false`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests use small iteration counts so that they run quickly. About ten lines in total."
     },
     {
       "type": "heading",
@@ -86,7 +52,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.MessageDigest;\nimport java.util.HexFormat;\n\nimport javax.crypto.Mac;\nimport javax.crypto.spec.SecretKeySpec;\n\npublic final class Webhook {\n\n    private Webhook() {\n    }\n\n    /** HMAC-SHA256 of body under key, as 64 lower-case hex digits. */\n    public static String sign(byte[] key, String body) throws GeneralSecurityException {\n        Mac mac = Mac.getInstance(\"HmacSHA256\");\n        mac.init(new SecretKeySpec(key, \"HmacSHA256\"));\n        return HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));\n    }\n\n    /** True only when signature is exactly sign(key, body). */\n    public static boolean verify(byte[] key, String body, String signature) throws GeneralSecurityException {\n        byte[] expected = sign(key, body).getBytes(StandardCharsets.UTF_8);\n        byte[] given = signature.getBytes(StandardCharsets.UTF_8);\n        return MessageDigest.isEqual(expected, given);\n    }\n}\n"
+          "text": "package practice;\n\nimport javax.crypto.SecretKeyFactory;\nimport javax.crypto.spec.PBEKeySpec;\nimport java.security.GeneralSecurityException;\nimport java.security.MessageDigest;\nimport java.security.SecureRandom;\n\n/**\n * Hashes the passwords of the support portal's users. The users table keeps one Stored row per\n * user; the login service in another team verifies against the same rows.\n */\npublic class PasswordHasher {\n\n    /** One row of the users table's password columns. */\n    public record Stored(byte[] salt, int iterations, byte[] hash) {}\n\n    static final String ALGORITHM = \"PBKDF2WithHmacSHA256\";\n    static final int HASH_BITS = 256;\n    static final int SALT_BYTES = 16;\n\n    private final int iterations;\n    private final SecureRandom random;\n\n    /** @param iterations the work factor for new hashes; operations raise it from time to time */\n    public PasswordHasher(int iterations, SecureRandom random) {\n        this.iterations = iterations;\n        this.random = random;\n    }\n\n    /** The row to store for a user who sets this password. */\n    public Stored hash(char[] password) throws GeneralSecurityException {\n        byte[] salt = new byte[SALT_BYTES];\n        random.nextBytes(salt);\n        return new Stored(salt, iterations, derive(password, salt, iterations));\n    }\n\n    /** Whether this password is the one the row was made from. */\n    public boolean verify(char[] password, Stored stored) throws GeneralSecurityException {\n        byte[] candidate = derive(password, stored.salt(), stored.iterations());\n        return MessageDigest.isEqual(candidate, stored.hash());\n    }\n\n    /** The PBKDF2-HMAC-SHA256 hash, 256 bits, of the password under this salt and count. */\n    static byte[] derive(char[] password, byte[] salt, int iterations) throws GeneralSecurityException {\n        PBEKeySpec spec = new PBEKeySpec(password, salt, iterations, HASH_BITS);\n        try {\n            return SecretKeyFactory.getInstance(ALGORITHM).generateSecret(spec).getEncoded();\n        } finally {\n            spec.clearPassword();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -98,7 +64,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.MessageDigest;\nimport java.util.HexFormat;\n\nimport javax.crypto.Mac;\nimport javax.crypto.spec.SecretKeySpec;\n\npublic final class Webhook {\n\n    private Webhook() {\n    }\n\n    /** HMAC-SHA256 of body under key, as 64 lower-case hex digits. */\n    public static String sign(byte[] key, String body) throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** True only when signature is exactly sign(key, body). */\n    public static boolean verify(byte[] key, String body, String signature) throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport javax.crypto.SecretKeyFactory;\nimport javax.crypto.spec.PBEKeySpec;\nimport java.security.GeneralSecurityException;\nimport java.security.MessageDigest;\nimport java.security.SecureRandom;\n\n/**\n * Hashes the passwords of the support portal's users. The users table keeps one Stored row per\n * user; the login service in another team verifies against the same rows.\n */\npublic class PasswordHasher {\n\n    /** One row of the users table's password columns. */\n    public record Stored(byte[] salt, int iterations, byte[] hash) {}\n\n    static final String ALGORITHM = \"PBKDF2WithHmacSHA256\";\n    static final int HASH_BITS = 256;\n    static final int SALT_BYTES = 16;\n\n    private final int iterations;\n    private final SecureRandom random;\n\n    /** @param iterations the work factor for new hashes; operations raise it from time to time */\n    public PasswordHasher(int iterations, SecureRandom random) {\n        this.iterations = iterations;\n        this.random = random;\n    }\n\n    /** The row to store for a user who sets this password. */\n    public Stored hash(char[] password) throws GeneralSecurityException {\n        // TODO: Build the row for this password. Two users who pick the same password must not\n        //       end up with rows that give that away.\n        throw new IllegalStateException(\"TODO: hash\");\n    }\n\n    /** Whether this password is the one the row was made from. */\n    public boolean verify(char[] password, Stored stored) throws GeneralSecurityException {\n        // TODO: Decide whether the password matches the row. Rows written years ago, under\n        //       whatever work factor was configured then, must keep working.\n        throw new IllegalStateException(\"TODO: verify\");\n    }\n\n    /** The PBKDF2-HMAC-SHA256 hash, 256 bits, of the password under this salt and count. */\n    static byte[] derive(char[] password, byte[] salt, int iterations) throws GeneralSecurityException {\n        // TODO: The hash the login service computes too: ALGORITHM, HASH_BITS long, from the\n        //       password, the salt and the count. Leave no copy of the password behind.\n        throw new IllegalStateException(\"TODO: derive\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -106,9 +72,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -117,11 +83,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "42dff0350ffa57b879442ea06f52141c820dc46505c6e46fc1356d040edb7f77",
-  "starting_code": "package practice;\n\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.MessageDigest;\nimport java.util.HexFormat;\n\nimport javax.crypto.Mac;\nimport javax.crypto.spec.SecretKeySpec;\n\npublic final class Webhook {\n\n    private Webhook() {\n    }\n\n    /** HMAC-SHA256 of body under key, as 64 lower-case hex digits. */\n    public static String sign(byte[] key, String body) throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** True only when signature is exactly sign(key, body). */\n    public static boolean verify(byte[] key, String body, String signature) throws GeneralSecurityException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "e3b1b7dd0424ea2139a0ba3e5c2addcf8cebd428e4fef8c902ecace003bc49cf",
+  "starting_code": "package practice;\n\nimport javax.crypto.SecretKeyFactory;\nimport javax.crypto.spec.PBEKeySpec;\nimport java.security.GeneralSecurityException;\nimport java.security.MessageDigest;\nimport java.security.SecureRandom;\n\n/**\n * Hashes the passwords of the support portal's users. The users table keeps one Stored row per\n * user; the login service in another team verifies against the same rows.\n */\npublic class PasswordHasher {\n\n    /** One row of the users table's password columns. */\n    public record Stored(byte[] salt, int iterations, byte[] hash) {}\n\n    static final String ALGORITHM = \"PBKDF2WithHmacSHA256\";\n    static final int HASH_BITS = 256;\n    static final int SALT_BYTES = 16;\n\n    private final int iterations;\n    private final SecureRandom random;\n\n    /** @param iterations the work factor for new hashes; operations raise it from time to time */\n    public PasswordHasher(int iterations, SecureRandom random) {\n        this.iterations = iterations;\n        this.random = random;\n    }\n\n    /** The row to store for a user who sets this password. */\n    public Stored hash(char[] password) throws GeneralSecurityException {\n        // TODO: Build the row for this password. Two users who pick the same password must not\n        //       end up with rows that give that away.\n        throw new IllegalStateException(\"TODO: hash\");\n    }\n\n    /** Whether this password is the one the row was made from. */\n    public boolean verify(char[] password, Stored stored) throws GeneralSecurityException {\n        // TODO: Decide whether the password matches the row. Rows written years ago, under\n        //       whatever work factor was configured then, must keep working.\n        throw new IllegalStateException(\"TODO: verify\");\n    }\n\n    /** The PBKDF2-HMAC-SHA256 hash, 256 bits, of the password under this salt and count. */\n    static byte[] derive(char[] password, byte[] salt, int iterations) throws GeneralSecurityException {\n        // TODO: The hash the login service computes too: ALGORITHM, HASH_BITS long, from the\n        //       password, the salt and the count. Leave no copy of the password behind.\n        throw new IllegalStateException(\"TODO: derive\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-2/src/main/java/practice/Webhook.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-2/src/test/java/practice/WebhookTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-2/src/main/java/practice/PasswordHasher.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-2/src/test/java/practice/PasswordHasherTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -142,24 +108,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.WebhookTest#signsAndVerifiesTheRfcExample",
+        "id": "practice.PasswordHasherTest#acceptsTheRightPasswordAndRefusesOthers",
         "kind": "main",
-        "says": "Key Jefe and \"what do ya want for nothing?\" give RFC 4231's tag 5bdcc1...3843, which verifies; the tag does not verify a changed body."
+        "says": "a row verifies the password it was made from and refuses a one-letter change, a case change and the empty password"
       },
       {
-        "id": "practice.WebhookTest#aShortenedSignatureFails",
+        "id": "practice.PasswordHasherTest#twoUsersWithTheSamePasswordGetDifferentRows",
         "kind": "edge",
-        "says": "The first 32 digits of the right tag, the tag in upper case, and the empty string fail verification: only the exact tag passes."
+        "says": "the same password hashed for two users gives two different hashes, and both verify"
       },
       {
-        "id": "practice.WebhookTest#aMalformedSignatureIsSimplyFalse",
+        "id": "practice.PasswordHasherTest#aRowMadeBeforeTheCountWasRaisedStillVerifies",
         "kind": "edge",
-        "says": "\"not-hex!\" and a tag whose last digit is g give false, not an exception."
+        "says": "a row made under a lower iteration count verifies with a hasher configured for a higher one"
       },
       {
-        "id": "practice.WebhookTest#theTagDependsOnTheKey",
+        "id": "practice.PasswordHasherTest#theLoginServiceCanVerifyTheRowWithPbkdf2",
         "kind": "edge",
-        "says": "Under the key Jeff the body signs to a different tag, and the Jefe tag does not verify."
+        "says": "the stored hash equals PBKDF2WithHmacSHA256 of the password over the row's salt and count, 256 bits, and the salt is at least 16 bytes"
       }
     ],
     "report": {
@@ -168,10 +134,10 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.3.md",
-      "section": "Interview Q&A Section"
+      "section": "A Password Hash Needs a Salt per User and a Slow Function: PBKDF2, Not SHA-256"
     },
     "concepts": [
-      "HMAC mixes a secret key into the hash, proving integrity and possession of the key, and tags are compared with MessageDigest.isEqual."
+      "A password hash needs a random salt per user, so equal passwords differ, and an iteration count, stored with the hash, that makes each guess cost; PBKDF2WithHmacSHA256 provides both and plain SHA-256 neither."
     ]
   }
 }

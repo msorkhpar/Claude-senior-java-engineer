@@ -1,0 +1,188 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "10-advanced-java-topics",
+    "44-java-security"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 4,
+  "title": "Check yourself: security practices in Java",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-fullwidth-tag",
+        "stem": "A shop refuses any product tag that contains `<` or `>`, and stores accepted tags as typed. The storefront applies NFKC to each tag before it inserts the tag into the page's HTML. A seller submits `＜b＞sale＜/b＞`, typed with the full-width brackets U+FF1C and U+FF1E. What happens?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The check accepts it and the storefront inserts `<b>sale</b>`, since the check reads the characters as typed and NFKC maps the full-width brackets to ASCII.",
+            "correct": true,
+            "says": "String.contains compares characters as they are; NFKC maps full-width forms such as ．／ to ASCII one layer later, after the check passed them."
+          },
+          {
+            "id": "b",
+            "text": "The check accepts it as typed and the storefront inserts the full-width brackets as text, since NFKC maps letters and digits to ASCII but not brackets.",
+            "correct": false,
+            "says": "The run shows NFKC turning full-width ．．／ into ../: it maps full-width punctuation too."
+          },
+          {
+            "id": "c",
+            "text": "The check refuses it, since `String.contains` applies NFKC before comparing, as the storefront does, so the full-width brackets match `<` and `>`.",
+            "correct": false,
+            "says": "String.contains never normalises: the deny-list accepted the full-width ../ in the run."
+          },
+          {
+            "id": "d",
+            "text": "The check refuses it, since Java maps full-width characters to ASCII while decoding the request, before either the check or the storefront sees them.",
+            "correct": false,
+            "says": "The full-width input reached the deny-list unchanged and was accepted; only the later NFKC step turned it into ASCII."
+          }
+        ],
+        "origin": {
+          "path": "44-java-security/README_10.6.1.md",
+          "section": "Validate the Value the Next Layer Will Use, Against an Allow-List"
+        }
+      },
+      {
+        "id": "q-unseeded-random",
+        "stem": "Invite codes used to come from `new Random(System.currentTimeMillis())`, one per request, and two guests got the same code. The fix creates one `new Random()` at start-up, with no seed, shared by every request; each code is its next `nextLong()` in hex. Is the fixed version fit for invite codes?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Yes, since the no-argument constructor draws its 48-bit seed from the operating system's entropy source, which its javadoc says makes its values unpredictable.",
+            "correct": false,
+            "says": "Leaving the seed out removes the collisions but not the formula; the javadoc says Random is not cryptographically secure, whatever its seed."
+          },
+          {
+            "id": "b",
+            "text": "Yes, since the shared instance applies its linear congruential step to one seed taken at start-up, which its javadoc says keeps later values unpredictable.",
+            "correct": false,
+            "says": "Removing the collisions leaves the formula; the javadoc says Random is not cryptographically secure whatever its seed."
+          },
+          {
+            "id": "c",
+            "text": "No, since the shared instance still advances a 48-bit seed by a linear congruential step, which its javadoc says is not cryptographically secure.",
+            "correct": true,
+            "says": "Random advances a 48-bit seed by a linear congruential step, and its javadoc says instances are not cryptographically secure."
+          },
+          {
+            "id": "d",
+            "text": "No, since the no-argument constructor starts its 48-bit seed from one fixed default value, which its javadoc says repeats after every restart.",
+            "correct": false,
+            "says": "Leaving the seed out removes the collisions; the problem is the formula, not a fixed default seed."
+          }
+        ],
+        "origin": {
+          "path": "44-java-security/README_10.6.1.md",
+          "section": "A Token from Random Is a Function of Its Seed; Use SecureRandom"
+        }
+      },
+      {
+        "id": "q-seeded-sha1prng",
+        "stem": "So that tests can replay tokens, a service builds its generator with `SecureRandom.getInstance(\"SHA1PRNG\")` and calls `setSeed(startTimeMillis)` before the first token, in production too. Two replicas start in the same millisecond. How do their tokens compare?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They issue the same tokens, since a `SHA1PRNG` seeded before its first use draws on that seed alone.",
+            "correct": true,
+            "says": "Two SHA1PRNG instances seeded with the same value before use returned the same output in the run."
+          },
+          {
+            "id": "b",
+            "text": "They issue the same tokens, since `setSeed` on a `SecureRandom` replaces its state with the seed given.",
+            "correct": false,
+            "says": "The javadoc says setSeed supplements the seed, and two NativePRNG instances seeded alike gave different output."
+          },
+          {
+            "id": "c",
+            "text": "They issue different tokens, since `setSeed` on a `SecureRandom` adds to the seed it took from the system.",
+            "correct": false,
+            "says": "That holds for NativePRNG; a SHA1PRNG that has produced nothing yet has no seed to add to, and repeated in the run."
+          },
+          {
+            "id": "d",
+            "text": "They issue different tokens, since a `SHA1PRNG` seeded before its first use mixes in the system's entropy.",
+            "correct": false,
+            "says": "Two SHA1PRNG instances seeded alike before use returned the same output in the run, so nothing from the system was mixed in."
+          }
+        ],
+        "origin": {
+          "path": "44-java-security/README_10.6.1.md",
+          "section": "A Token from Random Is a Function of Its Seed; Use SecureRandom"
+        }
+      },
+      {
+        "id": "q-string-copy-in-dump",
+        "stem": "A batch job reads a database password into a `char[]`, passes `new String(pw)` to a client library's `login(String)`, which keeps no reference, and wipes the array in a `finally`. Before the next full garbage collection, an engineer writes a dump of the whole heap. Where in that dump is the password?",
+        "options": [
+          {
+            "id": "a",
+            "text": "In the `String` only, since the wipe cleared the array, and the unreachable `String` stays in the heap until a collection reclaims it.",
+            "correct": true,
+            "says": "The run's dump 4: one copy as String bytes, none as char[], after the array was wiped; gone only after a full GC."
+          },
+          {
+            "id": "b",
+            "text": "In the array and the `String`, since `Arrays.fill` wrote its zeros into a copy of the array, so the original array still holds the characters.",
+            "correct": false,
+            "says": "Arrays.fill overwrote the array itself: dump 3 shows no char[] copy after the wipe."
+          },
+          {
+            "id": "c",
+            "text": "Nowhere, since the `String` shares the array's storage, so the wipe cleared both long before the next full garbage collection.",
+            "correct": false,
+            "says": "new String(p2) copied the characters into the String's own byte array; dump 4 still found them after the wipe."
+          },
+          {
+            "id": "d",
+            "text": "Nowhere, since a dump of the whole heap writes out only the objects a live thread can still reach, so the unreachable `String` is skipped.",
+            "correct": false,
+            "says": "A whole-heap dump (liveOnly false) contained the unreachable String; only a live-only dump runs a full GC first."
+          }
+        ],
+        "origin": {
+          "path": "44-java-security/README_10.6.1.md",
+          "section": "Wiping a char[] Removes Your Copy of a Secret; a String Copy Stays Until GC"
+        }
+      },
+      {
+        "id": "q-second-record",
+        "stem": "`LoginRequest(String username, String password)` overrides `toString` to print `password=***`. A new endpoint builds `record PasswordChange(String username, String oldPassword, String newPassword)` from two such requests, declares no `toString` in it, and logs it when the change fails. What does the log line show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both passwords in clear, since the generated `toString` of `PasswordChange` prints each component the same way, whichever record its value came from.",
+            "correct": true,
+            "says": "A record's generated toString prints every component by name and value; the override protects one record only."
+          },
+          {
+            "id": "b",
+            "text": "Both passwords in clear, since the generated `toString` of `PasswordChange` overrides the `LoginRequest` one for the values copied into it.",
+            "correct": false,
+            "says": "The LoginRequest override still works on LoginRequest; PasswordChange holds plain Strings, and its generated toString prints them without consulting any other record."
+          },
+          {
+            "id": "c",
+            "text": "`***` for both, since the generated `toString` of `PasswordChange` hides each component whose name contains `password`.",
+            "correct": false,
+            "says": "The generated toString printed password=hunter2-example in the run; it hides nothing by name."
+          },
+          {
+            "id": "d",
+            "text": "`***` for both, since the generated `toString` of `PasswordChange` reuses the `LoginRequest` override for values copied from it.",
+            "correct": false,
+            "says": "The override belongs to the LoginRequest type, not to the String values; only a type such as Secret carries the mask with the value."
+          }
+        ],
+        "origin": {
+          "path": "44-java-security/README_10.6.1.md",
+          "section": "A Record's toString Prints Every Component, Password Included"
+        }
+      }
+    ]
+  }
+}

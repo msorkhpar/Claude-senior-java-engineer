@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Container memory and heap histograms",
+  "title": "Check yourself: JVM tuning and monitoring",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,183 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-oomkilled",
-        "stem": "A service runs with -Xmx equal to its container's memory limit and keeps getting OOMKilled. Why?",
+        "id": "q-heap-info-growing",
+        "stem": "An inventory service runs with -Xmx4g. `jcmd <pid> GC.heap_info` shows used 3,300,000K at 10:00 and 3,500,000K at 10:05. A colleague calls it a leak and wants to run `jcmd <pid> GC.class_histogram` on the production instance right away. What do you suggest?",
         "options": [
           {
             "id": "a",
-            "text": "Metaspace, thread stacks and direct buffers use memory outside the heap.",
-            "correct": true,
-            "says": "The container limit covers the whole process, so it has to sit well above -Xmx (the page says 20 to 30 percent) to leave room for non-heap memory."
+            "text": "Run the plain histogram now, since it only reads the heap and stops nothing",
+            "correct": false,
+            "says": "a plain class histogram runs a stop-the-world full collection before it counts"
           },
           {
             "id": "b",
-            "text": "The young generation is sized on top of -Xmx, so the heap passes the limit.",
+            "text": "Run the plain histogram now, since used counts only live objects and its growth is the leak",
             "correct": false,
-            "says": "-Xmx bounds the whole heap, young generation included; the memory past the limit is outside the heap."
+            "says": "used counts every byte in the regions handed out, garbage included, so its growth shows no leak"
           },
           {
             "id": "c",
-            "text": "A full GC copies the old generation into memory reserved beyond -Xmx.",
+            "text": "Watch the heap left after each full collection, since used also counts garbage no collection has emptied",
+            "correct": true,
+            "says": "used includes garbage until a collection empties it; a leak is the heap after full collections climbing, and the plain histogram would force a full GC"
+          },
+          {
+            "id": "d",
+            "text": "Watch the heap left after each full collection, since the plain histogram counts garbage as well as live objects",
             "correct": false,
-            "says": "The page puts the extra memory in Metaspace, thread stacks and direct buffers, not in a copy made by the collector."
+            "says": "the plain histogram counts only live objects, which is why it runs a full collection first; -all is the one that counts garbage"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.4.md",
-          "section": "Interview Q&A Section"
+          "section": "GC.heap_info Counts Garbage as Used; Live Data Is What a Full Collection Leaves"
         }
       },
       {
-        "id": "q-histogram",
-        "stem": "Why is running jmap -histo:live <pid> against a production JVM risky?",
+        "id": "q-dump-holder-reads",
+        "stem": "A service hangs. `jcmd <pid> Thread.print` has no deadlock section. Thirty request threads are BLOCKED at `- waiting to lock <0x00000006c1d2a3c0> (a com.shop.RateCache)`. The thread `rate-refresher` is RUNNABLE in `sun.nio.ch.NioSocketImpl.read`, and further down its stack, under `RateCache.refresh`, has `- locked <0x00000006c1d2a3c0> (a com.shop.RateCache)`. What is going on?",
         "options": [
           {
             "id": "a",
-            "text": "Its :live option writes a full heap dump to disk before printing the histogram.",
-            "correct": false,
-            "says": "A histogram only counts objects per class; writing a dump is what jmap -dump or jcmd GC.heap_dump does."
+            "text": "The requests wait for the socket read to end, since rate-refresher keeps the cache's monitor while it reads",
+            "correct": true,
+            "says": "the - locked line under refresh is the monitor the requests wait for, and the thread is still inside that synchronized code, in a read"
           },
           {
             "id": "b",
-            "text": "Its :live option forces a full GC, so that unreachable objects are left out.",
-            "correct": true,
-            "says": "The :live option collects first, pausing the application; jmap -histo without it, or jcmd GC.class_histogram -all, skips the GC."
+            "text": "The requests wait for something besides the socket read, since rate-refresher gave up the cache's monitor when its read started",
+            "correct": false,
+            "says": "only Object.wait releases a monitor while the thread waits; a blocking read keeps every monitor the thread holds"
           },
           {
             "id": "c",
-            "text": "Its :live option switches the JVM to the Serial collector until it restarts.",
+            "text": "The requests are in a deadlock with rate-refresher, since the dump leaves out cycles that involve monitors",
             "correct": false,
-            "says": "No diagnostic command changes the collector; the collector is fixed when the JVM starts."
+            "says": "Thread.print reports cycles of monitors (and of ReentrantLocks), and here there is no cycle: rate-refresher waits for a socket, not a lock"
+          },
+          {
+            "id": "d",
+            "text": "The requests will get through one by one, since a dump with no deadlock section means the monitor is passed on",
+            "correct": false,
+            "says": "no deadlock section only means no cycle of locks; the holder can wait forever on something else, and every blocked thread waits with it"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.4.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "A Thread Dump Names a Deadlock Cycle, Not a Thread Stuck Behind a Holder That Waits"
+        }
+      },
+      {
+        "id": "q-reentrantlock-recording",
+        "stem": "A team replaced the synchronized methods of its OrderBook with a ReentrantLock. Throughput did not change. A new recording with the default settings has no jdk.JavaMonitorEnter events for OrderBook. What can the team conclude?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The order book no longer causes waits, since a thread that can't get a ReentrantLock spins instead of parking",
+            "correct": false,
+            "says": "a thread that can't get a ReentrantLock parks; the recording shows those waits as jdk.ThreadPark events"
+          },
+          {
+            "id": "b",
+            "text": "The order book no longer causes waits, since a wait for any lock type is recorded as jdk.JavaMonitorEnter",
+            "correct": false,
+            "says": "jdk.JavaMonitorEnter covers only synchronized monitors; a ReentrantLock wait is a jdk.ThreadPark event"
+          },
+          {
+            "id": "c",
+            "text": "The order book may still cause waits, since a wait for a ReentrantLock is recorded as jdk.ThreadPark",
+            "correct": true,
+            "says": "the same ledger with a ReentrantLock recorded no jdk.JavaMonitorEnter events, and its waits were jdk.ThreadPark events naming ReentrantLock$NonfairSync"
+          },
+          {
+            "id": "d",
+            "text": "The order book may still cause waits, since the default settings drop lock waits longer than 20 ms",
+            "correct": false,
+            "says": "the threshold works the other way: the default settings drop waits shorter than 20 ms and record the longer ones"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.4.md",
+          "section": "JFR Lock Events Name the Lock, the Waiter and the Previous Owner, Above a Threshold"
+        }
+      },
+      {
+        "id": "q-container-default-heap",
+        "stem": "A pricing service starts with no heap flags on Java 21, in a container whose memory limit is 2 GB, on a node with 64 GB. What maximum heap does the JVM choose?",
+        "options": [
+          {
+            "id": "a",
+            "text": "About 16 GB, since the JVM takes a quarter of the node's memory",
+            "correct": false,
+            "says": "with container support, on by default, the JVM sizes the heap from the container's limit, not the node's memory"
+          },
+          {
+            "id": "b",
+            "text": "About 512 MB, since the JVM takes a quarter of the container's limit",
+            "correct": true,
+            "says": "MaxRAMPercentage defaults to 25, applied to the memory the JVM sees, which in a container is its limit"
+          },
+          {
+            "id": "c",
+            "text": "About 1.5 GB, since the JVM leaves a quarter of the limit for memory outside the heap",
+            "correct": false,
+            "says": "the default share is 25 %; 75 % takes -XX:MaxRAMPercentage=75"
+          },
+          {
+            "id": "d",
+            "text": "About 2 GB, since the JVM leaves it to the limit to stop the heap from growing",
+            "correct": false,
+            "says": "the JVM fixes a maximum heap at startup; without -Xmx it is 25 % of the memory it sees"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.4.md",
+          "section": "Without -Xmx the Heap Is a Quarter of the Memory the JVM Sees"
+        }
+      },
+      {
+        "id": "q-oomkilled-under-xmx",
+        "stem": "A gateway runs with -Xmx3g in a container limited to 4 GB. Under load it is restarted as OOMKilled. Its GC log shows the heap after each collection below 2 GB, and its log has no OutOfMemoryError. What happened?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The process went over the limit with memory outside the heap, since the limit counts the memory of the whole process",
+            "correct": true,
+            "says": "stacks, compiled code, the collector's structures and direct buffers live outside the heap, the kernel charges the pages they touch to the container, and it kills the process without a Java error"
+          },
+          {
+            "id": "b",
+            "text": "The process went over the limit with heap beyond -Xmx, since -Xmx caps only the heap that remains after a collection",
+            "correct": false,
+            "says": "-Xmx caps the heap at every moment; the memory beyond it is outside the heap"
+          },
+          {
+            "id": "c",
+            "text": "The kernel counted memory the JVM had only reserved, since a container limit applies to the address space a process reserves",
+            "correct": false,
+            "says": "reserved address space costs nothing; the container is charged for pages the process touches"
+          },
+          {
+            "id": "d",
+            "text": "The kernel counted the whole -Xmx from the start, since the JVM commits its maximum heap as soon as it starts",
+            "correct": false,
+            "says": "without -Xms the JVM starts with a small initial heap (1/64 of the memory) and commits more only as the heap grows"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.4.md",
+          "section": "The Process Is Bigger Than the Heap"
         }
       }
     ],
     "concepts": [
-      "jmap -histo:live and a plain jcmd GC.class_histogram force a full GC, so production histograms use the variants that skip it.",
-      "A container is OOMKilled when the whole JVM, heap plus Metaspace, stacks, code cache and direct memory, exceeds its limit, so the limit must leave room above -Xmx."
+      "Thread.print reports a deadlock only for a cycle of locks; threads stuck behind a holder that waits on something else get no deadlock section.",
+      "Without -Xmx the maximum heap is MaxRAMPercentage (25) of the memory the JVM sees, which in a container is its limit; MaxRAMPercentage changes the share and -Xmx overrides it.",
+      "GC.heap_info reports as used every byte in the regions handed out, garbage included; live data is what a full collection leaves, and a leak is that figure climbing from one full collection to the next.",
+      "A plain jcmd GC.class_histogram (like jmap -histo:live) runs a full stop-the-world collection before counting; with -all it collects nothing and counts garbage too.",
+      "jdk.JavaMonitorEnter names the monitor's class, the waiter and the previous owner, for waits of 20 ms or more by default; waits for a ReentrantLock are jdk.ThreadPark events instead.",
+      "Stacks, class metadata, compiled code, the collector's structures and direct buffers are committed outside the heap, so a container limit must hold more than -Xmx, and exceeding it is OOMKilled with no OutOfMemoryError."
     ]
   }
 }

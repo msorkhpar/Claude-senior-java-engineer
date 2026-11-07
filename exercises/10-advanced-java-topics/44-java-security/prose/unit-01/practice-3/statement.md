@@ -1,22 +1,8 @@
-`int` arithmetic wraps silently: `Integer.MAX_VALUE + 1` is
-`Integer.MIN_VALUE`, and a price times a quantity can come out small or
-negative, which an attacker can use to pay less. The page's fix is
-`Math.addExact` and `Math.multiplyExact`, which **throw `ArithmeticException`**
-instead. Its edge cases add a trap: `-Integer.MIN_VALUE` and
-`Math.abs(Integer.MIN_VALUE)` are both still `Integer.MIN_VALUE`.
+The notification service sends mail through a relay described by `SmtpSettings`. It logs the
+settings at start-up, and every delivery error carries the delivery job, a record that holds the
+settings, so that the on-call engineer can see which relay and account failed. Those errors get
+pasted into tickets, and a reviewer has noticed that a ticket shows the relay's password.
 
-Write `OrderMath` with three methods that throw `ArithmeticException` on any
-overflow:
-
-- `lineTotal(unitPriceCents, quantity)`: price times quantity.
-- `total(lines...)`: the sum of the line totals, **checking every addition**.
-- `distance(a, b)`: the absolute difference `|a - b|`.
-
-| call | result |
-|---|---|
-| `lineTotal(1999, 3)` | `5997` |
-| `total(5997, 1000)` | `6997` |
-| `distance(3, 10)` | `7` |
-| `lineTotal(65536, 65536)` | `ArithmeticException` (it would wrap to 0) |
-| `total(Integer.MAX_VALUE, 1, -1)` | `ArithmeticException` |
-| `distance(Integer.MIN_VALUE, 0)` | `ArithmeticException` |
+Write `toString()` in `src/main/java/practice/SmtpSettings.java`. The engineer still needs the host,
+the port and the user, in the settings and in any record that holds them; nothing of the password
+may show, not even its first few characters. About two lines in total.

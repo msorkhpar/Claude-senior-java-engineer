@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Validate sign-up fields against an allow-list",
+  "title": "Stop look-alike handles at sign-up",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,23 @@
     },
     {
       "type": "para",
-      "text": "The page's rule is **validate with an allow-list**: say exactly what is allowed and refuse everything else, rather than hunting for bad patterns. Unicode input is first **normalized with NFKC**, so that different encodings of the same text (full-width letters, for example) are validated as one form. Normalization does not remove homoglyphs, so the allow-list itself stays **ASCII only**."
+      "text": "Members of a community site choose a public handle at sign-up. Last week someone registered `ｓｕｐｐｏｒｔ`, in full-width letters. On a profile page it looks like the staff account, and the mention service, which looks handles up after NFKC normalisation, now delivers some `@support` mentions to it. A second account, `ѕupport`, starts with a Cyrillic letter."
     },
     {
       "type": "para",
-      "text": "Write `SignupForm` with two methods; both refuse bad input (including `null`) with `IllegalArgumentException`:"
+      "text": "`HandleRegistry.register` already refuses reserved and taken handles. Finish the two `TODO`s in `src/main/java/practice/HandleRegistry.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`username(raw)`: normalizes `raw` with NFKC, then accepts it only if **the whole input** is 3 to 20 ASCII letters or digits, and returns the **normalized** username.",
-        "`age(raw)`: accepts only ASCII digits whose value is 0 to 150, and returns the number."
+        "`canonical(raw)`: the form of the handle that the registry checks, stores and compares;",
+        "`allowed(handle)`: whether the handle keeps to the rules below."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`username(\"alice99\")`",
-          "`\"alice99\"`"
-        ],
-        [
-          "`username(\"ａｌｉｃｅ\")` (full-width)",
-          "`\"alice\"`"
-        ],
-        [
-          "`username(\"bob!\")`, `username(\"ab\")`",
-          "`IllegalArgumentException`"
-        ],
-        [
-          "`username(\"аdmin\")` (Cyrillic `а`)",
-          "`IllegalArgumentException`"
-        ],
-        [
-          "`age(\"42\")`, `age(\"150\")`",
-          "`42`, `150`"
-        ],
-        [
-          "`age(\"151\")`, `age(\"+42\")`, `age(\"abc\")`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "A handle is 3 to 20 characters long, each one a lowercase letter of the Latin script (accents are fine: `zoë_m`, `renée`), a digit `0`–`9`, or `_`. When you're done, any two spellings the mention service treats as one handle are one handle here too, and a handle that only looks like a Latin one is refused. About three lines in total."
     },
     {
       "type": "heading",
@@ -79,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.text.Normalizer;\nimport java.util.regex.Pattern;\n\npublic final class SignupForm {\n\n    private static final Pattern USERNAME = Pattern.compile(\"[A-Za-z0-9]{3,20}\");\n    private static final Pattern AGE = Pattern.compile(\"[0-9]{1,3}\");\n\n    private SignupForm() {\n    }\n\n    /** Returns the NFKC-normalized username if it is 3 to 20 ASCII letters or digits. */\n    public static String username(String raw) {\n        if (raw == null) {\n            throw new IllegalArgumentException(\"username is required\");\n        }\n        String normalized = Normalizer.normalize(raw, Normalizer.Form.NFKC);\n        if (!USERNAME.matcher(normalized).matches()) {\n            throw new IllegalArgumentException(\"username must be 3 to 20 letters or digits\");\n        }\n        return normalized;\n    }\n\n    /** Returns the age if {@code raw} is ASCII digits with a value from 0 to 150. */\n    public static int age(String raw) {\n        if (raw == null || !AGE.matcher(raw).matches()) {\n            throw new IllegalArgumentException(\"age must be a number\");\n        }\n        int age = Integer.parseInt(raw);\n        if (age > 150) {\n            throw new IllegalArgumentException(\"age must be 0 to 150\");\n        }\n        return age;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.text.Normalizer;\nimport java.util.HashSet;\nimport java.util.Set;\nimport java.util.regex.Pattern;\n\n/**\n * Registers the public handles members choose at sign-up. A handle is shown on the member's\n * profile, and the mention service delivers \"@handle\" mentions by looking the handle up after\n * NFKC normalisation.\n */\npublic class HandleRegistry {\n\n    private static final Set<String> RESERVED = Set.of(\"admin\", \"support\", \"security\", \"root\");\n\n    private static final Pattern HANDLE = Pattern.compile(\"[[\\\\p{IsLatin}&&\\\\p{Ll}]0-9_]{3,20}\");\n\n    private final Set<String> taken = new HashSet<>();\n\n    /** Registers raw as a handle and returns the handle as stored; refuses with IllegalArgumentException. */\n    public String register(String raw) {\n        if (raw == null) throw new IllegalArgumentException(\"no handle\");\n        String handle = canonical(raw);\n        if (!allowed(handle)) throw new IllegalArgumentException(\"handle not allowed\");\n        if (RESERVED.contains(handle)) throw new IllegalArgumentException(\"handle reserved\");\n        if (!taken.add(handle)) throw new IllegalArgumentException(\"handle taken\");\n        return handle;\n    }\n\n    /** The form of raw that this registry checks, stores and compares. */\n    String canonical(String raw) {\n        return Normalizer.normalize(raw, Normalizer.Form.NFKC);\n    }\n\n    /** Whether handle keeps to the rules for handles. */\n    boolean allowed(String handle) {\n        return HANDLE.matcher(handle).matches();\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class SignupForm {\n\n    private SignupForm() {\n    }\n\n    /** Returns the NFKC-normalized username if it is 3 to 20 ASCII letters or digits. */\n    public static String username(String raw) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Returns the age if {@code raw} is ASCII digits with a value from 0 to 150. */\n    public static int age(String raw) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.text.Normalizer;\nimport java.util.HashSet;\nimport java.util.Set;\nimport java.util.regex.Pattern;\n\n/**\n * Registers the public handles members choose at sign-up. A handle is shown on the member's\n * profile, and the mention service delivers \"@handle\" mentions by looking the handle up after\n * NFKC normalisation.\n */\npublic class HandleRegistry {\n\n    private static final Set<String> RESERVED = Set.of(\"admin\", \"support\", \"security\", \"root\");\n\n    private final Set<String> taken = new HashSet<>();\n\n    /** Registers raw as a handle and returns the handle as stored; refuses with IllegalArgumentException. */\n    public String register(String raw) {\n        if (raw == null) throw new IllegalArgumentException(\"no handle\");\n        String handle = canonical(raw);\n        if (!allowed(handle)) throw new IllegalArgumentException(\"handle not allowed\");\n        if (RESERVED.contains(handle)) throw new IllegalArgumentException(\"handle reserved\");\n        if (!taken.add(handle)) throw new IllegalArgumentException(\"handle taken\");\n        return handle;\n    }\n\n    /** The form of raw that this registry checks, stores and compares. */\n    String canonical(String raw) {\n        // TODO: Return the form of the handle that the rest of this class works with. Two\n        //       spellings that the mention service treats as one handle must come out the same.\n        throw new IllegalStateException(\"TODO: canonical\");\n    }\n\n    /** Whether handle keeps to the rules for handles. */\n    boolean allowed(String handle) {\n        // TODO: Answer whether the handle keeps to the rules in the statement, all of it.\n        throw new IllegalStateException(\"TODO: allowed\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -110,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "cdfd38a827066b3623b92789cc3a7af55da09bb9eb40e171d90cf29fc5cd0ba3",
-  "starting_code": "package practice;\n\npublic final class SignupForm {\n\n    private SignupForm() {\n    }\n\n    /** Returns the NFKC-normalized username if it is 3 to 20 ASCII letters or digits. */\n    public static String username(String raw) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Returns the age if {@code raw} is ASCII digits with a value from 0 to 150. */\n    public static int age(String raw) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "acecf79146b001b8836e6975f0809f79f75162ee59f0fdfada616a7a0a2aae48",
+  "starting_code": "package practice;\n\nimport java.text.Normalizer;\nimport java.util.HashSet;\nimport java.util.Set;\nimport java.util.regex.Pattern;\n\n/**\n * Registers the public handles members choose at sign-up. A handle is shown on the member's\n * profile, and the mention service delivers \"@handle\" mentions by looking the handle up after\n * NFKC normalisation.\n */\npublic class HandleRegistry {\n\n    private static final Set<String> RESERVED = Set.of(\"admin\", \"support\", \"security\", \"root\");\n\n    private final Set<String> taken = new HashSet<>();\n\n    /** Registers raw as a handle and returns the handle as stored; refuses with IllegalArgumentException. */\n    public String register(String raw) {\n        if (raw == null) throw new IllegalArgumentException(\"no handle\");\n        String handle = canonical(raw);\n        if (!allowed(handle)) throw new IllegalArgumentException(\"handle not allowed\");\n        if (RESERVED.contains(handle)) throw new IllegalArgumentException(\"handle reserved\");\n        if (!taken.add(handle)) throw new IllegalArgumentException(\"handle taken\");\n        return handle;\n    }\n\n    /** The form of raw that this registry checks, stores and compares. */\n    String canonical(String raw) {\n        // TODO: Return the form of the handle that the rest of this class works with. Two\n        //       spellings that the mention service treats as one handle must come out the same.\n        throw new IllegalStateException(\"TODO: canonical\");\n    }\n\n    /** Whether handle keeps to the rules for handles. */\n    boolean allowed(String handle) {\n        // TODO: Answer whether the handle keeps to the rules in the statement, all of it.\n        throw new IllegalStateException(\"TODO: allowed\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-1/src/main/java/practice/SignupForm.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-1/src/test/java/practice/SignupFormTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-1/src/main/java/practice/HandleRegistry.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-1/src/test/java/practice/HandleRegistryTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,34 +106,39 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SignupFormTest#acceptsValidFieldsAndRefusesBadOnes",
+        "id": "practice.HandleRegistryTest#registersOrdinaryHandlesAsTyped",
         "kind": "main",
-        "says": "username(\"alice99\") and age(\"42\") are accepted; a null username, \"a b\" and age \"abc\" are refused with IllegalArgumentException."
+        "says": "handles made of lowercase Latin letters (accents included), digits and underscores register and come back as typed"
       },
       {
-        "id": "practice.SignupFormTest#theWholeInputMustMatch",
-        "kind": "edge",
-        "says": "\"bob!\" and \"bob\\nrm\" are refused even though they start with a valid username, because the pattern must match the whole input."
+        "id": "practice.HandleRegistryTest#refusesHandlesThatAreTooShortOrEmpty",
+        "kind": "main",
+        "says": "handles shorter than three characters are refused"
       },
       {
-        "id": "practice.SignupFormTest#lengthIsThreeToTwentyInclusive",
-        "kind": "edge",
-        "says": "Usernames of exactly 3 and exactly 20 characters are accepted; 2 and 21 are refused."
+        "id": "practice.HandleRegistryTest#refusesReservedAndTakenHandles",
+        "kind": "main",
+        "says": "a reserved handle and a handle someone already has are refused"
       },
       {
-        "id": "practice.SignupFormTest#inputIsNormalizedBeforeValidation",
+        "id": "practice.HandleRegistryTest#aReservedHandleTypedInFullWidthLettersIsRefused",
         "kind": "edge",
-        "says": "The full-width username \"ａｌｉｃｅ\" is normalized with NFKC to \"alice\", validated in that form and returned in that form."
+        "says": "a reserved handle typed in full-width letters is refused"
       },
       {
-        "id": "practice.SignupFormTest#onlyAsciiLettersAndDigitsPass",
+        "id": "practice.HandleRegistryTest#aTakenHandleInAnotherWidthIsTheSameHandle",
         "kind": "edge",
-        "says": "A username with a Cyrillic \"а\" that looks like the Latin \"a\" is refused, because normalization does not remove homoglyphs."
+        "says": "a handle typed in full-width characters counts as the handle it spells, so it is taken if that one is"
       },
       {
-        "id": "practice.SignupFormTest#anAgeIsOneToThreeAsciiDigits",
+        "id": "practice.HandleRegistryTest#aHandleWithALetterFromAnotherScriptIsRefused",
         "kind": "edge",
-        "says": "Ages \"0\" and \"150\" pass, while \"151\", \"-1\", \"+42\" and Arabic-Indic digits are refused, although Integer.parseInt reads the last two."
+        "says": "a handle with a Cyrillic or Greek letter that looks Latin is refused"
+      },
+      {
+        "id": "practice.HandleRegistryTest#aHandleIsRefusedWhenOnlyPartOfItKeepsToTheRules",
+        "kind": "edge",
+        "says": "a handle is refused when only part of it keeps to the rules: a dot, a space, a capital or too many characters"
       }
     ],
     "report": {
@@ -171,11 +147,11 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.1.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "Validate the Value the Next Layer Will Use, Against an Allow-List"
     },
     "concepts": [
-      "Input is validated against an allow-list that says exactly what is accepted, with the whole input matched, rather than by hunting for bad patterns.",
-      "Unicode input is normalized (NFC or NFKC) before validation; normalization does not stop homoglyphs, so the allowed character set stays restricted."
+      "Input is decoded and normalised the way the next layer will, then the whole canonical string is matched against an allow-list, and the canonical value is passed on.",
+      "NFKC folds full-width forms into ASCII but leaves look-alike letters of other scripts unchanged; only the allow-list's character range refuses them."
     ]
   }
 }

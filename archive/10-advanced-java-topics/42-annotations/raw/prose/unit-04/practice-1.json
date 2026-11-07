@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Inject fields by key from a registry",
+  "title": "Stop the build at a listener with a bad topic",
   "blocks": [
     {
       "type": "heading",
@@ -19,55 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's Q1 simulates Spring's field injection: every field that carries `@Inject` gets a value from a registry, looked up by a key. `@Inject(\"dataSource\")` names the key; a bare `@Inject` has `value()` equal to `\"\"`, and then **the field's own name is the key**. Private fields are injected too."
+      "text": "The order platform's message listeners name their broker topic in an annotation, `@Topic(\"orders.created\")`, and the build writes the list of topics the service subscribes to, `practice.generated.Topics`. Last week a listener marked `@Topic(\"Billing.Refunded\")` compiled, shipped, and failed only when the broker refused the subscription in staging."
     },
     {
       "type": "para",
-      "text": "`KeyedInjector.Inject` (given) has `String value() default \"\"`. Write `KeyedInjector.inject(Object target, Map<String, Object> registry)`:"
+      "text": "`TopicProcessor` already writes the list. Finish `check(...)` in `src/main/java/practice/TopicProcessor.java`, which is called for every listener with its topic. When a topic is one the broker refuses (`wellFormed` tells you which), no service may come out of the compile, and the compiler's output must show the developer which listener has the bad topic, by its file and line, and what the topic is. About three lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "For each field that `target`'s class declares with `@Inject`, compute the key and, when the registry holds a value for it, set the field to that value.",
-        "**A key the registry does not hold leaves the field as it was**: a field that already had a value keeps it.",
-        "**Fields without `@Inject` are never touched**, even when the registry holds an entry under their name."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "field",
-        "registry",
-        "after `inject`"
-      ],
-      "rows": [
-        [
-          "`@Inject(\"dataSource\") private String dataSource`",
-          "`dataSource -> \"jdbc:mysql://localhost/db\"`",
-          "`\"jdbc:mysql://localhost/db\"`"
-        ],
-        [
-          "`@Inject private String config`",
-          "`config -> \"production\"`",
-          "`\"production\"`"
-        ],
-        [
-          "`@Inject private String region = \"eu\"`",
-          "no `region` entry, or `region -> null`",
-          "`\"eu\"`"
-        ],
-        [
-          "`@Inject(\"pool\") private Integer poolSize`",
-          "`pool -> 1024`, `poolSize -> 1`",
-          "`1024`"
-        ],
-        [
-          "`private String secret = \"kept\"` (no `@Inject`)",
-          "`secret -> \"leaked\"`",
-          "`\"kept\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests compile small listener classes with `javax.tools.JavaCompiler` and your processor, and read what javac reports."
     },
     {
       "type": "heading",
@@ -82,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Field;\nimport java.util.Map;\n\npublic final class KeyedInjector {\n\n    private KeyedInjector() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    public @interface Inject {\n        String value() default \"\";\n    }\n\n    /** Sets each @Inject field of target's class from the registry. */\n    public static void inject(Object target, Map<String, Object> registry) throws IllegalAccessException {\n        for (Field field : target.getClass().getDeclaredFields()) {\n            Inject inject = field.getAnnotation(Inject.class);\n            if (inject == null) {\n                continue;\n            }\n            String key = inject.value().isEmpty() ? field.getName() : inject.value();\n            Object value = registry.get(key);\n            if (value != null) {\n                field.setAccessible(true);\n                field.set(target, value);\n            }\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.Writer;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.Set;\nimport java.util.TreeSet;\nimport javax.annotation.processing.AbstractProcessor;\nimport javax.annotation.processing.RoundEnvironment;\nimport javax.annotation.processing.SupportedAnnotationTypes;\nimport javax.annotation.processing.SupportedSourceVersion;\nimport javax.lang.model.SourceVersion;\nimport javax.lang.model.element.Element;\nimport javax.lang.model.element.TypeElement;\nimport javax.tools.Diagnostic;\n\n/**\n * Compile-time support for message listeners. Every class marked {@code @Topic(\"orders.created\")}\n * is a listener for that broker topic, and the build writes {@code practice.generated.Topics},\n * whose {@code ALL} list the service subscribes to at startup.\n */\n@SupportedAnnotationTypes(\"practice.TopicProcessor.Topic\")\n@SupportedSourceVersion(SourceVersion.RELEASE_21)\npublic class TopicProcessor extends AbstractProcessor {\n\n    /** Marks a listener class with the broker topic it listens to. */\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    public @interface Topic {\n        String value();\n    }\n\n    @Override\n    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {\n        if (annotations.isEmpty()) return false;\n        Set<String> topics = new TreeSet<>();\n        for (Element listener : round.getElementsAnnotatedWith(Topic.class)) {\n            String topic = listener.getAnnotation(Topic.class).value();\n            check(listener, topic);\n            topics.add(topic);\n        }\n        writeTopics(topics);\n        return true;\n    }\n\n    /** The broker accepts lower-case words separated by single dots: \"orders.created\". */\n    static boolean wellFormed(String topic) {\n        return topic.matches(\"[a-z]+(\\\\.[a-z]+)*\");\n    }\n\n    /** Called for every listener class with the topic its annotation names. */\n    void check(Element listener, String topic) {\n        if (!wellFormed(topic)) {\n            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,\n                    \"topic \\\"\" + topic + \"\\\" is not lower-case words separated by dots\", listener);\n        }\n    }\n\n    private void writeTopics(Set<String> topics) {\n        StringBuilder list = new StringBuilder();\n        for (String t : topics) {\n            if (list.length() > 0) list.append(\", \");\n            list.append('\"').append(t).append('\"');\n        }\n        try (Writer w = processingEnv.getFiler().createSourceFile(\"practice.generated.Topics\").openWriter()) {\n            w.write(\"package practice.generated;\\n\\n\"\n                    + \"public final class Topics {\\n\"\n                    + \"    public static final java.util.List<String> ALL = java.util.List.of(\" + list + \");\\n\"\n                    + \"}\\n\");\n        } catch (IOException e) {\n            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, e.toString());\n        }\n    }\n}\n"
         }
       ]
     },
@@ -94,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Field;\nimport java.util.Map;\n\npublic final class KeyedInjector {\n\n    private KeyedInjector() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    public @interface Inject {\n        String value() default \"\";\n    }\n\n    /** Sets each @Inject field of target's class from the registry. */\n    public static void inject(Object target, Map<String, Object> registry) throws IllegalAccessException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.Writer;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.Set;\nimport java.util.TreeSet;\nimport javax.annotation.processing.AbstractProcessor;\nimport javax.annotation.processing.RoundEnvironment;\nimport javax.annotation.processing.SupportedAnnotationTypes;\nimport javax.annotation.processing.SupportedSourceVersion;\nimport javax.lang.model.SourceVersion;\nimport javax.lang.model.element.Element;\nimport javax.lang.model.element.TypeElement;\nimport javax.tools.Diagnostic;\n\n/**\n * Compile-time support for message listeners. Every class marked {@code @Topic(\"orders.created\")}\n * is a listener for that broker topic, and the build writes {@code practice.generated.Topics},\n * whose {@code ALL} list the service subscribes to at startup.\n */\n@SupportedAnnotationTypes(\"practice.TopicProcessor.Topic\")\n@SupportedSourceVersion(SourceVersion.RELEASE_21)\npublic class TopicProcessor extends AbstractProcessor {\n\n    /** Marks a listener class with the broker topic it listens to. */\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    public @interface Topic {\n        String value();\n    }\n\n    @Override\n    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {\n        if (annotations.isEmpty()) return false;\n        Set<String> topics = new TreeSet<>();\n        for (Element listener : round.getElementsAnnotatedWith(Topic.class)) {\n            String topic = listener.getAnnotation(Topic.class).value();\n            check(listener, topic);\n            topics.add(topic);\n        }\n        writeTopics(topics);\n        return true;\n    }\n\n    /** The broker accepts lower-case words separated by single dots: \"orders.created\". */\n    static boolean wellFormed(String topic) {\n        return topic.matches(\"[a-z]+(\\\\.[a-z]+)*\");\n    }\n\n    /** Called for every listener class with the topic its annotation names. */\n    void check(Element listener, String topic) {\n        // TODO: A topic the broker rejects (see wellFormed) must keep this build from producing\n        //       a service, and the developer must see which listener has it and what it says.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    private void writeTopics(Set<String> topics) {\n        StringBuilder list = new StringBuilder();\n        for (String t : topics) {\n            if (list.length() > 0) list.append(\", \");\n            list.append('\"').append(t).append('\"');\n        }\n        try (Writer w = processingEnv.getFiler().createSourceFile(\"practice.generated.Topics\").openWriter()) {\n            w.write(\"package practice.generated;\\n\\n\"\n                    + \"public final class Topics {\\n\"\n                    + \"    public static final java.util.List<String> ALL = java.util.List.of(\" + list + \");\\n\"\n                    + \"}\\n\");\n        } catch (IOException e) {\n            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, e.toString());\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -102,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -113,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "bef3eee6289f448620b4aaf2a5621000b9f9522e5f320e225a4133c8a0b40e6b",
-  "starting_code": "package practice;\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.lang.reflect.Field;\nimport java.util.Map;\n\npublic final class KeyedInjector {\n\n    private KeyedInjector() {\n    }\n\n    @Retention(RetentionPolicy.RUNTIME)\n    @Target(ElementType.FIELD)\n    public @interface Inject {\n        String value() default \"\";\n    }\n\n    /** Sets each @Inject field of target's class from the registry. */\n    public static void inject(Object target, Map<String, Object> registry) throws IllegalAccessException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "50d325002023aee1eaa7e545c81e423bf35e285cdfc371dd34352fafecf99e3a",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.io.Writer;\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\nimport java.util.Set;\nimport java.util.TreeSet;\nimport javax.annotation.processing.AbstractProcessor;\nimport javax.annotation.processing.RoundEnvironment;\nimport javax.annotation.processing.SupportedAnnotationTypes;\nimport javax.annotation.processing.SupportedSourceVersion;\nimport javax.lang.model.SourceVersion;\nimport javax.lang.model.element.Element;\nimport javax.lang.model.element.TypeElement;\nimport javax.tools.Diagnostic;\n\n/**\n * Compile-time support for message listeners. Every class marked {@code @Topic(\"orders.created\")}\n * is a listener for that broker topic, and the build writes {@code practice.generated.Topics},\n * whose {@code ALL} list the service subscribes to at startup.\n */\n@SupportedAnnotationTypes(\"practice.TopicProcessor.Topic\")\n@SupportedSourceVersion(SourceVersion.RELEASE_21)\npublic class TopicProcessor extends AbstractProcessor {\n\n    /** Marks a listener class with the broker topic it listens to. */\n    @Retention(RetentionPolicy.SOURCE)\n    @Target(ElementType.TYPE)\n    public @interface Topic {\n        String value();\n    }\n\n    @Override\n    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {\n        if (annotations.isEmpty()) return false;\n        Set<String> topics = new TreeSet<>();\n        for (Element listener : round.getElementsAnnotatedWith(Topic.class)) {\n            String topic = listener.getAnnotation(Topic.class).value();\n            check(listener, topic);\n            topics.add(topic);\n        }\n        writeTopics(topics);\n        return true;\n    }\n\n    /** The broker accepts lower-case words separated by single dots: \"orders.created\". */\n    static boolean wellFormed(String topic) {\n        return topic.matches(\"[a-z]+(\\\\.[a-z]+)*\");\n    }\n\n    /** Called for every listener class with the topic its annotation names. */\n    void check(Element listener, String topic) {\n        // TODO: A topic the broker rejects (see wellFormed) must keep this build from producing\n        //       a service, and the developer must see which listener has it and what it says.\n        throw new IllegalStateException(\"TODO: check\");\n    }\n\n    private void writeTopics(Set<String> topics) {\n        StringBuilder list = new StringBuilder();\n        for (String t : topics) {\n            if (list.length() > 0) list.append(\", \");\n            list.append('\"').append(t).append('\"');\n        }\n        try (Writer w = processingEnv.getFiler().createSourceFile(\"practice.generated.Topics\").openWriter()) {\n            w.write(\"package practice.generated;\\n\\n\"\n                    + \"public final class Topics {\\n\"\n                    + \"    public static final java.util.List<String> ALL = java.util.List.of(\" + list + \");\\n\"\n                    + \"}\\n\");\n        } catch (IOException e) {\n            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, e.toString());\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-1/src/main/java/practice/KeyedInjector.java",
-    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-1/src/test/java/practice/KeyedInjectorTest.java",
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-1/src/main/java/practice/TopicProcessor.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-04/practice-1/src/test/java/practice/TopicProcessorTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -138,24 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.KeyedInjectorTest#injectsPrivateFieldsByTheirNamedKey",
+        "id": "practice.TopicProcessorTest#wellFormedTopicsCompileAndAreListed",
         "kind": "main",
-        "says": "Private @Inject(\"dataSource\") and @Inject(\"pool\") fields receive the registry's values for those keys, the very objects it holds, even when the registry also has an entry under the field's own name."
+        "says": "listeners with well-formed topics compile, and the generated list holds their topics"
       },
       {
-        "id": "practice.KeyedInjectorTest#aBareInjectUsesTheFieldName",
+        "id": "practice.TopicProcessorTest#aMalformedTopicStopsTheBuild",
         "kind": "edge",
-        "says": "The page's InjectableService: a bare @Inject field named config receives the registry's \"config\" entry."
+        "says": "a listener with a malformed topic makes the compile fail"
       },
       {
-        "id": "practice.KeyedInjectorTest#aMissingKeyKeepsTheFieldsValue",
+        "id": "practice.TopicProcessorTest#theErrorIsReportedOnTheListenerThatHasTheTypo",
         "kind": "edge",
-        "says": "An @Inject field whose key the registry lacks, or maps to null, keeps the value it was initialised with."
+        "says": "the error names the listener's source file and the line of its declaration"
       },
       {
-        "id": "practice.KeyedInjectorTest#aFieldWithoutInjectIsNeverTouched",
+        "id": "practice.TopicProcessorTest#aMalformedTopicIsADiagnosticNotACrash",
         "kind": "edge",
-        "says": "A field without @Inject keeps its value although the registry holds an entry under its name."
+        "says": "javac finishes and reports the bad topic as an error diagnostic, instead of stopping with an exception from the processor"
       }
     ],
     "report": {
@@ -164,11 +124,10 @@
     },
     "origin": {
       "path": "42-annotations/README_10.4.4.md",
-      "section": "Interview-specific Insights"
+      "section": "An Error Reported at the Element Makes javac Point at the User's Line"
     },
     "concepts": [
-      "Runtime processing reads RUNTIME annotations through reflection; a simple injector sets each @Inject field from a registry, keyed by the annotation's value or else the field's name.",
-      "Reflection reaches private members only after setAccessible(true)."
+      "A Messager ERROR passed the element makes javac report the user's file and line and fails the compile; an error left to the generated code points at a file the developer never wrote."
     ]
   }
 }

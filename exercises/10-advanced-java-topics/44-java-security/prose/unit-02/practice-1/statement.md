@@ -1,21 +1,11 @@
-Parameters carry **values**. The page's first best practice warns that they
-cannot carry identifiers or keywords: a user-chosen `ORDER BY` column or sort
-direction cannot be a `?`. Those parts must be **chosen from an allow-list of
-known names**, and anything else refused, never pasted into the SQL.
+The helpdesk's ticket list takes its order from the request: `GET /tickets?sort=opened&dir=desc`.
+The API documents three sort keys, `priority`, `opened` and `title`, and two directions, `asc` and
+`desc`. The `ticket` table has more columns than that, among them `customer_tier`, which agents
+must never be able to rank tickets by.
 
-Write `SortedQuery.sql(column, direction)` that returns
+`TicketList.titles(sort, dir)` already builds and runs the query. Write `orderBy(sort, dir)` in
+`src/main/java/practice/TicketList.java`: the text that goes after `ORDER BY`. A documented request
+sorts the list; any other request is refused with an `IllegalArgumentException`, and nothing it
+contains reaches the database. The key `opened` sorts by the column `opened_at`.
 
-```
-SELECT id, name, email FROM users ORDER BY <column> <DIRECTION>
-```
-
-- `column` must be **exactly** one of `name`, `email`, `created_at`;
-- `direction` is `asc` or `desc` in any case, written in upper case;
-- anything else, `null` included, throws `IllegalArgumentException`.
-
-| column | direction | result |
-|---|---|---|
-| `name` | `asc` | `... ORDER BY name ASC` |
-| `created_at` | `DESC` | `... ORDER BY created_at DESC` |
-| `name; DROP TABLE users` | `asc` | `IllegalArgumentException` |
-| `email` | `desc, (SELECT 1)` | `IllegalArgumentException` |
+About eight lines in total. The tests run against an H2 in-memory database.

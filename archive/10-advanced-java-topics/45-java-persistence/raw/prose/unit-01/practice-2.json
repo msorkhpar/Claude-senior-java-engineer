@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Map a row whose columns may be NULL",
+  "title": "Stop the open-orders query from leaking statements",
   "blocks": [
     {
       "type": "heading",
@@ -19,39 +19,29 @@
     },
     {
       "type": "para",
-      "text": "`rs.getInt(\"age\")` returns `0` for SQL NULL, the same as a real age of 0. The page's Q4 tells them apart with `wasNull()` right after the getter, or with `getObject(\"age\", Integer.class)`. Reference types such as `getString` already return `null`."
+      "text": "The support screen shows a customer's open orders. Its old query method handed the screen a live cursor, and the screen failed with `The object is already closed`. A quick rewrite fixed that, but after a day under load the database refuses new statements on long-lived connections, and once a request failed because the connection it was still using had been closed."
     },
     {
       "type": "para",
-      "text": "Write `PersonRows.map(ResultSet rows)`: it reads the **current** row (the caller has already called `next()`) and returns a `Person(id, name, age, email)`."
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**A SQL NULL age maps to `null`, not 0**, and **a real age of 0 stays 0**.",
-        "A NULL email maps to `null`.",
-        "**Columns are read by name**, so the SELECT's column order does not matter."
-      ]
+      "text": "Write `openOrders(connection, customer)` in `src/main/java/practice/OrderQueries.java`. Read each row with the existing `read(rs)`. When the method returns or throws, nothing it opened is left open, and the connection it was lent is exactly as usable as before. Some old rows hold text such as `a box` in the `quantity` column; `read` throws `SQLException` on them, and that exception should reach the caller. About eight lines."
     },
     {
       "type": "table",
       "headers": [
-        "row (id, name, age, email)",
-        "`map(rows)`"
+        "customer",
+        "rows (id, item, quantity, status)",
+        "`openOrders`"
       ],
       "rows": [
         [
-          "1, Ada, 36, ada@example.org",
-          "`Person[id=1, name=Ada, age=36, email=ada@example.org]`"
+          "`k-208`",
+          "41 toner 85A 2 OPEN, 57 USB-C dock 1 SHIPPED, 63 paper A4 10 OPEN",
+          "`[OpenOrder[id=41, item=toner 85A, quantity=2], OpenOrder[id=63, item=paper A4, quantity=10]]`"
         ],
         [
-          "2, Linus, NULL, NULL",
-          "`Person[id=2, name=Linus, age=null, email=null]`"
-        ],
-        [
-          "3, Baby, 0, NULL",
-          "`Person[id=3, name=Baby, age=0, email=null]`"
+          "`k-404`",
+          "none",
+          "`[]`"
         ]
       ]
     },
@@ -68,7 +58,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\npublic final class PersonRows {\n\n    private PersonRows() {\n    }\n\n    public record Person(int id, String name, Integer age, String email) {\n    }\n\n    /** Maps the current row of {@code rows} (next() was already called). */\n    public static Person map(ResultSet rows) throws SQLException {\n        int id = rows.getInt(\"id\");\n        String name = rows.getString(\"name\");\n        int ageValue = rows.getInt(\"age\");\n        Integer age = rows.wasNull() ? null : ageValue;\n        String email = rows.getString(\"email\");\n        return new Person(id, name, age, email);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Queries behind the support screen. Each method is lent the request's connection, which the\n * caller goes on using after the method returns.\n */\npublic final class OrderQueries {\n\n    /** One open order line as the support screen shows it. */\n    public record OpenOrder(long id, String item, int quantity) {}\n\n    static final String OPEN_ORDERS = \"\"\"\n            SELECT id, item, quantity\n            FROM orders\n            WHERE customer = ? AND status = 'OPEN'\n            ORDER BY id\n            \"\"\";\n\n    private OrderQueries() {}\n\n    /** The customer's open orders, oldest first. */\n    public static List<OpenOrder> openOrders(Connection conn, String customer) throws SQLException {\n        try (PreparedStatement ps = conn.prepareStatement(OPEN_ORDERS)) {\n            ps.setString(1, customer);\n            try (ResultSet rs = ps.executeQuery()) {\n                List<OpenOrder> orders = new ArrayList<>();\n                while (rs.next()) orders.add(read(rs));\n                return orders;\n            }\n        }\n    }\n\n    /** Reads the current row. The quantity column is text written by an old loader. */\n    static OpenOrder read(ResultSet rs) throws SQLException {\n        return new OpenOrder(rs.getLong(\"id\"), rs.getString(\"item\"), rs.getInt(\"quantity\"));\n    }\n}\n"
         }
       ]
     },
@@ -80,7 +70,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\npublic final class PersonRows {\n\n    private PersonRows() {\n    }\n\n    public record Person(int id, String name, Integer age, String email) {\n    }\n\n    /** Maps the current row of {@code rows} (next() was already called). */\n    public static Person map(ResultSet rows) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Queries behind the support screen. Each method is lent the request's connection, which the\n * caller goes on using after the method returns.\n */\npublic final class OrderQueries {\n\n    /** One open order line as the support screen shows it. */\n    public record OpenOrder(long id, String item, int quantity) {}\n\n    static final String OPEN_ORDERS = \"\"\"\n            SELECT id, item, quantity\n            FROM orders\n            WHERE customer = ? AND status = 'OPEN'\n            ORDER BY id\n            \"\"\";\n\n    private OrderQueries() {}\n\n    /** The customer's open orders, oldest first. */\n    public static List<OpenOrder> openOrders(Connection conn, String customer) throws SQLException {\n        // TODO: Run OPEN_ORDERS for the customer and return its rows, each read with read(rs).\n        //       This runs on every page view of the support screen, and the caller goes on using\n        //       the connection afterwards.\n        throw new IllegalStateException(\"TODO: openOrders\");\n    }\n\n    /** Reads the current row. The quantity column is text written by an old loader. */\n    static OpenOrder read(ResultSet rs) throws SQLException {\n        return new OpenOrder(rs.getLong(\"id\"), rs.getString(\"item\"), rs.getInt(\"quantity\"));\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,7 +81,7 @@
     "paras": 2,
     "code": 1,
     "tables": 1,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -99,11 +89,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0bd7dac3e2a462c4abb970934af2bb94026a475376c7341db269a4b2470291ec",
-  "starting_code": "package practice;\n\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\n\npublic final class PersonRows {\n\n    private PersonRows() {\n    }\n\n    public record Person(int id, String name, Integer age, String email) {\n    }\n\n    /** Maps the current row of {@code rows} (next() was already called). */\n    public static Person map(ResultSet rows) throws SQLException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "58e51067a4cfeed52ef4b07c4c664cbe3e8029bd08f09777d1b25b806b0c5b4b",
+  "starting_code": "package practice;\n\nimport java.sql.Connection;\nimport java.sql.PreparedStatement;\nimport java.sql.ResultSet;\nimport java.sql.SQLException;\nimport java.util.ArrayList;\nimport java.util.List;\n\n/**\n * Queries behind the support screen. Each method is lent the request's connection, which the\n * caller goes on using after the method returns.\n */\npublic final class OrderQueries {\n\n    /** One open order line as the support screen shows it. */\n    public record OpenOrder(long id, String item, int quantity) {}\n\n    static final String OPEN_ORDERS = \"\"\"\n            SELECT id, item, quantity\n            FROM orders\n            WHERE customer = ? AND status = 'OPEN'\n            ORDER BY id\n            \"\"\";\n\n    private OrderQueries() {}\n\n    /** The customer's open orders, oldest first. */\n    public static List<OpenOrder> openOrders(Connection conn, String customer) throws SQLException {\n        // TODO: Run OPEN_ORDERS for the customer and return its rows, each read with read(rs).\n        //       This runs on every page view of the support screen, and the caller goes on using\n        //       the connection afterwards.\n        throw new IllegalStateException(\"TODO: openOrders\");\n    }\n\n    /** Reads the current row. The quantity column is text written by an old loader. */\n    static OpenOrder read(ResultSet rs) throws SQLException {\n        return new OpenOrder(rs.getLong(\"id\"), rs.getString(\"item\"), rs.getInt(\"quantity\"));\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/main/java/practice/PersonRows.java",
-    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/test/java/practice/PersonRowsTest.java",
+    "main_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/main/java/practice/OrderQueries.java",
+    "test_path": "practice/10-advanced-java-topics/45-java-persistence/prose/unit-01/practice-2/src/test/java/practice/OrderQueriesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -124,24 +114,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PersonRowsTest#mapsEveryColumnOfARow",
+        "id": "practice.OrderQueriesTest#returnsTheCustomersOpenOrdersOldestFirst",
         "kind": "main",
-        "says": "map() turns the current row into a Person with its id, name, age and email."
+        "says": "the customer's open orders come back oldest first, shipped ones and other customers' left out"
       },
       {
-        "id": "practice.PersonRowsTest#aNullAgeIsNull",
-        "kind": "edge",
-        "says": "A row whose age is SQL NULL maps to age null, not 0."
+        "id": "practice.OrderQueriesTest#aCustomerWithoutOpenOrdersGetsAnEmptyList",
+        "kind": "main",
+        "says": "a customer without open orders gets an empty list"
       },
       {
-        "id": "practice.PersonRowsTest#anAgeOfZeroStaysZero",
-        "kind": "edge",
-        "says": "A row whose age is a real 0 maps to age 0, not null."
+        "id": "practice.OrderQueriesTest#closesWhatItOpenedOnceTheRowsAreRead",
+        "kind": "main",
+        "says": "the statement and result set the method opened are closed when it returns"
       },
       {
-        "id": "practice.PersonRowsTest#columnsAreFoundByName",
+        "id": "practice.OrderQueriesTest#theCallerCanKeepUsingItsConnection",
         "kind": "edge",
-        "says": "A query that selects email, age, name, id in that order still maps correctly."
+        "says": "the lent connection is still open and usable after the method returns"
+      },
+      {
+        "id": "practice.OrderQueriesTest#aRowThatCannotBeReadStillClosesTheStatement",
+        "kind": "edge",
+        "says": "when a row can't be read, the SQLException reaches the caller and the statement is closed anyway"
       }
     ],
     "report": {
@@ -150,11 +145,10 @@
     },
     "origin": {
       "path": "45-java-persistence/README_10.7.1.md",
-      "section": "3. Ignoring wasNull() for Primitive Types"
+      "section": "A ResultSet Lives Only as Long as Its Statement"
     },
     "concepts": [
-      "Reading columns by name is preferred over indices, which are 1-based and break when the SELECT changes.",
-      "getInt returns 0 for SQL NULL, so a nullable primitive column is read with wasNull() or getObject(column, Integer.class)."
+      "try-with-resources closes the result set and statement in reverse order, also when reading fails, and a method lent a connection leaves it open."
     ]
   }
 }

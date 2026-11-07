@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Encode a comment before it reaches the page",
+  "title": "Keep attachment downloads inside the attachment store",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,15 @@
     },
     {
       "type": "para",
-      "text": "XSS happens when user text reaches a page as markup. The page's fix is **output encoding**: when a comment is rendered, replace `&`, `<`, `>`, `\"` and `'` with `&amp;`, `&lt;`, `&gt;`, `&quot;` and `&#x27;`. It stores the original text and encodes at the point of rendering, so **every `&` is encoded**, even one the user typed as part of something that looks like an entity: the reader must see exactly what was typed."
+      "text": "Ticket attachments are downloaded with `GET /attachments?name=T-118/screenshot.txt`, and the name is used to find the file under the store's directory. Next to that directory, on the same disk, are the service's configuration, an export area, and an older store. Someone has also put a link inside the store that leads to the export area. On some hosts the store's directory is configured through a link of its own."
     },
     {
       "type": "para",
-      "text": "Write `CommentRenderer`:"
+      "text": "Write `locate(name)` in `src/main/java/practice/AttachmentStore.java`. A name that leads to one of the store's files returns that file, however the name is spelled. A name that would lead to any other file is refused with a `SecurityException`. The store must keep working on the hosts that configure it through a link."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`encode(text)`: the encoded text; `null` gives `\"\"`.",
-        "`render(comment)`: `\"<div class='comment'>\" + encode(comment) + \"</div>\"`. The attribute is single-quoted, so **a single quote must be encoded too**."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`encode(\"<script>alert(\\\"x\\\")</script>\")`",
-          "`&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;`"
-        ],
-        [
-          "`encode(\"Tom & Jerry\")`",
-          "`Tom &amp; Jerry`"
-        ],
-        [
-          "`encode(\"use &lt; for <\")`",
-          "`use &amp;lt; for &lt;`"
-        ],
-        [
-          "`render(\"it's\")`",
-          "`<div class='comment'>it&#x27;s</div>`"
-        ],
-        [
-          "`encode(null)`",
-          "`\"\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "About four lines in total. The tests build the directories and links in a temporary directory."
     },
     {
       "type": "heading",
@@ -75,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class CommentRenderer {\n\n    private CommentRenderer() {\n    }\n\n    /** HTML-encodes text for rendering; null gives \"\". */\n    public static String encode(String text) {\n        if (text == null) {\n            return \"\";\n        }\n        return text.replace(\"&\", \"&amp;\")\n                .replace(\"<\", \"&lt;\")\n                .replace(\">\", \"&gt;\")\n                .replace(\"\\\"\", \"&quot;\")\n                .replace(\"'\", \"&#x27;\");\n    }\n\n    /** Renders a user comment inside the page's comment div. */\n    public static String render(String comment) {\n        return \"<div class='comment'>\" + encode(comment) + \"</div>\";\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\n\n/** Serves ticket attachments: GET /attachments?name=... reads one file of the store. */\npublic class AttachmentStore {\n\n    private final Path base;\n\n    /** {@code base} is the store's directory, as configured; it may be reached through a link. */\n    public AttachmentStore(Path base) {\n        this.base = base;\n    }\n\n    /** The text of the attachment the request names. */\n    public String read(String name) throws IOException {\n        return Files.readString(locate(name));\n    }\n\n    /**\n     * The file a request for {@code name} may read. A name that leads to a file outside the\n     * store's directory is refused with a SecurityException.\n     */\n    Path locate(String name) throws IOException {\n        Path realBase = base.toRealPath();\n        Path file = base.resolve(name).toRealPath();\n        if (!file.startsWith(realBase)) throw new SecurityException(\"not an attachment: \" + name);\n        return file;\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class CommentRenderer {\n\n    private CommentRenderer() {\n    }\n\n    /** HTML-encodes text for rendering; null gives \"\". */\n    public static String encode(String text) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Renders a user comment inside the page's comment div. */\n    public static String render(String comment) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\n\n/** Serves ticket attachments: GET /attachments?name=... reads one file of the store. */\npublic class AttachmentStore {\n\n    private final Path base;\n\n    /** {@code base} is the store's directory, as configured; it may be reached through a link. */\n    public AttachmentStore(Path base) {\n        this.base = base;\n    }\n\n    /** The text of the attachment the request names. */\n    public String read(String name) throws IOException {\n        return Files.readString(locate(name));\n    }\n\n    /**\n     * The file a request for {@code name} may read. A name that leads to a file outside the\n     * store's directory is refused with a SecurityException.\n     */\n    Path locate(String name) throws IOException {\n        // TODO: name comes straight from the request. Return the file to read, and refuse any\n        //       name that would make the store hand out a file that isn't one of its own.\n        throw new IllegalStateException(\"TODO: locate\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a72afc0aa3761d0679eea6dd9ab2af8746667ca09fe3c2090a93d7ef266cba63",
-  "starting_code": "package practice;\n\npublic final class CommentRenderer {\n\n    private CommentRenderer() {\n    }\n\n    /** HTML-encodes text for rendering; null gives \"\". */\n    public static String encode(String text) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Renders a user comment inside the page's comment div. */\n    public static String render(String comment) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "880961a0e8b7fff37d246086d348ecc6e7e10ba00de49aef477c53413946db46",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\n\n/** Serves ticket attachments: GET /attachments?name=... reads one file of the store. */\npublic class AttachmentStore {\n\n    private final Path base;\n\n    /** {@code base} is the store's directory, as configured; it may be reached through a link. */\n    public AttachmentStore(Path base) {\n        this.base = base;\n    }\n\n    /** The text of the attachment the request names. */\n    public String read(String name) throws IOException {\n        return Files.readString(locate(name));\n    }\n\n    /**\n     * The file a request for {@code name} may read. A name that leads to a file outside the\n     * store's directory is refused with a SecurityException.\n     */\n    Path locate(String name) throws IOException {\n        // TODO: name comes straight from the request. Return the file to read, and refuse any\n        //       name that would make the store hand out a file that isn't one of its own.\n        throw new IllegalStateException(\"TODO: locate\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-2/src/main/java/practice/CommentRenderer.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-2/src/test/java/practice/CommentRendererTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-2/src/main/java/practice/AttachmentStore.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-2/src/test/java/practice/AttachmentStoreTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CommentRendererTest#encodesMarkupInAComment",
+        "id": "practice.AttachmentStoreTest#readsTheStoresOwnFiles",
         "kind": "main",
-        "says": "A script tag with double quotes, \"Tom & Jerry\" and a bold tag come out HTML-encoded, the last one inside the comment div."
+        "says": "names of the store's own files, including one with a .. that stays inside, are read"
       },
       {
-        "id": "practice.CommentRendererTest#aSingleQuoteCannotCloseTheAttribute",
+        "id": "practice.AttachmentStoreTest#aNameThatClimbsOutOfTheStoreIsRefused",
         "kind": "edge",
-        "says": "A single quote is encoded as &#x27;, so it cannot end the single-quoted class attribute."
+        "says": "a name whose .. elements climb above the store is refused"
       },
       {
-        "id": "practice.CommentRendererTest#everyAmpersandIsEncoded",
+        "id": "practice.AttachmentStoreTest#aDirectoryWhoseNameStartsLikeTheStoreIsStillOutside",
         "kind": "edge",
-        "says": "Text the user typed as \"&lt;\", \"&#60;\" or \"&amp;\" is encoded again, so the reader sees exactly what was typed."
+        "says": "a sibling directory whose name begins with the store's name is outside the store"
       },
       {
-        "id": "practice.CommentRendererTest#aMissingCommentRendersAsEmpty",
+        "id": "practice.AttachmentStoreTest#aLinkInsideTheStoreDoesNotLeadOutOfIt",
         "kind": "edge",
-        "says": "encode(null) is \"\" and render(null) is an empty comment div, not the text null."
+        "says": "a symbolic link inside the store that points outside it does not give access to the files it points at"
+      },
+      {
+        "id": "practice.AttachmentStoreTest#aStoreConfiguredThroughALinkStillServesItsFiles",
+        "kind": "edge",
+        "says": "when the store's directory is configured through a link, its own files are still served"
       }
     ],
     "report": {
@@ -157,10 +129,11 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.2.md",
-      "section": "2. Rendering user input directly in HTML"
+      "section": "A Symlink Inside the Base Points Anywhere; Check the Real Path"
     },
     "concepts": [
-      "XSS is prevented by encoding output for the context it is rendered in: &, <, >, \" and ' become HTML entities at the point of rendering."
+      "A requested path stays inside its base only if the resolved path is normalized and then compared with Path.startsWith; without normalize() .. escapes, and a string prefix accepts a sibling directory whose name begins like the base.",
+      "normalize() never reads the disk, so a symbolic link inside the base can lead outside it; toRealPath() follows links, and the base must be compared as a real path too."
     ]
   }
 }

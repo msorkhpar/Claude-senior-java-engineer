@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "SHA-256 in hex, for text and for streams",
+  "title": "Encrypt the tax-id column so a changed row is refused",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,24 @@
     },
     {
       "type": "para",
-      "text": "The page expects you to write a SHA-256 hash \"from scratch using `MessageDigest`\" at a whiteboard. A SHA-256 digest is 32 bytes, shown as 64 lower-case hex digits: **every byte is two digits**, `0x01` is `01`, and **a leading zero byte is kept**. Text is turned into bytes with `StandardCharsets.UTF_8`. For large content the page says to call `MessageDigest.update()` incrementally rather than loading it all: **the whole stream is hashed**, however the stream hands out its bytes."
+      "text": "The customers table keeps each customer's tax id encrypted, one byte array per row in a single column. Several instances of the service share one AES key from the key store, and the nightly export job reads the column with the same key. Support staff can edit rows directly in the database."
     },
     {
       "type": "para",
-      "text": "Write `Digests`:"
+      "text": "Finish `seal` and `open` in `src/main/java/practice/ColumnCipher.java`. When you're done:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`sha256Hex(String text)`: the digest of `text`'s UTF-8 bytes, in hex;",
-        "`sha256Hex(InputStream in)`: the digest of every byte of `in`, read in chunks until the end."
+        "whatever `seal` returns is all that is stored, and any `ColumnCipher` with the same key opens it back into the same tax id;",
+        "the same tax id sealed twice is never stored with the same IV;",
+        "a stored value that was changed in the database is refused with a `GeneralSecurityException` (or a subclass), never returned as a tax id."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "input",
-        "`sha256Hex`"
-      ],
-      "rows": [
-        [
-          "`\"Contract: Alice pays Bob $100\"`",
-          "`3f1474663ea161aa9567e07884bba2edb564c2bd63a44ab38fd0e959bdbcc2f5`"
-        ],
-        [
-          "`\"abc\"`",
-          "`ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`"
-        ],
-        [
-          "`\"file-417\"`",
-          "`004fe204e259e7d7a7c69613839d6ce32f03b6743bbcf99e939e606472c51411`"
-        ],
-        [
-          "a stream of `\"abc\"` that returns one byte per `read`",
-          "the same digest as `\"abc\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests use their own key, generated when they start, and a `new SecureRandom()`. About fifteen lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.nio.charset.StandardCharsets;\nimport java.security.MessageDigest;\nimport java.security.NoSuchAlgorithmException;\n\npublic final class Digests {\n\n    private Digests() {\n    }\n\n    /** SHA-256 of text's UTF-8 bytes, as 64 lower-case hex digits. */\n    public static String sha256Hex(String text) throws NoSuchAlgorithmException {\n        MessageDigest digest = MessageDigest.getInstance(\"SHA-256\");\n        return hex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));\n    }\n\n    /** SHA-256 of every byte of in, as 64 lower-case hex digits. */\n    public static String sha256Hex(InputStream in) throws NoSuchAlgorithmException, IOException {\n        MessageDigest digest = MessageDigest.getInstance(\"SHA-256\");\n        byte[] buffer = new byte[8192];\n        int n;\n        while ((n = in.read(buffer)) != -1) {\n            digest.update(buffer, 0, n);\n        }\n        return hex(digest.digest());\n    }\n\n    private static String hex(byte[] bytes) {\n        StringBuilder sb = new StringBuilder();\n        for (byte b : bytes) {\n            sb.append(String.format(\"%02x\", b));\n        }\n        return sb.toString();\n    }\n}\n"
+          "text": "package practice;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.SecretKey;\nimport javax.crypto.spec.GCMParameterSpec;\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\n\n/**\n * Encrypts the tax-id column of the customers table. Each value is stored as one byte array in\n * one column; the key comes from the key store and is the same on every instance of the service.\n */\npublic class ColumnCipher {\n\n    static final String TRANSFORMATION = \"AES/GCM/NoPadding\";\n    static final int IV_BYTES = 12;\n    static final int TAG_BITS = 128;\n\n    private final SecretKey key;\n    private final SecureRandom random;\n\n    public ColumnCipher(SecretKey key, SecureRandom random) {\n        this.key = key;\n        this.random = random;\n    }\n\n    /** The bytes to store in the column for this tax id. */\n    public byte[] seal(String taxId) throws GeneralSecurityException {\n        byte[] iv = new byte[IV_BYTES];\n        random.nextBytes(iv);\n        Cipher cipher = Cipher.getInstance(TRANSFORMATION);\n        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));\n        byte[] sealed = cipher.doFinal(taxId.getBytes(StandardCharsets.UTF_8));\n        byte[] stored = new byte[IV_BYTES + sealed.length];\n        System.arraycopy(iv, 0, stored, 0, IV_BYTES);\n        System.arraycopy(sealed, 0, stored, IV_BYTES, sealed.length);\n        return stored;\n    }\n\n    /** The tax id that seal() turned into these bytes. */\n    public String open(byte[] stored) throws GeneralSecurityException {\n        Cipher cipher = Cipher.getInstance(TRANSFORMATION);\n        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, stored, 0, IV_BYTES));\n        byte[] plain = cipher.doFinal(stored, IV_BYTES, stored.length - IV_BYTES);\n        return new String(plain, StandardCharsets.UTF_8);\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.nio.charset.StandardCharsets;\nimport java.security.MessageDigest;\nimport java.security.NoSuchAlgorithmException;\n\npublic final class Digests {\n\n    private Digests() {\n    }\n\n    /** SHA-256 of text's UTF-8 bytes, as 64 lower-case hex digits. */\n    public static String sha256Hex(String text) throws NoSuchAlgorithmException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** SHA-256 of every byte of in, as 64 lower-case hex digits. */\n    public static String sha256Hex(InputStream in) throws NoSuchAlgorithmException, IOException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.SecretKey;\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\n\n/**\n * Encrypts the tax-id column of the customers table. Each value is stored as one byte array in\n * one column; the key comes from the key store and is the same on every instance of the service.\n */\npublic class ColumnCipher {\n\n    private final SecretKey key;\n    private final SecureRandom random;\n\n    public ColumnCipher(SecretKey key, SecureRandom random) {\n        this.key = key;\n        this.random = random;\n    }\n\n    /** The bytes to store in the column for this tax id. */\n    public byte[] seal(String taxId) throws GeneralSecurityException {\n        // TODO: Encrypt the tax id's UTF-8 bytes with AES under the key. The result is\n        //       all the column holds: any instance of the service that has the key must be able\n        //       to open it later, and nobody who can write to the table may change it unnoticed.\n        throw new IllegalStateException(\"TODO: seal\");\n    }\n\n    /** The tax id that seal() turned into these bytes. */\n    public String open(byte[] stored) throws GeneralSecurityException {\n        // TODO: Turn the stored bytes back into the tax id. A value that is not exactly what\n        //       seal() produced must never come back as a tax id.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -91,9 +71,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -102,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c2bacd5fd8b8144c271f91e434d298ff8f21fea1725914a8b98bdeeb7b21908a",
-  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.nio.charset.StandardCharsets;\nimport java.security.MessageDigest;\nimport java.security.NoSuchAlgorithmException;\n\npublic final class Digests {\n\n    private Digests() {\n    }\n\n    /** SHA-256 of text's UTF-8 bytes, as 64 lower-case hex digits. */\n    public static String sha256Hex(String text) throws NoSuchAlgorithmException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** SHA-256 of every byte of in, as 64 lower-case hex digits. */\n    public static String sha256Hex(InputStream in) throws NoSuchAlgorithmException, IOException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "fb93af7859b45c05bba55d31bb406a709687d51bdf3db6900bd25cd677e642ad",
+  "starting_code": "package practice;\n\nimport javax.crypto.Cipher;\nimport javax.crypto.SecretKey;\nimport java.nio.charset.StandardCharsets;\nimport java.security.GeneralSecurityException;\nimport java.security.SecureRandom;\n\n/**\n * Encrypts the tax-id column of the customers table. Each value is stored as one byte array in\n * one column; the key comes from the key store and is the same on every instance of the service.\n */\npublic class ColumnCipher {\n\n    private final SecretKey key;\n    private final SecureRandom random;\n\n    public ColumnCipher(SecretKey key, SecureRandom random) {\n        this.key = key;\n        this.random = random;\n    }\n\n    /** The bytes to store in the column for this tax id. */\n    public byte[] seal(String taxId) throws GeneralSecurityException {\n        // TODO: Encrypt the tax id's UTF-8 bytes with AES under the key. The result is\n        //       all the column holds: any instance of the service that has the key must be able\n        //       to open it later, and nobody who can write to the table may change it unnoticed.\n        throw new IllegalStateException(\"TODO: seal\");\n    }\n\n    /** The tax id that seal() turned into these bytes. */\n    public String open(byte[] stored) throws GeneralSecurityException {\n        // TODO: Turn the stored bytes back into the tax id. A value that is not exactly what\n        //       seal() produced must never come back as a tax id.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/main/java/practice/Digests.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/test/java/practice/DigestsTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/main/java/practice/ColumnCipher.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-03/practice-1/src/test/java/practice/ColumnCipherTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +107,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DigestsTest#hashesTextAndStreams",
+        "id": "practice.ColumnCipherTest#opensWhatItSealed",
         "kind": "main",
-        "says": "\"Contract: Alice pays Bob $100\" hashes to 3f1474...c2f5, as text and as a stream."
+        "says": "every tax id, the empty one and a long one included, opens back into itself"
       },
       {
-        "id": "practice.DigestsTest#everyByteIsTwoDigits",
+        "id": "practice.ColumnCipherTest#aStoredValueChangedInTheDatabaseIsRefused",
         "kind": "edge",
-        "says": "The digest of \"abc\" keeps the zero digit of its bytes 0x01, 0x00 and 0x03."
+        "says": "a stored value with one byte changed is refused with a GeneralSecurityException instead of decrypting to a different tax id"
       },
       {
-        "id": "practice.DigestsTest#aLeadingZeroByteIsKept",
+        "id": "practice.ColumnCipherTest#theSameTaxIdSealedRepeatedlyNeverSharesAnIv",
         "kind": "edge",
-        "says": "The digest of \"file-417\" starts with 00 and is still 64 digits."
+        "says": "sealing the same tax id six times on one instance gives six different IVs and six different stored values"
       },
       {
-        "id": "practice.DigestsTest#theWholeStreamIsHashed",
+        "id": "practice.ColumnCipherTest#anotherInstanceOfTheServiceOpensWhatThisOneSealed",
         "kind": "edge",
-        "says": "A stream that returns one byte per read call hashes to the digest of all its bytes; an empty stream to the empty digest."
+        "says": "a second instance with the same key opens values the first one sealed, in any order, so the stored value carries its own IV"
       }
     ],
     "report": {
@@ -153,10 +133,11 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.3.md",
-      "section": "Interview-specific Insights"
+      "section": "A GCM IV Used Twice Under One Key Gives Away the XOR of the Two Plaintexts"
     },
     "concepts": [
-      "MessageDigest computes a fixed-size, one-way SHA-256 digest; text is converted with UTF-8, and large content is fed incrementally with update()."
+      "AES-GCM stores a 12-byte IV in front of the ciphertext and a 16-byte tag after it, and decryption throws AEADBadTagException for any changed byte; a mode without a tag, such as CTR, decrypts a changed ciphertext into changed plaintext.",
+      "Two GCM encryptions under the same key and IV share a keystream, so their ciphertexts XOR to the XOR of the plaintexts; each encryption needs its own IV, stored with the ciphertext."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Warm-up and escape analysis",
+  "title": "Check yourself: JIT compilation",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,145 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-warmup",
-        "stem": "A test calls compute(data) once between two System.nanoTime() readings and reports the difference. What does that number mostly measure?",
+        "id": "q-retired-tier",
+        "stem": "Within two milliseconds, the -XX:+PrintCompilation log of an order service prints `412   88       3       Order::total (54 bytes)`, then `413   91       4       Order::total (54 bytes)`, then `414   88       3       Order::total (54 bytes)   made not entrant`. No later line mentions Order::total. Where does a call to Order::total made at this point run?",
         "options": [
           {
             "id": "a",
-            "text": "Interpreter and compiler work, not the hot code the JIT makes later.",
+            "text": "In compile 91, since compile 88 stopped taking calls once a newer compile of the method could take them",
             "correct": true,
-            "says": "A method starts in the interpreter and is compiled only after enough calls, so a single cold call does not show steady-state speed; warm-up or JMH is needed."
+            "says": "a lower tier made not entrant after a higher tier of the same method was installed is a replacement; new calls enter the newest code"
           },
           {
             "id": "b",
-            "text": "The fully optimised C2 code, since HotSpot compiles compute before its first run.",
+            "text": "In the interpreter, since compile 88 was thrown away and the method has to be profiled again before C2 compiles it",
             "correct": false,
-            "says": "HotSpot compiles a method only after it crosses a call-count threshold; before that it is interpreted."
+            "says": "made not entrant on a lower tier is usually a replacement; compile 91 is live and takes the calls"
           },
           {
             "id": "c",
-            "text": "Mostly garbage collection, since the first call of compute triggers a collection.",
+            "text": "In compile 88, since a tier-4 compile only takes over a method's loops and its calls stay in tier-3 code",
             "correct": false,
-            "says": "A first call does not trigger a collection; the cost of a cold call comes from interpretation and compilation."
+            "says": "a loop (OSR) compile is marked with % and an @ bytecode index; compile 91 is an ordinary compile that takes calls"
+          },
+          {
+            "id": "d",
+            "text": "In the interpreter, since made not entrant means an assumption broke and the method's compiled code was all discarded",
+            "correct": false,
+            "says": "the same words appear when a newer compile replaces older code; only a compile with nothing newer to take its place sends calls back"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.3.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "A Method Starts in the Interpreter and Is Compiled in Tiers Once Its Counters Say It Is Hot"
         }
       },
       {
-        "id": "q-escape",
-        "stem": "Which method's Point allocation can the JIT remove entirely with escape analysis?",
+        "id": "q-second-round",
+        "stem": "A benchmark's main() calls parseAll() five times and times each call. parseAll() contains one loop of 50 million iterations. In a fresh JVM the times are 9 ms, 11 ms, 4 ms, 4 ms and 4 ms. What best explains the 11 ms of the second call?",
         "options": [
           {
             "id": "a",
-            "text": "createPoint(x, y), which builds a new Point and returns it to its caller.",
-            "correct": false,
-            "says": "A returned object escapes the method (GlobalEscape), so it must be allocated on the heap."
+            "text": "The loop's C2 code was compiled only for staying in the loop, so leaving it in the first call sent the method back to slower code",
+            "correct": true,
+            "says": "the OSR compile had never seen the loop exit, so leaving the loop hit a trap and the next call started in tier-3 code until C2 compiled the method itself"
           },
           {
             "id": "b",
-            "text": "printPoint(x, y), which builds a new Point and passes it to System.out.println.",
+            "text": "The loop's C2 code was installed during the first call, so the second call paid for C2 profiling the loop from the start",
             "correct": false,
-            "says": "Passing the object to println lets it escape into code the JIT must assume can keep it, so the allocation stays."
+            "says": "profiling happens in the interpreter and in tier-3 C1 code; C2 compiles from that profile and does not profile itself"
           },
           {
             "id": "c",
-            "text": "sumCoordinates(x, y), which builds a new Point and returns p.x() + p.y().",
-            "correct": true,
-            "says": "The Point never leaves the method (NoEscape), so scalar replacement turns its fields into locals and the allocation disappears."
+            "text": "The loop ran entirely in the interpreter in the second call, since a method is compiled only once it has returned enough times",
+            "correct": false,
+            "says": "loop iterations count too, and an OSR compile switches a running call into compiled code mid-loop"
+          },
+          {
+            "id": "d",
+            "text": "The loop ran entirely in tier-1 code in the second call, since tier-1 code is what a method gets once its first call has finished",
+            "correct": false,
+            "says": "tier 1 is plain C1 code for trivial methods such as getters; a hot loop goes through tier 3 to tier 4"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.3.md",
-          "section": "Interview Q&A Section"
+          "section": "Until the Compiled Code Is Installed, the Same Loop Runs Tens of Times Slower"
+        }
+      },
+      {
+        "id": "q-plugin-load",
+        "stem": "In a pricing engine, the hot method price(Rule r) calls r.apply(order). Rule is a class, and no loaded class overrides apply. At noon, a tenant's plug-in class that extends Rule and overrides apply is loaded with Class.forName; no request calls it yet. What happens to price's tier-4 code?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It is made not entrant as the class loads, since it relied on apply having a single implementation",
+            "correct": true,
+            "says": "C2 called the only implementation directly and recorded a dependency on it; loading an overriding class invalidates the code, and C2 compiles price again once it is hot"
+          },
+          {
+            "id": "b",
+            "text": "It is made not entrant at the first call that passes the plug-in, since it checks the receiver's class at each call",
+            "correct": false,
+            "says": "that is how the call behaved with an interface; with a class and one implementation, C2 relied on the class hierarchy, and the load alone invalidated it"
+          },
+          {
+            "id": "c",
+            "text": "It keeps running, since a class that no request has called leaves compiled code as it was",
+            "correct": false,
+            "says": "the compiled code depended on apply having one implementation; the load broke that assumption"
+          },
+          {
+            "id": "d",
+            "text": "It keeps running, since C2 code for a method stays installed until the process restarts",
+            "correct": false,
+            "says": "compiled code is made not entrant when an assumption breaks; on the page the load invalidated total's tier-4 code at once"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.3.md",
+          "section": "Compiled Code Rests on Assumptions, and a Class Loaded Later Can Make It Not Entrant"
+        }
+      },
+      {
+        "id": "q-folded-input",
+        "stem": "A benchmark times `for (int i = 0; i < n; i++) sum += discount(1999);` with discount a short arithmetic method, prints sum at the end, and reports 0.01 ns per call after warm-up. Under -Xint the same loop takes 15 ns per call. What does the 0.01 ns measure?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Almost nothing, since the argument 1999 is the same on every iteration and the JIT computed the call's value once",
+            "correct": true,
+            "says": "with a constant input the JIT can compute the call once; the loop is left adding a constant"
+          },
+          {
+            "id": "b",
+            "text": "Almost nothing, since the additions all go into one local, sum, and the JIT removed the loop as unused work",
+            "correct": false,
+            "says": "adding results into a sum that is printed uses them; the work disappeared because the input never changed"
+          },
+          {
+            "id": "c",
+            "text": "The cost of discount once compiled, since every result is added into sum, which is printed, so none can be removed",
+            "correct": false,
+            "says": "using every result is necessary but not enough: a constant input lets the JIT compute the value once"
+          },
+          {
+            "id": "d",
+            "text": "The cost of discount once compiled, since the 15 ns under -Xint is mostly overhead that compiled code never pays",
+            "correct": false,
+            "says": "the interpreter's overhead explains part of the gap, but 0.01 ns is under one CPU cycle, so the work itself is gone"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.3.md",
+          "section": "A Benchmark Measures Nothing When the JIT Can Drop the Work or Fold Its Input"
         }
       }
     ],
     "concepts": [
-      "Escape analysis lets the JIT remove the allocation of an object that never leaves the method, by scalar replacement.",
-      "Timing code before the JIT has compiled it measures the interpreter, so benchmarks need warm-up, and JMH handles it."
+      "With an interface, the same load changed nothing; the first call with the new class made the code not entrant.",
+      "An OSR compile that never saw its loop exit is thrown away when the loop ends, so a second call can be slower than the first."
     ]
   }
 }

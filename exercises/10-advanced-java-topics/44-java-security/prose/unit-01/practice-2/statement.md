@@ -1,22 +1,11 @@
-A security setting that callers can change after it was checked is not a
-setting. The page's `SecureConfig` makes **defensive copies**: the constructor
-**copies** the list it is given, so the caller's later changes do not leak in,
-and the getter returns a list that **cannot be used to change** the config.
-`List.copyOf` does both, and it also refuses `null` elements.
+Operators unlock the deployment vault by typing a passphrase at a console, which hands it over as
+a `char[]`, sometimes with a trailing `'\n'`. After an incident, the security team took a heap
+dump of the deploy tool and found the passphrase in it twice, long after the unlock had finished.
 
-Write `CorsConfig`:
+The vault's client library takes the passphrase without the newline, reads it during `open`, and
+keeps no reference to it. Write `unlock(typed)` in `src/main/java/practice/VaultUnlock.java`: it
+opens the vault and returns the session id, or lets the vault's `IllegalArgumentException` for a
+wrong passphrase reach the caller. `passphraseLength(typed)` is there to help.
 
-- `new CorsConfig(origins)` keeps its own copy of `origins`; a `null` list or
-  a `null` origin is refused with `NullPointerException`.
-- `origins()` returns the origins in the order given.
-- `allows(origin)` says whether `origin` is one of them (by value).
-
-| action | `allows("https://evil.example.org")` afterwards |
-|---|---|
-| `list.add("https://evil.example.org")` on the list passed in | `false` |
-| `config.origins().add("https://evil.example.org")` (if it does not throw) | `false` |
-
-| built with | result |
-|---|---|
-| `[https://app.example.org, https://admin.example.org]` | `origins()` in that order |
-| `[https://app.example.org, null]` | `NullPointerException` |
+When `unlock` has returned or thrown, every `char[]` that held the passphrase, the operator's
+included, holds only `'\0'`. About seven lines in total.

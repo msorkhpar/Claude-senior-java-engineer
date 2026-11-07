@@ -172,8 +172,9 @@ before you chain it.
 
 > **Inference stops at the chain.** `Comparator.comparing(t -> t.priority()).reversed()` does
 > not compile: `comparing` gets no target type when `reversed()` is called on it, so `t` is an
-> `Object` (`cannot find symbol ... variable t of type Object`). A method reference
-> (`Ticket::priority`) or a typed parameter (`(Ticket t) -> ...`) fixes it.
+> `Object` (`cannot find symbol ... variable t of type Object`). An exact method reference
+> (`Ticket::priority`) or a typed parameter (`(Ticket t) -> ...`) fixes it; a reference to an
+> overloaded method does not (unit 4.3.3).
 
 <!-- practice 2 -->
 

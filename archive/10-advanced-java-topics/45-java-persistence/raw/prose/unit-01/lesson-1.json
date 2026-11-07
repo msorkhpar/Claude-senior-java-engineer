@@ -18,324 +18,411 @@
       "text": "10.7.1. JDBC (Java Database Connectivity)"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "The nightly sensor import pastes each reading's values into a new SQL string. The payment job failed last night on a memo that was too long for its column: the account that payment debited stayed debited, and no payment row says where the money went. The same morning the support screen that lists open orders started throwing `The object is already closed`. Each failure breaks one JDBC rule about what a statement, a result set and a connection hold."
     },
     {
       "type": "para",
-      "text": "JDBC (Java Database Connectivity) is the standard Java API for connecting to and interacting with relational databases. It provides a vendor-neutral interface that allows Java applications to execute SQL statements, retrieve results, and manage database connections regardless of the underlying database engine. JDBC sits between application code and database-specific drivers, forming the foundation upon which higher-level persistence frameworks like JPA and Hibernate are built."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of JDBC like a universal power adapter. Your application is the device and the database is the wall outlet. Different countries (database vendors) have different outlets, but a universal adapter (JDBC) lets your device plug into any of them through a standard interface. The adapter's internal wiring (the JDBC driver) translates between your standard plug and the local socket format."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "JDBC Architecture"
-    },
-    {
-      "type": "para",
-      "text": "The JDBC architecture consists of four key components:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**JDBC API** (`java.sql` and `javax.sql` packages) - The programming interface applications use.",
-        "**JDBC Driver Manager** (`DriverManager`) - Manages a list of database drivers and establishes connections.",
-        "**JDBC Driver** - A vendor-specific implementation (e.g., `org.h2.Driver`, `com.mysql.cj.jdbc.Driver`).",
-        "**DataSource** - A factory for connections, preferred in production over `DriverManager` (supports pooling)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Core JDBC Workflow"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Load the driver (automatic since JDBC 4.0 via `ServiceLoader`)",
-        "Obtain a `Connection` from `DriverManager` or `DataSource`",
-        "Create a `Statement` or `PreparedStatement`",
-        "Execute SQL and process `ResultSet`",
-        "Close resources (connection, statement, result set) - best done with try-with-resources"
-      ]
+      "text": "Every run on this page uses H2 2.2.224, in-memory (`jdbc:h2:mem:...`), on Java 21."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A PreparedStatement Is Parsed Once and Bound Per Row; a Batch Sends the Rows in One Call"
+    },
+    {
+      "type": "para",
+      "text": "Bound values let the database parse a statement once and run it many times. We insert 20,000 sensor readings three ways: with the values pasted into the SQL text, with one `PreparedStatement` executed per row, and with the same statement batched:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void textPerRow(Connection conn) throws SQLException {\n    try (Statement st = conn.createStatement()) {\n        for (int i = 0; i < ROWS; i++) {\n            st.executeUpdate(\"INSERT INTO reading (sensor, celsius) VALUES ('s-\" + i + \"', \" + (i % 40) + \")\");\n        }\n    }\n}\n\nstatic void boundPerRow(Connection conn) throws SQLException {\n    try (PreparedStatement ps = conn.prepareStatement(\"INSERT INTO reading (sensor, celsius) VALUES (?, ?)\")) {\n        for (int i = 0; i < ROWS; i++) {\n            ps.setString(1, \"s-\" + i);\n            ps.setInt(2, i % 40);\n            ps.executeUpdate();\n        }\n    }\n}\n\nstatic void batched(Connection conn) throws SQLException {\n    try (PreparedStatement ps = conn.prepareStatement(\"INSERT INTO reading (sensor, celsius) VALUES (?, ?)\")) {\n        for (int i = 0; i < ROWS; i++) {\n            ps.setString(1, \"s-\" + i);\n            ps.setInt(2, i % 40);\n            ps.addBatch();\n        }\n        ps.executeBatch();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Each version ran 20 times on a fresh database; we dropped the first five rounds as warm-up:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "text per row    median  38 ms (fastest 35, slowest 56) for 20,000 rows\nbound per row   median  24 ms (fastest 20, slowest 29) for 20,000 rows\nbound, batched  median  24 ms (fastest 21, slowest 36) for 20,000 rows"
+    },
+    {
+      "type": "para",
+      "text": "The text version is slowest because every row is a new SQL string, so the database parses 20,000 statements. A `PreparedStatement` is parsed once, and each execution only binds new values. The same separation of text and values is what stops SQL injection (units 7.4.5 and 10.6.2)."
+    },
+    {
+      "type": "para",
+      "text": "Batching changed nothing here: H2 runs inside our JVM, so each execution is a method call. Against a database across a network each `executeUpdate` waits for a round trip, and a batch can send the queued rows together; this run can't measure that."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Drivers differ.** Whether a batch really travels in one round trip is up to the driver, and some send it row by row unless a connection setting asks otherwise."
+        }
+      ]
+    },
+    {
+      "type": "para",
+      "text": "`executeBatch()` returns one update count per queued statement, and a count of 0 is not an error:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "executeBatch() returned [1, 1, 1]\ntwo UPDATEs batched returned [3, 0]"
+    },
+    {
+      "type": "para",
+      "text": "The second `UPDATE` matched no row. Code that ignores the counts doesn't notice."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A ResultSet Lives Only as Long as Its Statement"
+    },
+    {
+      "type": "para",
+      "text": "The open-orders screen calls this method and iterates what it returns:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static ResultSet openOrders(Connection conn, String customer) throws SQLException {\n    try (PreparedStatement ps = conn.prepareStatement(\n            \"SELECT id FROM orders WHERE customer = ? AND status = 'OPEN'\")) {\n        ps.setString(1, customer);\n        return ps.executeQuery();\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "org.h2.jdbc.JdbcSQLNonTransientException: The object is already closed [90007-224]"
+    },
+    {
+      "type": "para",
+      "text": "A `ResultSet` belongs to the statement that produced it, wherever the driver keeps the rows. The `Statement` javadoc says that closing a statement closes its current result set, and the try-with-resources closed the statement on `return`, before the caller called `next()`. The `ResultSet` javadoc adds that executing the statement again closes it too, so a nested loop that runs its inner query on the outer loop's statement loses the outer rows:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after ps.close(): rs.isClosed() = true\nfirst ResultSet after the second executeQuery(): isClosed() = true"
+    },
+    {
+      "type": "para",
+      "text": "The fix is to read the rows inside the method and return a `List` of records. A try-with-resources that opens a connection, a statement and a result set closes them in reverse order of declaration, as a wrapper that prints each `close()` shows:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "read id 1\nread id 3\nclose ResultSet\nclose PreparedStatement\nclose Connection"
+    },
+    {
+      "type": "para",
+      "text": "A method that is lent a connection closes only what it opened. With a connection pool, `close()` on a borrowed connection hands it back to the pool rather than closing it; no pool library was run for this page."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Auto-Commit Is On, So Each Statement Commits by Itself"
+    },
+    {
+      "type": "para",
+      "text": "The payment code debits the account and records the payment with two statements:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void pay(Connection conn, int account, BigDecimal amount, String memo) throws SQLException {\n    try (PreparedStatement debit = conn.prepareStatement(DEBIT);\n         PreparedStatement payment = conn.prepareStatement(PAY)) {\n        debit.setBigDecimal(1, amount);\n        debit.setInt(2, account);\n        debit.executeUpdate();\n        payment.setInt(1, account);\n        payment.setBigDecimal(2, amount);\n        payment.setString(3, memo);\n        payment.executeUpdate();\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The account holds 1000.00, the payment is 250.00, and the memo `rent for March, flat 4B` has 23 characters for a `VARCHAR(20)` column. Before you look: what is the balance after the exception?"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "getAutoCommit() on a new connection: true\nauto-commit: Value too long for column \"MEMO CHARACTER VARYING(20)\": \"'rent for March, flat 4B' (23)\"; SQL statement:\n  balance 750.00, payments 0"
+    },
+    {
+      "type": "para",
+      "text": "Under auto-commit each statement is its own transaction, committed when it completes. The debit was committed before the insert failed, and the exception undid nothing. The fix turns auto-commit off for the unit of work, commits at the end, rolls back on any failure, and gives the connection back in the mode it came in:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static void payInTransaction(Connection conn, int account, BigDecimal amount, String memo) throws SQLException {\n    boolean auto = conn.getAutoCommit();\n    conn.setAutoCommit(false);\n    try {\n        pay(conn, account, amount, memo);\n        conn.commit();\n    } catch (SQLException | RuntimeException e) {\n        conn.rollback();\n        throw e;\n    } finally {\n        conn.setAutoCommit(auto);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "transaction: Value too long for column \"MEMO CHARACTER VARYING(20)\": \"'rent for March, flat 4B' (23)\"; SQL statement:\n  balance 1000.00, payments 0"
+    },
+    {
+      "type": "para",
+      "text": "Under auto-commit, a batch of four payment rows whose third memo is too long:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "BatchUpdateException, getUpdateCounts() = [1, 1, -3, 1]\nrows in payment: a b d"
+    },
+    {
+      "type": "para",
+      "text": "H2 ran the rest of the batch after the failed row and committed the three good ones; `-3` is `Statement.EXECUTE_FAILED`. The `executeBatch` javadoc lets a driver stop at the first failure instead, so the portable way to get all or nothing is a transaction around the batch."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "Spot the Problem: Restoring Auto-Commit in `finally` Commits the Half"
+    },
+    {
+      "type": "para",
+      "text": "A shorter version passed review: it turns auto-commit off, and its `finally` turns it back on. The catch only logs."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "conn.setAutoCommit(false);\ntry {\n    Commit.pay(conn, 1, new BigDecimal(\"250.00\"), \"rent for March, flat 4B\");\n    conn.commit();\n} catch (SQLException e) {\n    System.out.println(\"caught, no rollback\");\n} finally {\n    conn.setAutoCommit(true);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "caught, no rollback\nfinally setAutoCommit(true): balance 750.00"
+    },
+    {
+      "type": "para",
+      "text": "The `setAutoCommit` javadoc says that changing the mode during a transaction commits it. The debit was still pending when the insert failed, and the `finally` committed it. Rollback has to come before anything that ends the transaction, which is why the fix above rolls back in the catch, for unchecked exceptions too. Concurrent transactions are unit 10.7.3."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Database Assigns the Key; Ask the Statement That Inserted the Row"
+    },
+    {
+      "type": "para",
+      "text": "A ticket's id comes from an identity column, and the code needs it to insert the ticket's child rows. Connection `a` inserts a ticket, connection `b` inserts one before `a` asks for its id, and `a` asks the way many first versions do:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "insert(a, \"printer jams\");\ninsert(b, \"VPN drops\");\ntry (Statement st = a.createStatement(); ResultSet rs = st.executeQuery(\"SELECT MAX(id) FROM ticket\")) {\n    rs.next();\n    System.out.println(\"a: SELECT MAX(id) after its insert = \" + rs.getLong(1));\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "a: SELECT MAX(id) after its insert = 2"
+    },
+    {
+      "type": "para",
+      "text": "That is `b`'s ticket, and `a` would attach its child rows to it. Ask the inserting statement instead; a `PreparedStatement` must be told when it is prepared:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "try (PreparedStatement ps = a.prepareStatement(INSERT, Statement.RETURN_GENERATED_KEYS)) {\n    ps.setString(1, \"screen flickers\");\n    ps.executeUpdate();\n    insert(b, \"mail bounces\");\n    try (ResultSet keys = ps.getGeneratedKeys()) {\n        keys.next();\n        System.out.println(\"a: getGeneratedKeys() = \" + keys.getLong(1));\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "a: getGeneratedKeys() = 3\nwithout RETURN_GENERATED_KEYS, getGeneratedKeys().next() = false\nbatch of 3, getGeneratedKeys() = [6, 7, 8]\nafter a rolled-back insert, next key = 10"
+    },
+    {
+      "type": "para",
+      "text": "Key 4 went to `b`'s next ticket and key 5 to an insert prepared without the flag, for which H2 returned an empty result set, not an error. The batch was prepared with the column-names overload, `prepareStatement(INSERT, new String[] {\"id\"})`; returning keys after a batch is H2's behaviour, and the javadoc doesn't promise it. A rolled-back insert still used up key 9, so ids have gaps and don't count rows."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Getter Converts; Ask getObject for the Java Type You Mean"
+    },
+    {
+      "type": "para",
+      "text": "A shift starts at `TIMESTAMP '2024-03-31 02:30:00'`, and its break length is `NULL`. The JVM runs in `Europe/Berlin`, where clocks jumped from 02:00 to 03:00 that night:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "System.out.printf(\"id %d: getTimestamp %s | getObject %s | getInt %d | getObject(Integer) %s%n\",\n        rs.getInt(1),\n        rs.getTimestamp(2).toLocalDateTime(),\n        rs.getObject(2, LocalDateTime.class),\n        rs.getInt(3),\n        rs.getObject(3, Integer.class));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "JVM zone: Europe/Berlin\nid 1: getTimestamp 2024-03-31T03:30 | getObject 2024-03-31T02:30 | getInt 0 | getObject(Integer) null\nid 2: getTimestamp 2024-03-30T02:30 | getObject 2024-03-30T02:30 | getInt 0 | getObject(Integer) 0"
+    },
+    {
+      "type": "para",
+      "text": "A `TIMESTAMP` column has no zone. `getTimestamp` builds a `java.sql.Timestamp`, an instant, by reading the value in the JVM's default zone, and 02:30 doesn't exist in Berlin that night, so it came back as 03:30. The same program with `-Duser.timezone=UTC` printed `id 1: getTimestamp 2024-03-31T02:30 | getObject 2024-03-31T02:30 | ...`: the bug hits only values inside a DST gap of the JVM's zone. `getObject(2, LocalDateTime.class)` maps the column to the `java.time` type with the same meaning, a date and time with no zone (unit 7.3), and `setObject(i, localDateTime)` writes one back."
+    },
+    {
+      "type": "para",
+      "text": "`getInt` returns `0` for SQL `NULL`, the same as row 2's real 0. Call `wasNull()` right after it, or use `getObject(3, Integer.class)`, which returns `null`."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "JDBC drivers are loaded automatically since JDBC 4.0 (Java 6) through the `ServiceLoader` mechanism; `Class.forName()` is no longer required.",
-        "Always use `PreparedStatement` instead of `Statement` to prevent SQL injection and improve performance through statement caching.",
-        "`ResultSet` is a cursor-based iterator - you move through rows with `next()` and read column values by name or index.",
-        "Column indices in `ResultSet` are **1-based**, not 0-based.",
-        "`ResultSet.wasNull()` must be checked after reading primitive types to detect SQL NULL values.",
-        "Always close JDBC resources in reverse order of creation; use try-with-resources for automatic cleanup.",
-        "`Connection.setAutoCommit(false)` starts a manual transaction; call `commit()` or `rollback()` explicitly.",
-        "Batch operations (`addBatch()`/`executeBatch()`) dramatically reduce round trips for bulk inserts.",
-        "`ResultSetMetaData` provides runtime inspection of column names, types, and sizes."
+        "**A `PreparedStatement` is parsed once and bound per row**, which is also what keeps values out of the SQL; a batch saves round trips, which an in-process database doesn't have. An update count of 0 is a result, not an error.",
+        "**A `ResultSet` lives only as long as its statement**: closing or re-executing the statement closes it, so read rows into objects before the statement closes.",
+        "**Auto-commit is on by default**, so a failure between two statements leaves the first committed. Group them in a transaction, roll back in the catch, then restore the mode.",
+        "**Ask the inserting statement for a generated key**, with `RETURN_GENERATED_KEYS` or key columns at prepare time; `MAX(id)` can return another session's row.",
+        "**Getters convert**: `getTimestamp` goes through the JVM's zone and `getInt` turns `NULL` into 0; `getObject(i, LocalDateTime.class)` and `getObject(i, Integer.class)` don't."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Try-with-resources** (since Java 7, enhanced in Java 9) is the standard way to manage JDBC resource lifecycle.",
-        "**Records** (final in Java 16, preview in 14 and 15) make excellent value objects for mapping `ResultSet` rows into immutable data carriers.",
-        "**Text blocks** (Java 15+) improve SQL readability by allowing multi-line strings without concatenation.",
-        "**Pattern matching and sealed classes** (Java 21) can be combined with result mapping for type-safe query result handling.",
-        "**Virtual threads** (Java 21) are particularly relevant for JDBC-heavy applications, since JDBC calls are blocking I/O. Virtual threads allow thousands of requests to wait on the database without dedicated platform threads. The number of queries actually running at once is still capped by the connection pool and the database, and in Java 21 a driver that blocks inside `synchronized` code pins the virtual thread to its carrier."
+      "type": "para",
+      "text": "**What closes what (javadoc; H2 2.2.224 behaviour where marked):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Event",
+        "Effect"
+      ],
+      "rows": [
+        [
+          "`Statement.close()`",
+          "closes its current `ResultSet`"
+        ],
+        [
+          "the statement executes again",
+          "closes the `ResultSet` from the previous execution"
+        ],
+        [
+          "try-with-resources ends",
+          "closes resources in reverse order of declaration"
+        ],
+        [
+          "`Connection.close()` (H2)",
+          "later use of its statements and result sets throws `The object is already closed`, though their `isClosed()` still returned `false`"
+        ],
+        [
+          "`Connection.close()` with a transaction open",
+          "result implementation-defined (javadoc); H2 rolled it back"
+        ]
       ]
     },
     {
-      "type": "code",
-      "lang": "java",
-      "text": "// Text blocks for SQL (Java 15+)\nString sql = \"\"\"\n    SELECT id, name, email\n    FROM employees\n    WHERE department = ?\n      AND active = TRUE\n    ORDER BY name\n    \"\"\";\n\n// Records for row mapping (Java 16+)\nrecord Employee(int id, String name, String email) {}"
+      "type": "para",
+      "text": "**Transactions and counts:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "Behaviour"
+      ],
+      "rows": [
+        [
+          "`getAutoCommit()` on a new connection",
+          "`true`"
+        ],
+        [
+          "`setAutoCommit(...)` during a transaction, mode changed",
+          "commits the transaction"
+        ],
+        [
+          "`executeUpdate()`",
+          "the row count; `0` when the `WHERE` matched nothing"
+        ],
+        [
+          "`executeBatch()`",
+          "one count per queued statement, or `SUCCESS_NO_INFO` (`-2`) where the driver has none"
+        ],
+        [
+          "`BatchUpdateException.getUpdateCounts()`",
+          "H2 continued past the failed row: `EXECUTE_FAILED` (`-3`) in its place; a driver may stop instead"
+        ],
+        [
+          "`getGeneratedKeys()` without asking at prepare time",
+          "H2: an empty result set"
+        ],
+        [
+          "`getGeneratedKeys()` after `executeBatch()`",
+          "H2: one key per row; implementation-defined"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Reading values:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Column value",
+        "Getter",
+        "Result"
+      ],
+      "rows": [
+        [
+          "`NULL` `INT`",
+          "`getInt`",
+          "`0`; `wasNull()` is `true` right after"
+        ],
+        [
+          "`NULL` `INT`",
+          "`getObject(i, Integer.class)`",
+          "`null`"
+        ],
+        [
+          "`TIMESTAMP`",
+          "`getTimestamp(i)`",
+          "an instant computed in the JVM's default zone"
+        ],
+        [
+          "`TIMESTAMP`",
+          "`getObject(i, LocalDateTime.class)`",
+          "the stored date and time, unchanged"
+        ]
+      ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "1. SQL Injection via String Concatenation"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: vulnerable to SQL injection\nString sql = \"SELECT * FROM users WHERE name = '\" + userInput + \"'\";\nStatement stmt = conn.createStatement();\nResultSet rs = stmt.executeQuery(sql);\n\n// CORRECT: use PreparedStatement with parameter binding\nString sql = \"SELECT * FROM users WHERE name = ?\";\nPreparedStatement pstmt = conn.prepareStatement(sql);\npstmt.setString(1, userInput);\nResultSet rs = pstmt.executeQuery();"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "2. Resource Leaks"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: resources may leak if an exception occurs\nConnection conn = DriverManager.getConnection(url);\nStatement stmt = conn.createStatement();\nResultSet rs = stmt.executeQuery(\"SELECT 1\");\n// If an exception is thrown here, nothing gets closed\n\n// CORRECT: try-with-resources closes everything automatically\ntry (Connection conn = DriverManager.getConnection(url);\n     Statement stmt = conn.createStatement();\n     ResultSet rs = stmt.executeQuery(\"SELECT 1\")) {\n    while (rs.next()) {\n        // process\n    }\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "3. Ignoring wasNull() for Primitive Types"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: getInt returns 0 for NULL, which is indistinguishable from actual 0\nint age = rs.getInt(\"age\");\n\n// CORRECT: check wasNull() after reading\nint age = rs.getInt(\"age\");\nif (rs.wasNull()) {\n    // Handle the NULL case\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "4. Not Using Batch for Bulk Operations"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: one round trip per insert\nfor (String name : names) {\n    pstmt.setString(1, name);\n    pstmt.executeUpdate(); // N round trips\n}\n\n// CORRECT: batch all inserts, execute once\nfor (String name : names) {\n    pstmt.setString(1, name);\n    pstmt.addBatch();\n}\npstmt.executeBatch(); // 1 round trip"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "5. Using 0-Based Column Index"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// WRONG: column indices start at 1 in JDBC\nString name = rs.getString(0); // throws SQLException\n\n// CORRECT: use 1-based indices (or column names)\nString name = rs.getString(1);\nString name = rs.getString(\"name\"); // preferred"
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Use connection pooling** (HikariCP, Apache DBCP) in production. `DriverManager` creates a new connection each time, which is expensive.",
-        "**Prefer column names over indices** in `ResultSet.getXxx()` calls for readability and resilience to schema changes.",
-        "**Set fetch size** on `Statement` for large result sets to control memory usage: `stmt.setFetchSize(100)`.",
-        "**Use `PreparedStatement` for repeated queries** - the database can cache the execution plan.",
-        "**Close `ResultSet` and `Statement` promptly** even within a still-open `Connection` to release database cursors.",
-        "**Use `addBatch()`/`executeBatch()`** for bulk insert/update operations to minimize network round trips.",
-        "**Log SQL in development** but disable SQL logging in production for security and performance.",
-        "**Use `DataSource` instead of `DriverManager`** for testability and connection pooling.",
-        "**Handle `SQLException` chains** - call `getNextException()` to inspect chained exceptions."
+        "The import must load 2 million rows. Choose a batch size and a commit size, and say what a failure on row 1,500,001 leaves behind with each choice.",
+        "A report query returns 300,000 rows. Returning a `List` keeps them all in memory, returning the `ResultSet` keeps the statement open. Design a method that streams them and still closes the statement, and say who owns the connection while it runs.",
+        "Your team's schema stores times as `TIMESTAMP` and the servers run in three zones. Find every place that uses `getTimestamp` or `setTimestamp`, and decide whether to change the code or the column type to `TIMESTAMP WITH TIME ZONE`."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**NULL values**: Use `wasNull()` after reading primitive columns. For reference types, `getString()` returns `null` directly.",
-        "**Empty `ResultSet`**: Always check `rs.next()` before reading - an empty result set returns `false` on the first call.",
-        "**Large result sets**: Set `fetchSize` to avoid loading millions of rows into memory at once.",
-        "**Connection timeout**: Configure connection and socket timeouts via URL parameters or `DataSource` properties.",
-        "**Character encoding**: Ensure the JDBC URL specifies the correct character encoding (e.g., `?useUnicode=true&characterEncoding=UTF-8` for MySQL).",
-        "**Auto-increment key retrieval**: Use `Statement.RETURN_GENERATED_KEYS` and `getGeneratedKeys()` after insert.",
-        "**Concurrent `ResultSet` access**: `ResultSet` is not thread-safe. Each thread should have its own connection and statement."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: The Caller Owns the Transaction"
     },
     {
       "type": "para",
-      "text": "Interviewers commonly focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Statement vs. PreparedStatement vs. CallableStatement** - when to use each, performance and security differences",
-        "**SQL injection** - how PreparedStatement keeps parameter values out of the SQL structure",
-        "**Resource management** - try-with-resources and the order of closing resources",
-        "**Connection pooling** - why it matters, how pools like HikariCP work",
-        "**Transaction management** - autocommit, manual transactions, savepoints",
-        "**ResultSet navigation** - forward-only vs. scrollable, updatable result sets",
-        "**Batch processing** - performance gains and when to use it"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Tricky areas:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What happens if you call `rs.getInt()` on a NULL column?\" (Returns 0, must check `wasNull()`)",
-        "\"Why is `PreparedStatement` faster than `Statement` for repeated queries?\" (Execution plan caching)",
-        "\"How does JDBC 4.0 auto-loading of drivers work?\" (`ServiceLoader` mechanism via `META-INF/services`)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the difference between Statement, PreparedStatement, and CallableStatement?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: These three interfaces represent different levels of SQL execution capability in JDBC:\n\n1. Statement: Used for simple, one-off SQL queries without parameters. The SQL is sent as a plain\n   string to the database. Vulnerable to SQL injection when user input is concatenated. The database\n   parses and compiles the query fresh each time.\n\n2. PreparedStatement (extends Statement): Used for parameterized SQL queries. Parameters are bound\n   using setter methods (setString, setInt, etc.) with 1-based indices. The database can cache the\n   execution plan, making repeated executions faster. It prevents SQL injection because parameters\n   are sent separately from the SQL structure.\n\n3. CallableStatement (extends PreparedStatement): Used to call stored procedures in the database.\n   Supports IN, OUT, and INOUT parameters. Created via connection.prepareCall(\"{call procedure_name(?)}\").\n\nRule of thumb: Always use PreparedStatement for queries with parameters. Use CallableStatement only\nfor stored procedures. Use Statement only for DDL or truly static queries with no user input."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Statement - simple, no parameters\ntry (Statement stmt = conn.createStatement()) {\n    ResultSet rs = stmt.executeQuery(\"SELECT COUNT(*) FROM employees\");\n}\n\n// PreparedStatement - parameterized, safe, efficient\ntry (PreparedStatement pstmt = conn.prepareStatement(\n        \"SELECT * FROM employees WHERE department = ? AND salary > ?\")) {\n    pstmt.setString(1, \"Engineering\");\n    // Money is a BigDecimal (SQL DECIMAL), never a double: binary floating point cannot\n    // represent most decimal amounts exactly, so cents drift (0.1 + 0.2 != 0.3)\n    pstmt.setBigDecimal(2, new BigDecimal(\"80000.00\"));\n    ResultSet rs = pstmt.executeQuery();\n}\n\n// CallableStatement - stored procedures\ntry (CallableStatement cstmt = conn.prepareCall(\"{call calculate_bonus(?, ?)}\")) {\n    cstmt.setInt(1, employeeId);\n    cstmt.registerOutParameter(2, Types.DECIMAL);\n    cstmt.execute();\n    BigDecimal bonus = cstmt.getBigDecimal(2);\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does PreparedStatement prevent SQL injection?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: PreparedStatement prevents SQL injection by keeping parameter values separate from the SQL\nstructure. With drivers that use server-side prepared statements (e.g., PostgreSQL's pgJDBC):\n\n1. The SQL template (with ? placeholders) is sent to the database first during the \"prepare\" phase.\n   The database parses and compiles the execution plan for this template.\n\n2. Parameter values are sent separately during the \"execute\" phase. The database treats these values\n   purely as data, never as part of the SQL syntax.\n\nSome drivers instead substitute the values into the SQL on the client (MySQL Connector/J does this by\ndefault, unless useServerPrepStmts=true); they escape each value themselves, so a value still cannot\nchange the statement's structure.\n\nThis means that even if an attacker provides input like:\n   ' OR '1'='1' --\nThe database will search for a literal string matching that value, rather than interpreting it as SQL.\n\nWith Statement + string concatenation:\n   \"SELECT * FROM users WHERE name = '\" + input + \"'\"\n   becomes: SELECT * FROM users WHERE name = '' OR '1'='1' --'\n   This returns all rows - a successful injection.\n\nWith PreparedStatement:\n   \"SELECT * FROM users WHERE name = ?\"  +  parameter: \"' OR '1'='1' --\"\n   The database looks for name literally equal to \"' OR '1'='1' --\" - finds nothing.\n\nThe separation of SQL structure from data is the fundamental security mechanism."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating that PreparedStatement treats input as data\nString maliciousInput = \"'; DROP TABLE users; --\";\n\n// UNSAFE: String concatenation allows injection\nString unsafeSql = \"SELECT * FROM users WHERE name = '\" + maliciousInput + \"'\";\n// Becomes: SELECT * FROM users WHERE name = ''; DROP TABLE users; --'\n\n// SAFE: PreparedStatement sends value separately from SQL\nPreparedStatement pstmt = conn.prepareStatement(\"SELECT * FROM users WHERE name = ?\");\npstmt.setString(1, maliciousInput);\n// Database searches for literal string \"'; DROP TABLE users; --\" in name column"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is the proper way to manage JDBC resources and why?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: JDBC resources (Connection, Statement, ResultSet) must be explicitly closed to release database\ncursors, network connections, and memory. The recommended approach is try-with-resources (Java 7+).\n\nKey principles:\n1. Close in reverse order of creation: ResultSet -> Statement -> Connection\n2. Each resource implements AutoCloseable, so try-with-resources handles this automatically\n3. Closing a Statement automatically closes its ResultSet\n4. Closing a Connection automatically closes its Statements (but relying on this is bad practice)\n\nWhy it matters:\n- Database connections are expensive and limited (typically 10-100 per pool)\n- Open cursors consume database server memory\n- Leaked connections cause pool exhaustion and application hangs\n- ResultSet holds a network socket open in many drivers\n\nProduction applications use connection pools (HikariCP) which return connections to the pool\non close() rather than actually closing the physical connection."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Best practice: try-with-resources with all three resources\npublic Optional<Employee> findById(int id) throws SQLException {\n    String sql = \"SELECT id, name, salary FROM employees WHERE id = ?\";\n    try (Connection conn = dataSource.getConnection();\n         PreparedStatement pstmt = conn.prepareStatement(sql)) {\n        pstmt.setInt(1, id);\n        try (ResultSet rs = pstmt.executeQuery()) {\n            if (rs.next()) {\n                return Optional.of(new Employee(\n                    rs.getInt(\"id\"),\n                    rs.getString(\"name\"),\n                    rs.getBigDecimal(\"salary\")\n                ));\n            }\n        }\n    } // All resources closed automatically, even if an exception occurred\n    return Optional.empty();\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do you handle NULL values when reading from a ResultSet?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Handling NULLs in ResultSet requires understanding two behaviors:\n\nFor reference types (getString, getObject, etc.):\n- Returns Java null directly. No special handling needed.\n\nFor primitive types (getInt, getDouble, getBoolean, etc.):\n- Returns the primitive's default value (0, 0.0, false) for SQL NULL.\n- You MUST call wasNull() immediately after the getter to distinguish NULL from a real zero.\n\nThe wasNull() method returns true if the last column read was SQL NULL.\n\nAlternative approach: Use getObject() with a target type (JDBC 4.1+), which returns null for SQL NULL:\n   Integer age = rs.getObject(\"age\", Integer.class); // null if SQL NULL\n(A plain (Integer) rs.getObject(\"age\") cast only works if the driver's Java type for the column\nis Integer; a BIGINT or NUMERIC column comes back as Long or BigDecimal.)\n\nWith Java records and Optional, you can create null-safe mappings:\n   Optional.ofNullable(rs.getString(\"email\"))"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Handling NULL for primitive types\npublic record Employee(int id, String name, BigDecimal salary, Integer age, String email) {}\n\npublic Employee mapRow(ResultSet rs) throws SQLException {\n    int id = rs.getInt(\"id\");  // Never null (primary key)\n\n    String name = rs.getString(\"name\");  // Returns null if SQL NULL\n\n    BigDecimal salary = rs.getBigDecimal(\"salary\");  // Money: exact decimal, null if SQL NULL\n\n    // For nullable primitive columns, use wasNull()\n    int ageValue = rs.getInt(\"age\");\n    Integer age = rs.wasNull() ? null : ageValue;\n\n    // Alternatively, use getObject with a target type for nullable primitives\n    Integer sameAge = rs.getObject(\"age\", Integer.class);  // null if SQL NULL (JDBC 4.1+)\n\n    String email = rs.getString(\"email\");  // null if SQL NULL\n\n    return new Employee(id, name, salary, age, email);\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What are the advantages of batch processing in JDBC?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Batch processing groups multiple SQL statements into a single database round trip,\nproviding significant performance improvements:\n\n1. Reduced network overhead: Instead of N round trips for N statements, you have 1 round trip.\n   For 10,000 inserts over a network with 1ms latency, this saves ~10 seconds.\n\n2. Database optimization: Many databases optimize batch execution by grouping writes into\n   a single transaction log flush.\n\n3. Reduced connection holding time: The connection is occupied for a shorter total duration.\n\nImplementation:\n- Use addBatch() to queue statements, executeBatch() to send them all at once.\n- executeBatch() returns an int[] with update counts per statement.\n- Works with both Statement (different SQL per batch entry) and PreparedStatement (same SQL,\n  different parameters).\n\nBest practices:\n- Execute the batch in chunks (e.g., every 1000 rows) for very large inputs to avoid memory issues, as the\n  example below does. Committing in chunks as well keeps transactions short, at the cost of leaving the\n  earlier chunks committed if a later one fails.\n- Use PreparedStatement for batch inserts (same SQL template, different parameters).\n- Check return values: EXECUTE_FAILED (-3) indicates a failed statement in the batch.\n- Consider rewriteBatchedStatements=true for MySQL for further optimization."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Batch insert with PreparedStatement\npublic void batchInsertEmployees(List<Employee> employees) throws SQLException {\n    String sql = \"INSERT INTO employees (name, email, salary) VALUES (?, ?, ?)\";\n    try (Connection conn = dataSource.getConnection();\n         PreparedStatement pstmt = conn.prepareStatement(sql)) {\n\n        conn.setAutoCommit(false);\n        int batchSize = 0;\n\n        for (Employee emp : employees) {\n            pstmt.setString(1, emp.name());\n            pstmt.setString(2, emp.email());\n            pstmt.setBigDecimal(3, emp.salary());\n            pstmt.addBatch();\n            batchSize++;\n\n            // Execute in chunks of 1000 to manage memory\n            if (batchSize % 1000 == 0) {\n                pstmt.executeBatch();\n            }\n        }\n        pstmt.executeBatch();  // Execute remaining\n        conn.commit();\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does connection pooling work and why is it important?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Connection pooling maintains a cache of database connections that can be reused across\nrequests, avoiding the expensive overhead of creating new connections.\n\nHow it works:\n1. At startup, the pool creates a minimum number of connections (minIdle).\n2. When code calls dataSource.getConnection(), the pool hands out an idle connection.\n3. When code calls connection.close(), the pool returns it to the idle set (does not close it).\n4. The pool manages max connections, idle timeouts, and connection validation.\n\nWhy it matters:\n- Creating a TCP connection + database authentication takes 5-50ms per connection.\n- For an application handling 1000 requests/second, this would add 5-50 seconds of overhead per second.\n- Without pooling, you would quickly exhaust the database's connection limit.\n\nPopular pools: HikariCP (fastest, Spring Boot default), Apache DBCP2, c3p0.\n\nKey configuration parameters:\n- maximumPoolSize: Max connections (typically 10-20 for most apps)\n- minimumIdle: Min idle connections kept ready\n- connectionTimeout: Max wait time for a connection from the pool\n- maxLifetime: Max lifetime of a connection before it is retired\n- idleTimeout: How long an idle connection stays in the pool"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Using HikariCP connection pool (production-ready)\nimport com.zaxxer.hikari.HikariConfig;\nimport com.zaxxer.hikari.HikariDataSource;\n\npublic class ConnectionPoolExample {\n    private static HikariDataSource createPool() {\n        HikariConfig config = new HikariConfig();\n        config.setJdbcUrl(\"jdbc:postgresql://localhost:5432/mydb\");\n        config.setUsername(\"user\");\n        config.setPassword(\"pass\");\n        config.setMaximumPoolSize(10);\n        config.setMinimumIdle(2);\n        config.setConnectionTimeout(30000); // 30 seconds\n        config.setIdleTimeout(600000);      // 10 minutes\n        config.setMaxLifetime(1800000);     // 30 minutes\n        return new HikariDataSource(config);\n    }\n\n    // Usage: pool returns existing connection, close() returns it to pool\n    public void queryWithPool(HikariDataSource pool) throws SQLException {\n        try (Connection conn = pool.getConnection();\n             PreparedStatement pstmt = conn.prepareStatement(\"SELECT * FROM users WHERE id = ?\")) {\n            pstmt.setInt(1, 42);\n            try (ResultSet rs = pstmt.executeQuery()) {\n                // process results\n            }\n        } // Connection returned to pool, not closed\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: What is the difference between a scrollable and forward-only ResultSet?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: ResultSet types control how you can navigate through query results:\n\n1. TYPE_FORWARD_ONLY (default):\n   - Can only call next() to move forward through rows.\n   - Most memory-efficient; rows may be streamed from the database.\n   - Suitable for 99% of use cases.\n\n2. TYPE_SCROLL_INSENSITIVE:\n   - Can move forward, backward, and to absolute/relative positions.\n   - A snapshot of the data is taken at query time; changes by other transactions are not visible.\n   - Uses more memory (may cache entire result).\n\n3. TYPE_SCROLL_SENSITIVE:\n   - Can navigate like SCROLL_INSENSITIVE.\n   - Reflects changes made by other transactions while the ResultSet is open.\n   - Rarely used; performance and support varies by driver.\n\nNavigation methods for scrollable: previous(), first(), last(), absolute(row), relative(rows).\n\nResultSet concurrency:\n- CONCUR_READ_ONLY (default): Read-only view of results.\n- CONCUR_UPDATABLE: Allows in-place updates via updateXxx() and updateRow()."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Forward-only (default, most efficient)\ntry (Statement stmt = conn.createStatement();\n     ResultSet rs = stmt.executeQuery(\"SELECT * FROM employees\")) {\n    while (rs.next()) {\n        System.out.println(rs.getString(\"name\"));\n    }\n}\n\n// Scrollable, read-only\ntry (Statement stmt = conn.createStatement(\n        ResultSet.TYPE_SCROLL_INSENSITIVE,\n        ResultSet.CONCUR_READ_ONLY);\n     ResultSet rs = stmt.executeQuery(\"SELECT * FROM employees\")) {\n\n    rs.last();                          // Move to last row\n    int totalRows = rs.getRow();        // Get row count\n\n    rs.absolute(5);                     // Jump to row 5\n    System.out.println(rs.getString(\"name\"));\n\n    rs.previous();                      // Move backward\n    System.out.println(rs.getString(\"name\"));\n}"
+      "text": "Every method of the module's `JdbcOperations` opens its own connection with `getConnection()`, so each call is its own transaction and no caller can make two of them succeed or fail together. The `pay` and `payInTransaction` methods on this page take the connection as a parameter instead: the caller decides where the unit of work begins and ends, and each method closes only what it opened. The cost is that every method in the chain must accept the connection and must not commit, close or change its auto-commit mode unless it set it. Unit 10.7.2 covers what an ORM adds on top of these calls."
     },
     {
       "type": "heading",
@@ -355,17 +442,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 17,
-    "paras": 12,
+    "headings": 12,
+    "paras": 29,
     "code": 20,
-    "tables": 0,
-    "lists": 9,
+    "tables": 3,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "10e4b3560896cee8f32280695900c120be1e9c01fa8d2bcdcb4320c75d9d38cc"
+  "content_sha256": "0e49e14e4e924de31b532d493d4daa7e0e5f988db31f9bbad1cfea12e5ab3b7c"
 }

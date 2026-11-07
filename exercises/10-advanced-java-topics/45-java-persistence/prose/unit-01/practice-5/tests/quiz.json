@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "10-advanced-java-topics",
+    "45-java-persistence"
+  ],
+  "variant": "prose",
+  "unit": 1,
+  "ordinal": 5,
+  "title": "Check yourself: JDBC",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-batch-failure",
+        "stem": "A parcel job opens a new H2 connection, queues five INSERTs on one PreparedStatement with addBatch(), and calls executeBatch(). The fourth row has a NULL weight for a NOT NULL column, and the job catches the BatchUpdateException and exits without any other JDBC call. How many of the five rows does another session then count in the table?",
+        "options": [
+          {
+            "id": "a",
+            "text": "None, since the batch reached the database in one call and the driver undid it as one unit.",
+            "correct": false,
+            "says": "One call into the driver is not one transaction: under auto-commit each statement of the batch committed on its own."
+          },
+          {
+            "id": "b",
+            "text": "None, since a batch opens a transaction that stays pending until the job calls commit().",
+            "correct": false,
+            "says": "A new connection is in auto-commit mode, and a batch doesn't change that; the rows were committed as they ran."
+          },
+          {
+            "id": "c",
+            "text": "Four, since the driver ran on past the failed row and each row was committed as it ran.",
+            "correct": true,
+            "says": "The page's batch under auto-commit returned [1, 1, -3, 1] and kept rows a, b and d: H2 continued after the failed row and auto-commit, on by default, committed each statement."
+          },
+          {
+            "id": "d",
+            "text": "Three, since the driver stops at the first failed row and keeps the rows it ran before it.",
+            "correct": false,
+            "says": "The javadoc lets a driver stop at the first failure, but H2 doesn't: on the page it ran the row after the failed one and kept it."
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.1.md",
+          "section": "Auto-Commit Is On, So Each Statement Commits by Itself"
+        }
+      },
+      {
+        "id": "q-reexecute",
+        "stem": "A store report keeps one PreparedStatement, byRegion. It is looping over the stores of region N when it sets the parameter to S and calls byRegion.executeQuery() to look up a neighbouring store, then goes back to the loop. What does the loop's next call to next() do?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It returns the next store in N, since byRegion copied the N rows into memory.",
+            "correct": false,
+            "says": "Where the driver keeps the rows doesn't matter: a result set belongs to its statement, and re-executing the statement closed it."
+          },
+          {
+            "id": "b",
+            "text": "It returns the next store in N, since the N cursor stays open with the connection.",
+            "correct": false,
+            "says": "Closing or re-executing the statement closes its result set, while the connection is still open."
+          },
+          {
+            "id": "c",
+            "text": "It throws, since byRegion rejected the query for S and the N cursor broke with it.",
+            "correct": false,
+            "says": "A PreparedStatement is parsed once and executed many times, with new values bound each time; the second query ran fine."
+          },
+          {
+            "id": "d",
+            "text": "It throws, since the query for S closed the N cursor that byRegion had opened.",
+            "correct": true,
+            "says": "The ResultSet javadoc says a result set closes when its statement is re-executed; the page's run printed isClosed() = true for the first one."
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.1.md",
+          "section": "A ResultSet Lives Only as Long as Its Statement"
+        }
+      },
+      {
+        "id": "q-timestamp",
+        "stem": "A clinic stores appointments in a TIMESTAMP column, and one row holds 2025-03-30 02:15:00. Server A runs with -Duser.timezone=UTC, server B with Europe/Paris, where clocks went from 02:00 to 03:00 that night. Both read the value with rs.getTimestamp(i).toLocalDateTime(). What do they show?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Both show 02:15, since a zoneless column is passed through unchanged on either server.",
+            "correct": false,
+            "says": "That is what getObject(i, LocalDateTime.class) does; getTimestamp builds an instant first, and the page's Berlin run showed 03:30."
+          },
+          {
+            "id": "b",
+            "text": "Both show 03:15, since the database moved the time in the gap forward when it stored it.",
+            "correct": false,
+            "says": "The stored value is unchanged: getObject(i, LocalDateTime.class) read 02:30 on the page, and the UTC run read 02:30 with getTimestamp too."
+          },
+          {
+            "id": "c",
+            "text": "A shows 02:15 and B throws, since B's zone has no 02:15 to build an instant from.",
+            "correct": false,
+            "says": "Nothing threw on the page: the time in the gap was moved forward an hour, silently."
+          },
+          {
+            "id": "d",
+            "text": "A shows 02:15 and B shows 03:15, since each server builds an instant in its own zone.",
+            "correct": true,
+            "says": "getTimestamp reads the zoneless value in the JVM's default zone; 02:30 in Berlin's gap came back as 03:30 on the page, and with UTC it stayed 02:30."
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.1.md",
+          "section": "A Getter Converts; Ask getObject for the Java Type You Mean"
+        }
+      },
+      {
+        "id": "q-null-int",
+        "stem": "A discount_pct INT column is NULL for customers who never had a discount and 0 for those whose discount was withdrawn. The code reads it with int pct = rs.getInt(\"discount_pct\"). What does it get for each kind of customer?",
+        "options": [
+          {
+            "id": "a",
+            "text": "0 for both, since H2 stores SQL NULL in an INT column as the value 0.",
+            "correct": false,
+            "says": "The NULL is stored: getObject(i, Integer.class) returned null for the same row on the page."
+          },
+          {
+            "id": "b",
+            "text": "0 for both, since getInt turns SQL NULL into 0 when it reads the column.",
+            "correct": true,
+            "says": "The page's run printed getInt 0 for the NULL row and the 0 row alike; only wasNull() right after, or getObject(3, Integer.class), which returned null, tells them apart."
+          },
+          {
+            "id": "c",
+            "text": "An SQLException for the NULL rows, since getInt can't put SQL NULL in an int.",
+            "correct": false,
+            "says": "getInt doesn't throw on NULL; it returns 0, which is why wasNull() exists."
+          },
+          {
+            "id": "d",
+            "text": "A NullPointerException for the NULL rows, since getInt unboxes a null Integer.",
+            "correct": false,
+            "says": "getInt returned 0 for the NULL row on the page, and nothing threw."
+          }
+        ],
+        "origin": {
+          "path": "45-java-persistence/README_10.7.1.md",
+          "section": "A Getter Converts; Ask getObject for the Java Type You Mean"
+        }
+      }
+    ]
+  }
+}

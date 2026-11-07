@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 4,
   "ingested": "2026-09-24",
-  "title": "Compare tokens without leaking where they differ",
+  "title": "Read the cart cookie without rebuilding anything else",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`String.equals` returns at the first character that differs, so the time it takes tells an attacker **where** the first mismatch is, and a token can be guessed one character at a time. The page's constant-time comparison **never returns at the first differing character**: it combines the differences of all characters (`result |= a ^ b`) and decides only at the end. Returning early on different **lengths** is acceptable, since token lengths are public."
+      "text": "The shop keeps each visitor's cart in a cookie: the `Cart`, written with Java serialization by `CartCookie.write`. The browser sends the cookie back with every request, so its bytes are whatever the visitor, or anyone who can change their traffic, chooses to send. The shop's class path holds hundreds of `Serializable` classes from its own code and its libraries, and some of them start work when they are rebuilt."
     },
     {
       "type": "para",
-      "text": "Write `Tokens.matches(CharSequence expected, CharSequence given)`:"
+      "text": "Write `read(cookie)` in `src/main/java/practice/CartCookie.java`. A cookie that holds a cart comes back as that cart. A cookie that holds anything else, at the top or anywhere inside the cart, is refused with an `IOException`, and no code of any other class runs while it is read. Serializing a cart writes a `Cart`, the `ArrayList` of its lines, that list's `Object[]`, and each `CartLine`."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`true` exactly when both hold the same characters;",
-        "when the lengths are equal, it reads **every** character of `given`, wherever the first mismatch is;",
-        "a `null` `given` never matches (`expected` is never `null`)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "expected",
-        "given",
-        "result"
-      ],
-      "rows": [
-        [
-          "`tok-4f9a2c`",
-          "`tok-4f9a2c`",
-          "`true`"
-        ],
-        [
-          "`tok-4f9a2c`",
-          "`xok-4f9a2c`",
-          "`false`, after reading all 10 characters of `given`"
-        ],
-        [
-          "`tok-4f9a2c`",
-          "`tok-4f9a2`",
-          "`false`"
-        ],
-        [
-          "`tok-4f9a2c`",
-          "`null`",
-          "`false`"
-        ]
-      ]
+      "type": "para",
+      "text": "About six lines in total."
     },
     {
       "type": "heading",
@@ -77,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Tokens {\n\n    private Tokens() {\n    }\n\n    /** Compares a secret token with a given one without revealing where they differ. */\n    public static boolean matches(CharSequence expected, CharSequence given) {\n        if (given == null) {\n            return false;\n        }\n        if (expected.length() != given.length()) {\n            return false;\n        }\n        int result = 0;\n        for (int i = 0; i < expected.length(); i++) {\n            result |= expected.charAt(i) ^ given.charAt(i);\n        }\n        return result == 0;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.ByteArrayOutputStream;\nimport java.io.IOException;\nimport java.io.ObjectInputFilter;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectOutputStream;\nimport java.io.Serializable;\nimport java.util.ArrayList;\nimport java.util.Set;\n\n/**\n * The shop keeps a visitor's cart in a cookie: the cart, serialized with Java serialization.\n * The browser sends the cookie back with every request, and anyone can edit it on the way.\n */\npublic class CartCookie {\n\n    public record CartLine(String sku, int quantity) implements Serializable {}\n\n    /** Serialization writes a Cart, the ArrayList of its lines, that list's Object[], and each CartLine. */\n    public record Cart(String visitor, ArrayList<CartLine> lines) implements Serializable {}\n\n    public static byte[] write(Cart cart) throws IOException {\n        ByteArrayOutputStream out = new ByteArrayOutputStream();\n        try (ObjectOutputStream oos = new ObjectOutputStream(out)) {\n            oos.writeObject(cart);\n        }\n        return out.toByteArray();\n    }\n\n    private static final Set<Class<?>> CART_CLASSES =\n            Set.of(Cart.class, CartLine.class, ArrayList.class, Object[].class);\n\n    /**\n     * The cart in a cookie the browser sent back. A cookie holding anything but a cart is refused\n     * with an IOException, and no code of any other class runs while it is read.\n     */\n    public static Cart read(byte[] cookie) throws IOException, ClassNotFoundException {\n        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(cookie))) {\n            in.setObjectInputFilter(ObjectInputFilter.allowFilter(CART_CLASSES::contains,\n                    ObjectInputFilter.Status.REJECTED));\n            return (Cart) in.readObject();\n        }\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Tokens {\n\n    private Tokens() {\n    }\n\n    /** Compares a secret token with a given one without revealing where they differ. */\n    public static boolean matches(CharSequence expected, CharSequence given) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.ByteArrayOutputStream;\nimport java.io.IOException;\nimport java.io.ObjectInputFilter;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectOutputStream;\nimport java.io.Serializable;\nimport java.util.ArrayList;\nimport java.util.Set;\n\n/**\n * The shop keeps a visitor's cart in a cookie: the cart, serialized with Java serialization.\n * The browser sends the cookie back with every request, and anyone can edit it on the way.\n */\npublic class CartCookie {\n\n    public record CartLine(String sku, int quantity) implements Serializable {}\n\n    /** Serialization writes a Cart, the ArrayList of its lines, that list's Object[], and each CartLine. */\n    public record Cart(String visitor, ArrayList<CartLine> lines) implements Serializable {}\n\n    public static byte[] write(Cart cart) throws IOException {\n        ByteArrayOutputStream out = new ByteArrayOutputStream();\n        try (ObjectOutputStream oos = new ObjectOutputStream(out)) {\n            oos.writeObject(cart);\n        }\n        return out.toByteArray();\n    }\n\n    /**\n     * The cart in a cookie the browser sent back. A cookie holding anything but a cart is refused\n     * with an IOException, and no code of any other class runs while it is read.\n     */\n    public static Cart read(byte[] cookie) throws IOException, ClassNotFoundException {\n        // TODO: The cookie's bytes are whatever the browser sent. Return the cart they hold.\n        throw new IllegalStateException(\"TODO: read\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -108,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "314ece932a44bae53dd972d04097dd4e1d510990c7e8e67ef63c33b0c72d6c85",
-  "starting_code": "package practice;\n\npublic final class Tokens {\n\n    private Tokens() {\n    }\n\n    /** Compares a secret token with a given one without revealing where they differ. */\n    public static boolean matches(CharSequence expected, CharSequence given) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "c5484c2b5ace3309374271c12fed57b3ec13562341ef26473453b3d8f37d322d",
+  "starting_code": "package practice;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.ByteArrayOutputStream;\nimport java.io.IOException;\nimport java.io.ObjectInputFilter;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectOutputStream;\nimport java.io.Serializable;\nimport java.util.ArrayList;\nimport java.util.Set;\n\n/**\n * The shop keeps a visitor's cart in a cookie: the cart, serialized with Java serialization.\n * The browser sends the cookie back with every request, and anyone can edit it on the way.\n */\npublic class CartCookie {\n\n    public record CartLine(String sku, int quantity) implements Serializable {}\n\n    /** Serialization writes a Cart, the ArrayList of its lines, that list's Object[], and each CartLine. */\n    public record Cart(String visitor, ArrayList<CartLine> lines) implements Serializable {}\n\n    public static byte[] write(Cart cart) throws IOException {\n        ByteArrayOutputStream out = new ByteArrayOutputStream();\n        try (ObjectOutputStream oos = new ObjectOutputStream(out)) {\n            oos.writeObject(cart);\n        }\n        return out.toByteArray();\n    }\n\n    /**\n     * The cart in a cookie the browser sent back. A cookie holding anything but a cart is refused\n     * with an IOException, and no code of any other class runs while it is read.\n     */\n    public static Cart read(byte[] cookie) throws IOException, ClassNotFoundException {\n        // TODO: The cookie's bytes are whatever the browser sent. Return the cart they hold.\n        throw new IllegalStateException(\"TODO: read\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-4/src/main/java/practice/Tokens.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-4/src/test/java/practice/TokensTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-4/src/main/java/practice/CartCookie.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-02/practice-4/src/test/java/practice/CartCookieTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,29 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.TokensTest#matchesOnlyTheSameToken",
+        "id": "practice.CartCookieTest#readsBackTheCartItWrote",
         "kind": "main",
-        "says": "tok-4f9a2c matches itself (built at run time) and not tok-4f9a2d."
+        "says": "a cookie written from a cart, with lines or empty, reads back as an equal cart"
       },
       {
-        "id": "practice.TokensTest#everyCharacterIsReadWhateverTheFirstMismatch",
+        "id": "practice.CartCookieTest#aCookieHoldingAnotherClassIsRefusedBeforeItsCodeRuns",
         "kind": "edge",
-        "says": "Comparing tokens that differ at the first or the fifth character still reads all 10 characters of the given token."
+        "says": "a cookie holding another Serializable class is refused before that class's readObject runs, not after"
       },
       {
-        "id": "practice.TokensTest#aDifferenceBeforeTheLastCharacterStillCounts",
+        "id": "practice.CartCookieTest#anotherClassHiddenInsideACartIsRefusedBeforeItsCodeRuns",
         "kind": "edge",
-        "says": "Tokens that differ only in their first or their ninth character do not match."
-      },
-      {
-        "id": "practice.TokensTest#aPrefixOrALongerTokenDoesNotMatch",
-        "kind": "edge",
-        "says": "A prefix of the token, the token plus one character, and the empty string do not match."
-      },
-      {
-        "id": "practice.TokensTest#aMissingTokenNeverMatches",
-        "kind": "edge",
-        "says": "A null given token does not match."
+        "says": "another class nested inside a real cart is refused too, before its readObject runs"
       }
     ],
     "report": {
@@ -164,10 +119,10 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.2.md",
-      "section": "Interview Q&A Section"
+      "section": "Check Classes With a Filter Before readObject Builds Them, Not the Result After"
     },
     "concepts": [
-      "Security tokens are compared in constant time, never returning at the first differing character; an early return on length leaks only the public length."
+      "A cast or check after readObject comes after every class's own readObject has run; an ObjectInputFilter set on the stream is asked about each class, nested ones too, before it is built."
     ]
   }
 }

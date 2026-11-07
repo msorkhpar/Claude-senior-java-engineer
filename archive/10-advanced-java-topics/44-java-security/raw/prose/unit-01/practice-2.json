@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "A CORS configuration nobody can change after it is built",
+  "title": "Leave no passphrase behind after unlocking the vault",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,15 @@
     },
     {
       "type": "para",
-      "text": "A security setting that callers can change after it was checked is not a setting. The page's `SecureConfig` makes **defensive copies**: the constructor **copies** the list it is given, so the caller's later changes do not leak in, and the getter returns a list that **cannot be used to change** the config. `List.copyOf` does both, and it also refuses `null` elements."
+      "text": "Operators unlock the deployment vault by typing a passphrase at a console, which hands it over as a `char[]`, sometimes with a trailing `'\\n'`. After an incident, the security team took a heap dump of the deploy tool and found the passphrase in it twice, long after the unlock had finished."
     },
     {
       "type": "para",
-      "text": "Write `CorsConfig`:"
+      "text": "The vault's client library takes the passphrase without the newline, reads it during `open`, and keeps no reference to it. Write `unlock(typed)` in `src/main/java/practice/VaultUnlock.java`: it opens the vault and returns the session id, or lets the vault's `IllegalArgumentException` for a wrong passphrase reach the caller. `passphraseLength(typed)` is there to help."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`new CorsConfig(origins)` keeps its own copy of `origins`; a `null` list or a `null` origin is refused with `NullPointerException`.",
-        "`origins()` returns the origins in the order given.",
-        "`allows(origin)` says whether `origin` is one of them (by value)."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "action",
-        "`allows(\"https://evil.example.org\")` afterwards"
-      ],
-      "rows": [
-        [
-          "`list.add(\"https://evil.example.org\")` on the list passed in",
-          "`false`"
-        ],
-        [
-          "`config.origins().add(\"https://evil.example.org\")` (if it does not throw)",
-          "`false`"
-        ]
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "built with",
-        "result"
-      ],
-      "rows": [
-        [
-          "`[https://app.example.org, https://admin.example.org]`",
-          "`origins()` in that order"
-        ],
-        [
-          "`[https://app.example.org, null]`",
-          "`NullPointerException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When `unlock` has returned or thrown, every `char[]` that held the passphrase, the operator's included, holds only `'\\0'`. About seven lines in total."
     },
     {
       "type": "heading",
@@ -81,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class CorsConfig {\n\n    private final List<String> origins;\n\n    public CorsConfig(List<String> origins) {\n        this.origins = List.copyOf(origins);\n    }\n\n    /** The allowed origins, in the order given. */\n    public List<String> origins() {\n        return origins;\n    }\n\n    /** Whether {@code origin} is allowed. */\n    public boolean allows(String origin) {\n        return origins.contains(origin);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Arrays;\n\n/** Opens the deployment vault with the passphrase an operator types at the console. */\npublic class VaultUnlock {\n\n    /** The vault's client library. It reads the passphrase during the call and keeps no reference. */\n    public interface Vault {\n        /** Returns a session id; throws IllegalArgumentException when the passphrase is wrong. */\n        String open(char[] passphrase);\n    }\n\n    private final Vault vault;\n\n    public VaultUnlock(Vault vault) {\n        this.vault = vault;\n    }\n\n    /** How many characters of typed are the passphrase: the console may add a trailing newline. */\n    static int passphraseLength(char[] typed) {\n        int length = typed.length;\n        if (length > 0 && typed[length - 1] == '\\n') length--;\n        return length;\n    }\n\n    /** Opens the vault with what the operator typed, without its trailing newline; returns the session id. */\n    public String unlock(char[] typed) {\n        char[] passphrase = Arrays.copyOf(typed, passphraseLength(typed));\n        try {\n            return vault.open(passphrase);\n        } finally {\n            Arrays.fill(passphrase, '\\0');\n            Arrays.fill(typed, '\\0');\n        }\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class CorsConfig {\n\n    public CorsConfig(List<String> origins) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The allowed origins, in the order given. */\n    public List<String> origins() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether {@code origin} is allowed. */\n    public boolean allows(String origin) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Arrays;\n\n/** Opens the deployment vault with the passphrase an operator types at the console. */\npublic class VaultUnlock {\n\n    /** The vault's client library. It reads the passphrase during the call and keeps no reference. */\n    public interface Vault {\n        /** Returns a session id; throws IllegalArgumentException when the passphrase is wrong. */\n        String open(char[] passphrase);\n    }\n\n    private final Vault vault;\n\n    public VaultUnlock(Vault vault) {\n        this.vault = vault;\n    }\n\n    /** How many characters of typed are the passphrase: the console may add a trailing newline. */\n    static int passphraseLength(char[] typed) {\n        int length = typed.length;\n        if (length > 0 && typed[length - 1] == '\\n') length--;\n        return length;\n    }\n\n    /** Opens the vault with what the operator typed, without its trailing newline; returns the session id. */\n    public String unlock(char[] typed) {\n        // TODO: Hand the vault the passphrase without the console's newline, and return the\n        //       session id. Once this method returns or throws, the passphrase must be gone\n        //       from memory that this class can reach.\n        throw new IllegalStateException(\"TODO: unlock\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 2,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -112,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "d5f7244b6008258818f5d755d0e8caea3ead9ed0e0a7808311af7bfb93e11c93",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class CorsConfig {\n\n    public CorsConfig(List<String> origins) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The allowed origins, in the order given. */\n    public List<String> origins() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether {@code origin} is allowed. */\n    public boolean allows(String origin) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "175cfaaf790d699657e117ee174f497bf2562279f2e357bf65c5ff3a95172c86",
+  "starting_code": "package practice;\n\nimport java.util.Arrays;\n\n/** Opens the deployment vault with the passphrase an operator types at the console. */\npublic class VaultUnlock {\n\n    /** The vault's client library. It reads the passphrase during the call and keeps no reference. */\n    public interface Vault {\n        /** Returns a session id; throws IllegalArgumentException when the passphrase is wrong. */\n        String open(char[] passphrase);\n    }\n\n    private final Vault vault;\n\n    public VaultUnlock(Vault vault) {\n        this.vault = vault;\n    }\n\n    /** How many characters of typed are the passphrase: the console may add a trailing newline. */\n    static int passphraseLength(char[] typed) {\n        int length = typed.length;\n        if (length > 0 && typed[length - 1] == '\\n') length--;\n        return length;\n    }\n\n    /** Opens the vault with what the operator typed, without its trailing newline; returns the session id. */\n    public String unlock(char[] typed) {\n        // TODO: Hand the vault the passphrase without the console's newline, and return the\n        //       session id. Once this method returns or throws, the passphrase must be gone\n        //       from memory that this class can reach.\n        throw new IllegalStateException(\"TODO: unlock\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-2/src/main/java/practice/CorsConfig.java",
-    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-2/src/test/java/practice/CorsConfigTest.java",
+    "main_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-2/src/main/java/practice/VaultUnlock.java",
+    "test_path": "practice/10-advanced-java-topics/44-java-security/prose/unit-01/practice-2/src/test/java/practice/VaultUnlockTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,24 +98,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CorsConfigTest#keepsTheOriginsItWasGiven",
+        "id": "practice.VaultUnlockTest#opensTheVaultWithThePassphraseWithoutTheNewline",
         "kind": "main",
-        "says": "A config built with two origins lists them in order and allows exactly those origins, compared by value."
+        "says": "the vault receives the passphrase without the console's trailing newline, and unlock returns its session id"
       },
       {
-        "id": "practice.CorsConfigTest#laterChangesToTheCallersListDoNotLeakIn",
-        "kind": "edge",
-        "says": "Adding to or replacing an entry of the caller's list after construction changes nothing in the config."
+        "id": "practice.VaultUnlockTest#opensTheVaultWhenTheConsoleAddedNoNewline",
+        "kind": "main",
+        "says": "a passphrase typed without a trailing newline is passed on whole"
       },
       {
-        "id": "practice.CorsConfigTest#theReturnedListCannotChangeTheConfig",
-        "kind": "edge",
-        "says": "Trying to add to the list origins() returns leaves the config unchanged."
+        "id": "practice.VaultUnlockTest#aWrongPassphraseIsReportedToTheCaller",
+        "kind": "main",
+        "says": "the vault's refusal of a wrong passphrase reaches the caller"
       },
       {
-        "id": "practice.CorsConfigTest#aNullOriginIsRefused",
+        "id": "practice.VaultUnlockTest#theOperatorsArrayIsWipedWhenThePassphraseIsWrong",
         "kind": "edge",
-        "says": "A null list or a list holding null is refused with NullPointerException when the config is built."
+        "says": "the operator's array is wiped even when the vault refuses the passphrase"
+      },
+      {
+        "id": "practice.VaultUnlockTest#theArrayTheVaultReadIsWipedAfterwards",
+        "kind": "edge",
+        "says": "the array the vault was handed, a copy made without the newline, is wiped after the call"
+      },
+      {
+        "id": "practice.VaultUnlockTest#theOperatorsArrayIsWipedAfterASuccessfulUnlock",
+        "kind": "edge",
+        "says": "the operator's own array is wiped after a successful unlock, not only the copy"
       }
     ],
     "report": {
@@ -163,10 +134,10 @@
     },
     "origin": {
       "path": "44-java-security/README_10.6.1.md",
-      "section": "2. Returning mutable internal collections"
+      "section": "Wiping a char[] Removes Your Copy of a Secret; a String Copy Stays Until GC"
     },
     "concepts": [
-      "Mutable collections are copied when they cross a trust boundary, in the constructor and in the getter, and List.copyOf does both and refuses nulls."
+      "A secret held in char[] is wiped in a finally block, in the caller's array and in every copy the code made."
     ]
   }
 }

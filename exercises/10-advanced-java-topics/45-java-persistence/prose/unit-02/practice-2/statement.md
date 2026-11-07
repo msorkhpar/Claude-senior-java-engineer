@@ -1,26 +1,13 @@
-The page asks "How does dirty checking work in Hibernate?" and answers:
-snapshot comparison at flush time. When an entity is loaded, the session
-keeps a copy of its state; `flush()` compares each managed entity with its
-snapshot and writes an UPDATE only for those that changed. Nobody calls
-`update()`.
+In the account service, one request reads the same customer in three places: pricing, the
+address check and the profile update. Each place calls `find(id)` and gets its own copy, so
+the profile update changes the tier on one copy while pricing goes on using the old tier from
+another. The database log also shows the same `select` three times per request.
 
-`UnitOfWork` is given an open `Connection` to
-`products(id INT PRIMARY KEY, name VARCHAR, price DECIMAL(10,2))`.
+`CustomerSession` is opened for one request and dropped at its end. Write `find(long id)` in
+`src/main/java/practice/CustomerSession.java`, and any field it needs, so that within one
+session every caller asking for an id gets the same object, read from the database once,
+while a session opened for another request gets objects of its own. `load(id)` already reads
+a row. About six lines in total.
 
-- `load(id)` reads the row, returns a mutable `Product` and keeps a snapshot
-  of its name and price. An unknown id throws `IllegalArgumentException`.
-  (Each test loads an id at most once.)
-- `flush()` runs `UPDATE products SET name = ?, price = ? WHERE id = ?`
-  **only for products whose state differs from the snapshot**, and returns
-  how many it wrote. **Names are compared with `equals()`** and **prices with
-  `compareTo()`**, so `1.5` equals `1.50`.
-- **`flush()` refreshes the snapshot**, so a second flush with no new change
-  writes nothing.
-
-| loaded | change | `flush()` |
-|---|---|---|
-| 1 (Pen, 1.50) | `setPrice(2.25)` | `1` |
-| 1 (Pen, 1.50), 2 (Ink, 4.00) | product 1 only: `setPrice(2.25)` | `1` |
-| 1 (Pen, 1.50) | `setName(new String("Pen"))` | `0` |
-| 1 (Pen, 1.50) | `setPrice(1.5)` | `0` |
-| 1 (Pen, 1.50) | `setPrice(2.25)`, `flush()`, then `flush()` again | `1`, then `0` |
+The tests run against H2 in memory through a connection that counts the statements it
+executes.
