@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Per-thread request context with ThreadLocal",
+  "title": "Make each billing job run as its own tenant",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's `ThreadLocalDemo` (Q3) uses `ThreadLocal` twice: a request id that downstream code reads without it being passed along, and a `SimpleDateFormat`, which is not thread-safe, given to each thread as its own copy. It also warns that in a thread pool a value that is not removed leaks into the next task."
+      "text": "The billing service keeps one schema per tenant. Its jobs run on a shared thread pool, and the repositories call `TenantContext.current()` to choose the schema. Last month an invoice run for a small tenant wrote three invoices into another tenant's schema. The job that ran just before it on the same pool thread had failed halfway with \"ledger locked\". Transfers between two tenants run one job inside another: the outer job for the payer, a nested one for the payee."
     },
     {
       "type": "para",
-      "text": "Write `RequestContext`:"
+      "text": "Write `runAs(...)` in `src/main/java/practice/TenantContext.java`. When you're done, a job sees its own tenant while it runs, and every job after it on the same thread sees what it should: no tenant after a job, even after a failed one, and the outer tenant again when a nested job ends. The job's exception still reaches the caller. About ten lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`process(String requestId, Supplier<T> work)` makes `requestId` this thread's current request id, runs `work`, and returns its result. When `process` ends, normally or with the work's exception (which it lets through), the thread has no request id any more.",
-        "`currentRequestId()` returns this thread's current request id, or `null`.",
-        "`formatter()` returns this thread's own `SimpleDateFormat` for `yyyy-MM-dd`: the same object every time on one thread, and a different object on another thread.",
-        "`format(Date)` formats a date with this thread's formatter."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`process(\"req-1\", RequestContext::currentRequestId)`",
-          "`\"req-1\"`"
-        ],
-        [
-          "`currentRequestId()` afterwards",
-          "`null`"
-        ],
-        [
-          "threads A and B inside `process(\"one\", …)` and `process(\"two\", …)` at the same time",
-          "A reads `\"one\"`, B reads `\"two\"`"
-        ],
-        [
-          "`process(\"x\", () -> { throw new IllegalStateException(); })`",
-          "throws `IllegalStateException`; the id is `null` afterwards"
-        ],
-        [
-          "`format(<5 March 2024>)`",
-          "`\"2024-03-05\"`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests run the jobs on a pool with a single thread, so each job runs on the thread the one before it used."
     },
     {
       "type": "heading",
@@ -77,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.text.SimpleDateFormat;\nimport java.util.Date;\nimport java.util.function.Supplier;\n\npublic final class RequestContext {\n\n    private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();\n    private static final ThreadLocal<SimpleDateFormat> FORMATTER =\n            ThreadLocal.withInitial(() -> new SimpleDateFormat(\"yyyy-MM-dd\"));\n\n    private RequestContext() {\n    }\n\n    public static <T> T process(String requestId, Supplier<T> work) {\n        REQUEST_ID.set(requestId);\n        try {\n            return work.get();\n        } finally {\n            REQUEST_ID.remove();\n        }\n    }\n\n    public static String currentRequestId() {\n        return REQUEST_ID.get();\n    }\n\n    public static SimpleDateFormat formatter() {\n        return FORMATTER.get();\n    }\n\n    public static String format(Date date) {\n        return formatter().format(date);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The tenant whose data the current job may touch. The billing service runs its jobs on a shared\n * thread pool; repositories call TenantContext.current() to pick the tenant's schema.\n */\npublic final class TenantContext {\n\n    private static final ThreadLocal<String> TENANT = new ThreadLocal<>();\n\n    private TenantContext() {\n    }\n\n    /** The tenant of the job running on this thread, or null outside any job. */\n    public static String current() {\n        return TENANT.get();\n    }\n\n    /** Runs the job as the given tenant and returns its result; the job's exceptions pass through. */\n    public static <T> T runAs(String tenant, Supplier<T> job) {\n        String outer = TENANT.get();\n        TENANT.set(tenant);\n        try {\n            return job.get();\n        } finally {\n            if (outer == null) {\n                TENANT.remove();\n            } else {\n                TENANT.set(outer);\n            }\n        }\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.text.SimpleDateFormat;\nimport java.util.Date;\nimport java.util.function.Supplier;\n\npublic final class RequestContext {\n\n    private RequestContext() {\n    }\n\n    public static <T> T process(String requestId, Supplier<T> work) {\n        throw new UnsupportedOperationException(\"write process\");\n    }\n\n    public static String currentRequestId() {\n        throw new UnsupportedOperationException(\"write currentRequestId\");\n    }\n\n    public static SimpleDateFormat formatter() {\n        throw new UnsupportedOperationException(\"write formatter\");\n    }\n\n    public static String format(Date date) {\n        throw new UnsupportedOperationException(\"write format\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The tenant whose data the current job may touch. The billing service runs its jobs on a shared\n * thread pool; repositories call TenantContext.current() to pick the tenant's schema.\n */\npublic final class TenantContext {\n\n    private static final ThreadLocal<String> TENANT = new ThreadLocal<>();\n\n    private TenantContext() {\n    }\n\n    /** The tenant of the job running on this thread, or null outside any job. */\n    public static String current() {\n        return TENANT.get();\n    }\n\n    /** Runs the job as the given tenant and returns its result; the job's exceptions pass through. */\n    public static <T> T runAs(String tenant, Supplier<T> job) {\n        // TODO: While the job runs, current() on this thread answers `tenant`. The pool's threads\n        //       run one job after another, a job may fail, and a job may itself call runAs for\n        //       another tenant (a transfer between two tenants does).\n        throw new IllegalStateException(\"TODO: runAs\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -108,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e3b1ea5dc55f7eeaefdfd3ad9fd28921b1d4ecf33a113cc41a5c2f41d9128d45",
-  "starting_code": "package practice;\n\nimport java.text.SimpleDateFormat;\nimport java.util.Date;\nimport java.util.function.Supplier;\n\npublic final class RequestContext {\n\n    private RequestContext() {\n    }\n\n    public static <T> T process(String requestId, Supplier<T> work) {\n        throw new UnsupportedOperationException(\"write process\");\n    }\n\n    public static String currentRequestId() {\n        throw new UnsupportedOperationException(\"write currentRequestId\");\n    }\n\n    public static SimpleDateFormat formatter() {\n        throw new UnsupportedOperationException(\"write formatter\");\n    }\n\n    public static String format(Date date) {\n        throw new UnsupportedOperationException(\"write format\");\n    }\n}\n",
+  "content_sha256": "3ee1cbdaa9aeb5e951c61a8df2fbcbf591d9b126a1f47b32fe5518a3a8e148c2",
+  "starting_code": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The tenant whose data the current job may touch. The billing service runs its jobs on a shared\n * thread pool; repositories call TenantContext.current() to pick the tenant's schema.\n */\npublic final class TenantContext {\n\n    private static final ThreadLocal<String> TENANT = new ThreadLocal<>();\n\n    private TenantContext() {\n    }\n\n    /** The tenant of the job running on this thread, or null outside any job. */\n    public static String current() {\n        return TENANT.get();\n    }\n\n    /** Runs the job as the given tenant and returns its result; the job's exceptions pass through. */\n    public static <T> T runAs(String tenant, Supplier<T> job) {\n        // TODO: While the job runs, current() on this thread answers `tenant`. The pool's threads\n        //       run one job after another, a job may fail, and a job may itself call runAs for\n        //       another tenant (a transfer between two tenants does).\n        throw new IllegalStateException(\"TODO: runAs\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-2/src/main/java/practice/RequestContext.java",
-    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-2/src/test/java/practice/RequestContextTest.java",
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-2/src/main/java/practice/TenantContext.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-2/src/test/java/practice/TenantContextTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.RequestContextTest#runsTheWorkUnderItsId",
+        "id": "practice.TenantContextTest#aJobSeesItsTenant",
         "kind": "main",
-        "says": "process runs the work with its request id visible to it, and the thread's formatter formats dates as yyyy-MM-dd."
+        "says": "inside runAs, current() answers the job's tenant"
       },
       {
-        "id": "practice.RequestContextTest#eachThreadSeesItsOwnId",
-        "kind": "edge",
-        "says": "Two threads processing at the same time each see their own request id."
+        "id": "practice.TenantContextTest#twoThreadsInJobsAtTheSameTimeEachSeeTheirOwnTenant",
+        "kind": "main",
+        "says": "two threads inside runAs at the same time each see their own tenant"
       },
       {
-        "id": "practice.RequestContextTest#theIdIsClearedEvenWhenTheWorkFails",
+        "id": "practice.TenantContextTest#theNextJobOnThatThreadRunsAsNoTenant",
         "kind": "edge",
-        "says": "The id is removed when process ends, also when the work throws."
+        "says": "after a job ends, the next job on the same pool thread sees no tenant"
       },
       {
-        "id": "practice.RequestContextTest#eachThreadGetsItsOwnFormatter",
+        "id": "practice.TenantContextTest#aJobThatFailsLeavesNoTenantBehind",
         "kind": "edge",
-        "says": "A thread always gets the same formatter, and another thread gets a different one."
+        "says": "after a job fails, the next job on the same pool thread sees no tenant"
+      },
+      {
+        "id": "practice.TenantContextTest#aNestedJobGivesTheOuterTenantBack",
+        "kind": "edge",
+        "says": "when a runAs inside another runAs ends, the outer job's tenant is current again"
       }
     ],
     "report": {
@@ -159,11 +129,10 @@
     },
     "origin": {
       "path": "17-java-memory-model/README_5.1.2.md",
-      "section": "Interview Q&A Section"
+      "section": "A ThreadLocal Value Belongs to the Thread, So a Pool Hands It to the Next Task"
     },
     "concepts": [
-      "ThreadLocal gives each thread its own copy of a value, which removes the sharing altogether.",
-      "A ThreadLocal value must be removed after use, or a pooled thread carries it into its next task."
+      "A ThreadLocal value lives as long as its thread, so on a pool it must be removed in finally, or restored to the outer value when calls nest, or the next task on that thread sees it."
     ]
   }
 }

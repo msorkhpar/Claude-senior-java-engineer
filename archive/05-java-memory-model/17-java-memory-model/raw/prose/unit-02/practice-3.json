@@ -10,25 +10,64 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "What is shared, and what is atomic",
+  "title": "Hand the tenant to work on another thread",
   "blocks": [
     {
       "type": "heading",
       "level": 2,
-      "text": "Check yourself"
+      "text": "Problem statement"
     },
     {
       "type": "para",
-      "text": "Questions on what this page has just taught. Choose one answer for each."
+      "text": "This practice continues the billing service's `TenantContext`: its `runAs(...)` is the one you wrote, already in place."
+    },
+    {
+      "type": "para",
+      "text": "Billing jobs now send notifications on a separate notifier pool, so that a slow mail server doesn't hold up an invoice run. The notification code reads `TenantContext.current()` to pick the tenant's sender address and template. The first attempt sent notifications with no tenant at all; a quick fix made every notification go out under the name of one tenant, the one whose job happened to run first after the deploy."
+    },
+    {
+      "type": "para",
+      "text": "Write `wrap(...)` in `src/main/java/practice/TenantContext.java`. A job calls it on a task before handing the task to another thread. When you're done, a wrapped task runs as the tenant of the job that wrapped it, on any thread and whichever job started that thread, and leaves the thread as it found it. About five lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run each job on a thread of its own and send its notification through a one-thread pool that the first job to use it starts."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Lesson"
+    },
+    {
+      "type": "disclosure",
+      "summary": "Show a worked solution",
+      "open": false,
+      "blocks": [
+        {
+          "type": "code",
+          "lang": "java",
+          "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The tenant whose data the current job may touch. The billing service runs its jobs on a shared\n * thread pool; repositories call TenantContext.current() to pick the tenant's schema.\n */\npublic final class TenantContext {\n\n    private static final ThreadLocal<String> TENANT = new ThreadLocal<>();\n\n    private TenantContext() {\n    }\n\n    /** The tenant of the job running on this thread, or null outside any job. */\n    public static String current() {\n        return TENANT.get();\n    }\n\n    /** Runs the job as the given tenant and returns its result; the job's exceptions pass through. */\n    public static <T> T runAs(String tenant, Supplier<T> job) {\n        String outer = TENANT.get();\n        TENANT.set(tenant);\n        try {\n            return job.get();\n        } finally {\n            if (outer == null) {\n                TENANT.remove();\n            } else {\n                TENANT.set(outer);\n            }\n        }\n    }\n\n    /**\n     * Wraps a task that the current job hands to another thread (a pool, an async call), so that\n     * the task runs as the tenant of the job that wrapped it.\n     */\n    public static Runnable wrap(Runnable task) {\n        String tenant = current();\n        return () -> runAs(tenant, () -> {\n            task.run();\n            return null;\n        });\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Starting code"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The tenant whose data the current job may touch. The billing service runs its jobs on a shared\n * thread pool; repositories call TenantContext.current() to pick the tenant's schema.\n */\npublic final class TenantContext {\n\n    private static final ThreadLocal<String> TENANT = new ThreadLocal<>();\n\n    private TenantContext() {\n    }\n\n    /** The tenant of the job running on this thread, or null outside any job. */\n    public static String current() {\n        return TENANT.get();\n    }\n\n    /** Runs the job as the given tenant and returns its result; the job's exceptions pass through. */\n    public static <T> T runAs(String tenant, Supplier<T> job) {\n        String outer = TENANT.get();\n        TENANT.set(tenant);\n        try {\n            return job.get();\n        } finally {\n            if (outer == null) {\n                TENANT.remove();\n            } else {\n                TENANT.set(outer);\n            }\n        }\n    }\n\n    /**\n     * Wraps a task that the current job hands to another thread (a pool, an async call), so that\n     * the task runs as the tenant of the job that wrapped it.\n     */\n    public static Runnable wrap(Runnable task) {\n        // TODO: Return a task that runs `task` as the tenant of the job calling wrap(), on\n        //       whichever thread ends up running it, and leaves that thread as it found it.\n        throw new IllegalStateException(\"TODO: wrap\");\n    }\n}\n"
     }
   ],
   "video": null,
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 1,
-    "paras": 1,
-    "code": 0,
+    "headings": 3,
+    "paras": 4,
+    "code": 1,
     "tables": 0,
     "lists": 0,
     "images": 0,
@@ -36,74 +75,63 @@
     "rules": 0,
     "quotes": 0,
     "html": 0,
-    "disclosures": 0
+    "disclosures": 1
   },
-  "content_sha256": "01381f530bdd3fd2ea9a42929589b34280a234f0332b7b83c66b27688cf7ac41",
+  "content_sha256": "c51608e768e523be1406b608b96a9da4663873fef7fe6261367a73723490ac62",
+  "starting_code": "package practice;\n\nimport java.util.function.Supplier;\n\n/**\n * The tenant whose data the current job may touch. The billing service runs its jobs on a shared\n * thread pool; repositories call TenantContext.current() to pick the tenant's schema.\n */\npublic final class TenantContext {\n\n    private static final ThreadLocal<String> TENANT = new ThreadLocal<>();\n\n    private TenantContext() {\n    }\n\n    /** The tenant of the job running on this thread, or null outside any job. */\n    public static String current() {\n        return TENANT.get();\n    }\n\n    /** Runs the job as the given tenant and returns its result; the job's exceptions pass through. */\n    public static <T> T runAs(String tenant, Supplier<T> job) {\n        String outer = TENANT.get();\n        TENANT.set(tenant);\n        try {\n            return job.get();\n        } finally {\n            if (outer == null) {\n                TENANT.remove();\n            } else {\n                TENANT.set(outer);\n            }\n        }\n    }\n\n    /**\n     * Wraps a task that the current job hands to another thread (a pool, an async call), so that\n     * the task runs as the tenant of the job that wrapped it.\n     */\n    public static Runnable wrap(Runnable task) {\n        // TODO: Return a task that runs `task` as the tenant of the job calling wrap(), on\n        //       whichever thread ends up running it, and leaves that thread as it found it.\n        throw new IllegalStateException(\"TODO: wrap\");\n    }\n}\n",
   "exercise": {
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-3/src/main/java/practice/TenantContext.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-3/src/test/java/practice/TenantContextTest.java",
+    "run_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-3/pom.xml",
+      "compile"
+    ],
+    "test_command": [
+      "mvn",
+      "-o",
+      "-q",
+      "-f",
+      "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-3/pom.xml",
+      "test"
+    ],
     "provenance": "generated",
     "trust": "advisory",
-    "kind": "quiz",
-    "questions": [
+    "cases": [
       {
-        "id": "q-long",
-        "stem": "Per this page, what does the JMM specification promise about a plain (non-volatile) `long` field that one thread writes while another reads it?",
-        "options": [
-          {
-            "id": "a",
-            "text": "A 64-bit write may be split in two, so a read can mix two values",
-            "correct": true,
-            "says": "The page's Q5 answer says JLS 17.7 does not require non-volatile long and double writes to be atomic, so a reader may see half of each value."
-          },
-          {
-            "id": "b",
-            "text": "A 64-bit write happens in one step, so a read sees one whole value",
-            "correct": false,
-            "says": "The page says 64-bit JVMs usually behave this way but the specification does NOT guarantee it for a plain long."
-          },
-          {
-            "id": "c",
-            "text": "A 64-bit write is delayed until a lock is released by the writer",
-            "correct": false,
-            "says": "The page ties no plain write to a lock release; it names volatile long or AtomicLong as the fix for split writes."
-          }
-        ],
-        "origin": {
-          "path": "17-java-memory-model/README_5.1.2.md",
-          "section": "Interview Q&A Section"
-        }
+        "id": "practice.TenantContextTest#aWrappedTaskRunOnTheJobsOwnThreadRunsAsItsTenant",
+        "kind": "main",
+        "says": "a wrapped task run on the job's own thread runs as the job's tenant"
       },
       {
-        "id": "q-array",
-        "stem": "Per this page, what does declaring a shared `int[]` field `volatile` give its readers?",
-        "options": [
-          {
-            "id": "a",
-            "text": "Volatile reads and writes of the reference and every element",
-            "correct": false,
-            "says": "The page says each element is a separate heap variable and a volatile array reference does NOT make the elements volatile."
-          },
-          {
-            "id": "b",
-            "text": "Volatile reads and writes of every element, not the reference",
-            "correct": false,
-            "says": "The page says the volatile modifier applies to the array reference, and the elements stay plain heap variables."
-          },
-          {
-            "id": "c",
-            "text": "Volatile reads and writes of the reference, not its elements",
-            "correct": true,
-            "says": "The page says a volatile array reference does not make the elements volatile, and names AtomicIntegerArray for element-level semantics."
-          }
-        ],
-        "origin": {
-          "path": "17-java-memory-model/README_5.1.2.md",
-          "section": "Edge Cases and Their Handling"
-        }
+        "id": "practice.TenantContextTest#aTaskOnAnotherThreadRunsAsTheTenantThatHandedItOver",
+        "kind": "edge",
+        "says": "a wrapped task run on a pool thread runs as the tenant of the job that wrapped it"
+      },
+      {
+        "id": "practice.TenantContextTest#aPoolThreadStartedDuringOneTenantsJobServesTheNextTenantCorrectly",
+        "kind": "edge",
+        "says": "a pool thread first started during one tenant's job runs a later tenant's task as that later tenant"
+      },
+      {
+        "id": "practice.TenantContextTest#aWrappedTaskLeavesThePoolThreadAsItFoundIt",
+        "kind": "edge",
+        "says": "after a wrapped task, a plain task on the same pool thread sees no tenant"
       }
     ],
+    "report": {
+      "format": "junit",
+      "path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-3/target/surefire-reports"
+    },
+    "origin": {
+      "path": "17-java-memory-model/README_5.1.2.md",
+      "section": "InheritableThreadLocal Copies the Value Once, When a Thread Is Created"
+    },
     "concepts": [
-      "Plain long and double reads and writes may be split in two; volatile or AtomicLong makes them atomic.",
-      "A volatile array reference does not make the array's elements volatile."
+      "InheritableThreadLocal copies values once, when a thread is created, so a pool's threads keep what their creator had; a value for a task is captured at submit time and set in the task."
     ]
   }
 }

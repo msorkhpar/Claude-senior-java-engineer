@@ -1,769 +1,364 @@
 # 4.3.3. Using Method References with Functional Interfaces
 
-## Concept Explanation
-
-Method references reach their full potential when combined with Java's built-in functional interfaces in
-`java.util.function` and the collections/stream API. Each standard functional interface defines a contract that
-method references must satisfy, and choosing the right combination unlocks highly readable, reusable code.
-
-This section covers how to use each method reference type with the five core functional interfaces (`Consumer`,
-`Supplier`, `Function`, `Predicate`, `BiFunction`), the special-purpose interface `Comparator` and the `Optional` class,
-showing both the method reference syntax and its equivalent lambda.
-
-### `Consumer<T>` — `void accept(T t)`
-
-A `Consumer` consumes a value and returns nothing. Static, bound, and unbound method references all map onto
-`Consumer` when the referenced method accepts one argument and returns void.
+A teammate adds one method to `Customer`, beside the one that was already there:
 
 ```java
-// Static method reference → Consumer
-Consumer<String> log = Logger::log;                  // static Logger.log(String)
-
-// Bound instance method reference → Consumer
-PrintStream ps = System.out;
-Consumer<String> print = ps::println;                // bound to ps
-
-// Unbound instance method reference → Consumer (method returns void, takes no args)
-Consumer<List<String>> clearList = List::clear;      // unbound: receiver is the list
+String displayName() { return name; }
+String displayName(Locale locale) { return name.toUpperCase(locale); }
 ```
 
-### `Supplier<T>` — `T get()`
-
-A `Supplier` takes no arguments and returns a value. Bound instance method references and constructor references
-map to `Supplier` when they take no additional arguments.
+Their branch compiles. The next build fails in a file they never opened, on a line that has
+sorted customers for two years:
 
 ```java
-// Bound instance method reference → Supplier
-String str = "Hello, World!";
-Supplier<String> upper = str::toUpperCase;           // bound: no args, returns String
-
-// Constructor reference → Supplier (no-arg constructor)
-Supplier<ArrayList<String>> listFactory = ArrayList::new;
+customers.sort(Comparator.comparing(Customer::displayName).reversed());
 ```
-
-### `Function<T, R>` — `R apply(T t)`
-
-A `Function` transforms one value into another. All four reference types can produce a `Function`:
-
-```java
-// Static method reference → Function
-Function<String, Integer> parse = Integer::parseInt;
-
-// Bound instance method reference → Function (method takes one arg)
-String greeting = "Hello, ";
-Function<String, String> greet = greeting::concat;   // name -> "Hello, ".concat(name)
-// Splitting each argument by a fixed delimiter cannot be a bound ref: the argument must be the receiver
-Function<String, String[]> splitByComma = s -> s.split(","); // lambda when the fixed value is the argument
-
-// Unbound instance method reference → Function (method takes no args; receiver is the arg)
-Function<String, Integer> length = String::length;     // str -> str.length()
-Function<String, String>  lower  = String::toLowerCase; // str -> str.toLowerCase()
-
-// Constructor reference → Function (single-arg constructor)
-Function<String, StringBuilder> sbFactory = StringBuilder::new;
-```
-
-### `Predicate<T>` — `boolean test(T t)`
-
-A `Predicate` tests a value and returns a boolean. Static and unbound instance method references returning boolean
-map naturally.
-
-```java
-// Static method reference → Predicate
-Predicate<String> nonNull = Objects::nonNull;          // Objects.nonNull(String)
-Predicate<String> isNull  = Objects::isNull;
-
-// Bound instance method reference → Predicate
-String keyword = "Java";
-Predicate<String> contains = keyword::contains;        // bound: checks if "Java" contains arg
-// This tests if "Java" contains each element. Usually the other way is wanted:
-Predicate<String> contains2 = s -> s.contains("Java"); // lambda for this common case
-
-// Unbound instance method reference → Predicate (boolean return, no extra args)
-Predicate<String> isEmpty  = String::isEmpty;          // str -> str.isEmpty()
-Predicate<String> isBlank  = String::isBlank;
-Predicate<List<?>> listEmpty = List::isEmpty;
-```
-
-### `BiFunction<T, U, R>` — `R apply(T t, U u)`
-
-A `BiFunction` transforms two values into one. Unbound instance method references with one parameter map to
-`BiFunction`.
-
-```java
-// Unbound instance method reference with one argument → BiFunction
-BiFunction<String, String, String> concat = String::concat;   // (s1, s2) -> s1.concat(s2)
-BiFunction<String, String, Boolean> contains = String::contains; // compiles: a String is a CharSequence
-// Also valid, matching the declared parameter type exactly:
-BiFunction<String, CharSequence, Boolean> containsBi = String::contains;
-
-// Static method → BiFunction
-BiFunction<Integer, Integer, Integer> max = Math::max;         // Math.max(int, int)
-
-// Unbound String::repeat(int) → BiFunction (the Integer argument is unboxed)
-BiFunction<String, Integer, String> repeated = String::repeat; // (s, n) -> s.repeat(n)
-
-// Constructor with one arg → Function, two args → BiFunction
-BiFunction<Integer, Float, HashMap<String, String>> mapMaker = HashMap::new; // new HashMap<>(capacity, loadFactor)
-```
-
-### `Comparator<T>` — `int compare(T o1, T o2)`
-
-`Comparator` is a two-argument functional interface. Unbound instance method references with one parameter (the
-argument to compare against) map to it directly; one-argument key extractors map to it via `Comparator.comparing()`.
-
-```java
-// Unbound instance method ref → Comparator (String::compareTo = (s1,s2) -> s1.compareTo(s2))
-Comparator<String> alphaCmp = String::compareTo;
-Comparator<String> ignoreCaseCmp = String::compareToIgnoreCase;
-
-// Comparator.comparing with method reference (most idiomatic form)
-Comparator<Person> byName = Comparator.comparing(Person::getName);
-Comparator<Person> byAge  = Comparator.comparingInt(Person::getAge);
-```
-
-### `Optional<T>` — `map`, `filter`, `ifPresent`
-
-Optional's methods accept functional interfaces, making them natural targets for method references.
-
-```java
-Optional<String> opt = Optional.of("hello");
-Optional<Integer> len  = opt.map(String::length);      // Function<String, Integer>
-Optional<String> upper = opt.map(String::toUpperCase); // Function<String, String>
-opt.ifPresent(System.out::println);                    // Consumer<String>
-Optional<String> filtered = opt.filter(String::isBlank); // Predicate<String>
-```
-
-## Key Points to Remember
-
-1. Match the method reference type to the functional interface based on the number and types of arguments.
-2. `Consumer` — use when the method returns void and consumes a value (print, log, store).
-3. `Supplier` — use with bound instance refs or no-arg constructor refs that return a value.
-4. `Function` — use with unbound instance refs (no extra args) or single-arg static/constructor refs.
-5. `Predicate` — use with boolean-returning methods, static or unbound instance.
-6. `BiFunction`/`Comparator` — use with unbound instance refs that take one argument, or two-arg static methods.
-7. `Comparator.comparing(MethodRef)` is one of the most powerful combinations in Java.
-8. `Optional.map(MethodRef)` and `Optional.ifPresent(MethodRef)` are common in modern code.
-9. Stream's `filter`, `map`, `forEach`, `sorted` all accept method references via their functional interface parameters.
-10. Compose multiple method references using `andThen`, `compose`, `and`, `or`, `negate` on functional interfaces.
-
-## Relevant Java 21 Features
-
-- **Java 8**: All standard functional interfaces and method reference types co-introduced.
-- **Java 9**: `Optional.ifPresentOrElse(Consumer, Runnable)` — can use method references for both branches.
-- **Java 9**: `Optional.stream()` — converts `Optional` to a stream, enabling further method reference chaining.
-- **Java 11**: `Predicate.not(Predicate)` — `Predicate.not(String::isBlank)` is idiomatic for negation.
-- **Java 16**: `Stream.toList()` — eliminates the need for `Collectors.toList()` in terminal operations.
-- **Java 21**: Pattern matching for `switch` (preview in Java 17–20, final in 21) improves the readability of switches
-  that feed into method references.
-- **Java 21**: `SequencedCollection` methods (`getFirst()`, `getLast()`) can be used as bound instance method
-  references when the collection is the receiver.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Using a method reference where argument adaptation is needed**:
-
-   ```java
-   // Problem: need to transform the argument before calling the method
-   // String::parseInt doesn't exist; we need Integer::parseInt but want to also trim
-   List<String> rawNumbers = List.of("  42  ", " 7 ", "  100  ");
-   // rawNumbers.stream().map(Integer::parseInt).toList(); // NumberFormatException!
-   ```
-
-   ```java
-   // Fix: add a step that adapts the argument (or use a lambda: s -> Integer.parseInt(s.trim()))
-   List<Integer> numbers = rawNumbers.stream()
-           .map(String::trim)             // method reference for trimming
-           .map(Integer::parseInt)        // method reference for parsing
-           .toList();                     // 2-step pipeline
-   ```
-
-2. **Composing Predicates: negate a method reference**:
-
-   ```java
-   // Problem: cannot write !String::isBlank as a method reference
-   // List<String> nonBlanks = list.stream().filter(!String::isBlank).toList(); // compile error
-   ```
-
-   ```java
-   // Fix 1: use Predicate.not() (Java 11+) — idiomatic
-   List<String> nonBlanks = list.stream().filter(Predicate.not(String::isBlank)).toList();
-   // Fix 2: use lambda
-   List<String> nonBlanks2 = list.stream().filter(s -> !s.isBlank()).toList();
-   ```
-
-3. **Chaining method references in `Function.andThen()`**:
-
-   ```java
-   // Problem: trying to chain without intermediate variables is verbose
-   // Goal: trim, then toUpperCase, then get length
-   Function<String, Integer> transform =
-           ((Function<String, String>) String::trim)
-               .andThen(String::toUpperCase)
-               .andThen(String::length);  // works but the cast is ugly
-   ```
-
-   ```java
-   // Fix: assign to a variable first for cleaner composition
-   Function<String, String> prepare = ((Function<String, String>) String::trim).andThen(String::toUpperCase);
-   Function<String, Integer> full = prepare.andThen(String::length);
-   // Or: just use a lambda for the multi-step transformation
-   Function<String, Integer> clean = s -> s.trim().toUpperCase().length();
-   ```
-
-4. **Using `Consumer.andThen()` with method references**:
-
-   ```java
-   List<String> auditLog = new ArrayList<>();
-   Consumer<String> logger = auditLog::add;       // bound: adds to auditLog
-   Consumer<String> printer = System.out::println; // bound: prints to stdout
-
-   // This works correctly
-   Consumer<String> both = logger.andThen(printer);
-   both.accept("event");  // adds to log AND prints
-   ```
-
-5. **Type inference in `Comparator.comparing(...).reversed()`**:
-
-   ```java
-   record Box(int size, String label) {}
-   // Problem: with a lambda, the chained call gives the lambda no target type, so 'b' is inferred as Object
-   // Comparator<Box> bad = Comparator.comparing(b -> b.size()).reversed(); // compile error: cannot find symbol size()
-   // A method reference carries its type, so the same chain compiles:
-   Comparator<Box> bySizeDesc = Comparator.comparing(Box::size).reversed();
-   Comparator<Box> bySize = Comparator.comparingInt(Box::size); // also avoids boxing the int key
-   ```
-
-## Best Practices and Optimization Techniques
-
-1. **Use `Comparator.comparing(MethodRef)` for readable sort keys**: This is the single most impactful use of
-   method references. It makes sort logic self-documenting.
-
-2. **Pipeline composition**: Build complex transformations from simple method references using `Function.andThen()`,
-   `Predicate.and()`, `Predicate.or()`, and `Consumer.andThen()`.
-
-3. **Use `Predicate.not()` (Java 11+) with method references for negation**: Avoids `s -> !s.isBlank()` in favor
-   of `Predicate.not(String::isBlank)`.
-
-4. **Pass method references as parameters to promote flexibility**: Accept `Function<T,R>` or `Predicate<T>`
-   parameters so callers can provide method references. This is the Strategy pattern realized via functional interfaces.
-
-5. **Use `Stream.toArray(Type[]::new)` to collect to typed arrays**: This is idiomatic and avoids unchecked casts.
-
-6. **Create named `Comparator` constants with method references**:
-
-   ```java
-   // In a domain class
-   public static final Comparator<Employee> BY_NAME = Comparator.comparing(Employee::getName);
-   public static final Comparator<Employee> BY_SALARY_DESC =
-           Comparator.comparingDouble(Employee::getSalary).reversed();
-   ```
-
-## Edge Cases and Their Handling
-
-1. **Method reference in `Optional.map()` returning `Optional`** — this creates `Optional<Optional<T>>` unless
-   you use `flatMap`:
-
-   ```java
-   Optional<String> name = Optional.of("Alice");
-   // map with method that returns Optional creates Optional<Optional<String>>:
-   Optional<Optional<String>> doubled = name.map(Optional::of); // nested Optional — usually wrong
-   // Fix: use flatMap for methods that return Optional
-   Optional<String> same = name.flatMap(Optional::of); // flat — correct
-   ```
-
-2. **`BiConsumer` with `Map.forEach`**: This is the standard way to iterate a map:
-
-   ```java
-   Map<String, Integer> scores = Map.of("Alice", 95, "Bob", 87);
-   // BiConsumer applied via Map.forEach
-   scores.forEach((k, v) -> System.out.printf("%s: %d%n", k, v));
-   // If you have a two-argument method:
-   // scores.forEach(MyLogger::logEntry); // if static void logEntry(String, Integer) exists
-   ```
-
-3. **Using method references with `Collectors`**: Many `Collectors` factory methods accept functional interfaces:
-
-   ```java
-   // Collectors.groupingBy with method reference as classifier
-   Map<String, List<Employee>> byDept =
-           employees.stream().collect(Collectors.groupingBy(Employee::getDepartment));
-   // Collectors.joining is a terminal collector, not a method reference scenario
-   ```
-
-4. **Method reference to a method with a generic return type**: Type inference usually handles this, but may
-   require an explicit type parameter if the inference fails.
-
-   ```java
-   // Collections.emptyList() is generic; inference works when target type is clear
-   Supplier<List<String>> empty = Collections::emptyList; // inferred as List<String>
-   ```
-
-5. **Combining method references with `flatMap`**:
-
-   ```java
-   List<List<String>> nested = List.of(List.of("a","b"), List.of("c","d"));
-   // Flatten using method reference — Collection::stream is an unbound instance method ref
-   List<String> flat = nested.stream()
-           .flatMap(Collection::stream)     // each List -> Stream
-           .collect(Collectors.toList());
-   ```
-
-## Interview-specific Insights
-
-Interviewers focus on:
-
-- Writing a complete stream pipeline using method references exclusively (no lambdas) for a given requirement.
-- Explaining `Comparator.comparing(Person::getName)` — what is the method reference type and how does `comparing` work?
-- Using `Predicate.not()` and `Predicate.and()`/`or()` with method references.
-- Recognizing when a method reference cannot replace a lambda (multi-step logic, argument adaptation).
-- The `Stream.toArray(String[]::new)` idiom.
-- Composing `Consumer` pipelines with `andThen` and method references for audit/logging patterns.
-
-**Common tricky questions:**
-
-- "Write a stream pipeline that reads a list of strings, filters out nulls and blanks, converts to integers,
-  removes duplicates, sorts descending, and collects to a list — use method references as much as possible."
-- "How do you negate a method reference used as a `Predicate`?"
-- "How does `Comparator.comparing(Person::getName).reversed()` work? What does `reversed()` return?"
-
-## Interview Q&A Section
-
-**Q1: How do you use method references with `Consumer` in a stream pipeline? Show a chained example.**
 
 ```text
-A1: Consumer<T> is the functional interface for stream's terminal forEach operation and for
-andThen-chained side effects. You can use any method reference that takes one argument and
-returns void as a Consumer.
-
-Common patterns:
-- System.out::println — bound instance ref to println, used as Consumer<Object>
-- list::add — bound instance ref to add, used as Consumer<T> for collecting side effects
-- Logger::log — static method ref if log(String) is static
-- MyService::processItem — static if processItem is static, otherwise unbound (the bound form is
-  myService::processItem)
-
-andThen chains multiple Consumers, all receiving the same input.
+Customers.java:12: error: incompatible types: cannot infer type-variable(s) T,U
+        customers.sort(Comparator.comparing(Customer::displayName).reversed());
+                                           ^
+    (argument mismatch; invalid method reference
+      incompatible types: Object cannot be converted to Locale)
 ```
+
+Nothing on that line passes a `Locale`. javac picks which `displayName` the reference names from
+the parameter types the functional interface supplies, and here it supplied none. Five rules
+follow, one per heading. Every output is from javac and Java 21.
+
+## The Interface's Parameter Types Choose the Overload; the Value at Run Time Doesn't
+
+`String.valueOf` has nine overloads, among them `valueOf(char[])` and `valueOf(Object)`. Before
+reading the output, decide what each reference prints for the same array:
 
 ```java
-import java.util.*;
-import java.util.function.*;
-import java.util.stream.*;
-
-record Order(String id, double amount, String customer) {}
-
-public class ConsumerMethodRefDemo {
-
-    static List<String> auditLog = new ArrayList<>();
-    static List<Order> processedOrders = new ArrayList<>();
-
-    static void auditOrder(Order o) {
-        auditLog.add("PROCESSED: " + o.id() + " for " + o.customer());
-    }
-
-    public static void main(String[] args) {
-        List<Order> orders = List.of(
-                new Order("O1", 150.0, "Alice"),
-                new Order("O2", 75.0, "Bob"),
-                new Order("O3", 200.0, "Charlie")
-        );
-
-        // Chain: audit → store → print
-        // A method reference has no type of its own until assigned, so give it one before calling andThen
-        Consumer<Order> audit = ConsumerMethodRefDemo::auditOrder;         // static method ref
-        Consumer<Order> pipeline = audit
-                .andThen(processedOrders::add)                        // bound instance ref
-                .andThen(o -> System.out.println("Done: " + o.id())); // lambda for complex action
-
-        orders.stream()
-                .filter(o -> o.amount() > 100)
-                .forEach(pipeline);
-
-        System.out.println("Audit: " + auditLog);
-        System.out.println("Processed: " + processedOrders.size());
-    }
+char[] code = {'A', '-', '7'};
+Function<char[], String> fromChars = String::valueOf;    // valueOf(char[])
+Function<Object, String> fromObject = String::valueOf;   // valueOf(Object)
+System.out.println(fromChars.apply(code) + " | " + fromObject.apply(code));
+System.out.println(fromObject.apply(null));
+try {
+    fromChars.apply(null);
+} catch (NullPointerException e) {
+    System.out.println(e.getMessage());
 }
 ```
-
----
-
-**Q2: How do you use method references with `Comparator.comparing()`? Show a multi-level sort.**
 
 ```text
-A2: Comparator.comparing(MethodRef) is one of the most powerful and idiomatic Java idioms.
-It creates a Comparator that extracts a key using the method reference and compares by that key.
-
-For multi-level sort: chain .thenComparing(MethodRef) after the primary Comparator.
-For reverse sort: call .reversed() on the Comparator.
-For numeric keys: use comparingInt, comparingLong, comparingDouble to avoid boxing.
-
-The method reference provided to comparing() acts as a key extractor:
-it maps the element type T to a Comparable R, and the Comparator compares by R.
+A-7 | [C@7f31245a
+null
+Cannot read the array length because "value" is null
 ```
+
+javac resolves `String::valueOf` like the call `String.valueOf(x)`, with `x` typed `char[]` in one
+and `Object` in the other. That happens once, at compile time: `javap -v` shows one reference
+pointing at `String.valueOf:([C)Ljava/lang/String;` and the other at
+`String.valueOf:(Ljava/lang/Object;)Ljava/lang/String;`. From then on `fromObject` calls `valueOf(Object)` whatever
+it is given, and for an array that means `toString()`, the class name and a hash. A `null` goes
+the other way: `valueOf(Object)` writes `"null"`, and `valueOf(char[])` throws.
+
+An export that keeps its column formatters as `Function<Object, String>` therefore writes
+`[C@7f31245a` into a token column, and a test suite whose tokens are all `String`s never sees it.
+
+javac searches in the same phases as for a call: first without boxing, then with it, then
+varargs. `Math::max` has `int`, `long`, `float` and `double` overloads:
 
 ```java
-import java.util.*;
-import java.util.stream.*;
-
-record Employee(String name, String department, double salary, int yearsOfService) {}
-
-public class ComparatorMethodRefDemo {
-
-    public static void main(String[] args) {
-        List<Employee> employees = List.of(
-                new Employee("Alice", "Engineering", 95000, 5),
-                new Employee("Bob", "Marketing", 75000, 3),
-                new Employee("Charlie", "Engineering", 88000, 8),
-                new Employee("Diana", "Marketing", 82000, 5),
-                new Employee("Eve", "Engineering", 95000, 3)
-        );
-
-        // Single-key sort by name (ascending)
-        Comparator<Employee> byName = Comparator.comparing(Employee::name);
-
-        // Multi-level: department asc, salary desc, name asc
-        // Note: calling .reversed() after thenComparingDouble would reverse the WHOLE chain so far
-        // (department too), so only the salary comparator is reversed here.
-        Comparator<Employee> multiLevel =
-                Comparator.comparing(Employee::department)           // primary: dept asc
-                        .thenComparing(Comparator.comparingDouble(Employee::salary)
-                                .reversed())                         // secondary: salary desc
-                        .thenComparing(Employee::name);              // tertiary: name asc
-
-        List<Employee> sorted = employees.stream()
-                .sorted(multiLevel)
-                .collect(Collectors.toList()); // Alice, Eve, Charlie, Diana, Bob
-
-        // Easiest pattern: step by step
-        List<Employee> byDeptThenSalary = employees.stream()
-                .sorted(Comparator.comparing(Employee::department)
-                        .thenComparingDouble(Employee::salary))
-                .collect(Collectors.toList());
-
-        byDeptThenSalary.forEach(e ->
-                System.out.printf("%-10s %-12s %.0f%n",
-                        e.name(), e.department(), e.salary()));
-    }
+IntBinaryOperator ints = Math::max;          // max(int, int)
+BinaryOperator<Integer> boxed = Math::max;   // max(int, int), after unboxing
+BinaryOperator<Long> longs = Math::max;      // max(long, long)
+System.out.println(ints.applyAsInt(3, 9) + " " + boxed.apply(3, 9) + " " + longs.apply(3L, 9L));
+try {
+    boxed.apply(null, 9);
+} catch (NullPointerException e) {
+    System.out.println("boxed.apply(null, 9): " + e);
 }
+
+IntUnaryOperator absInt = Math::abs;         // abs(int)
+LongUnaryOperator absLong = Math::abs;       // abs(long)
+System.out.println(absInt.applyAsInt(Integer.MIN_VALUE) + " " + absLong.applyAsLong(Integer.MIN_VALUE));
 ```
-
----
-
-**Q3: How do you use method references with `Predicate` for filtering, including negation and composition?**
 
 ```text
-A3: Predicate<T> is the functional interface used by Stream.filter(). Any method reference
-returning a boolean that takes one argument of the stream's element type works as a Predicate.
-
-For negation: use Predicate.not(methodRef) (Java 11+) or s -> !method(s) lambda.
-For AND composition: predicate1.and(predicate2) — both must be true.
-For OR composition: predicate1.or(predicate2) — at least one must be true.
-These can all use method references.
+9 9 9
+boxed.apply(null, 9): java.lang.NullPointerException
+-2147483648 2147483648
 ```
+
+No `max(Integer, Integer)` exists, so for `BinaryOperator<Integer>` javac allows unboxing, finds
+all four overloads applicable, and takes the most specific, `max(int, int)`. The reference unboxes
+each argument before the call, so a `null` element throws a `NullPointerException` with no
+message. With `abs` the overload changes the answer: `Integer.MIN_VALUE` has no positive `int`,
+so `abs(int)` returns it unchanged, while `abs(long)` returns 2147483648.
+
+For an unbound reference the interface's first parameter is the receiver, and it may be any
+subtype of the class before `::`: `Function<String, String> show = Object::toString` compiles.
+The other way round fails, since an `Object` is not a `String`: `Function<Object, Integer> length =
+String::length` gives `method length in class String cannot be applied to given types`.
+
+<!-- practice 1 -->
+
+## An Exact Reference Lets javac Pick `submit(Callable)`; Overloading the Method Makes the Call Ambiguous
+
+`ExecutorService.submit` is overloaded for `Runnable` and `Callable<T>`. A method that returns a
+value fits both, since a `Runnable` can drop the result. Which does each line choose?
 
 ```java
-import java.util.*;
-import java.util.function.*;
-import java.util.stream.*;
+int refresh() { prices = 120; return prices; }   // returns how many prices it loaded
+void clear() { prices = 0; }
 
-record User(String username, String email, boolean verified, int age) {}
-
-public class PredicateMethodRefDemo {
-
-    static boolean isAdult(User u) { return u.age() >= 18; }
-    static boolean hasEmail(User u) { return u.email() != null && !u.email().isBlank(); }
-
-    public static void main(String[] args) {
-        List<User> users = List.of(
-                new User("alice", "alice@example.com", true, 25),
-                new User("bob", "", false, 30),
-                new User("charlie", "c@example.com", false, 16),
-                new User("diana", "d@example.com", true, 22)
-        );
-
-        // Unbound instance method ref as Predicate
-        Predicate<User> isVerified = User::verified;
-
-        // Static method ref as Predicate
-        Predicate<User> isAdult = PredicateMethodRefDemo::isAdult;
-        Predicate<User> hasEmail = PredicateMethodRefDemo::hasEmail;
-
-        // Negation with Predicate.not (Java 11+)
-        Predicate<User> isUnverified = Predicate.not(User::verified);
-
-        // Composition: adult AND verified AND has email
-        Predicate<User> eligible = isAdult.and(isVerified).and(hasEmail);
-
-        List<User> eligibleUsers = users.stream()
-                .filter(eligible)
-                .collect(Collectors.toList());
-        System.out.println("Eligible: " + eligibleUsers.stream().map(User::username).toList());
-        // [alice, diana]
-
-        // Filtering with Objects::nonNull
-        List<String> words = Arrays.asList("hello", null, "", "world", null, "  ");
-        List<String> cleanWords = words.stream()
-                .filter(Objects::nonNull)             // static method ref for null check
-                .filter(Predicate.not(String::isBlank)) // negated unbound instance method ref
-                .collect(Collectors.toList());
-        System.out.println("Clean: " + cleanWords); // [hello, world]
-    }
-}
+Future<?> a = pool.submit(this::refresh);
+Future<?> b = pool.submit(this::clear);
+System.out.println("submit(this::refresh).get() = " + a.get());
+System.out.println("submit(this::clear).get()   = " + b.get());
 ```
-
----
-
-**Q4: How do you use method references with `Function` for transformation, including `andThen` and `compose`?**
 
 ```text
-A4: Function<T,R> is the core transformation interface used by Stream.map(). Method references
-map to Function when the referenced method takes one argument and returns a value.
-
-andThen(after): applies this function first, then passes the result to 'after'.
-  result = after.apply(this.apply(input))
-
-compose(before): applies 'before' first, then this function.
-  result = this.apply(before.apply(input))
-
-andThen reads left-to-right (pipeline order), while compose reads right-to-left (mathematical).
-Most developers prefer andThen because it matches the mental model of a pipeline.
+submit(this::refresh).get() = 120
+submit(this::clear).get()   = null
 ```
+
+`refresh` has one declaration, is not generic and takes no varargs, so javac knows the call
+`this::refresh` makes before it chooses between the `submit`s. Such a reference is *exact*. Both fit, and the one whose method returns a value is more specific: the
+same preference unit 4.1.2 showed for lambdas. `clear` returns `void` and fits only `Runnable`.
+
+Now the price cache gets a second `refresh`:
 
 ```java
-import java.util.function.*;
-import java.util.stream.*;
+int refresh() { return 120; }
+int refresh(boolean force) { return force ? 120 : 0; }
 
-public class FunctionMethodRefDemo {
-
-    static String removeWhitespace(String s) { return s.replaceAll("\\s+", ""); }
-    static int parseOrDefault(String s) {
-        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return 0; }
-    }
-
-    public static void main(String[] args) {
-        // Basic Function method references
-        Function<String, String> trim = String::trim;          // unbound instance ref
-        Function<String, String> clean = FunctionMethodRefDemo::removeWhitespace; // static ref
-        Function<String, Integer> parse = FunctionMethodRefDemo::parseOrDefault;  // static ref
-        Function<String, Integer> length = String::length;    // unbound instance ref
-
-        // Composing with andThen (left-to-right pipeline)
-        Function<String, Integer> pipeline = trim.andThen(clean).andThen(parse);
-        System.out.println(pipeline.apply("  42  ")); // 42
-
-        // andThen with constructor reference
-        Function<String, StringBuilder> sbPipeline =
-                ((Function<String, String>) String::trim).andThen(StringBuilder::new);
-        StringBuilder sb = sbPipeline.apply("  hello  ");
-        System.out.println(sb.toString()); // "hello"
-
-        // In a stream
-        var result = java.util.List.of("  1  ", " 2 ", "  3  ").stream()
-                .map(String::trim)          // method ref step 1
-                .map(Integer::parseInt)     // method ref step 2
-                .map(n -> n * n)            // lambda for computation
-                .collect(Collectors.toList());
-        System.out.println(result); // [1, 4, 9]
-    }
+Future<?> schedule(ExecutorService pool) {
+    return pool.submit(this::refresh);
 }
 ```
-
----
-
-**Q5: How do you use `BiFunction` and `Comparator` method references for complex operations?**
 
 ```text
-A5: BiFunction<T,U,R> takes two arguments and returns a value. Unbound instance method references
-with one additional parameter naturally map to BiFunction. Two-argument static methods also map
-to BiFunction.
-
-Comparator<T> is a special case of BiFunction<T,T,Integer> with additional utilities. The
-Comparator interface integrates deeply with method references via comparing(), thenComparing(),
-comparingInt(), comparingLong(), comparingDouble() — all of which accept method references
-as key extractors.
-
-BiFunction.andThen() chains the transformation:
-  BiFunction<T,U,R> biFunc;
-  Function<R,V> after;
-  BiFunction<T,U,V> result = biFunc.andThen(after);
+PriceCache.java:8: error: reference to submit is ambiguous
+        return pool.submit(this::refresh);
+                   ^
+  both method <T>submit(Callable<T>) in ExecutorService and method submit(Runnable) in ExecutorService match
 ```
+
+Which `refresh` the reference names now depends on the target. The reference is *inexact*, and
+javac doesn't use it to choose the overload of `submit`: it only checks that some `refresh` takes
+as many arguments as each candidate's interface supplies. Both pass and neither is more specific,
+so the call is ambiguous. A single varargs method (`int count(String... names)`) or generic method
+(`static <T> T none()`) gave javac 21 the same error. Naming the target fixes one call site:
 
 ```java
-import java.util.function.*;
-import java.util.*;
-import java.util.stream.*;
-
-record Point(double x, double y) {
-    double distanceTo(Point other) {
-        double dx = this.x - other.x;
-        double dy = this.y - other.y;
-        return Math.sqrt(dx * dx + dy * dy);
-    }
-}
-
-public class BiFunctionMethodRefDemo {
-
-    // Two-argument static method → BiFunction
-    static String formatEntry(String key, Integer value) {
-        return key + "=" + value;
-    }
-
-    public static void main(String[] args) {
-        // Static two-arg method → BiFunction
-        BiFunction<String, Integer, String> format = BiFunctionMethodRefDemo::formatEntry;
-        System.out.println(format.apply("score", 95)); // "score=95"
-
-        // Unbound instance method with one arg → BiFunction
-        // String::concat takes (String receiver, String arg) → String
-        BiFunction<String, String, String> concat = String::concat;
-        System.out.println(concat.apply("Hello, ", "World!")); // "Hello, World!"
-
-        // BiFunction.andThen: chain a Function after a BiFunction
-        BiFunction<String, String, Integer> combinedLength =
-                ((BiFunction<String, String, String>) String::concat)
-                        .andThen(String::length);
-        System.out.println(combinedLength.apply("Hello", "World")); // 10
-
-        // Unbound instance method as BiFunction: Point::distanceTo
-        BiFunction<Point, Point, Double> distance = Point::distanceTo;
-        Point p1 = new Point(0, 0), p2 = new Point(3, 4);
-        System.out.println(distance.apply(p1, p2)); // 5.0
-
-        // Comparator with method refs for multi-key sorting
-        List<Point> points = List.of(new Point(3, 4), new Point(1, 2), new Point(3, 1));
-        List<Point> sorted = points.stream()
-                .sorted(Comparator.comparingDouble(Point::x).thenComparingDouble(Point::y))
-                .collect(Collectors.toList());
-        sorted.forEach(p -> System.out.printf("(%.0f, %.0f)%n", p.x(), p.y()));
-        // (1, 2), (3, 1), (3, 4)
-    }
-}
+System.out.println("cast:   " + pool.submit((Callable<Integer>) cache::refresh).get());
+System.out.println("lambda: " + pool.submit(() -> cache.refresh()).get());
 ```
-
----
-
-**Q6: How do you build a completely method-reference-based data processing pipeline?**
 
 ```text
-A6: A fully method-reference-based pipeline is achievable when each transformation step
-corresponds to a named method. The key pattern is:
-
-1. Filter with Predicate method references (Objects::nonNull, ClassName::isValid)
-2. Transform with Function method references (ClassName::extractField, Type::convert)
-3. Sort with Comparator.comparing(MethodRef)
-4. Collect with standard terminal operations
-
-When computation or multi-step logic is needed, extract to a named static or instance method
-and reference it. This keeps the pipeline composed entirely of named operations.
-
-This approach has benefits:
-- Each method reference is independently testable
-- The pipeline reads like a business description
-- New requirements can be added by inserting new method references
+cast:   120
+lambda: 120
 ```
 
-```java
-import java.util.*;
-import java.util.stream.*;
-import java.util.function.*;
+The lambda has no parameters, so its body can be checked against both overloads, and the
+value-returning one wins.
 
-record Product(String name, String category, double price, int stock, boolean active) {}
+## An Inexact Method Reference Leaves Inference Without the Types It Needs
 
-public class FullPipelineDemo {
+Back to the opening. `comparing` is generic, `<T, U> Comparator<T> comparing(Function<? super T,
+? extends U>)`. Assigned straight to a `Comparator<Customer>`, it gets `T` from the target. With
+`.reversed()` called on its result it gets no target (unit 4.1.3), and `T` must come from the
+argument. While `displayName` had one declaration, the reference told inference its types: the
+receiver is a `Customer`, the key a `String`. Once overloaded, it tells inference nothing. `T`
+becomes `Object`, and javac then reports the closest candidate it tried, `displayName(Locale)`
+with an `Object` argument.
 
-    // Named predicates as static methods → used as method references
-    static boolean isActive(Product p) { return p.active(); }
-    static boolean inStock(Product p) { return p.stock() > 0; }
-    static boolean isPremium(Product p) { return p.price() > 100.0; }
-
-    // Named transformer
-    static String formatProduct(Product p) {
-        return String.format("%s ($%.2f, stock: %d)", p.name(), p.price(), p.stock());
-    }
-
-    public static List<String> getPremiumInStockByPrice(List<Product> products) {
-        return products.stream()
-                .filter(Objects::nonNull)                  // null guard: static ref
-                .filter(FullPipelineDemo::isActive)        // static method ref: isActive
-                .filter(FullPipelineDemo::inStock)         // static method ref: inStock
-                .filter(FullPipelineDemo::isPremium)       // static method ref: isPremium
-                .sorted(Comparator.comparingDouble(Product::price))   // sort by price
-                .map(FullPipelineDemo::formatProduct)      // transform: static method ref
-                .collect(Collectors.toList());
-    }
-
-    public static void main(String[] args) {
-        List<Product> catalog = List.of(
-                new Product("Widget A", "Hardware", 150.0, 10, true),
-                new Product("Gadget B", "Electronics", 80.0, 5, true),
-                new Product("Tool C", "Hardware", 200.0, 0, true),  // out of stock
-                new Product("Device D", "Electronics", 120.0, 3, false), // inactive
-                new Product("Part E", "Hardware", 175.0, 7, true)
-        );
-
-        List<String> premium = getPremiumInStockByPrice(catalog);
-        premium.forEach(System.out::println);
-        // Widget A ($150.00, stock: 10)
-        // Part E ($175.00, stock: 7)
-    }
-}
-```
-
----
-
-**Q7: How do you use array constructor references with `Stream.toArray()`?**
+`String::toLowerCase`, overloaded with `toLowerCase(Locale)`, fails the same way:
 
 ```text
-A7: Stream.toArray(IntFunction<T[]>) collects stream elements into a typed array.
-The argument is an IntFunction that takes the array size (int) and returns a new array of
-that size.
-
-Array constructor references (Type[]::new) are the idiomatic way to supply this factory.
-They avoid unchecked casts (unlike .toArray() with a raw Object[] return) and are more
-readable than the equivalent lambda i -> new Type[i].
-
-This works for any reference type. For primitive streams (IntStream, LongStream, DoubleStream),
-the no-argument .toArray() already returns a primitive array.
+Lower.java:4: error: incompatible types: cannot infer type-variable(s) T,U
+    Comparator<String> zToA = Comparator.comparing(String::toLowerCase).reversed();
+                                                  ^
+    (argument mismatch; invalid method reference
+      incompatible types: Object cannot be converted to Locale)
 ```
+
+`comparing(String::length).reversed()` compiles, because `length` has one declaration. Unit
+4.1.3's advice, use a method reference where a lambda can't infer its parameter, holds only for
+exact references. Each of these sorts `Mei`, `Ade` and `Zora`:
 
 ```java
-import java.util.*;
-import java.util.stream.*;
-import java.util.function.*;
-
-public class ArrayConstructorRefDemo {
-
-    record Employee(String name, double salary) {}
-
-    public static void main(String[] args) {
-        // Standard usage: collect to typed String array
-        String[] names = Stream.of("Alice", "Bob", "Charlie")
-                .map(String::toUpperCase)
-                .toArray(String[]::new);     // array constructor reference
-        System.out.println(Arrays.toString(names)); // [ALICE, BOB, CHARLIE]
-
-        // Without constructor reference (less idiomatic):
-        String[] names2 = Stream.of("Alice", "Bob", "Charlie")
-                .map(String::toUpperCase)
-                .toArray(i -> new String[i]);   // equivalent lambda
-        System.out.println(Arrays.toString(names2)); // same result
-
-        // With domain objects
-        Employee[] employees = Stream.of(
-                new Employee("Alice", 90000),
-                new Employee("Bob", 75000))
-                .sorted(Comparator.comparing(Employee::name))
-                .toArray(Employee[]::new);     // array constructor reference for Employee[]
-        System.out.println(employees[0].name()); // Alice
-
-        // IntFunction stands alone for array creation
-        IntFunction<double[]> doubleArrayFactory = double[]::new;
-        double[] arr = doubleArrayFactory.apply(5); // new double[5]
-        System.out.println(arr.length); // 5
-    }
-}
+customers.sort(Comparator.comparing(Customer::displayName, Comparator.reverseOrder()));
+customers.sort(Comparator.<Customer, String>comparing(Customer::displayName).reversed());
+Comparator<Customer> byName = Comparator.comparing(Customer::displayName);
+customers.sort(byName.reversed());
 ```
+
+```text
+[Zora, Mei, Ade]
+[Zora, Mei, Ade]
+[Zora, Mei, Ade]
+```
+
+The first is the one to prefer: `comparing` gets its target from `sort`, and the order to reverse
+is the key's.
+
+### A Generic Method Needs Type Arguments When Nothing Else Gives Them
+
+`Collections::emptyList` names one method, but its `T` is open until a target fixes it. In a
+chain, nothing does:
+
+```java
+CompletableFuture<List<String>> names =
+        CompletableFuture.supplyAsync(Collections::emptyList).thenApply(list -> list);
+```
+
+```text
+EmptyChain.java:6: error: incompatible types: inference variable U has incompatible bounds
+            CompletableFuture.supplyAsync(Collections::emptyList).thenApply(list -> list);
+                                                                           ^
+    equality constraints: List<String>
+    lower bounds: List<Object>
+```
+
+`supplyAsync` inferred a `List<Object>`, and `thenApply` can't turn it into a `List<String>`.
+`Collections::<String>emptyList` supplies the type argument, and the same chain compiles and
+yields `[]`.
+
+> **javac and the specification.** As we read JLS 15.13.1, a generic method reference with
+> explicit type arguments is exact. javac 21 still reports
+> `pool.submit(Collections::<String>emptyList)` as ambiguous, like `this::refresh`; a cast to
+> `Callable<List<String>>` compiles.
+
+## A Varargs Method Packs the Interface's Arguments, So an Array Becomes One Element
+
+`String.format(String, Object...)` fits a `BiFunction<String, Object, String>`. No
+`format(String, Object)` exists, so javac reaches the varargs phase and compiles the reference to
+a synthetic `lambda$` method (unit 4.3.1) that calls `String.format(t, x)` with `x` typed `Object`,
+so `x` is packed into a new one-element array. A routing service renders shard names this way:
+
+```java
+BiFunction<String, Object, String> render = String::format;   // format(String, Object...)
+Object[] route = {"eu-west", 7};
+System.out.println("direct:    " + String.format("%s/%s", route));
+System.out.println("reference: " + render.apply("shard %s", "eu-west"));
+try {
+    System.out.println(render.apply("%s/%s", route));
+} catch (MissingFormatArgumentException e) {
+    System.out.println("reference: " + e);
+}
+System.out.println("reference: " + render.apply("%s", route).startsWith("[Ljava.lang.Object;@"));
+
+BiFunction<String, Object[], String> spread = String::format;
+System.out.println("spread:    " + spread.apply("%s/%s", route));
+```
+
+```text
+direct:    eu-west/7
+reference: shard eu-west
+reference: java.util.MissingFormatArgumentException: Format specifier '%s'
+reference: true
+spread:    eu-west/7
+```
+
+The direct call passes its `Object[]` as the varargs array. Through the
+reference the array arrives typed `Object` and is packed: the first `%s` gets the whole array,
+printed as `[Ljava.lang.Object;@…`, and the second finds nothing. Single values work, so the
+failure appears with the first message that carries two. With `Object[]` as the parameter type,
+the reference passes the array through.
+
+A primitive array is never spread into `T...`, since an `int[]` is not an `Object[]`:
+
+```java
+Function<String[], List<String>> words = Arrays::asList;
+Function<int[], List<int[]>> numbers = Arrays::asList;
+System.out.println(words.apply(new String[] {"a", "b", "c"}).size() + " "
+        + numbers.apply(new int[] {1, 2, 3}).size());
+```
+
+```text
+3 1
+```
+
+<!-- practice 2 -->
+
+## A Method That Throws a Checked Exception Doesn't Fit `Function`
+
+`Files.readString(Path)` declares `throws IOException`, and `Function.apply` declares nothing:
+
+```text
+ReadAll.java:5: error: incompatible thrown types IOException in functional expression
+    Function<Path, String> read = Files::readString;
+                                  ^
+```
+
+The rule is the one for a lambda's body, but a reference has no body to put a `try` in. Unit
+3.2.2 gives the two ways out: a functional interface whose method declares the exception, which
+takes `Files::readString` as it is, or a lambda that wraps the exception and code at your boundary
+that unwraps it.
+
+<!-- practice 3 -->
+
+## Summary
+
+- **The interface's parameter types choose the overload, at compile time.** `String::valueOf` as
+  a `Function<Object, String>` prints `[C@…` for a `char[]`; `Math::abs` as an `IntUnaryOperator`
+  leaves `Integer.MIN_VALUE` negative; a boxed target unboxes and throws on `null`.
+- **An exact reference (one declaration, not generic, not varargs) lets javac pick
+  `submit(Callable)`.** Adding an overload makes every `submit(this::m)` ambiguous; a cast or a
+  lambda fixes the call site.
+- **An inexact reference leaves inference without the types it needs.** `comparing(m).reversed()`
+  breaks when `m` gains an overload; pass `reverseOrder()` to `comparing`, or give type arguments.
+- **A varargs method packs the interface's arguments.** An `Object[]` passed as `Object` becomes
+  one element, and an `int[]` is never spread.
+- **A checked exception doesn't fit `Function`.** Use an interface that declares it, or wrap it in
+  a lambda (unit 3.2.2).
+
+## Reference
+
+**Which method a reference names (javac 21, handles read with `javap -v`):**
+
+| Reference | Target | Method chosen |
+|---|---|---|
+| `String::valueOf` | `Function<char[], String>` | `valueOf(char[])`; `null` throws `NullPointerException` |
+| `String::valueOf` | `Function<Object, String>` | `valueOf(Object)`; a `char[]` gives `[C@…`, `null` gives `"null"` |
+| `Math::max` | `IntBinaryOperator`, `BinaryOperator<Integer>` | `max(int, int)`; the boxed target throws on `null` |
+| `Math::max` | `BinaryOperator<Long>` | `max(long, long)` |
+| `Math::abs` | `IntUnaryOperator` / `LongUnaryOperator` | `abs(int)` / `abs(long)` |
+| `String::format` | `BiFunction<String, Object, String>` | `format(String, Object...)`, argument packed into a new array |
+| `String::format` | `BiFunction<String, Object[], String>` | `format(String, Object...)`, array passed as is |
+| `Arrays::asList` | `Function<int[], List<int[]>>` | `asList(T...)` with `T = int[]`: a list of one |
+
+**What javac 21 reported:**
+
+| Code | Result |
+|---|---|
+| `pool.submit(this::refresh)`, `refresh` overloaded | `reference to submit is ambiguous` |
+| `pool.submit(Collections::<String>emptyList)` | `reference to submit is ambiguous` |
+| `pool.submit((Callable<List<String>>) Collections::emptyList)` | compiles |
+| `comparing(Customer::displayName).reversed()`, `displayName` overloaded | `cannot infer type-variable(s) T,U` |
+| `supplyAsync(Collections::emptyList).thenApply(list -> list)` as `CompletableFuture<List<String>>` | `inference variable U has incompatible bounds` |
+| `Function<Path, String> read = Files::readString` | `incompatible thrown types IOException in functional expression` |
+| `Function<String, String> show = Object::toString` | compiles |
+| `Function<Object, Integer> length = String::length` | `method length in class String cannot be applied to given types` |
+
+## Challenges
+
+1. Pick a class in your codebase that other modules use through method references. Which of its
+   methods could gain an overload without breaking a caller's build, and how would you find out
+   before merging?
+2. Your API takes a `Function<Object, String>` formatter, and callers pass `String::valueOf`.
+   Would you change the parameter type, add overloads for common types, or document it? What does
+   each cost a caller?
+3. `submit(this::refresh)` and `submit(() -> refresh())` both choose `Callable` today. Which one
+   keeps compiling when `refresh` gains an overload, and which one would you write in a code base
+   you don't control?
+
+## Design Note: Why javac Ignores an Overloaded Reference While It Picks an Overload
+
+To choose an overload of `submit`, javac checks every argument against every candidate. For a
+reference to an overloaded method, that would mean resolving the reference again for each
+candidate's parameter types, and each resolution could pick a different method, while the
+candidate's own type variables would depend on that pick. javac leaves such a reference out of the
+choice and resolves it once, against the method chosen. The cost lands on callers: adding an
+overload doesn't break compiled ones (a `Scheduler` compiled against the old `PriceCache` still
+printed `get() = 120` against the new one), but breaks them at their next compile.
 
 ## Code Examples
 

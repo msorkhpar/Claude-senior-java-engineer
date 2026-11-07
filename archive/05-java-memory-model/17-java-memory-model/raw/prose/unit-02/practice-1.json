@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Keep scratch state on the stack",
+  "title": "Keep one customer's quote off another's",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page's critical insight: **local variables are always thread-local**. They live in the stack frame of the thread running the method, so no other thread can see them. Heap variables (instance fields, static fields, array elements) are shared, and every thread using the same object uses the same fields. Its `processLocally` example keeps its running `sum` in a local variable for exactly that reason."
+      "text": "The shop's quote service creates one `QuoteFormatter` at startup, and every request thread uses it. Since the last release, support gets a ticket every few days: a customer's PDF quote shows lines or a total that belong to another customer's quote, made at about the same time. Nobody has reproduced it in a test."
     },
     {
       "type": "para",
-      "text": "One `Stats` object is shared by every thread of a service. Write `Stats.sum(Iterable<Integer> values)`, which returns the total of the values as a `long`. Many threads call it on the same `Stats` at the same time, each with its own values, and no call may disturb another or wait for another."
+      "text": "Price lookups go to the pricing service and can take seconds, so a quote often stops halfway through while other quotes are rendered."
     },
     {
-      "type": "table",
-      "headers": [
-        "values",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[1, 2, 3]`",
-          "`6`"
-        ],
-        [
-          "`[]`",
-          "`0`"
-        ],
-        [
-          "`[2147483647, 1]`",
-          "`2147483648`"
-        ],
-        [
-          "thread A sums `[10, 20]` while thread B sums `[1, 2, 3]`",
-          "A gets `30`, B gets `6`"
-        ]
-      ]
+      "type": "para",
+      "text": "Write `render(...)` in `src/main/java/practice/QuoteFormatter.java`. It returns one line per SKU, in the order given, built with `line(sku, cents)`, then `line(\"TOTAL\", sum)`. When you're done, two quotes rendered at the same time each come out with only their own lines and their own total, and no quote waits for another one's slow price. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests stop one quote inside a slow price lookup and render another while it waits."
     },
     {
       "type": "heading",
@@ -63,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Stats {\n\n    /** The total of the values. Safe to call from many threads at once on one Stats. */\n    public long sum(Iterable<Integer> values) {\n        long total = 0;\n        for (int v : values) {\n            total += v;\n        }\n        return total;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Formats price quotes for the shop. The application creates ONE QuoteFormatter at startup and\n * every request thread uses it.\n */\npublic class QuoteFormatter {\n\n    /** Looks up a price in cents. Calls the pricing service, so a lookup can take seconds. */\n    public interface PriceList {\n        long centsFor(String sku);\n    }\n\n    private final PriceList prices;\n\n    public QuoteFormatter(PriceList prices) {\n        this.prices = prices;\n    }\n\n    /** The full quote: a heading for the customer, one line per SKU, then the total. */\n    public String quote(String customer, List<String> skus) {\n        return \"Quote for \" + customer + \"\\n\" + render(skus);\n    }\n\n    /** One line of a quote, such as \"MUG-01         12.50\". */\n    static String line(String label, long cents) {\n        return String.format(\"%-12s %9d.%02d\\n\", label, cents / 100, cents % 100);\n    }\n\n    /** The lines of a quote: one per SKU, in order, then a \"TOTAL\" line with their sum. */\n    String render(List<String> skus) {\n        StringBuilder out = new StringBuilder();\n        long total = 0;\n        for (String sku : skus) {\n            long cents = prices.centsFor(sku);\n            out.append(line(sku, cents));\n            total += cents;\n        }\n        return out.append(line(\"TOTAL\", total)).toString();\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Stats {\n\n    /** The total of the values. Safe to call from many threads at once on one Stats. */\n    public long sum(Iterable<Integer> values) {\n        throw new UnsupportedOperationException(\"write sum\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.List;\n\n/**\n * Formats price quotes for the shop. The application creates ONE QuoteFormatter at startup and\n * every request thread uses it.\n */\npublic class QuoteFormatter {\n\n    /** Looks up a price in cents. Calls the pricing service, so a lookup can take seconds. */\n    public interface PriceList {\n        long centsFor(String sku);\n    }\n\n    private final PriceList prices;\n\n    public QuoteFormatter(PriceList prices) {\n        this.prices = prices;\n    }\n\n    /** The full quote: a heading for the customer, one line per SKU, then the total. */\n    public String quote(String customer, List<String> skus) {\n        return \"Quote for \" + customer + \"\\n\" + render(skus);\n    }\n\n    /** One line of a quote, such as \"MUG-01         12.50\". */\n    static String line(String label, long cents) {\n        return String.format(\"%-12s %9d.%02d\\n\", label, cents / 100, cents % 100);\n    }\n\n    /** The lines of a quote: one per SKU, in order, then a \"TOTAL\" line with their sum. */\n    String render(List<String> skus) {\n        // TODO: Build the lines of the quote: line(sku, cents) for each SKU, in order, then\n        //       line(\"TOTAL\", sum of the cents). Many request threads call this at the same\n        //       time on this one formatter, and a price lookup can be slow.\n        throw new IllegalStateException(\"TODO: render\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -83,9 +66,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 0,
     "images": 0,
     "videos": 0,
@@ -94,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "94f8c0bad6bdf5a1b50d42eb967899ef5b35e30fe0c034674d698db5786b5219",
-  "starting_code": "package practice;\n\npublic final class Stats {\n\n    /** The total of the values. Safe to call from many threads at once on one Stats. */\n    public long sum(Iterable<Integer> values) {\n        throw new UnsupportedOperationException(\"write sum\");\n    }\n}\n",
+  "content_sha256": "4d6b75281c8e0da2c57cfc02576f519e9bb5abeca9145ef0c0693aa5446803be",
+  "starting_code": "package practice;\n\nimport java.util.List;\n\n/**\n * Formats price quotes for the shop. The application creates ONE QuoteFormatter at startup and\n * every request thread uses it.\n */\npublic class QuoteFormatter {\n\n    /** Looks up a price in cents. Calls the pricing service, so a lookup can take seconds. */\n    public interface PriceList {\n        long centsFor(String sku);\n    }\n\n    private final PriceList prices;\n\n    public QuoteFormatter(PriceList prices) {\n        this.prices = prices;\n    }\n\n    /** The full quote: a heading for the customer, one line per SKU, then the total. */\n    public String quote(String customer, List<String> skus) {\n        return \"Quote for \" + customer + \"\\n\" + render(skus);\n    }\n\n    /** One line of a quote, such as \"MUG-01         12.50\". */\n    static String line(String label, long cents) {\n        return String.format(\"%-12s %9d.%02d\\n\", label, cents / 100, cents % 100);\n    }\n\n    /** The lines of a quote: one per SKU, in order, then a \"TOTAL\" line with their sum. */\n    String render(List<String> skus) {\n        // TODO: Build the lines of the quote: line(sku, cents) for each SKU, in order, then\n        //       line(\"TOTAL\", sum of the cents). Many request threads call this at the same\n        //       time on this one formatter, and a price lookup can be slow.\n        throw new IllegalStateException(\"TODO: render\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-1/src/main/java/practice/Stats.java",
-    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-1/src/test/java/practice/StatsTest.java",
+    "main_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-1/src/main/java/practice/QuoteFormatter.java",
+    "test_path": "practice/05-java-memory-model/17-java-memory-model/prose/unit-02/practice-1/src/test/java/practice/QuoteFormatterTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,19 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.StatsTest#sumsTheValues",
+        "id": "practice.QuoteFormatterTest#rendersOneLinePerSkuAndTheTotal",
         "kind": "main",
-        "says": "sum adds up the values it is given, and an empty input sums to 0."
+        "says": "a quote has one line per SKU, in order, and a total line with their sum"
       },
       {
-        "id": "practice.StatsTest#twoCallsAtOnceDoNotMix",
-        "kind": "edge",
-        "says": "Two threads summing at the same time on one shared Stats each get their own total."
+        "id": "practice.QuoteFormatterTest#quotesOneAfterAnotherDoNotCarryAnythingOver",
+        "kind": "main",
+        "says": "a quote rendered after another holds only its own lines"
       },
       {
-        "id": "practice.StatsTest#keepsNoStateInFields",
+        "id": "practice.QuoteFormatterTest#aQuoteRenderedWhileAnotherIsHalfDoneKeepsItsOwnLines",
         "kind": "edge",
-        "says": "Stats keeps no mutable fields, so sharing it needs no lock."
+        "says": "a quote rendered on another thread while one is half done leaves the first quote's lines intact"
+      },
+      {
+        "id": "practice.QuoteFormatterTest#aQuoteRenderedWhileAnotherIsHalfDoneKeepsItsOwnTotal",
+        "kind": "edge",
+        "says": "a quote rendered on another thread while one is half done leaves the first quote's total intact"
+      },
+      {
+        "id": "practice.QuoteFormatterTest#aQuoteDoesNotWaitForAnotherStuckOnAPrice",
+        "kind": "edge",
+        "says": "a quote finishes while another quote is waiting for a slow price"
       }
     ],
     "report": {
@@ -140,11 +133,10 @@
     },
     "origin": {
       "path": "17-java-memory-model/README_5.1.2.md",
-      "section": "Working Memory (Thread-Local / CPU Cache)"
+      "section": "Fields, Statics and Array Elements Are Shared; Locals and Parameters Are Not"
     },
     "concepts": [
-      "Being on the heap means an object can be shared and must then be protected; it does not make it thread-safe.",
-      "Local variables live in the running thread's stack frame and are never shared, while fields, statics and array elements are."
+      "Fields, statics and array elements are shared between threads while locals and parameters are not, so per-call state kept in a local is safe and the same state kept in a field of a shared object mixes overlapping calls."
     ]
   }
 }

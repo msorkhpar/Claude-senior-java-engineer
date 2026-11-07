@@ -1,17 +1,14 @@
-The page's critical insight: **local variables are always thread-local**. They live in
-the stack frame of the thread running the method, so no other thread can see them. Heap
-variables (instance fields, static fields, array elements) are shared, and every thread
-using the same object uses the same fields. Its `processLocally` example keeps its running
-`sum` in a local variable for exactly that reason.
+The shop's quote service creates one `QuoteFormatter` at startup, and every request thread uses
+it. Since the last release, support gets a ticket every few days: a customer's PDF quote shows
+lines or a total that belong to another customer's quote, made at about the same time. Nobody has
+reproduced it in a test.
 
-One `Stats` object is shared by every thread of a service. Write `Stats.sum(Iterable<Integer>
-values)`, which returns the total of the values as a `long`. Many threads call it on the
-same `Stats` at the same time, each with its own values, and no call may disturb another
-or wait for another.
+Price lookups go to the pricing service and can take seconds, so a quote often stops halfway
+through while other quotes are rendered.
 
-| values | answer |
-|---|---|
-| `[1, 2, 3]` | `6` |
-| `[]` | `0` |
-| `[2147483647, 1]` | `2147483648` |
-| thread A sums `[10, 20]` while thread B sums `[1, 2, 3]` | A gets `30`, B gets `6` |
+Write `render(...)` in `src/main/java/practice/QuoteFormatter.java`. It returns one line per SKU,
+in the order given, built with `line(sku, cents)`, then `line("TOTAL", sum)`. When you're done,
+two quotes rendered at the same time each come out with only their own lines and their own total,
+and no quote waits for another one's slow price. About eight lines in total.
+
+The tests stop one quote inside a slow price lookup and render another while it waits.
