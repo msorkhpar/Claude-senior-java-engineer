@@ -1,25 +1,8 @@
-Java 21's sequenced collections (JEP 431) give every collection with a defined
-order the same methods: `getFirst()`, `getLast()` and `reversed()`, a reversed
-**view** of the collection. `List`, `Deque`, `LinkedHashSet` and `TreeSet` are all
-a `SequencedCollection`, where before each had its own way (or none) to reach
-the last element. The page's edge case: `getFirst()` and `getLast()` throw
-`NoSuchElementException` on an **empty** collection.
+The reporting API has two range bugs. A scraper that asks for `?size=4294967346` gets pages of
+50 rows and pages through the whole table, where anyone asking for more than the maximum should
+get the largest page. And the usage page of a new account, which has no quota yet and has used
+nothing, draws its gauge as `NaN` and breaks the chart.
 
-Write the class `Recent`, for any `SequencedCollection` of non-null elements in
-oldest-to-newest order:
-
-- `newestFirst(SequencedCollection<T> items, int n)` returns the last `n`
-  elements, newest first, as a **new list** that later changes to `items` do not
-  affect. When `n` is larger than the size, return all of them. `n` is never
-  negative.
-- `oldest(SequencedCollection<T> items)` returns the first element, or an empty
-  `Optional` when `items` is empty.
-
-It must work for **any** sequenced collection, not only lists.
-
-| items | call | answer |
-|---|---|---|
-| `List ["a", "b", "c", "d"]` | `newestFirst(items, 2)` | `["d", "c"]` |
-| same | `newestFirst(items, 10)`, `oldest(items)` | `["d", "c", "b", "a"]`, `Optional[a]` |
-| `LinkedHashSet ["x", "y", "z"]` | `newestFirst(items, 2)` | `["z", "y"]` |
-| an empty list | `newestFirst(items, 3)`, `oldest(items)` | `[]`, `Optional.empty` |
+Finish `pageSize(requested)` and `gauge(used, quota)` in `src/main/java/practice/Limits.java`.
+The web layer has already parsed `?size=` into a `long`. Each method's comment says what it must
+return. About three lines in total.

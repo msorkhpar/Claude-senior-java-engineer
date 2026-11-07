@@ -1,25 +1,16 @@
-Java 15's hidden classes (JEP 371) are classes that cannot be discovered by
-other classes: they are registered in no class loader's namespace, so
-`Class.forName()` cannot find them, and their names contain a `/`. Since
-Java 15 the JVM implements every lambda with a hidden class, and
-`Class.isHidden()` tells whether a class is one. The page warns against assuming
-hidden classes behave like normal classes, and interviewers like to ask how they
-differ from anonymous classes.
+The payments platform runs forty services, each with a start script full of `-XX` options that
+people added over ten years. The services are moving from Java 11 to the next LTS release in one
+step. The platform team keeps an inventory of HotSpot options: for each, the release in which it
+was deprecated, made obsolete, and expired, with `null` where that hasn't happened yet. Before any
+service moves, a check reads its options against the inventory and reports what the new JVM will
+do with them.
 
-Write the class `Classes`:
+`StartOptionsCheck` already reads the options and builds the report. Finish the two `TODO` methods
+in `src/main/java/practice/StartOptionsCheck.java`:
 
-- `kind(Class<?> c)` returns `"hidden"` for a hidden class, `"anonymous"` for
-  the class of an anonymous class expression (`new Runnable() { ... }`), and
-  `"named"` for any other class. Note that a lambda's class is also marked
-  *synthetic*; that does not make it anonymous.
-- `loadable(Class<?> c)` returns whether `Class.forName(c.getName(), false, c.getClassLoader())`
-  finds that same class. When the lookup fails, return `false` rather than
-  throwing.
+- `stage(...)`: where an option is in its life on a given release;
+- `refusesToStart(...)`: whether an option in that stage stops the JVM from starting.
 
-| call | answer |
-|---|---|
-| `kind(String.class)`, `loadable(String.class)` | `"named"`, `true` |
-| `kind(((Runnable) () -> {}).getClass())` | `"hidden"` |
-| `kind(new Runnable() { public void run() {} }.getClass())` | `"anonymous"` |
-| `loadable(((Runnable) () -> {}).getClass())` | `false` |
-| `loadable(int.class)` | `false` (no class is named `"int"`) |
+The report must tell the team which options only cost a warning and which would take a service
+down on its first deploy. About six lines in total. The tests use a made-up inventory, not the
+history of real options.

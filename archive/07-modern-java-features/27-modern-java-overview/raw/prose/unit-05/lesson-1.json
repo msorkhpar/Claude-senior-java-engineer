@@ -18,260 +18,361 @@
       "text": "7.1.5. Java 21 (LTS)"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "A team moves its service from Java 17 to 21 in two steps. First the jar built for 17 runs on a 21 JVM for a month without a problem. Then the build's `--release` goes to 21, and a class nobody has changed in three years stops compiling: `getFirst() in Batch cannot implement getFirst() in List`. Java 21 only added to the library. How did that break a build?"
     },
     {
       "type": "para",
-      "text": "Java 21, released in September 2023, is a Long-Term Support release (the one after Java 17) and represents the culmination of years of evolution in the Java platform. It finalizes pattern matching for switch, record patterns, and virtual threads — three features that together transform how Java applications are written, from data processing to high-concurrency server-side code."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Java 21 is like a city completing its multi-year transit overhaul. The express rail line (virtual threads) is now open to all passengers — handling millions of riders without needing a dedicated platform thread per passenger. The smart traffic routing system (pattern matching for switch) can now inspect and route any kind of vehicle (object type) with full GPS data (record patterns), and the new organized neighborhoods (sequenced collections) finally give every district a clear first and last address."
-    },
-    {
-      "type": "para",
-      "text": "The five pillars of Java 21 are:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Pattern Matching for switch (JEP 441)** — type-safe, exhaustive switch over any object type",
-        "**Record Patterns (JEP 440)** — deconstruct records in pattern-matching contexts",
-        "**Virtual Threads (JEP 444)** — lightweight threads for massive concurrency",
-        "**Structured Concurrency (JEP 453, Preview)** — treating groups of concurrent tasks as a unit",
-        "**Foreign Function & Memory API (JEP 442, Third Preview)** — safe interop with native code and memory"
-      ]
+      "text": "Virtual threads (units 6.7.1 and 6.7.2) and record patterns and pattern matching for `switch`, final in 21 (units 1.5.3 and 1.5.4), have their own units, and so does generational ZGC (unit 10.2.2), opt-in on 21 with `-XX:+ZGenerational`. This page covers sequenced collections and a few small methods with sharp edges. Every output is from Java 21."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Ordered Collections Now Share getFirst, getLast and reversed(); Unordered Ones Don't Get Them"
+    },
+    {
+      "type": "para",
+      "text": "Before 21, the last element of a `List` was `list.get(list.size() - 1)`, of a `Deque` `getLast()`, of a `SortedSet` `last()`, and of a `LinkedHashSet` a loop over the whole set. JEP 431 adds `SequencedCollection`, `SequencedSet` and `SequencedMap`, one set of first, last and reverse methods for every collection with a defined order (listed in the Reference). `List`, `Deque`, `SortedSet`, `SortedMap`, `LinkedHashSet` and `LinkedHashMap` now extend or implement them. `HashSet` and `HashMap` don't: they have no order, so the type doesn't offer a first element."
+    },
+    {
+      "type": "para",
+      "text": "`attempt` prints what a call returned, or what it threw:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> orders = new ArrayList<>();\nSequencedMap<String, Integer> prices = new LinkedHashMap<>();\nattempt(\"orders.getFirst()\", () -> orders.getFirst());\nattempt(\"orders.get(0)\", () -> orders.get(0));\nattempt(\"prices.firstEntry()\", () -> prices.firstEntry());\nattempt(\"TreeSet.addFirst(0)\", () -> { new TreeSet<>(List.of(3, 1)).addFirst(0); return \"added\"; });\nattempt(\"List.of(\\\"a\\\").addFirst(\\\"b\\\")\", () -> { List.of(\"a\").addFirst(\"b\"); return \"added\"; });"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "orders.getFirst()              java.util.NoSuchElementException\norders.get(0)                  java.lang.IndexOutOfBoundsException: Index 0 out of bounds for length 0\nprices.firstEntry()            null\nTreeSet.addFirst(0)            java.lang.UnsupportedOperationException\nList.of(\"a\").addFirst(\"b\")     java.lang.UnsupportedOperationException"
+    },
+    {
+      "type": "para",
+      "text": "`getFirst()` on an empty collection throws, while `firstEntry()` on an empty map returns `null`, as `NavigableMap.firstEntry()` always has. Replacing `get(0)` with `getFirst()` changes the exception, and `NoSuchElementException` is not an `IndexOutOfBoundsException`, so a `catch (IndexOutOfBoundsException e)` around it stops catching. A sorted set decides positions by its comparator, so it refuses `addFirst` and `addLast`, and an unmodifiable list refuses them as it refuses `add`."
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "text": "On LinkedHashSet and LinkedHashMap, addFirst and putLast Move an Existing Entry"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "LinkedHashSet<String> tabs = new LinkedHashSet<>(List.of(\"a.txt\", \"b.txt\", \"c.txt\"));\ntabs.add(\"c.txt\");\nSystem.out.println(tabs);\ntabs.addFirst(\"c.txt\");\nSystem.out.println(tabs);\n// stock is a LinkedHashMap holding pen=3, ink=5, cap=1, in that order\nstock.put(\"pen\", 4);\nSystem.out.println(stock);\nstock.putLast(\"pen\", 2);\nSystem.out.println(stock);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[a.txt, b.txt, c.txt]\n[c.txt, a.txt, b.txt]\n{pen=4, ink=5, cap=1}\n{ink=5, cap=1, pen=2}"
+    },
+    {
+      "type": "para",
+      "text": "`add` and `put` keep insertion order, so an element already present stays where it was. The new methods name a position, so they move it there. A \"recently opened\" list built with `add` never moves a file the user opens again; built with `addFirst`, it moves the file to the top."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "reversed() Is a View: Writes Go Through, and Later Changes Show Through"
+    },
+    {
+      "type": "para",
+      "text": "`reversed()` copies nothing. It returns a view over the same elements, in the other order:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> events = new ArrayList<>(List.of(\"login\", \"view\", \"logout\"));\nList<String> newestFirst = events.reversed();\nnewestFirst.add(\"signup\");                     // the caller appends to \"its\" list\nSystem.out.println(events);\nevents.add(\"login\");\nSystem.out.println(newestFirst);\nList<String> snapshot = List.copyOf(events.reversed());\nevents.add(\"view\");\nSystem.out.println(snapshot.size() + \" in the copy, \" + newestFirst.size() + \" in the view\");"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[signup, login, view, logout]\n[login, logout, view, login, signup]\n5 in the copy, 6 in the view"
+    },
+    {
+      "type": "para",
+      "text": "The caller's `add` went to the end of the view, which is the front of `events`. A view costs the same at any size, which is why the JDK returns one. But a method that returns `events.reversed()` to show a feed newest first gives every caller write access to the feed, and a caller that keeps the view sees events that arrived later. Return `Collections.unmodifiableList(events.reversed())` for a read-only live view, and `List.copyOf(events.reversed())` for a snapshot. Iterating the view while the list changes underneath throws `ConcurrentModificationException`, as iterating the list itself would."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Class That Already Had These Names Runs on 21 but No Longer Compiles for It"
+    },
+    {
+      "type": "para",
+      "text": "`List.getFirst()` is a new default method, so a `getFirst()` that a class already had now overrides it, and must follow the rules for overriding. The class from the opening:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.ArrayList;\nimport java.util.Optional;\n\n/** A batch of rows; written for Java 17, before List had getFirst(). */\npublic class Batch<E> extends ArrayList<E> {\n    public Optional<E> getFirst() {\n        return isEmpty() ? Optional.empty() : Optional.of(get(0));\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "`javac --release 17 Batch.java` compiles it. `javac --release 21 Batch.java` doesn't:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Batch.java:6: error: getFirst() in Batch cannot implement getFirst() in List\n    public Optional<E> getFirst() {\n                       ^\n  return type Optional<E#1> is not compatible with E#1"
+    },
+    {
+      "type": "para",
+      "text": "The same happens to a package-private `String getLast()` helper in a subclass of `ArrayList<String>` (`attempting to assign weaker access privileges; was public`), and to a class that implements both `List<E>` and `Deque<E>`, which now inherits two `reversed()` methods with unrelated return types (`both define reversed(), but with unrelated return types`). Unit 7.1.1 covers that conflict between two defaults: the class must declare a `reversed()` whose return type is both, as `LinkedList` does with `LinkedList<E> reversed()`."
+    },
+    {
+      "type": "para",
+      "text": "The class file compiled for 17 still runs on 21:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "openjdk version \"21.0.12.1\" 2026-08-18 LTS\nbatch.getFirst(): Optional[row-1]"
+    },
+    {
+      "type": "para",
+      "text": "The JVM links a call by name and full descriptor, return type included, so `getFirst()` returning `Optional` and `List.getFirst()` returning `Object` are two different methods to it. The clash is a rule of the language, which only `javac` applies, and nothing recompiled `Batch` until the build moved to `--release 21`. Build with `--release 21` before you deploy on 21, and rename the colliding method (`firstRow()`). Giving it the interface's signature instead would change what every caller that sees it as a `List` gets. A method that already matched, public with the same return type or a subtype of it, compiles and now silently overrides the default."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 6 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Math.clamp Narrows a long Without Wrapping and Refuses a Reversed Range"
+    },
+    {
+      "type": "para",
+      "text": "`Math.clamp(long value, int min, int max)`, new in 21, returns an `int`, so it narrows safely. A paging endpoint reads `?size=4294967396` as a `long`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "long size = 4_294_967_396L;                    // ?size=4294967396\nSystem.out.println(Math.clamp((int) size, 1, 500));\nSystem.out.println(Math.clamp(size, 1, 500));\nattempt(\"Math.toIntExact(size)\", () -> Math.toIntExact(size));\nattempt(\"Math.clamp(50, 100, 1)\", () -> Math.clamp(50, 100, 1));\nattempt(\"Math.clamp(0.0 / 0, 0.0, 1.0)\", () -> Math.clamp(0.0 / 0, 0.0, 1.0));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "100\n500\nMath.toIntExact(size)          java.lang.ArithmeticException: integer overflow\nMath.clamp(50, 100, 1)         java.lang.IllegalArgumentException: 100 > 1\nMath.clamp(0.0 / 0, 0.0, 1.0)  NaN"
+    },
+    {
+      "type": "para",
+      "text": "The cast keeps the low 32 bits, and 4,294,967,396 is 2³² + 100, so the oversized request becomes a page of 100 that passes every later check. Clamping the `long` gives the maximum. A reversed range throws, where the `Math.max(min, Math.min(value, max))` that clamp replaces quietly returned `min`. A `NaN` value comes back as `NaN`: clamp doesn't decide what an undefined ratio means, so the caller has to."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "The Range Form of indexOf Throws Where the Old Form Returned -1"
+    },
+    {
+      "type": "para",
+      "text": "`String.indexOf(ch, beginIndex, endIndex)` (and the same with a `String` to find) searches only `[beginIndex, endIndex)`. Unlike `indexOf(ch, fromIndex)`, it checks its range:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String line = \"id=42;name=Jane Doe;city=Paris\";\nint start = line.indexOf(';') + 1;\nint end = line.indexOf(';', start);\nSystem.out.println(start + \" \" + end + \" \" + line.indexOf('=', start, end));\nSystem.out.println(line.indexOf('=', 40));\nattempt(\"indexOf('=', 0, 40)\", () -> line.indexOf('=', 0, 40));\nint last = line.lastIndexOf(';') + 1;\nint lastEnd = line.indexOf(';', last);\nattempt(\"indexOf('=', \" + last + \", \" + lastEnd + \")\", () -> line.indexOf('=', last, lastEnd));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "6 19 10\n-1\nindexOf('=', 0, 40)            java.lang.StringIndexOutOfBoundsException: Range [0, 40) out of bounds for length 30\nindexOf('=', 20, -1)           java.lang.StringIndexOutOfBoundsException: Range [20, -1) out of bounds for length 30"
+    },
+    {
+      "type": "para",
+      "text": "The result, 10, counts from the start of the string, not from `beginIndex`. The old form returns -1 for a `fromIndex` past the end; the range form throws for an `endIndex` past the length, a negative `beginIndex`, or `beginIndex > endIndex`. The last one is easy to hit: the last field of a line has no `;` after it, so `end` is -1, and a parser that works for every other field throws on that one."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "isEmoji and StringBuilder.repeat Have Code-Point Overloads, and isEmoji Says Yes to Digits"
+    },
+    {
+      "type": "para",
+      "text": "`Character.isEmoji(int)` and its siblings (`isEmojiPresentation`, `isExtendedPictographic` and others) take a code point. An emoji outside the Basic Multilingual Plane is two `char`s in a `String`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "String nick = \"jane😀\";              // \"jane\" and U+1F600, a grinning face\nSystem.out.println(nick.length() + \" chars, \" + nick.codePointCount(0, nick.length()) + \" code points\");\nSystem.out.println(nick.chars().anyMatch(Character::isEmoji));\nSystem.out.println(nick.codePoints().anyMatch(Character::isEmoji));\nSystem.out.println(\"user42\".codePoints().anyMatch(Character::isEmoji));\nSystem.out.println(\"user42\".codePoints().anyMatch(Character::isExtendedPictographic));\nSystem.out.println(new StringBuilder().repeat('-', 5));\nSystem.out.println(new StringBuilder().repeat(5, '-').length());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "6 chars, 5 code points\nfalse\ntrue\ntrue\nfalse\n-----\n45"
+    },
+    {
+      "type": "para",
+      "text": "`chars()` hands `isEmoji` the two surrogate halves, and neither is an emoji. `codePoints()` finds it, but `isEmoji` also says yes to `user42`: the methods follow the Unicode emoji data, where the digits, `#` and `*` have the `Emoji` property because they can start a keycap sequence such as 1️⃣. A filter meant for pictographs tests `isExtendedPictographic`, which is false for digits."
+    },
+    {
+      "type": "para",
+      "text": "`StringBuilder.repeat(int codePoint, int count)`, beside `repeat(CharSequence, int count)`, has the same `int` parameter. A `char` widens to `int`, so `repeat(5, '-')` compiles and appends code point 5 forty-five times."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 5 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Pattern matching for switch supports type patterns, guarded patterns (`when`), null handling, and exhaustiveness checking.",
-        "Record patterns allow nested deconstruction: `case Line(Point(int x1, int y1), Point(int x2, int y2))`.",
-        "Virtual threads are managed by the JVM, not the OS — you can create millions of them.",
-        "Virtual threads are designed for I/O-bound workloads; they unmount from carrier threads when blocking.",
-        "`Executors.newVirtualThreadPerTaskExecutor()` is the primary way to use virtual threads.",
-        "`Thread.ofVirtual()` and `Thread.ofPlatform()` provide the builder API for thread creation.",
-        "Sequenced collections (`SequencedCollection`, `SequencedSet`, `SequencedMap`) add `getFirst()`, `getLast()`, and `reversed()` (maps: `firstEntry()`, `lastEntry()`, `reversed()`).",
-        "Structured concurrency ensures child tasks complete before the parent scope exits.",
-        "The Foreign Function & Memory API offers a pure-Java alternative to JNI (third preview in Java 21, final in Java 22).",
-        "Java 21 switch expressions with sealed types don't need a `default` branch — the compiler verifies exhaustiveness."
+        "**Ordered collections share `getFirst`, `getLast` and `reversed()`; `HashSet` and `HashMap` don't.** `getFirst()` throws on an empty collection where `firstEntry()` returns `null`; sorted and unmodifiable collections refuse `addFirst`. On linked sets and maps, `addFirst`/`putLast` move an existing entry and `add`/`put` don't.",
+        "**`reversed()` is a view.** Writes go through to the original and later changes show; copy it for a snapshot, wrap it for a read-only view.",
+        "**A class that already had these names runs on 21 but no longer compiles for it.** A different return type, weaker access, or `List` plus `Deque` all fail at `--release 21`.",
+        "**`Math.clamp` narrows a `long` without wrapping and throws on `min > max`.** Clamp before you cast; `NaN` passes through.",
+        "**The range form of `indexOf` throws** where the old form returned -1; its result counts from the start of the string.",
+        "**`isEmoji` and `StringBuilder.repeat(int, int)` take code points**, and `isEmoji` is true for digits."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "This *is* the Java 21 module. Key interactions between features:"
+      "text": "**Sequenced methods (Java 21):**"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Pattern matching + sealed classes + records** = algebraic data types with exhaustive handling, enabling functional programming patterns in Java.",
-        "**Virtual threads + structured concurrency** = scalable server applications without callback hell or reactive frameworks.",
-        "**Sequenced collections** = consistent first/last element access across `List`, `LinkedHashSet`, `LinkedHashMap`, `SortedSet`, and `SortedMap`.",
-        "**Foreign Function & Memory API** = safe native interop. Like JNI, a foreign-function call pins a virtual thread to its carrier while it runs."
+      "type": "table",
+      "headers": [
+        "Type",
+        "First and last",
+        "`reversed()` returns",
+        "`getFirst()` when empty",
+        "Refuses"
+      ],
+      "rows": [
+        [
+          "`List`",
+          "`getFirst`, `getLast`, `addFirst`, `addLast`, `removeFirst`, `removeLast`",
+          "`List`",
+          "throws `NoSuchElementException`",
+          "unmodifiable lists: adds, and removes from a non-empty list"
+        ],
+        [
+          "`Deque`",
+          "the same (it had them already)",
+          "`Deque`",
+          "throws `NoSuchElementException`",
+          ""
+        ],
+        [
+          "`LinkedHashSet`",
+          "the same; `addFirst`/`addLast` move an existing element",
+          "`SequencedSet`",
+          "throws `NoSuchElementException`",
+          ""
+        ],
+        [
+          "`SortedSet` (`TreeSet`)",
+          "the same",
+          "`SortedSet` (`NavigableSet` for a `TreeSet`)",
+          "throws `NoSuchElementException`",
+          "`addFirst`, `addLast`"
+        ],
+        [
+          "a class that is both `List` and `Deque`",
+          "must declare `reversed()`; an abstract one also the six first and last methods",
+          "its own type",
+          "",
+          ""
+        ],
+        [
+          "`LinkedHashMap`",
+          "`firstEntry`, `lastEntry`, `pollFirstEntry`, `pollLastEntry` (`null` when empty); `putFirst`, `putLast` (move an existing key)",
+          "`SequencedMap`",
+          "no `getFirst()`; `sequencedKeySet().getFirst()` throws",
+          "`setValue` on an entry from `firstEntry`/`lastEntry`"
+        ],
+        [
+          "`HashSet`, `HashMap`",
+          "none",
+          "none",
+          "",
+          ""
+        ]
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "type": "para",
+      "text": "**Other Java 21 additions on this page:**"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Method",
+        "Watch for"
+      ],
+      "rows": [
         [
-          "**Using virtual threads for CPU-bound work**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: virtual threads don't help with CPU-bound tasks\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    executor.submit(() -> fibonacci(45)); // CPU-bound — no benefit\n}\n\n// RIGHT: use platform thread pools for CPU-bound work\ntry (var executor = Executors.newFixedThreadPool(\n        Runtime.getRuntime().availableProcessors())) {\n    executor.submit(() -> fibonacci(45));\n}"
-          }
+          "`Math.clamp(long, int, int)` returns `int`; also `(long, long, long)`, `(float, ...)`, `(double, ...)`",
+          "`IllegalArgumentException` when `min > max`"
         ],
         [
-          "**Forgetting null handling in switch patterns**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: NPE if obj is null and no null case\n// String result = switch (obj) {\n//     case String s -> s;\n//     default -> \"other\";  // default does NOT match null: a null obj throws NPE\n// };\n\n// RIGHT: handle null explicitly\nString result = switch (obj) {\n    case null -> \"null value\";\n    case String s -> s;\n    default -> \"other\";\n};"
-          }
+          "`Math.clamp(double, double, double)`",
+          "returns `NaN` for a `NaN` value; throws for a `NaN` bound"
         ],
         [
-          "**Missing the `when` clause in guarded patterns**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: using if inside the case body for pattern filtering\nString result = switch (obj) {\n    case Integer i -> {\n        if (i < 0) yield \"negative\";\n        yield \"positive\";\n    }\n    default -> \"other\";\n};\n\n// RIGHT: use guarded patterns with 'when'\nString result = switch (obj) {\n    case Integer i when i < 0 -> \"negative\";\n    case Integer i -> \"non-negative\";\n    default -> \"other\";\n};"
-          }
+          "`String.indexOf(ch or str, begin, end)`",
+          "throws `StringIndexOutOfBoundsException` for a range outside the string"
         ],
         [
-          "**Pinning virtual threads with synchronized blocks**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: synchronized pins the virtual thread to its carrier\nsynchronized (lock) {\n    socket.read(); // Virtual thread cannot unmount — blocks carrier thread\n}\n\n// RIGHT: use ReentrantLock instead\nReentrantLock lock = new ReentrantLock();\nlock.lock();\ntry {\n    socket.read(); // Virtual thread can unmount while waiting\n} finally {\n    lock.unlock();\n}"
-          }
+          "`StringBuilder.repeat(int codePoint, int count)`, `repeat(CharSequence, int)`",
+          "a negative count throws `IllegalArgumentException`"
         ],
         [
-          "**Pattern order matters — unreachable patterns cause compile errors**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: more specific pattern after general pattern\n// String result = switch (obj) {\n//     case Integer i -> \"integer\";\n//     case Integer i when i > 0 -> \"positive\"; // COMPILE ERROR: unreachable\n//     default -> \"other\";\n// };\n\n// RIGHT: specific patterns first\nString result = switch (obj) {\n    case Integer i when i > 0 -> \"positive\";\n    case Integer i -> \"integer\";\n    default -> \"other\";\n};"
-          }
+          "`Character.isEmoji(int)` and siblings",
+          "code points only; true for `0`–`9`, `#`, `*`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
-      "ordered": false,
+      "ordered": true,
       "items": [
-        "**Use sealed types with pattern matching** for domain models — the compiler catches missing cases.",
-        "**Prefer record patterns over manual accessor calls** for cleaner, more readable code.",
-        "**Use virtual threads for I/O-bound servers** (HTTP handlers, database queries, file I/O) — replace thread pools with `newVirtualThreadPerTaskExecutor()`.",
-        "**Avoid thread-local variables with virtual threads** — they consume memory proportional to thread count, which can be millions.",
-        "**Use `ScopedValue` (preview)** instead of `ThreadLocal` when using virtual threads.",
-        "**Order switch patterns from most specific to most general** — the first matching pattern wins.",
-        "**Use `SequencedCollection` methods** (`getFirst()`, `getLast()`, `reversed()`) instead of index-based workarounds.",
-        "**Replace `if-else instanceof` chains** with pattern-matching switch expressions for cleaner code."
+        "Your codebase has a `UserList extends ArrayList<User>` with `public User getLast()` that returns `null` on an empty list. It compiles on 21. What do callers that see it as a `List` get now, and what does `users.reversed().getFirst()` do? Run it before you guess.",
+        "A REST endpoint returns `items.reversed()` from a field. Measure `List.copyOf(items.reversed())` on 10, 10,000 and 1,000,000 elements, and decide when the view is worth the risk.",
+        "Find three places in your code that reach an end of a collection with `get(0)`, `iterator().next()` or `last()`, and decide for each whether `getFirst()` changes what happens when it is empty."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Null in pattern-matching switch**: Must be handled explicitly with `case null ->` or it throws `NullPointerException`.",
-        "**Empty `SequencedCollection`**: `getFirst()` and `getLast()` throw `NoSuchElementException` on empty collections.",
-        "**Virtual thread interruption**: Virtual threads respond to `interrupt()` the same way as platform threads.",
-        "**Record pattern with null component**: `case Point(var x, var y)` matches even if `x` or `y` is null (for reference types).",
-        "**Guarded pattern with side effects**: The `when` clause should be side-effect-free — it's evaluated as part of pattern matching.",
-        "**Nested record patterns**: Deeply nested patterns like `case Line(Point(int x1, int y1), Point(int x2, int y2))` are legal and useful.",
-        "**Virtual thread stack traces**: Stack traces work normally but may show carrier thread information in certain debugging contexts."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the New Methods Are Defaults on Old Interfaces"
     },
     {
       "type": "para",
-      "text": "Java 21 is a critical topic for senior interviews:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**\"Explain virtual threads and when to use them.\"** — The most common Java 21 question. Focus on I/O-bound vs CPU-bound, carrier threads, and the pinning problem.",
-        "**\"How does pattern matching for switch differ from traditional switch?\"** — Exhaustiveness, type patterns, guarded patterns, null handling.",
-        "**\"What are record patterns?\"** — Nested deconstruction, combining with sealed types for algebraic data types.",
-        "**\"How would you migrate a reactive application to virtual threads?\"** — Shows understanding of both paradigms and practical migration knowledge.",
-        "**\"What replaces JNI?\"** — Foreign Function & Memory API — safe, performant, pure-Java native interop."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q1: What are virtual threads and how do they differ from platform threads?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Virtual threads (JEP 444) are lightweight threads managed by the JVM rather than the OS.\n\nKey differences:\n1. Resource cost: Platform threads map 1:1 to OS threads (~1MB stack each). Virtual\n   threads are JVM-managed; their stacks live on the heap and start small (well under\n   1 KB for a shallow stack), growing as needed.\n2. Scalability: You can create millions of virtual threads vs. thousands of platform threads.\n3. Scheduling: Platform threads are scheduled by the OS. Virtual threads are scheduled\n   by the JVM onto a pool of carrier (platform) threads.\n4. Blocking behavior: When a virtual thread blocks on I/O, it unmounts from its carrier\n   thread, freeing it for other virtual threads. Platform threads hold their OS thread.\n5. Use case: Virtual threads excel at I/O-bound tasks (HTTP, database, file I/O).\n   Platform threads are better for CPU-bound work.\n6. Thread-locals: Both support ThreadLocal, but virtual threads make them expensive\n   (millions of copies). Use ScopedValue (preview) instead.\n\nImportant: Virtual threads are NOT faster for individual tasks. They enable higher\nthroughput by allowing more concurrent tasks without the overhead of OS threads."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Creating virtual threads\nThread vt = Thread.ofVirtual().name(\"my-vt\").start(() -> {\n    System.out.println(\"Running on: \" + Thread.currentThread());\n    System.out.println(\"Is virtual: \" + Thread.currentThread().isVirtual());\n});\nvt.join();\n\n// Virtual thread executor (recommended for servers)\ntry (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n    // Submit 100,000 I/O-bound tasks — no problem!\n    List<Future<String>> futures = IntStream.range(0, 100_000)\n        .mapToObj(i -> executor.submit(() -> fetchUrl(\"http://example.com/\" + i)))\n        .toList();\n\n    for (Future<String> f : futures) {\n        String result = f.get(); // Each virtual thread blocks independently\n    }\n}\n\n// Comparing thread creation\nThread platform = Thread.ofPlatform().name(\"platform-1\").start(() -> { });\nThread virtual = Thread.ofVirtual().name(\"virtual-1\").start(() -> { });\nSystem.out.println(platform.isVirtual()); // false\nSystem.out.println(virtual.isVirtual());  // true"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q2: Explain pattern matching for switch with examples of guarded patterns and null handling."
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Pattern matching for switch (JEP 441) extends switch to work with type patterns,\nguarded patterns, null patterns, and record patterns.\n\nKey features:\n1. Type patterns: match and bind in one step — case Integer i -> ...\n2. Guarded patterns: add conditions with 'when' — case Integer i when i > 0 -> ...\n3. Null handling: explicit null case — case null -> ... (previously NPE)\n4. Exhaustiveness: with sealed types, no default needed if all subtypes are covered\n5. Dominance checking: more specific patterns must come before general ones\n6. Pattern order: first matching pattern wins (not fall-through like traditional switch)\n\nThe 'when' keyword replaces the need for if-statements inside case blocks, making\nthe intent clearer and enabling the compiler to verify pattern dominance."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Comprehensive pattern matching switch\npublic String describe(Object obj) {\n    return switch (obj) {\n        case null -> \"null\";\n        case Integer i when i < 0 -> \"negative: \" + i;\n        case Integer i when i == 0 -> \"zero\";\n        case Integer i -> \"positive: \" + i;\n        case String s when s.isBlank() -> \"blank string\";\n        case String s -> \"string: \" + s;\n        case List<?> l when l.isEmpty() -> \"empty list\";\n        case List<?> l -> \"list of \" + l.size();\n        case int[] arr -> \"int array of length \" + arr.length;\n        default -> \"other: \" + obj.getClass().getSimpleName();\n    };\n}\n\n// Exhaustive switch with sealed types (no default needed)\nsealed interface Result permits Success, Failure {}\nrecord Success(String data) implements Result {}\nrecord Failure(String error) implements Result {}\n\npublic String handleResult(Result result) {\n    return switch (result) {\n        case Success(String data) -> \"OK: \" + data;   // Record pattern!\n        case Failure(String error) -> \"ERR: \" + error;\n        // No default — compiler knows these are all cases\n    };\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q3: What are record patterns and how do they enable nested deconstruction?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Record patterns (JEP 440) allow you to deconstruct a record's components directly\nin pattern-matching contexts (instanceof and switch).\n\nKey concepts:\n1. Basic deconstruction: case Point(int x, int y) — binds x and y\n2. Nested deconstruction: case Line(Point(int x1, int y1), Point(int x2, int y2))\n3. Type inference: use 'var' for inferred types — case Point(var x, var y)\n4. Combined with guards: case Point(int x, int y) when x > 0 && y > 0\n5. Works in instanceof: if (obj instanceof Point(int x, int y))\n\nBenefits:\n- Eliminates accessor method calls in destructuring scenarios\n- Enables deep pattern matching in one expression\n- Combined with sealed interfaces, creates exhaustive algebraic data type handling\n- Makes Java competitive with Scala/Kotlin for data-oriented programming"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Record definitions\nrecord Point(int x, int y) {}\nrecord Line(Point start, Point end) {}\nrecord Circle(Point center, double radius) {}\n\n// Basic record pattern\nString describe(Object obj) {\n    return switch (obj) {\n        case Point(int x, int y) when x == 0 && y == 0 -> \"origin\";\n        case Point(int x, int y) -> \"(%d, %d)\".formatted(x, y);\n        default -> \"unknown\";\n    };\n}\n\n// Nested record pattern — deconstruct through multiple levels\n// (`_` for unused components is a preview feature in Java 21, JEP 443, final in Java 22,\n//  so this Java 21 example names every component)\nString describeLine(Line line) {\n    return switch (line) {\n        case Line(Point(int x1, int y1), Point(int x2, int y2))\n            when x1 == x2 && y1 == y2 -> \"degenerate (single point)\";\n        case Line(Point(int x1, var y1), Point(int x2, var y2))\n            when x1 == x2 -> \"vertical at x=\" + x1;\n        case Line(Point(var x1, int y1), Point(var x2, int y2))\n            when y1 == y2 -> \"horizontal at y=\" + y1;\n        case Line(Point(int x1, int y1), Point(int x2, int y2)) ->\n            \"from (%d,%d) to (%d,%d)\".formatted(x1, y1, x2, y2);\n    };\n}\n\n// instanceof with record pattern\nif (obj instanceof Circle(Point(int cx, int cy), double r) && r > 0) {\n    System.out.println(\"Circle at (\" + cx + \",\" + cy + \") with radius \" + r);\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q4: What is structured concurrency and why is it important?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Structured concurrency (JEP 453, preview in Java 21) ensures that concurrent tasks\nhave a clear lifecycle scope — child tasks must complete before the parent scope exits.\n\nThe problem it solves:\n- Unstructured concurrency: tasks launched via ExecutorService can outlive the code\n  that launched them, leading to resource leaks, orphaned tasks, and hard-to-debug errors.\n- Thread leaks: if a task is forgotten, it runs indefinitely.\n- Cancellation: canceling a parent task doesn't automatically cancel its children.\n\nStructured concurrency guarantees:\n1. All subtasks complete (succeed or fail) before the scope closes.\n2. If one subtask fails, the others can be automatically cancelled.\n3. Thread dumps show the parent-child relationship between tasks.\n4. The lifetime of concurrent tasks is bounded by a syntactic block.\n\nStructuredTaskScope is the API (preview). Policies include:\n- ShutdownOnFailure: cancel all tasks if any fails\n- ShutdownOnSuccess: cancel remaining tasks once one succeeds"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Structured concurrency pattern (conceptual — preview API)\n// Using StructuredTaskScope (requires --enable-preview)\n// Response fetchUserProfile(long userId) throws Exception {\n//     try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {\n//         Subtask<User> userTask = scope.fork(() -> fetchUser(userId));\n//         Subtask<List<Order>> ordersTask = scope.fork(() -> fetchOrders(userId));\n//         Subtask<Settings> settingsTask = scope.fork(() -> fetchSettings(userId));\n//\n//         scope.join();           // Wait for all tasks\n//         scope.throwIfFailed();  // Propagate first failure\n//\n//         return new Response(\n//             userTask.get(),\n//             ordersTask.get(),\n//             settingsTask.get()\n//         );\n//     }\n//     // All tasks guaranteed complete here — no leaks possible\n// }\n\n// Without preview API — simulating structured concurrency with virtual threads\npublic static <T> List<T> runAllOrFail(List<Callable<T>> tasks) throws Exception {\n    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {\n        List<Future<T>> futures = tasks.stream()\n            .map(executor::submit)\n            .toList();\n\n        List<T> results = new ArrayList<>();\n        for (Future<T> f : futures) {\n            results.add(f.get(10, TimeUnit.SECONDS));\n        }\n        return results;\n    } // executor.close() waits for all tasks — structured!\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q5: What are sequenced collections and why were they added?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Sequenced collections (JEP 431) add three new interfaces to the Collections framework:\n- SequencedCollection<E> extends Collection<E>\n- SequencedSet<E> extends SequencedCollection<E>, Set<E>\n- SequencedMap<K,V> extends Map<K,V>\n\nProblem they solve:\nBefore Java 21, accessing the first/last elements of ordered collections was inconsistent:\n- List: list.get(0) / list.get(list.size()-1)\n- LinkedHashSet: iterator().next() / ???  (no easy way to get last!)\n- SortedSet: sortedSet.first() / sortedSet.last()\n- Deque: deque.getFirst() / deque.getLast()\n\nEach collection type had different methods for the same concept. Sequenced collections\nunify this with:\n- getFirst(), getLast() — access first/last elements\n- addFirst(E), addLast(E) — add at either end\n- removeFirst(), removeLast() — remove from either end\n- reversed() — returns a reversed view of the collection\n\nExisting classes were retrofitted:\n- ArrayList, LinkedList → implement SequencedCollection\n- LinkedHashSet → implements SequencedSet\n- LinkedHashMap → implements SequencedMap\n- TreeSet, TreeMap → implement SequencedSet/SequencedMap"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Unified first/last access\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nSystem.out.println(list.getFirst()); // \"a\"\nSystem.out.println(list.getLast());  // \"c\"\n\nLinkedHashSet<String> set = new LinkedHashSet<>(List.of(\"x\", \"y\", \"z\"));\nSystem.out.println(set.getFirst()); // \"x\"\nSystem.out.println(set.getLast());  // \"z\"\n\n// Reversed view\nSequencedCollection<String> reversed = list.reversed();\nSystem.out.println(reversed.getFirst()); // \"c\"\nSystem.out.println(reversed.getLast());  // \"a\"\n\n// Iterate in reverse without creating a new list\nfor (String s : list.reversed()) {\n    System.out.println(s); // c, b, a\n}\n\n// SequencedMap\nLinkedHashMap<String, Integer> map = new LinkedHashMap<>();\nmap.put(\"first\", 1);\nmap.put(\"second\", 2);\nmap.put(\"third\", 3);\n\nSystem.out.println(map.firstEntry()); // first=1\nSystem.out.println(map.lastEntry());  // third=3\n\nSequencedMap<String, Integer> reversedMap = map.reversed();\nSystem.out.println(reversedMap.firstEntry()); // third=3"
+      "text": "JEP 431 could have added a new collection hierarchy beside the old one. Then no existing `ArrayList` would have gained `getFirst()`, and a method taking a `SequencedCollection` would accept none of the collections already in use. Adding default methods to `List`, `Deque` and `SortedSet` made every existing ordered collection sequenced on the day of the upgrade, without a change to its code. The price is the one the opening paid. A subclass whose `getFirst`, `reversed` or `addFirst` had another return type or narrower access stops compiling, and one that matched compiles and silently overrides the new default. An interface you publish has the same trade: a new default method is binary compatible with every implementer, and source compatible only with those that never chose the same name with a different signature."
     },
     {
       "type": "heading",
@@ -291,17 +392,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 15,
-    "paras": 5,
-    "code": 10,
-    "tables": 0,
-    "lists": 8,
+    "headings": 13,
+    "paras": 23,
+    "code": 15,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 6,
     "disclosures": 0
   },
-  "content_sha256": "8c722210492bc09110c2be0fb9447766f7d3ac7e24f1b0985f39f4b5afa917f9"
+  "content_sha256": "c1161443552ac577fed18345f4b28775c5e34e7916dfa0b99c47563e68d1f650"
 }

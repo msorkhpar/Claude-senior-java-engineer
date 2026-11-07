@@ -1,22 +1,16 @@
-Pattern matching for `instanceof` tests a type and binds a variable in one step:
-`obj instanceof String s`. The page's scope rules: with `&&`, the variable is in
-scope on the right-hand side, so `obj instanceof Integer i && i > 0` is safe; and
-`null instanceof String s` is simply `false`, never an exception.
+The search team built its query library on Java 22 and tried out a preview feature in one class.
+Three other services use the library, and the platform team now plans to move all of them to
+Java 24. Last time, a service reached production and failed to start with
+`UnsupportedClassVersionError`. This time a check runs over every jar first and lists the classes
+the target runtime would refuse.
 
-Write `Describe.describe(Object obj)`. The page's way to write it is a chain of
-`instanceof` patterns rather than casts. The rows are checked in this order:
+`ClassFileCheck` already reads the bytes of each class file and builds the report. Finish the three
+`TODO` methods in `src/main/java/practice/ClassFileCheck.java`:
 
-| obj | answer |
-|---|---|
-| a `String` longer than 10 characters | `"long string: " + s` |
-| any other `String` | `"string of length " + s.length()` |
-| an `Integer` greater than 0 | `"positive integer " + i` |
-| any other `Integer` | `"integer " + i` |
-| a `List` of anything | `"list of " + list.size()` |
-| `null` | `"null"` |
-| anything else | `"other: " + obj.getClass().getSimpleName()` |
+- `release(...)`: the Java feature release a class was compiled for;
+- `usesPreview(...)`: whether it was compiled with preview features enabled;
+- `loads(...)`: whether a runtime of a given release, started with or without `--enable-preview`,
+  accepts it.
 
-For example, `describe("hi")` is `"string of length 2"`, `describe("hello, world")`
-is `"long string: hello, world"`, `describe(0)` is `"integer 0"`, and
-`describe(2.5)` is `"other: Double"`. Only `String`, `Integer` and `List` have rows
-of their own: a `Long` or a `Set` is "anything else".
+`u2(...)`, `minorVersion(...)` and `majorVersion(...)` read the header for you. About six lines in
+total.

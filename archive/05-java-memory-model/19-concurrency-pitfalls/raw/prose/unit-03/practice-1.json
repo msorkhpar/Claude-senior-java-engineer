@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Publish a report behind one volatile flag",
+  "title": "Let send threads keep the delivery rules they read",
   "blocks": [
     {
       "type": "heading",
@@ -19,44 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page's `PiggybackingExample` writes plain fields first and a `volatile` flag last. A reader that sees the flag set is guaranteed to see every write made before it: the plain writes **piggyback** on the one volatile write."
+      "text": "The mail service checks every outgoing message against its delivery rules: which recipient domains are blocked, and the largest message each domain accepts. Dozens of send threads read the rules for every message, thousands of times a second, and must never wait for a lock. The admin API changes the rules when a domain starts bouncing or a partner asks for a smaller limit."
     },
     {
       "type": "para",
-      "text": "Write `ReportBoard`, a one-shot board that one writer thread publishes to and any number of reader threads read from."
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`publish(String title, int total)` stores the report. The board is written **once**: a second `publish` throws `IllegalStateException` and changes nothing. A `null` title throws `NullPointerException`.",
-        "`read()` returns `Optional.of(new Report(title, total))` once the board is published, and `Optional.empty()` before."
-      ]
+      "text": "Support has two complaints. During a busy hour of rule changes, a send thread that had read the rules for a message saw them change while it was still checking that message. And after a block, one send thread went on sending to the blocked domain for half an hour."
     },
     {
       "type": "para",
-      "text": "Keep `title` and `total` in plain (non-volatile) fields and the \"published\" state in one `boolean` flag that makes them visible to readers. Follow the page's order as well: the writer writes the data first and the flag last, and a reader reads the flag first. The tests check the flag but cannot check that order, because the interleaving a wrong order breaks cannot be forced."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "calls",
-        "`read()`"
-      ],
-      "rows": [
-        [
-          "none",
-          "`Optional.empty()`"
-        ],
-        [
-          "`publish(\"Q3 sales\", 1250)`",
-          "`Optional[Report[title=Q3 sales, total=1250]]`"
-        ],
-        [
-          "`publish(\"Q3 sales\", 1250)`, then `publish(\"Q4\", 7)`",
-          "the second call throws; still the Q3 report"
-        ]
-      ]
+      "text": "Finish the three `TODO`s of `Store` in `src/main/java/practice/DeliveryRules.java`: `block`, `unblock` and `setMaxSizeKb`. Changes come from one admin thread at a time. When you're done, every change applies to the rules read after it, and rules a send thread has already read keep answering as they did when it read them, so a message is never checked against rules that change under it. You may change how `Store` holds the rules. About ten lines in total."
     },
     {
       "type": "heading",
@@ -71,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.Optional;\n\npublic final class ReportBoard {\n\n    public record Report(String title, int total) {\n    }\n\n    private String title;\n    private int total;\n    private volatile boolean ready;\n\n    /** Publishes the report once; a second call throws IllegalStateException. */\n    public void publish(String title, int total) {\n        Objects.requireNonNull(title, \"title\");\n        if (ready) {\n            throw new IllegalStateException(\"the board is already published\");\n        }\n        this.title = title;\n        this.total = total;\n        ready = true;\n    }\n\n    /** The published report, or empty before publish. */\n    public Optional<Report> read() {\n        if (!ready) {\n            return Optional.empty();\n        }\n        return Optional.of(new Report(title, total));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the mail service's send threads apply to every outgoing message, and the store the\n * admin API changes them through.\n */\npublic class DeliveryRules {\n\n    /** One version of the rules: which recipient domains are blocked, and each domain's size limit. */\n    public static final class Rules {\n        static final int DEFAULT_MAX_SIZE_KB = 10_240;\n\n        private final Set<String> blockedDomains;\n        private final Map<String, Integer> maxSizeKb;\n\n        Rules(Set<String> blockedDomains, Map<String, Integer> maxSizeKb) {\n            this.blockedDomains = blockedDomains;\n            this.maxSizeKb = maxSizeKb;\n        }\n\n        public boolean isBlocked(String domain) {\n            return blockedDomains.contains(domain);\n        }\n\n        public int maxSizeKb(String domain) {\n            return maxSizeKb.getOrDefault(domain, DEFAULT_MAX_SIZE_KB);\n        }\n    }\n\n    /**\n     * Holds the rules in force. Send threads call current() for every message; the admin API calls\n     * the other methods, from one thread at a time.\n     */\n    public static final class Store {\n        private volatile Rules current = new Rules(new HashSet<>(), new HashMap<>());\n\n        public Rules current() {\n            return current;\n        }\n\n        /** Stops all mail to the domain. */\n        public void block(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.add(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Lets mail to the domain through again. */\n        public void unblock(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.remove(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Sets the largest message, in KB, that may be sent to the domain. */\n        public void setMaxSizeKb(String domain, int kb) {\n            Map<String, Integer> limits = new HashMap<>(current.maxSizeKb);\n            limits.put(domain, kb);\n            current = new Rules(current.blockedDomains, limits);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -83,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\n\npublic final class ReportBoard {\n\n    public record Report(String title, int total) {\n    }\n\n    /** Publishes the report once; a second call throws IllegalStateException. */\n    public void publish(String title, int total) {\n        throw new UnsupportedOperationException(\"write publish\");\n    }\n\n    /** The published report, or empty before publish. */\n    public Optional<Report> read() {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the mail service's send threads apply to every outgoing message, and the store the\n * admin API changes them through.\n */\npublic class DeliveryRules {\n\n    /** One version of the rules: which recipient domains are blocked, and each domain's size limit. */\n    public static final class Rules {\n        static final int DEFAULT_MAX_SIZE_KB = 10_240;\n\n        private final Set<String> blockedDomains;\n        private final Map<String, Integer> maxSizeKb;\n\n        Rules(Set<String> blockedDomains, Map<String, Integer> maxSizeKb) {\n            this.blockedDomains = blockedDomains;\n            this.maxSizeKb = maxSizeKb;\n        }\n\n        public boolean isBlocked(String domain) {\n            return blockedDomains.contains(domain);\n        }\n\n        public int maxSizeKb(String domain) {\n            return maxSizeKb.getOrDefault(domain, DEFAULT_MAX_SIZE_KB);\n        }\n    }\n\n    /**\n     * Holds the rules in force. Send threads call current() for every message; the admin API calls\n     * the other methods, from one thread at a time.\n     */\n    public static final class Store {\n        private Rules current = new Rules(new HashSet<>(), new HashMap<>());\n\n        public Rules current() {\n            return current;\n        }\n\n        /** Stops all mail to the domain. */\n        public void block(String domain) {\n            // TODO: From the next message on, no mail goes to this domain. Send threads that are in\n            //       the middle of a message keep the rules they read for it.\n            throw new IllegalStateException(\"TODO: block\");\n        }\n\n        /** Lets mail to the domain through again. */\n        public void unblock(String domain) {\n            // TODO: From the next message on, mail to this domain goes through again.\n            throw new IllegalStateException(\"TODO: unblock\");\n        }\n\n        /** Sets the largest message, in KB, that may be sent to the domain. */\n        public void setMaxSizeKb(String domain, int kb) {\n            // TODO: From the next message on, this is the domain's size limit.\n            throw new IllegalStateException(\"TODO: setMaxSizeKb\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -93,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -102,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4edeabdb5e2cc433ad225b506e468b69b36735639020b5be1f00322eae83d7db",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\n\npublic final class ReportBoard {\n\n    public record Report(String title, int total) {\n    }\n\n    /** Publishes the report once; a second call throws IllegalStateException. */\n    public void publish(String title, int total) {\n        throw new UnsupportedOperationException(\"write publish\");\n    }\n\n    /** The published report, or empty before publish. */\n    public Optional<Report> read() {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n}\n",
+  "content_sha256": "79a48e259605fa81b17ed69b7894068cacb36a4cb1aa2d53e31a109728f1d5c8",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the mail service's send threads apply to every outgoing message, and the store the\n * admin API changes them through.\n */\npublic class DeliveryRules {\n\n    /** One version of the rules: which recipient domains are blocked, and each domain's size limit. */\n    public static final class Rules {\n        static final int DEFAULT_MAX_SIZE_KB = 10_240;\n\n        private final Set<String> blockedDomains;\n        private final Map<String, Integer> maxSizeKb;\n\n        Rules(Set<String> blockedDomains, Map<String, Integer> maxSizeKb) {\n            this.blockedDomains = blockedDomains;\n            this.maxSizeKb = maxSizeKb;\n        }\n\n        public boolean isBlocked(String domain) {\n            return blockedDomains.contains(domain);\n        }\n\n        public int maxSizeKb(String domain) {\n            return maxSizeKb.getOrDefault(domain, DEFAULT_MAX_SIZE_KB);\n        }\n    }\n\n    /**\n     * Holds the rules in force. Send threads call current() for every message; the admin API calls\n     * the other methods, from one thread at a time.\n     */\n    public static final class Store {\n        private Rules current = new Rules(new HashSet<>(), new HashMap<>());\n\n        public Rules current() {\n            return current;\n        }\n\n        /** Stops all mail to the domain. */\n        public void block(String domain) {\n            // TODO: From the next message on, no mail goes to this domain. Send threads that are in\n            //       the middle of a message keep the rules they read for it.\n            throw new IllegalStateException(\"TODO: block\");\n        }\n\n        /** Lets mail to the domain through again. */\n        public void unblock(String domain) {\n            // TODO: From the next message on, mail to this domain goes through again.\n            throw new IllegalStateException(\"TODO: unblock\");\n        }\n\n        /** Sets the largest message, in KB, that may be sent to the domain. */\n        public void setMaxSizeKb(String domain, int kb) {\n            // TODO: From the next message on, this is the domain's size limit.\n            throw new IllegalStateException(\"TODO: setMaxSizeKb\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-1/src/main/java/practice/ReportBoard.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-1/src/test/java/practice/ReportBoardTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-1/src/main/java/practice/DeliveryRules.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-1/src/test/java/practice/DeliveryRulesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -127,24 +98,19 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ReportBoardTest#aPublishedReportIsReadWhole",
+        "id": "practice.DeliveryRulesTest#eachChangeAppliesToTheRulesReadAfterIt",
         "kind": "main",
-        "says": "After publish(title, total), read() returns that report, in the writer's thread and in a reader's thread."
+        "says": "blocking, unblocking and a new size limit each show in the rules read after the change"
       },
       {
-        "id": "practice.ReportBoardTest#readingBeforePublishIsEmpty",
+        "id": "practice.DeliveryRulesTest#aSendThatAlreadyReadTheRulesKeepsThemThroughEveryChange",
         "kind": "edge",
-        "says": "Before anything is published, read() is empty rather than a report of default values."
+        "says": "rules a send thread read before a change still answer as they did when it read them"
       },
       {
-        "id": "practice.ReportBoardTest#aSecondPublishIsRefused",
+        "id": "practice.DeliveryRulesTest#sendThreadsReadTheRulesThroughAFieldThatPublishesEachChange",
         "kind": "edge",
-        "says": "A second publish() throws IllegalStateException, because published data must never be written again."
-      },
-      {
-        "id": "practice.ReportBoardTest#theReadyFlagIsVolatile",
-        "kind": "edge",
-        "says": "The ready flag is a volatile boolean, the one write that publishes the plain fields written before it."
+        "says": "the store holds the rules in a volatile field or an AtomicReference, so a send thread that takes no lock is guaranteed to see each change"
       }
     ],
     "report": {
@@ -153,11 +119,10 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.3.md",
-      "section": "4. Unsafe publication of mutable objects"
+      "section": "volatile Covers Reads of the Field, Not the Object It Points To"
     },
     "concepts": [
-      "Plain writes made before a volatile write are visible to any thread that later reads that volatile variable.",
-      "A reference published without synchronization can expose an object whose fields still hold their default values."
+      "A published object is never changed again: a change builds a new object and assigns it to the volatile field, so readers that already hold the old one keep a version that doesn't change under them."
     ]
   }
 }

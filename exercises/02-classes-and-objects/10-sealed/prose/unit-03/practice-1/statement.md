@@ -1,26 +1,14 @@
-The page's domain-modeling example: a financial application has a sealed
-`Transaction` type with exactly three kinds, `Deposit`, `Withdrawal` and
-`Transfer`. `Ledger` models them as records of a sealed interface:
+The support desk refunds orders through `Refunds.refund(orderId, cents)`. Three steps can refuse:
+the order store doesn't know the order, the amount is more than what is left to refund (or isn't
+positive), or the bank refuses the payment. All three are everyday outcomes, and the desk's screen
+shows the reason to the agent.
 
-- `Deposit(String account, long cents)`
-- `Withdrawal(String account, long cents)`
-- `Transfer(String from, String to, long cents)`
+Two incidents last month: a refund larger than the order went to the bank anyway, and an agent saw
+"refund failed" for an order id with a typo in it, with no hint what was wrong.
 
-Write `static long balance(String account, List<Transaction> transactions)`:
-start at 0 and apply every transaction in order, as it affects `account`:
+Finish `refund` in `src/main/java/practice/Refunds.java`. The order store and the gateway already
+answer with a `Result`, and `refundable(order, cents)` checks the amount. When you're done, money
+reaches the gateway only when the order exists and the amount is allowed, and every refusal comes
+back as an `Err` that the desk can show as it is. About twelve lines in total.
 
-- a deposit into `account` adds its cents;
-- a withdrawal from `account` takes its cents away;
-- a transfer takes its cents from `from` and adds them to `to`;
-- anything about other accounts does not change the balance.
-
-An account is identified by its name: two `String`s with the same text name the same account.
-
-Use a `switch` over the transaction; since `Transaction` is sealed, it needs
-no `default`. Balances may go negative.
-
-**Examples**
-
-- `balance("A", [Deposit(A, 100), Withdrawal(A, 30)])` -> `70`
-- `balance("B", [Transfer(A, B, 40)])` -> `40`
-- `balance("A", [])` -> `0`
+The tests use their own orders, amounts and gateway answers.

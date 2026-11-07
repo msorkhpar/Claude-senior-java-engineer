@@ -1,27 +1,13 @@
-The page suggests sealed types for state machines: only the valid states
-exist, and the transitions between them are controlled. `Door` models a door
-whose state is one of three records of a sealed interface `State`:
-`Opened()`, `Closed()` and `Locked(String code)`.
+The help desk's old ticket table has a `status` column (`OPEN`, `ASSIGNED`, `RESOLVED`) and two
+columns that may be null: `agent` and `resolution`. Years of manual fixes left rows that contradict
+their status, and the dashboard shows tickets "resolved by null". The new code keeps each ticket as
+one of three records, `Open`, `Assigned` and `Resolved`, each holding the data of its state.
 
-Write the four transitions. Each takes the current state and returns the next
-one:
+Finish `src/main/java/practice/Tickets.java`: the two constructors marked `TODO` and `fromRow`.
+When you're done, no code path, the loader or any other, can produce an `Assigned` without an
+agent or a `Resolved` without an agent and a resolution (a blank string counts as missing). A row
+that doesn't fit its status is refused with an `IllegalArgumentException` that lets the data team
+find the row; nothing in it is silently dropped. `requireText` and `requireEmpty` are there to use.
+About twenty lines in total.
 
-| transition | from `Opened` | from `Closed` | from `Locked(c)` |
-|---|---|---|---|
-| `open(s)` | `Opened` | `Opened` | refused |
-| `close(s)` | `Closed` | `Closed` | unchanged |
-| `lock(s, code)` | refused | `Locked(code)` | unchanged |
-| `unlock(s, code)` | unchanged | unchanged | `Closed` if `code` equals `c`, else unchanged |
-
-A code matches when its text is the same.
-
-"Refused" means throw `IllegalStateException`. "Unchanged" means return the
-state you were given. Switch over the state; `State` is sealed, so no
-`default` is needed.
-
-**Examples**
-
-- `open(new Closed())` -> `Opened[]`
-- `lock(new Closed(), "1234")` -> `Locked[code=1234]`
-- `unlock(new Locked("1234"), "1234")` -> `Closed[]`
-- `open(new Locked("1234"))` -> throws `IllegalStateException`
+The tests use their own ticket ids, agents and rows.

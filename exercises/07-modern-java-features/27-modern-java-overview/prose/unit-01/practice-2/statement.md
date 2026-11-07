@@ -1,19 +1,9 @@
-The page says streams are lazy: intermediate operations run only when a
-terminal operation pulls elements, and operations such as `findFirst()` and
-`anyMatch()` are short-circuiting. Its pitfall is collecting a whole
-filtered list just to look at its first element, which processes the entire
-stream.
+The invoicing run e-mails each invoice to the account's billing address. Last night it stopped
+halfway with nothing in the log but `java.util.NoSuchElementException: No value present`, and the
+on-call engineer spent an hour finding out which of 30,000 accounts caused it.
 
-Write `FirstMatch.first(List<String> raw, Function<String, String> clean, Predicate<String> wanted)`.
-It applies `clean` to the elements of `raw`, in order, and returns the first
-cleaned value that `wanted` accepts, or an empty `Optional` if none does.
-
-- `clean` may be expensive: call it only on the elements up to and including
-  the first match, never on the rest.
-- `raw` may contain `null` elements: skip them without calling `clean` on them.
-
-| raw | clean | wanted | answer |
-|---|---|---|---|
-| `[" a ", " bb ", " ccc ", " dd "]` | `String::strip` | length is 2 | `Optional[bb]`, and `clean` ran twice |
-| `[" a ", " b "]` | `String::strip` | length is 2 | `Optional.empty` |
-| `[null, " x "]` | `String::strip` | not empty | `Optional[x]` |
+Write `invoiceAddress(accountId)` in `src/main/java/practice/BillingContacts.java`. An account
+without a billing e-mail is normal: its invoices go to `RECEIVABLES`. An invoice for an account
+that doesn't exist is a bug upstream, and the run should fail with an `UnknownAccountException`
+that says which account it was. `find` and `Account.billingEmail()` already return `Optional`.
+About four lines.

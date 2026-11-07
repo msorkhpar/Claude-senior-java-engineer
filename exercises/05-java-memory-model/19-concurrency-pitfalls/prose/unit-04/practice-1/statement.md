@@ -1,24 +1,20 @@
-The page's `MutableConfig` lets a reader see a new host with an old port.
-Its fix: an immutable record for the configuration, and a store that swaps
-in a whole new record at once, so every reader gets a consistent snapshot.
+The quoting desk keeps its rates in a `Book` that isn't thread-safe. The design gives the book to
+one thread, the desk's own executor, so that nothing needs a lock: every call into the book runs
+there. Quotes come from the market-data adapters as `CompletableFuture`s. When an adapter has the
+rate cached, the future is already complete; otherwise one of the adapter's own threads completes
+it later.
 
-Write `ConfigStore` and its nested record
-`AppConfig(String host, int port, boolean ssl, int maxRetries)`:
+The desk passed every test, where the adapters are stubs with every rate cached. In production its
+book has twice lost a rate during a busy minute, and a thread dump caught an adapter thread inside
+`Book.apply`.
 
-- `AppConfig`'s compact constructor refuses a `null` host
-  (`NullPointerException`), a port outside `0..65535` and a negative
-  `maxRetries` (`IllegalArgumentException`). `withHost` and `withPort`
-  return a new config and leave the original unchanged.
-- `ConfigStore(AppConfig initial)`, `get()` and `set(AppConfig next)`
-  hand out and replace whole snapshots (`null` is refused).
-- `update(UnaryOperator<AppConfig> change)` applies `change` to the current
-  config and stores the result, **atomically**: when two threads update at
-  the same time, both changes end up in the store. `change` may be called
-  more than once, so it must have no side effects; return the stored config.
+Finish the two `TODO`s in `src/main/java/practice/FxDesk.java`:
 
-| calls | `get()` |
-|---|---|
-| `new ConfigStore(new AppConfig("localhost", 8080, false, 3))` | `AppConfig[host=localhost, port=8080, ssl=false, maxRetries=3]` |
-| `update(c -> c.withPort(9090))` | port `9090`, everything else unchanged |
-| thread A `update(c -> c.withHost("db"))` and thread B `update(c -> c.withPort(5432))` together | host `db` **and** port `5432` |
-| `new AppConfig("h", 70000, false, 0)` | `IllegalArgumentException` |
+- `onQuote(...)`: put the quote into the book once it has arrived, and return at once;
+- `rate(...)`: answer with the book's rate for a pair.
+
+When you're done, every call into the book runs on the desk's thread, whether the quote was already
+complete, arrives later from an adapter, or is being read. About three lines in total.
+
+The tests give the desk a single-thread executor named `desk` and a book that records which thread
+made each call.

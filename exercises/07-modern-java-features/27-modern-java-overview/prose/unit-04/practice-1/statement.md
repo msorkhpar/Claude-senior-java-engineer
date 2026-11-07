@@ -1,17 +1,12 @@
-Java 17's `RandomGenerator` (JEP 356) is the common interface of every random
-number generator: `Random`, `SecureRandom`, `SplittableRandom`,
-`ThreadLocalRandom` and the new algorithms from `RandomGeneratorFactory`. The
-page's advice: **take a `RandomGenerator` as the parameter type**, so callers
-choose the algorithm, and a seeded one in tests. Its `ints(count, origin, bound)`
-streams `count` values from `origin` (inclusive) to `bound` (**exclusive**), and
-the page's edge cases say a **negative count** throws `IllegalArgumentException`.
+The support team's `/debug/dump` endpoint shows the instance fields of whatever object an engineer
+points it at. Since the service moved to Java 17, pointing it at a JDK object, such as the
+`ArrayBlockingQueue` behind the job scheduler, makes the endpoint answer 500, and the
+engineer gets nothing at all.
 
-Write `Dice.roll(RandomGenerator rng, int count, int sides)`. It returns `count`
-rolls of a die with faces `1` to `sides` (inclusive), drawn from **`rng`**.
+`FieldDump.dump(...)` already walks the fields. Finish the `TODO` in
+`src/main/java/practice/FieldDump.java`: `read(field, target)` returns the field's value as text,
+or `FieldDump.HIDDEN` when the JVM won't let the dump read it.
 
-| call | answer |
-|---|---|
-| `roll(new Random(7), 3, 6)` | three values, each from 1 to 6 |
-| `roll(RandomGeneratorFactory.of("L64X128MixRandom").create(42), 1000, 6)` | 1000 values, among which both 1 and 6 appear |
-| `roll(new SplittableRandom(1), 0, 6)` | `[]` |
-| `roll(new Random(7), -1, 6)` | throws `IllegalArgumentException` |
+When you're done, the service's own objects show every field, private ones included; a JDK object
+shows whatever the JVM lets it read and `<hidden>` for the rest; and no object makes the dump
+fail. The tests run without any `--add-opens` option. About five lines.

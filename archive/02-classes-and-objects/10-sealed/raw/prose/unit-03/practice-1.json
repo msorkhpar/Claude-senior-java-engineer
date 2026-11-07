@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "An account balance from sealed transactions",
+  "title": "Send a refund only when every step agrees, and say which step refused",
   "blocks": [
     {
       "type": "heading",
@@ -19,51 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page's domain-modeling example: a financial application has a sealed `Transaction` type with exactly three kinds, `Deposit`, `Withdrawal` and `Transfer`. `Ledger` models them as records of a sealed interface:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`Deposit(String account, long cents)`",
-        "`Withdrawal(String account, long cents)`",
-        "`Transfer(String from, String to, long cents)`"
-      ]
+      "text": "The support desk refunds orders through `Refunds.refund(orderId, cents)`. Three steps can refuse: the order store doesn't know the order, the amount is more than what is left to refund (or isn't positive), or the bank refuses the payment. All three are everyday outcomes, and the desk's screen shows the reason to the agent."
     },
     {
       "type": "para",
-      "text": "Write `static long balance(String account, List<Transaction> transactions)`: start at 0 and apply every transaction in order, as it affects `account`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "a deposit into `account` adds its cents;",
-        "a withdrawal from `account` takes its cents away;",
-        "a transfer takes its cents from `from` and adds them to `to`;",
-        "anything about other accounts does not change the balance."
-      ]
+      "text": "Two incidents last month: a refund larger than the order went to the bank anyway, and an agent saw \"refund failed\" for an order id with a typo in it, with no hint what was wrong."
     },
     {
       "type": "para",
-      "text": "An account is identified by its name: two `String`s with the same text name the same account."
+      "text": "Finish `refund` in `src/main/java/practice/Refunds.java`. The order store and the gateway already answer with a `Result`, and `refundable(order, cents)` checks the amount. When you're done, money reaches the gateway only when the order exists and the amount is allowed, and every refusal comes back as an `Err` that the desk can show as it is. About twelve lines in total."
     },
     {
       "type": "para",
-      "text": "Use a `switch` over the transaction; since `Transaction` is sealed, it needs no `default`. Balances may go negative."
-    },
-    {
-      "type": "para",
-      "text": "**Examples**"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`balance(\"A\", [Deposit(A, 100), Withdrawal(A, 30)])` -> `70`",
-        "`balance(\"B\", [Transfer(A, B, 40)])` -> `40`",
-        "`balance(\"A\", [])` -> `0`"
-      ]
+      "text": "The tests use their own orders, amounts and gateway answers."
     },
     {
       "type": "heading",
@@ -78,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic class Ledger {\n\n    public sealed interface Transaction permits Deposit, Withdrawal, Transfer {\n    }\n\n    public record Deposit(String account, long cents) implements Transaction {\n    }\n\n    public record Withdrawal(String account, long cents) implements Transaction {\n    }\n\n    public record Transfer(String from, String to, long cents) implements Transaction {\n    }\n\n    public static long balance(String account, List<Transaction> transactions) {\n        long total = 0;\n        for (Transaction t : transactions) {\n            total += effect(account, t);\n        }\n        return total;\n    }\n\n    private static long effect(String account, Transaction t) {\n        return switch (t) {\n            case Deposit d -> d.account().equals(account) ? d.cents() : 0;\n            case Withdrawal w -> w.account().equals(account) ? -w.cents() : 0;\n            case Transfer tr -> (tr.to().equals(account) ? tr.cents() : 0)\n                    - (tr.from().equals(account) ? tr.cents() : 0);\n        };\n    }\n}\n"
+          "text": "package practice;\n\n/** Sends refunds to the payment gateway, one order at a time. */\npublic class Refunds {\n\n    /** The outcome of a step that can refuse: a value, or the reason it refused. */\n    public sealed interface Result<T> permits Ok, Err {}\n    public record Ok<T>(T value) implements Result<T> {}\n    public record Err<T>(String reason) implements Result<T> {}\n\n    public record Order(String id, long paidCents, long refundedCents) {}\n    public record Refund(String orderId, long cents, String gatewayRef) {}\n\n    /** Looks an order up; an unknown id is an Err with the reason. */\n    public interface Orders {\n        Result<Order> find(String orderId);\n    }\n\n    /** Pays money back; the bank may refuse, which is an Err with the reason. Returns the gateway's reference. */\n    public interface Gateway {\n        Result<String> send(String orderId, long cents);\n    }\n\n    private final Orders orders;\n    private final Gateway gateway;\n\n    public Refunds(Orders orders, Gateway gateway) {\n        this.orders = orders;\n        this.gateway = gateway;\n    }\n\n    /** How much of this order may still be refunded: an Err when the amount isn't allowed. */\n    static Result<Long> refundable(Order order, long cents) {\n        long left = order.paidCents() - order.refundedCents();\n        if (cents <= 0) return new Err<>(\"refund must be positive, was \" + cents);\n        if (cents > left) return new Err<>(\"only \" + left + \" cents left to refund on \" + order.id());\n        return new Ok<>(cents);\n    }\n\n    /**\n     * Refunds cents on the order: finds it, checks the amount, then sends it to the gateway.\n     * Every refusal comes back as an Err carrying the reason of the step that refused.\n     */\n    public Result<Refund> refund(String orderId, long cents) {\n        Order order;\n        switch (orders.find(orderId)) {\n            case Ok<Order> ok -> order = ok.value();\n            case Err<Order> err -> { return new Err<>(err.reason()); }\n        }\n        switch (refundable(order, cents)) {\n            case Ok<Long> ok -> { }\n            case Err<Long> err -> { return new Err<>(err.reason()); }\n        }\n        return switch (gateway.send(orderId, cents)) {\n            case Ok<String> ref -> new Ok<>(new Refund(orderId, cents, ref.value()));\n            case Err<String> err -> new Err<>(err.reason());\n        };\n    }\n}\n"
         }
       ]
     },
@@ -90,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic class Ledger {\n\n    public sealed interface Transaction permits Deposit, Withdrawal, Transfer {\n    }\n\n    public record Deposit(String account, long cents) implements Transaction {\n    }\n\n    public record Withdrawal(String account, long cents) implements Transaction {\n    }\n\n    public record Transfer(String from, String to, long cents) implements Transaction {\n    }\n\n    /** The balance of account after every transaction, starting from 0. */\n    public static long balance(String account, List<Transaction> transactions) {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Sends refunds to the payment gateway, one order at a time. */\npublic class Refunds {\n\n    /** The outcome of a step that can refuse: a value, or the reason it refused. */\n    public sealed interface Result<T> permits Ok, Err {}\n    public record Ok<T>(T value) implements Result<T> {}\n    public record Err<T>(String reason) implements Result<T> {}\n\n    public record Order(String id, long paidCents, long refundedCents) {}\n    public record Refund(String orderId, long cents, String gatewayRef) {}\n\n    /** Looks an order up; an unknown id is an Err with the reason. */\n    public interface Orders {\n        Result<Order> find(String orderId);\n    }\n\n    /** Pays money back; the bank may refuse, which is an Err with the reason. Returns the gateway's reference. */\n    public interface Gateway {\n        Result<String> send(String orderId, long cents);\n    }\n\n    private final Orders orders;\n    private final Gateway gateway;\n\n    public Refunds(Orders orders, Gateway gateway) {\n        this.orders = orders;\n        this.gateway = gateway;\n    }\n\n    /** How much of this order may still be refunded: an Err when the amount isn't allowed. */\n    static Result<Long> refundable(Order order, long cents) {\n        long left = order.paidCents() - order.refundedCents();\n        if (cents <= 0) return new Err<>(\"refund must be positive, was \" + cents);\n        if (cents > left) return new Err<>(\"only \" + left + \" cents left to refund on \" + order.id());\n        return new Ok<>(cents);\n    }\n\n    /**\n     * Refunds cents on the order: finds it, checks the amount, then sends it to the gateway.\n     * Every refusal comes back as an Err carrying the reason of the step that refused.\n     */\n    public Result<Refund> refund(String orderId, long cents) {\n        // TODO: find the order, check the amount, send it; return what happened.\n        throw new IllegalStateException(\"TODO: refund\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -98,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 5,
+    "paras": 4,
     "code": 1,
     "tables": 0,
-    "lists": 3,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -109,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "73b802e7a29c3dba83e87f739a3789c61b7a6392dff31356faef9ee09aade244",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic class Ledger {\n\n    public sealed interface Transaction permits Deposit, Withdrawal, Transfer {\n    }\n\n    public record Deposit(String account, long cents) implements Transaction {\n    }\n\n    public record Withdrawal(String account, long cents) implements Transaction {\n    }\n\n    public record Transfer(String from, String to, long cents) implements Transaction {\n    }\n\n    /** The balance of account after every transaction, starting from 0. */\n    public static long balance(String account, List<Transaction> transactions) {\n        throw new UnsupportedOperationException(\"write balance\");\n    }\n}\n",
+  "content_sha256": "5083fbab0cd1ef7b40ad3d6ff85b4469a89002769f6648f4b43ca53d03cdacf0",
+  "starting_code": "package practice;\n\n/** Sends refunds to the payment gateway, one order at a time. */\npublic class Refunds {\n\n    /** The outcome of a step that can refuse: a value, or the reason it refused. */\n    public sealed interface Result<T> permits Ok, Err {}\n    public record Ok<T>(T value) implements Result<T> {}\n    public record Err<T>(String reason) implements Result<T> {}\n\n    public record Order(String id, long paidCents, long refundedCents) {}\n    public record Refund(String orderId, long cents, String gatewayRef) {}\n\n    /** Looks an order up; an unknown id is an Err with the reason. */\n    public interface Orders {\n        Result<Order> find(String orderId);\n    }\n\n    /** Pays money back; the bank may refuse, which is an Err with the reason. Returns the gateway's reference. */\n    public interface Gateway {\n        Result<String> send(String orderId, long cents);\n    }\n\n    private final Orders orders;\n    private final Gateway gateway;\n\n    public Refunds(Orders orders, Gateway gateway) {\n        this.orders = orders;\n        this.gateway = gateway;\n    }\n\n    /** How much of this order may still be refunded: an Err when the amount isn't allowed. */\n    static Result<Long> refundable(Order order, long cents) {\n        long left = order.paidCents() - order.refundedCents();\n        if (cents <= 0) return new Err<>(\"refund must be positive, was \" + cents);\n        if (cents > left) return new Err<>(\"only \" + left + \" cents left to refund on \" + order.id());\n        return new Ok<>(cents);\n    }\n\n    /**\n     * Refunds cents on the order: finds it, checks the amount, then sends it to the gateway.\n     * Every refusal comes back as an Err carrying the reason of the step that refused.\n     */\n    public Result<Refund> refund(String orderId, long cents) {\n        // TODO: find the order, check the amount, send it; return what happened.\n        throw new IllegalStateException(\"TODO: refund\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/main/java/practice/Ledger.java",
-    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/test/java/practice/LedgerTest.java",
+    "main_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/main/java/practice/Refunds.java",
+    "test_path": "practice/02-classes-and-objects/10-sealed/prose/unit-03/practice-1/src/test/java/practice/RefundsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -134,29 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LedgerTest#depositsAndWithdrawalsMakeTheBalance",
+        "id": "practice.RefundsTest#refundsAnAllowedAmountThroughTheGateway",
         "kind": "main",
-        "says": "Deposits add to an account and withdrawals take from it."
+        "says": "an allowed amount on a known order is sent once and comes back as Ok with the gateway's reference"
       },
       {
-        "id": "practice.LedgerTest#otherAccountsAreIgnored",
-        "kind": "edge",
-        "says": "Deposits and withdrawals for other accounts leave this account's balance alone."
+        "id": "practice.RefundsTest#anUnknownOrderIsAFailureAndNothingIsSent",
+        "kind": "main",
+        "says": "an unknown order comes back as Err and the gateway is never called"
       },
       {
-        "id": "practice.LedgerTest#aTransferMovesMoneyBothWays",
+        "id": "practice.RefundsTest#aRefusedAmountIsNeverSent",
         "kind": "edge",
-        "says": "A transfer takes from the paying account and adds to the receiving one."
+        "says": "an amount the check refuses is never sent to the gateway"
       },
       {
-        "id": "practice.LedgerTest#aTransferToItselfChangesNothing",
+        "id": "practice.RefundsTest#anAmountAboveWhatIsLeftComesBackAsAFailure",
         "kind": "edge",
-        "says": "A transfer from an account to itself leaves its balance unchanged."
+        "says": "an amount above what is left is returned as an Err with the check's reason, not thrown"
       },
       {
-        "id": "practice.LedgerTest#accountsMatchByNameNotByObject",
+        "id": "practice.RefundsTest#aFailureKeepsTheReasonOfTheStepThatRefused",
         "kind": "edge",
-        "says": "An account named by a different String object with the same text is still the same account."
+        "says": "an Err carries the reason of the step that refused: the order store's or the bank's"
       }
     ],
     "report": {
@@ -165,10 +133,10 @@
     },
     "origin": {
       "path": "10-sealed/README_2.5.3.md",
-      "section": "1. Domain Modeling"
+      "section": "A Sealed Result Makes an Expected Failure a Value the Caller Has to Match"
     },
     "concepts": [
-      "A sealed type models a finite set of domain subtypes, such as deposit, withdrawal and transfer transactions."
+      "With a sealed Result each step returns an expected failure as a value, and every layer must pass it on by hand, keeping its reason and stopping before the next step."
     ]
   }
 }

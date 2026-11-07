@@ -1,32 +1,13 @@
-Text blocks became standard in Java 15. The page's pitfalls are all about
-whitespace:
+The shop keeps its discount rules as small scripts, such as `total > 480`, so that the marketing
+team can change them without a release. The rules used to run on the JDK's own JavaScript engine.
+After the move to a new Java release, the service started cleanly and then failed on the first
+order that had a discount, with a `NullPointerException`.
 
-- The compiler strips the **common leading whitespace** of the content lines
-  and the closing `"""` line, so the closing delimiter's position decides how
-  much indentation is removed. A closing `"""` further left than the content
-  keeps the difference as indentation.
-- A closing `"""` on its **own line** ends the text with a newline; placing it
-  right after the last content line does not.
-- A `\` at the end of a line suppresses that line terminator, joining the line
-  to the next **with nothing in between**; any space you want must be written.
+The team has added a script engine as a dependency, and the configuration now lists the engine
+names to try, in order of preference. Finish `pickEngine(...)` in
+`src/main/java/practice/DiscountRules.java` so that rules run on the first configured engine that
+is installed, and so that a service with none of them installed fails while it starts, with
+`DiscountRules.NoScriptEngine` and a message that names the engines it looked for. About five
+lines.
 
-Pair a text block with `formatted()` to fill in values. Write the class
-`Queries` using text blocks:
-
-- `select(String table)` returns these four lines, each ending with `"\n"`,
-  with no leading spaces:
-
-  ```
-  SELECT id, name, email
-  FROM <table>
-  WHERE active = true
-  ORDER BY name ASC
-  ```
-
-- `inline(String table)` returns the same query as **one** line, parts
-  separated by single spaces, with no line terminator at all.
-
-| call | answer |
-|---|---|
-| `select("users")` | `"SELECT id, name, email\nFROM users\nWHERE active = true\nORDER BY name ASC\n"` |
-| `inline("orders")` | `"SELECT id, name, email FROM orders WHERE active = true ORDER BY name ASC"` |
+The tests register their own small engines under names such as `graal.js` and `rhino`.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Reproducible samples from a named algorithm",
+  "title": "Make a chaos run replay, worker by worker",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,15 @@
     },
     {
       "type": "para",
-      "text": "`RandomGeneratorFactory.of(name)` picks an algorithm by name, and `create(seed)` makes a seeded generator. Two of the page's pitfalls:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Hardcoding an algorithm name without checking it exists: `of()` throws for a name the JVM does not have. The page checks first with `RandomGeneratorFactory.all()`.",
-        "**Confusing seeded and unseeded generators**: a generator created with a seed is **reproducible**, giving the same sequence for the same seed, while `create()` without a seed is not."
-      ]
+      "text": "The payment team runs chaos tests against its gateway: several workers send calls at the same time, each on its own thread, and `ChaosRun` decides which of each worker's calls fail. Each run is named by an algorithm and a seed, which the report prints, for example `L128X256MixRandom / 4417`. Last week a run found a double charge, and nobody could make it happen again from the name in the report."
     },
     {
       "type": "para",
-      "text": "Write the class `Seeds`:"
+      "text": "`ChaosRun.failingCalls(...)` already makes one draw per call. Finish the `TODO` in `src/main/java/practice/ChaosRun.java`: `generatorFor(worker)` returns the generator that worker draws from in this run."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`available(String algorithm)` returns whether the JVM has an algorithm with exactly that name (names are case-sensitive). It never throws.",
-        "`sample(String algorithm, long seed, int count, int bound)` returns `count` values from `0` (inclusive) to `bound` (exclusive), drawn with `ints` from that algorithm's generator created with the whole `long` `seed`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`available(\"L64X128MixRandom\")`",
-          "`true`"
-        ],
-        [
-          "`available(\"NoSuchAlgorithm\")`, `available(\"\")`",
-          "`false`, `false`"
-        ],
-        [
-          "`sample(\"L64X128MixRandom\", 42, 5, 100)` twice",
-          "the same five values both times"
-        ],
-        [
-          "`sample(\"L64X128MixRandom\", 1, 20, 1000)` and `sample(\"L64X128MixRandom\", 2, 20, 1000)`",
-          "two different lists"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, every worker draws with the algorithm the run is named by, and a new `ChaosRun` with the same algorithm and seed fails exactly the same calls for every worker, in whatever order the workers start. Within one run the workers fail different calls from each other, and draw on their own threads without getting in each other's way. About three lines."
     },
     {
       "type": "heading",
@@ -79,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.random.RandomGeneratorFactory;\n\npublic final class Seeds {\n\n    private Seeds() {\n    }\n\n    /** Whether the JVM has an algorithm with exactly this name. */\n    public static boolean available(String algorithm) {\n        return RandomGeneratorFactory.all().anyMatch(factory -> factory.name().equals(algorithm));\n    }\n\n    /** {@code count} values in [0, bound) from the algorithm's generator seeded with {@code seed}. */\n    public static List<Integer> sample(String algorithm, long seed, int count, int bound) {\n        return RandomGeneratorFactory.of(algorithm).create(seed).ints(count, 0, bound).boxed().toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.random.RandomGenerator;\nimport java.util.random.RandomGeneratorFactory;\n\n/**\n * Decides which calls fail in one chaos run against the payment gateway. The run is named by\n * its algorithm and seed, which the report prints, so a failure seen in a run can be replayed.\n * Each worker of the run calls failingCalls on its own thread, all of them at the same time.\n */\npublic class ChaosRun {\n\n    private final String algorithm;\n    private final long seed;\n\n    public ChaosRun(String algorithm, long seed) {\n        this.algorithm = algorithm;\n        this.seed = seed;\n    }\n\n    /**\n     * The indexes, from 0 to calls - 1, of the calls this worker makes fail: one nextInt(100) draw\n     * per call, and the call fails when the draw is below percent.\n     */\n    public List<Integer> failingCalls(int worker, int calls, int percent) {\n        RandomGenerator random = generatorFor(worker);\n        List<Integer> failing = new ArrayList<>();\n        for (int call = 0; call < calls; call++) {\n            if (random.nextInt(100) < percent) failing.add(call);\n        }\n        return failing;\n    }\n\n    /** The generator this worker draws from in this run. */\n    RandomGenerator generatorFor(int worker) {\n        long workerSeed = seed ^ (0x9E3779B97F4A7C15L * (worker + 1));\n        return RandomGeneratorFactory.of(algorithm).create(workerSeed);\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Seeds {\n\n    private Seeds() {\n    }\n\n    /** Whether the JVM has an algorithm with exactly this name. */\n    public static boolean available(String algorithm) {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n\n    /** {@code count} values in [0, bound) from the algorithm's generator seeded with {@code seed}. */\n    public static List<Integer> sample(String algorithm, long seed, int count, int bound) {\n        throw new UnsupportedOperationException(\"write sample\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.random.RandomGenerator;\nimport java.util.random.RandomGeneratorFactory;\n\n/**\n * Decides which calls fail in one chaos run against the payment gateway. The run is named by\n * its algorithm and seed, which the report prints, so a failure seen in a run can be replayed.\n * Each worker of the run calls failingCalls on its own thread, all of them at the same time.\n */\npublic class ChaosRun {\n\n    private final String algorithm;\n    private final long seed;\n\n    public ChaosRun(String algorithm, long seed) {\n        this.algorithm = algorithm;\n        this.seed = seed;\n    }\n\n    /**\n     * The indexes, from 0 to calls - 1, of the calls this worker makes fail: one nextInt(100) draw\n     * per call, and the call fails when the draw is below percent.\n     */\n    public List<Integer> failingCalls(int worker, int calls, int percent) {\n        RandomGenerator random = generatorFor(worker);\n        List<Integer> failing = new ArrayList<>();\n        for (int call = 0; call < calls; call++) {\n            if (random.nextInt(100) < percent) failing.add(call);\n        }\n        return failing;\n    }\n\n    /**\n     * The generator this worker draws from in this run.\n     * TODO: a run with the same algorithm and seed must replay, worker by worker.\n     */\n    RandomGenerator generatorFor(int worker) {\n        throw new IllegalStateException(\"TODO: the generator for this worker\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -99,10 +62,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -110,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "2c3f976225c30233168e3b791bc8a039d9c7e6cbce0e8dac2f7811ec4467a4cc",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Seeds {\n\n    private Seeds() {\n    }\n\n    /** Whether the JVM has an algorithm with exactly this name. */\n    public static boolean available(String algorithm) {\n        throw new UnsupportedOperationException(\"write available\");\n    }\n\n    /** {@code count} values in [0, bound) from the algorithm's generator seeded with {@code seed}. */\n    public static List<Integer> sample(String algorithm, long seed, int count, int bound) {\n        throw new UnsupportedOperationException(\"write sample\");\n    }\n}\n",
+  "content_sha256": "a378bf05ee5af495068363e400d0b0eacb3f5c8e5d78bf3351e77e1112d7da2a",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.random.RandomGenerator;\nimport java.util.random.RandomGeneratorFactory;\n\n/**\n * Decides which calls fail in one chaos run against the payment gateway. The run is named by\n * its algorithm and seed, which the report prints, so a failure seen in a run can be replayed.\n * Each worker of the run calls failingCalls on its own thread, all of them at the same time.\n */\npublic class ChaosRun {\n\n    private final String algorithm;\n    private final long seed;\n\n    public ChaosRun(String algorithm, long seed) {\n        this.algorithm = algorithm;\n        this.seed = seed;\n    }\n\n    /**\n     * The indexes, from 0 to calls - 1, of the calls this worker makes fail: one nextInt(100) draw\n     * per call, and the call fails when the draw is below percent.\n     */\n    public List<Integer> failingCalls(int worker, int calls, int percent) {\n        RandomGenerator random = generatorFor(worker);\n        List<Integer> failing = new ArrayList<>();\n        for (int call = 0; call < calls; call++) {\n            if (random.nextInt(100) < percent) failing.add(call);\n        }\n        return failing;\n    }\n\n    /**\n     * The generator this worker draws from in this run.\n     * TODO: a run with the same algorithm and seed must replay, worker by worker.\n     */\n    RandomGenerator generatorFor(int worker) {\n        throw new IllegalStateException(\"TODO: the generator for this worker\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-2/src/main/java/practice/Seeds.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-2/src/test/java/practice/SeedsTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-2/src/main/java/practice/ChaosRun.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-04/practice-2/src/test/java/practice/ChaosRunTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,24 +98,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SeedsTest#samplesFromAnAvailableAlgorithm",
+        "id": "practice.ChaosRunTest#failsTheRequestedShareOfCallsWithinRange",
         "kind": "main",
-        "says": "A known algorithm is available, and its sample has the requested size with values from 0 up to the bound."
+        "says": "a worker fails no call at 0 %, every call at 100 %, and a plausible share of distinct, in-range calls at 30 %"
       },
       {
-        "id": "practice.SeedsTest#unknownAlgorithmsAreUnavailable",
+        "id": "practice.ChaosRunTest#aRunWithTheSameAlgorithmAndSeedReplaysEveryWorker",
         "kind": "edge",
-        "says": "An algorithm name the JVM does not have, the empty name, or a known name in the wrong case is reported unavailable instead of throwing."
+        "says": "a second run with the same algorithm and seed fails the same calls for every worker, whatever order the workers ask in"
       },
       {
-        "id": "practice.SeedsTest#sameSeedSameSample",
+        "id": "practice.ChaosRunTest#workersOfOneRunFailDifferentCalls",
         "kind": "edge",
-        "says": "Two samples with the same algorithm and seed are equal, and equal to that algorithm's own sequence for the full long seed."
+        "says": "two workers of the same run don't fail the same calls"
       },
       {
-        "id": "practice.SeedsTest#otherSeedOtherSample",
+        "id": "practice.ChaosRunTest#noTwoWorkersDrawFromTheSameGenerator",
         "kind": "edge",
-        "says": "Samples with different seeds differ."
+        "says": "each worker gets a generator of its own, since workers draw at the same time on their own threads"
+      },
+      {
+        "id": "practice.ChaosRunTest#aRunNamedWithTheLegacyAlgorithmDrawsFromRandom",
+        "kind": "edge",
+        "says": "the algorithm the run names is the one the workers draw from"
       }
     ],
     "report": {
@@ -161,11 +129,11 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Generator Shared Across Threads Is Either Slow or Wrong"
     },
     "concepts": [
-      "RandomGeneratorFactory.of(name) picks an algorithm by name, and all() lists the ones the JVM has, so availability is checked first.",
-      "A generator created with a seed gives the same sequence for the same seed; an unseeded one does not."
+      "The new algorithms are not thread-safe: shared across threads they repeat values with no exception, so each thread gets a generator of its own.",
+      "A random sequence is fixed by the algorithm and the seed: RandomGeneratorFactory.of(name).create(seed) replays, while RandomGenerator.of(name) takes no seed and getDefault() may change algorithm over time."
     ]
   }
 }

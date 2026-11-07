@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Swap an immutable config atomically",
+  "title": "Keep the desk's book on the desk's thread",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,31 @@
     },
     {
       "type": "para",
-      "text": "The page's `MutableConfig` lets a reader see a new host with an old port. Its fix: an immutable record for the configuration, and a store that swaps in a whole new record at once, so every reader gets a consistent snapshot."
+      "text": "The quoting desk keeps its rates in a `Book` that isn't thread-safe. The design gives the book to one thread, the desk's own executor, so that nothing needs a lock: every call into the book runs there. Quotes come from the market-data adapters as `CompletableFuture`s. When an adapter has the rate cached, the future is already complete; otherwise one of the adapter's own threads completes it later."
     },
     {
       "type": "para",
-      "text": "Write `ConfigStore` and its nested record `AppConfig(String host, int port, boolean ssl, int maxRetries)`:"
+      "text": "The desk passed every test, where the adapters are stubs with every rate cached. In production its book has twice lost a rate during a busy minute, and a thread dump caught an adapter thread inside `Book.apply`."
+    },
+    {
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/FxDesk.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`AppConfig`'s compact constructor refuses a `null` host (`NullPointerException`), a port outside `0..65535` and a negative `maxRetries` (`IllegalArgumentException`). `withHost` and `withPort` return a new config and leave the original unchanged.",
-        "`ConfigStore(AppConfig initial)`, `get()` and `set(AppConfig next)` hand out and replace whole snapshots (`null` is refused).",
-        "`update(UnaryOperator<AppConfig> change)` applies `change` to the current config and stores the result, **atomically**: when two threads update at the same time, both changes end up in the store. `change` may be called more than once, so it must have no side effects; return the stored config."
+        "`onQuote(...)`: put the quote into the book once it has arrived, and return at once;",
+        "`rate(...)`: answer with the book's rate for a pair."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "`get()`"
-      ],
-      "rows": [
-        [
-          "`new ConfigStore(new AppConfig(\"localhost\", 8080, false, 3))`",
-          "`AppConfig[host=localhost, port=8080, ssl=false, maxRetries=3]`"
-        ],
-        [
-          "`update(c -> c.withPort(9090))`",
-          "port `9090`, everything else unchanged"
-        ],
-        [
-          "thread A `update(c -> c.withHost(\"db\"))` and thread B `update(c -> c.withPort(5432))` together",
-          "host `db` **and** port `5432`"
-        ],
-        [
-          "`new AppConfig(\"h\", 70000, false, 0)`",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, every call into the book runs on the desk's thread, whether the quote was already complete, arrives later from an adapter, or is being read. About three lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests give the desk a single-thread executor named `desk` and a book that records which thread made each call."
     },
     {
       "type": "heading",
@@ -72,7 +58,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.concurrent.atomic.AtomicReference;\nimport java.util.function.UnaryOperator;\n\npublic final class ConfigStore {\n\n    public record AppConfig(String host, int port, boolean ssl, int maxRetries) {\n\n        public AppConfig {\n            Objects.requireNonNull(host, \"host\");\n            if (port < 0 || port > 65535) {\n                throw new IllegalArgumentException(\"invalid port: \" + port);\n            }\n            if (maxRetries < 0) {\n                throw new IllegalArgumentException(\"maxRetries must be non-negative\");\n            }\n        }\n\n        public AppConfig withHost(String newHost) {\n            return new AppConfig(newHost, port, ssl, maxRetries);\n        }\n\n        public AppConfig withPort(int newPort) {\n            return new AppConfig(host, newPort, ssl, maxRetries);\n        }\n    }\n\n    private final AtomicReference<AppConfig> current;\n\n    public ConfigStore(AppConfig initial) {\n        current = new AtomicReference<>(Objects.requireNonNull(initial));\n    }\n\n    public AppConfig get() {\n        return current.get();\n    }\n\n    public void set(AppConfig next) {\n        current.set(Objects.requireNonNull(next));\n    }\n\n    /** Applies change to the current config atomically and returns what was stored. */\n    public AppConfig update(UnaryOperator<AppConfig> change) {\n        return current.updateAndGet(c -> Objects.requireNonNull(change.apply(c)));\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.Executor;\n\n/**\n * The quoting desk. Its book of rates is not thread-safe and belongs to the desk's own thread:\n * every call into the book runs there, and nothing else synchronizes it. Quotes come from the\n * market-data adapters as futures, completed later on an adapter's thread, or already complete\n * when the adapter had the rate cached.\n */\npublic class FxDesk {\n\n    /** The desk's book of rates. Not thread-safe. */\n    public interface Book {\n        void apply(String pair, long micros);\n\n        /** The pair's rate in millionths, or null if it was never quoted. */\n        Long rate(String pair);\n    }\n\n    private final Executor deskThread;\n    private final Book book;\n\n    public FxDesk(Executor deskThread, Book book) {\n        this.deskThread = deskThread;\n        this.book = book;\n    }\n\n    /** Puts the quote into the book once it has arrived. Returns at once. */\n    public void onQuote(String pair, CompletableFuture<Long> quote) {\n        quote.thenAcceptAsync(micros -> book.apply(pair, micros), deskThread);\n    }\n\n    /** The book's current rate for the pair (null if never quoted), once the book has answered. */\n    public CompletableFuture<Long> rate(String pair) {\n        return CompletableFuture.supplyAsync(() -> book.rate(pair), deskThread);\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +70,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.UnaryOperator;\n\npublic final class ConfigStore {\n\n    public record AppConfig(String host, int port, boolean ssl, int maxRetries) {\n\n        public AppConfig {\n            // validate here\n        }\n\n        public AppConfig withHost(String newHost) {\n            throw new UnsupportedOperationException(\"write withHost\");\n        }\n\n        public AppConfig withPort(int newPort) {\n            throw new UnsupportedOperationException(\"write withPort\");\n        }\n    }\n\n    public ConfigStore(AppConfig initial) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public AppConfig get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public void set(AppConfig next) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    /** Applies change to the current config atomically and returns what was stored. */\n    public AppConfig update(UnaryOperator<AppConfig> change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.Executor;\n\n/**\n * The quoting desk. Its book of rates is not thread-safe and belongs to the desk's own thread:\n * every call into the book runs there, and nothing else synchronizes it. Quotes come from the\n * market-data adapters as futures, completed later on an adapter's thread, or already complete\n * when the adapter had the rate cached.\n */\npublic class FxDesk {\n\n    /** The desk's book of rates. Not thread-safe. */\n    public interface Book {\n        void apply(String pair, long micros);\n\n        /** The pair's rate in millionths, or null if it was never quoted. */\n        Long rate(String pair);\n    }\n\n    private final Executor deskThread;\n    private final Book book;\n\n    public FxDesk(Executor deskThread, Book book) {\n        this.deskThread = deskThread;\n        this.book = book;\n    }\n\n    /** Puts the quote into the book once it has arrived. Returns at once. */\n    public void onQuote(String pair, CompletableFuture<Long> quote) {\n        // TODO: Once the quote has arrived, apply it to the book. The book belongs to the desk's\n        //       thread, whether the quote is already here or arrives later on an adapter's thread.\n        throw new IllegalStateException(\"TODO: onQuote\");\n    }\n\n    /** The book's current rate for the pair (null if never quoted), once the book has answered. */\n    public CompletableFuture<Long> rate(String pair) {\n        // TODO: Answer from the book. The book belongs to the desk's thread, whoever asks.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,9 +78,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 5,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -103,11 +89,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "90450426d7d66305131a5e07427b92c14156436550c398829216489c0ddcfe02",
-  "starting_code": "package practice;\n\nimport java.util.function.UnaryOperator;\n\npublic final class ConfigStore {\n\n    public record AppConfig(String host, int port, boolean ssl, int maxRetries) {\n\n        public AppConfig {\n            // validate here\n        }\n\n        public AppConfig withHost(String newHost) {\n            throw new UnsupportedOperationException(\"write withHost\");\n        }\n\n        public AppConfig withPort(int newPort) {\n            throw new UnsupportedOperationException(\"write withPort\");\n        }\n    }\n\n    public ConfigStore(AppConfig initial) {\n        throw new UnsupportedOperationException(\"write the constructor\");\n    }\n\n    public AppConfig get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public void set(AppConfig next) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    /** Applies change to the current config atomically and returns what was stored. */\n    public AppConfig update(UnaryOperator<AppConfig> change) {\n        throw new UnsupportedOperationException(\"write update\");\n    }\n}\n",
+  "content_sha256": "982f78fb5049aae6b2bccda37fd0bd42584b6b28556c98635fa0739f7d215b06",
+  "starting_code": "package practice;\n\nimport java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.Executor;\n\n/**\n * The quoting desk. Its book of rates is not thread-safe and belongs to the desk's own thread:\n * every call into the book runs there, and nothing else synchronizes it. Quotes come from the\n * market-data adapters as futures, completed later on an adapter's thread, or already complete\n * when the adapter had the rate cached.\n */\npublic class FxDesk {\n\n    /** The desk's book of rates. Not thread-safe. */\n    public interface Book {\n        void apply(String pair, long micros);\n\n        /** The pair's rate in millionths, or null if it was never quoted. */\n        Long rate(String pair);\n    }\n\n    private final Executor deskThread;\n    private final Book book;\n\n    public FxDesk(Executor deskThread, Book book) {\n        this.deskThread = deskThread;\n        this.book = book;\n    }\n\n    /** Puts the quote into the book once it has arrived. Returns at once. */\n    public void onQuote(String pair, CompletableFuture<Long> quote) {\n        // TODO: Once the quote has arrived, apply it to the book. The book belongs to the desk's\n        //       thread, whether the quote is already here or arrives later on an adapter's thread.\n        throw new IllegalStateException(\"TODO: onQuote\");\n    }\n\n    /** The book's current rate for the pair (null if never quoted), once the book has answered. */\n    public CompletableFuture<Long> rate(String pair) {\n        // TODO: Answer from the book. The book belongs to the desk's thread, whoever asks.\n        throw new IllegalStateException(\"TODO: rate\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/main/java/practice/ConfigStore.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/test/java/practice/ConfigStoreTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/main/java/practice/FxDesk.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-04/practice-1/src/test/java/practice/FxDeskTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,19 +114,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ConfigStoreTest#replacesWholeSnapshots",
+        "id": "practice.FxDeskTest#aQuoteThatArrivesLaterEndsUpInTheBook",
         "kind": "main",
-        "says": "An AppConfig is validated and changed only by building a new one, and the store hands out whole snapshots, replaced by set or update."
+        "says": "a quote completed later on an adapter's thread is applied to the book, and the desk then reports it"
       },
       {
-        "id": "practice.ConfigStoreTest#invalidConfigsAreRefused",
-        "kind": "edge",
-        "says": "A null host, a port outside 0..65535 or negative retries is refused when the config is built."
+        "id": "practice.FxDeskTest#aQuoteAlreadyInHandEndsUpInTheBook",
+        "kind": "main",
+        "says": "a quote that is already complete is applied to the book, and the desk then reports it"
       },
       {
-        "id": "practice.ConfigStoreTest#racingUpdatesAreBothKept",
+        "id": "practice.FxDeskTest#aPairNeverQuotedHasNoRate",
+        "kind": "main",
+        "says": "the desk reports no rate for a pair that was never quoted"
+      },
+      {
+        "id": "practice.FxDeskTest#aQuoteThatArrivesLaterIsAppliedOnTheDeskThread",
         "kind": "edge",
-        "says": "Two threads updating the store at the same time both have their change kept: an update is never lost."
+        "says": "a quote completed on an adapter's thread is applied to the book on the desk's thread"
+      },
+      {
+        "id": "practice.FxDeskTest#aQuoteAlreadyInHandIsAppliedOnTheDeskThread",
+        "kind": "edge",
+        "says": "a quote that is already complete is applied on the desk's thread, not on the caller's"
+      },
+      {
+        "id": "practice.FxDeskTest#theRateIsReadOnTheDeskThread",
+        "kind": "edge",
+        "says": "a request for a rate reads the book on the desk's thread"
       }
     ],
     "report": {
@@ -149,11 +150,11 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.4.md",
-      "section": "1. Using mutable shared state when immutability would suffice"
+      "section": "State Confined to One Thread Needs No Lock, Until a Callback Runs Somewhere Else"
     },
     "concepts": [
-      "State is replaced by swapping the reference to a new immutable value atomically, so no update is lost and readers see whole snapshots.",
-      "Shared configuration is safest as an immutable record, validated once and changed only by building a new one."
+      "A callback attached with a non-async method runs on the thread that completes the future, or at once on the attaching thread when the future is already complete, so state confined to an owner thread must be handed back through the owner's executor.",
+      "Reads of confined state run on the owner thread too, not only writes."
     ]
   }
 }

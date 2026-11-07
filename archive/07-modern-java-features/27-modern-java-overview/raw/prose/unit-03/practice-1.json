@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Describe a value with instanceof patterns",
+  "title": "List the classes a newer runtime will refuse",
   "blocks": [
     {
       "type": "heading",
@@ -19,52 +19,24 @@
     },
     {
       "type": "para",
-      "text": "Pattern matching for `instanceof` tests a type and binds a variable in one step: `obj instanceof String s`. The page's scope rules: with `&&`, the variable is in scope on the right-hand side, so `obj instanceof Integer i && i > 0` is safe; and `null instanceof String s` is simply `false`, never an exception."
+      "text": "The search team built its query library on Java 22 and tried out a preview feature in one class. Three other services use the library, and the platform team now plans to move all of them to Java 24. Last time, a service reached production and failed to start with `UnsupportedClassVersionError`. This time a check runs over every jar first and lists the classes the target runtime would refuse."
     },
     {
       "type": "para",
-      "text": "Write `Describe.describe(Object obj)`. The page's way to write it is a chain of `instanceof` patterns rather than casts. The rows are checked in this order:"
+      "text": "`ClassFileCheck` already reads the bytes of each class file and builds the report. Finish the three `TODO` methods in `src/main/java/practice/ClassFileCheck.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "obj",
-        "answer"
-      ],
-      "rows": [
-        [
-          "a `String` longer than 10 characters",
-          "`\"long string: \" + s`"
-        ],
-        [
-          "any other `String`",
-          "`\"string of length \" + s.length()`"
-        ],
-        [
-          "an `Integer` greater than 0",
-          "`\"positive integer \" + i`"
-        ],
-        [
-          "any other `Integer`",
-          "`\"integer \" + i`"
-        ],
-        [
-          "a `List` of anything",
-          "`\"list of \" + list.size()`"
-        ],
-        [
-          "`null`",
-          "`\"null\"`"
-        ],
-        [
-          "anything else",
-          "`\"other: \" + obj.getClass().getSimpleName()`"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`release(...)`: the Java feature release a class was compiled for;",
+        "`usesPreview(...)`: whether it was compiled with preview features enabled;",
+        "`loads(...)`: whether a runtime of a given release, started with or without `--enable-preview`, accepts it."
       ]
     },
     {
       "type": "para",
-      "text": "For example, `describe(\"hi\")` is `\"string of length 2\"`, `describe(\"hello, world\")` is `\"long string: hello, world\"`, `describe(0)` is `\"integer 0\"`, and `describe(2.5)` is `\"other: Double\"`. Only `String`, `Integer` and `List` have rows of their own: a `Long` or a `Set` is \"anything else\"."
+      "text": "`u2(...)`, `minorVersion(...)` and `majorVersion(...)` read the header for you. About six lines in total."
     },
     {
       "type": "heading",
@@ -79,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Describe {\n\n    private Describe() {\n    }\n\n    /** A short description of {@code obj}, by its type and value. */\n    public static String describe(Object obj) {\n        if (obj instanceof String s && s.length() > 10) {\n            return \"long string: \" + s;\n        } else if (obj instanceof String s) {\n            return \"string of length \" + s.length();\n        } else if (obj instanceof Integer i && i > 0) {\n            return \"positive integer \" + i;\n        } else if (obj instanceof Integer i) {\n            return \"integer \" + i;\n        } else if (obj instanceof List<?> list) {\n            return \"list of \" + list.size();\n        } else if (obj == null) {\n            return \"null\";\n        }\n        return \"other: \" + obj.getClass().getSimpleName();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Reads the header of compiled classes and decides whether a given Java runtime will load them.\n * The platform team runs it over every jar before a service moves to a new Java release.\n */\npublic class ClassFileCheck {\n\n    /** The unsigned 16-bit big-endian value at {@code offset}. */\n    static int u2(byte[] classFile, int offset) {\n        return ((classFile[offset] & 0xFF) << 8) | (classFile[offset + 1] & 0xFF);\n    }\n\n    static int minorVersion(byte[] classFile) {\n        return u2(classFile, 4);\n    }\n\n    static int majorVersion(byte[] classFile) {\n        return u2(classFile, 6);\n    }\n\n    /** The Java feature release the class was compiled for: 17, 21, 25, ... */\n    static int release(byte[] classFile) {\n        return majorVersion(classFile) - 44;\n    }\n\n    /** Whether the class was compiled with preview features enabled. */\n    static boolean usesPreview(byte[] classFile) {\n        return minorVersion(classFile) == 0xFFFF;\n    }\n\n    /**\n     * Whether a JVM of feature release {@code runtimeRelease}, started with or without\n     * {@code --enable-preview}, loads this class.\n     */\n    static boolean loads(byte[] classFile, int runtimeRelease, boolean previewEnabled) {\n        if (usesPreview(classFile)) {\n            return previewEnabled && release(classFile) == runtimeRelease;\n        }\n        return release(classFile) <= runtimeRelease;\n    }\n\n    /** The names of the classes, in name order, that the runtime would refuse to load. */\n    public static List<String> refused(Map<String, byte[]> classes, int runtimeRelease, boolean previewEnabled) {\n        List<String> refused = new ArrayList<>();\n        new TreeMap<>(classes).forEach((name, bytes) -> {\n            if (!loads(bytes, runtimeRelease, previewEnabled)) refused.add(name);\n        });\n        return refused;\n    }\n\n    /** A one-line description of a class for the report, e.g. \"release 21, preview\". */\n    public static String describe(byte[] classFile) {\n        return \"release \" + release(classFile) + (usesPreview(classFile) ? \", preview\" : \"\");\n    }\n}\n"
         }
       ]
     },
@@ -91,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Describe {\n\n    private Describe() {\n    }\n\n    /** A short description of {@code obj}, by its type and value. */\n    public static String describe(Object obj) {\n        throw new UnsupportedOperationException(\"write describe\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Reads the header of compiled classes and decides whether a given Java runtime will load them.\n * The platform team runs it over every jar before a service moves to a new Java release.\n */\npublic class ClassFileCheck {\n\n    /** The unsigned 16-bit big-endian value at {@code offset}. */\n    static int u2(byte[] classFile, int offset) {\n        return ((classFile[offset] & 0xFF) << 8) | (classFile[offset + 1] & 0xFF);\n    }\n\n    static int minorVersion(byte[] classFile) {\n        return u2(classFile, 4);\n    }\n\n    static int majorVersion(byte[] classFile) {\n        return u2(classFile, 6);\n    }\n\n    /** The Java feature release the class was compiled for: 17, 21, 25, ... */\n    static int release(byte[] classFile) {\n        // TODO: Answer with the feature release (8, 17, 21, ...) this class was compiled for.\n        throw new IllegalStateException(\"TODO: release\");\n    }\n\n    /** Whether the class was compiled with preview features enabled. */\n    static boolean usesPreview(byte[] classFile) {\n        // TODO: Answer whether this class was compiled with preview features enabled.\n        throw new IllegalStateException(\"TODO: usesPreview\");\n    }\n\n    /**\n     * Whether a JVM of feature release {@code runtimeRelease}, started with or without\n     * {@code --enable-preview}, loads this class.\n     */\n    static boolean loads(byte[] classFile, int runtimeRelease, boolean previewEnabled) {\n        // TODO: Answer whether this runtime, with or without --enable-preview, accepts the class\n        //       instead of failing with UnsupportedClassVersionError.\n        throw new IllegalStateException(\"TODO: loads\");\n    }\n\n    /** The names of the classes, in name order, that the runtime would refuse to load. */\n    public static List<String> refused(Map<String, byte[]> classes, int runtimeRelease, boolean previewEnabled) {\n        List<String> refused = new ArrayList<>();\n        new TreeMap<>(classes).forEach((name, bytes) -> {\n            if (!loads(bytes, runtimeRelease, previewEnabled)) refused.add(name);\n        });\n        return refused;\n    }\n\n    /** A one-line description of a class for the report, e.g. \"release 21, preview\". */\n    public static String describe(byte[] classFile) {\n        return \"release \" + release(classFile) + (usesPreview(classFile) ? \", preview\" : \"\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,8 +73,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -110,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "31e13e9de3c3e54ccafaf3a875d5df293413073147dafa20ca6a213c49ee8da2",
-  "starting_code": "package practice;\n\npublic final class Describe {\n\n    private Describe() {\n    }\n\n    /** A short description of {@code obj}, by its type and value. */\n    public static String describe(Object obj) {\n        throw new UnsupportedOperationException(\"write describe\");\n    }\n}\n",
+  "content_sha256": "af634bcd5df9b462f38da731a206df104cf619b910dda21979562580ad3a6234",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\n\n/**\n * Reads the header of compiled classes and decides whether a given Java runtime will load them.\n * The platform team runs it over every jar before a service moves to a new Java release.\n */\npublic class ClassFileCheck {\n\n    /** The unsigned 16-bit big-endian value at {@code offset}. */\n    static int u2(byte[] classFile, int offset) {\n        return ((classFile[offset] & 0xFF) << 8) | (classFile[offset + 1] & 0xFF);\n    }\n\n    static int minorVersion(byte[] classFile) {\n        return u2(classFile, 4);\n    }\n\n    static int majorVersion(byte[] classFile) {\n        return u2(classFile, 6);\n    }\n\n    /** The Java feature release the class was compiled for: 17, 21, 25, ... */\n    static int release(byte[] classFile) {\n        // TODO: Answer with the feature release (8, 17, 21, ...) this class was compiled for.\n        throw new IllegalStateException(\"TODO: release\");\n    }\n\n    /** Whether the class was compiled with preview features enabled. */\n    static boolean usesPreview(byte[] classFile) {\n        // TODO: Answer whether this class was compiled with preview features enabled.\n        throw new IllegalStateException(\"TODO: usesPreview\");\n    }\n\n    /**\n     * Whether a JVM of feature release {@code runtimeRelease}, started with or without\n     * {@code --enable-preview}, loads this class.\n     */\n    static boolean loads(byte[] classFile, int runtimeRelease, boolean previewEnabled) {\n        // TODO: Answer whether this runtime, with or without --enable-preview, accepts the class\n        //       instead of failing with UnsupportedClassVersionError.\n        throw new IllegalStateException(\"TODO: loads\");\n    }\n\n    /** The names of the classes, in name order, that the runtime would refuse to load. */\n    public static List<String> refused(Map<String, byte[]> classes, int runtimeRelease, boolean previewEnabled) {\n        List<String> refused = new ArrayList<>();\n        new TreeMap<>(classes).forEach((name, bytes) -> {\n            if (!loads(bytes, runtimeRelease, previewEnabled)) refused.add(name);\n        });\n        return refused;\n    }\n\n    /** A one-line description of a class for the report, e.g. \"release 21, preview\". */\n    public static String describe(byte[] classFile) {\n        return \"release \" + release(classFile) + (usesPreview(classFile) ? \", preview\" : \"\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-1/src/main/java/practice/Describe.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-1/src/test/java/practice/DescribeTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-1/src/main/java/practice/ClassFileCheck.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-1/src/test/java/practice/ClassFileCheckTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -135,19 +107,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DescribeTest#describesEachKindOfValue",
+        "id": "practice.ClassFileCheckTest#readsTheReleaseOfAClassTheBuildJustCompiled",
         "kind": "main",
-        "says": "Strings, integers, lists and other values each get their description."
+        "says": "a class compiled by this build for Java 21 is reported as release 21, without preview"
       },
       {
-        "id": "practice.DescribeTest#nullIsDescribedSafely",
-        "kind": "edge",
-        "says": "null is described as \"null\" instead of throwing."
+        "id": "practice.ClassFileCheckTest#readsTheReleaseAndThePreviewMark",
+        "kind": "main",
+        "says": "headers of Java 8, 17 and a Java 22 preview class are reported with their release and preview mark"
       },
       {
-        "id": "practice.DescribeTest#guardedCasesComeFirst",
+        "id": "practice.ClassFileCheckTest#ordinaryClassesLoadOnTheirReleaseAndEveryLaterOne",
+        "kind": "main",
+        "says": "classes compiled without previews load on their own release and every later one, and a class from a newer release is refused"
+      },
+      {
+        "id": "practice.ClassFileCheckTest#aPreviewClassLoadsOnItsOwnReleaseWhenPreviewsAreEnabled",
+        "kind": "main",
+        "says": "a Java 22 preview class loads on Java 22 started with --enable-preview"
+      },
+      {
+        "id": "practice.ClassFileCheckTest#aPreviewClassIsRefusedByALaterRelease",
         "kind": "edge",
-        "says": "A string longer than 10 characters and a positive integer get their special descriptions, not the general ones."
+        "says": "a Java 22 preview class is refused by Java 23 and 24 even with --enable-preview"
+      },
+      {
+        "id": "practice.ClassFileCheckTest#aPreviewClassIsRefusedWhenPreviewsAreNotEnabled",
+        "kind": "edge",
+        "says": "a Java 22 preview class is refused by Java 22 started without --enable-preview"
       }
     ],
     "report": {
@@ -156,12 +143,10 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.3.md",
-      "section": "Q3: How does pattern matching for instanceof work, and what are its scope rules?"
+      "section": "A Preview Class File Runs Only on the Release That Compiled It"
     },
     "concepts": [
-      "With &&, the pattern variable is in scope on the right-hand side, so a guard like s.length() > 10 is safe.",
-      "obj instanceof Type name tests the type and binds a typed variable in one step, with no cast.",
-      "null instanceof String s is false and never throws."
+      "A class file that uses preview features (minor version 65535) loads only on the release that compiled it, while an ordinary class loads on its release and every later one."
     ]
   }
 }

@@ -19,195 +19,413 @@
     },
     {
       "type": "para",
-      "text": "Sealed classes and interfaces, introduced in Java 15 and finalized in Java 17, provide a way to restrict the set of classes or interfaces that can extend or implement them. This feature offers several benefits and has specific use cases in Java programming."
+      "text": "In one week the order service sent shipping emails whose tracking link ended in `/track/null`, and answered a declined card with HTTP 500 because a new endpoint never caught `DeclinedException`, and both bugs compiled. A sealed type can make the compiler, or a constructor, refuse each of them, at a price. How a switch over a sealed type is checked is unit 1.5.4's subject; here we choose where to use one."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points"
+      "text": "A Sealed Result Makes an Expected Failure a Value the Caller Has to Match"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Sealed classes and interfaces allow for better control over class hierarchies.",
-        "They provide a middle ground between final classes and open inheritance.",
-        "Sealed types are particularly useful in domain modeling and API design.",
-        "They can improve pattern matching and exhaustiveness checking in switch expressions."
-      ]
+      "type": "para",
+      "text": "A declined card is not a bug: the gateway declines cards every day. `charge` can throw, or it can return one of two records:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "sealed interface Result<T> permits Success, Failure {}\nrecord Success<T>(T value) implements Result<T> {}\nrecord Failure<T>(String reason) implements Result<T> {}"
+    },
+    {
+      "type": "para",
+      "text": "We charge four cards in a stream, once through `chargeOrThrow`, which throws `DeclinedException`, and once through `charge`, which returns a `Result`. The gateway declines cards ending in 0:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<Receipt> receipts = cards.stream().map(c -> chargeOrThrow(c, 2500)).toList();\ncards.stream().map(c -> charge(c, 2500)).map(Charges::describe)\n     .forEach(line -> System.out.println(\"result:   \" + line));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "throwing: batch ended with card 4120 declined\nresult:   charged 4111\nresult:   not charged: card 4120 declined\nresult:   charged 4133\nresult:   not charged: card 4140 declined"
+    },
+    {
+      "type": "para",
+      "text": "The exception ended the batch at the second card. Card 4111 had been charged, and its receipt was lost with the list. The `Result` version kept going and reported every card. A checked exception would not help in a stream, since it can't leave the lambda (unit 3.2.2)."
+    },
+    {
+      "type": "para",
+      "text": "`describe` switches over the result without a `default`. One that names only `Success` fails to build:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Forgot.java:7: error: the switch expression does not cover all possible input values\n        return switch (r) {\n               ^\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "The switch is the only check. A caller that drops the value, `charge(\"4120\");`, compiles without a warning, even under `-Xlint:all`, and so does an `instanceof` with no `else`. Each layer passes a failure on by hand, and there is no stack trace (here `charge` takes only the card):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Result<String> checkout(String card) {\n    return switch (charge(card)) {\n        case Success<String> s -> new Success<>(\"order paid with \" + s.value());\n        case Failure<String> f -> new Failure<>(f.reason());\n    };\n}"
+    },
+    {
+      "type": "para",
+      "text": "Use a `Result` for outcomes the caller acts on, a decline or a validation error. A bug, a null argument or a broken invariant, still throws: nobody can act on it but the developer, who needs the trace (unit 3.2.4)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Use Cases"
+      "text": "Give Each State Its Own Record, and an Order Without a Tracking Number Can't Be Shipped"
+    },
+    {
+      "type": "para",
+      "text": "The order kept a status enum and one nullable field per state:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "enum Status { PENDING, PAID, SHIPPED }\n\nfinal class Order {\n    Status status = Status.PENDING;\n    String paymentId;     // set when PAID\n    String trackingNo;    // set when SHIPPED\n}"
+    },
+    {
+      "type": "para",
+      "text": "The warehouse sets `SHIPPED` when the parcel leaves; the carrier sends the tracking number an hour later. The email's switch over `status` names all three constants. It ran in that hour:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Track it: https://carrier.example.com/track/null"
+    },
+    {
+      "type": "para",
+      "text": "Nothing ties `trackingNo` to `SHIPPED`. With a sealed interface, each state is a record that holds exactly the data true in that state, and each transition takes the state it starts from:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Objects;\n\nsealed interface OrderState permits Pending, Paid, Shipped {}\nrecord Pending() implements OrderState {}\nrecord Paid(String paymentId) implements OrderState {\n    Paid { Objects.requireNonNull(paymentId, \"paymentId\"); }\n}\nrecord Shipped(String paymentId, String trackingNo) implements OrderState {\n    Shipped {\n        Objects.requireNonNull(paymentId, \"paymentId\");\n        Objects.requireNonNull(trackingNo, \"trackingNo\");\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Shipped ship(Paid p, String trackingNo) { return new Shipped(p.paymentId(), trackingNo); }"
+    },
+    {
+      "type": "para",
+      "text": "Shipping a pending order no longer compiles, and shipping without a number fails where it happens, not in a customer's inbox:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ShipPending.java:10: error: incompatible types: Pending cannot be converted to Paid\n        ship(order, \"CX-20931\");\n             ^"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "ship(paid, null): java.lang.NullPointerException: trackingNo"
+    },
+    {
+      "type": "para",
+      "text": "The record alone doesn't refuse the null: without the compact constructor, `new Shipped(\"pay-7781\", null)` builds and prints `trackingNo=null`. The hour between leaving the warehouse and getting a number becomes a fourth permitted state, `Dispatched(paymentId)`, with no tracking number for the email to print. The cost: every transition builds a new object, and whatever stores or serializes an order must record which record it holds."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "1. Domain Modeling"
+      "text": "An Enum Is Still the Right Choice When a Variant Carries No Data"
     },
     {
       "type": "para",
-      "text": "Sealed classes are excellent for representing finite sets of subtypes in a domain model. For example, in a financial application, you might have a sealed `Transaction` class with specific subtypes like `Deposit`, `Withdrawal`, and `Transfer`."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "2. State Machines"
+      "text": "When every variant is one fixed value, an enum gives more: `values()`, `valueOf` for a database column, `EnumSet` and `EnumMap`, and one instance per value. A sealed interface has none of these. Its variants are classes, and `getPermittedSubclasses()` lists classes, not values (unit 2.5.1)."
     },
     {
       "type": "para",
-      "text": "Sealed classes can effectively model states in a state machine, ensuring that only valid states are defined and transitions are controlled."
+      "text": "The trouble starts when one variant needs data per order. A constant is one shared instance, so a field on it belongs to every order at once:"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "3. Algebraic Data Types"
+      "type": "code",
+      "lang": "java",
+      "text": "enum Status {\n    PENDING, PAID, SHIPPED;\n    String trackingNo;          // \"just one more field\"\n}"
     },
     {
-      "type": "para",
-      "text": "Sealed classes can be used to implement algebraic data types, common in functional programming, allowing for more expressive and type-safe code."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "4. API Design"
+      "type": "code",
+      "lang": "text",
+      "text": "first order's tracking number: CX-20932"
     },
     {
       "type": "para",
-      "text": "When designing APIs, sealed classes can help control how your classes are used and extended, providing a clear contract for implementers."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "5. Pattern Matching"
-    },
-    {
-      "type": "para",
-      "text": "Sealed classes work well with pattern matching, especially in switch expressions, allowing for exhaustive checking of all possible subtypes."
+      "text": "The second order overwrote the first one's number. A sealed interface can mix both designs, since an enum may be one of its permitted subtypes (unit 2.5.2)."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices"
+      "text": "A Sealed Exception Hierarchy Lets One catch Answer Every Failure, and a New One Breaks the Build"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Use sealed classes when you have a known, finite set of subclasses.",
-        "Consider using sealed interfaces for API contracts where you want to limit implementations.",
-        "Combine sealed classes with records for immutable data structures.",
-        "Leverage pattern matching in switch expressions for cleaner, more maintainable code."
-      ]
+      "type": "para",
+      "text": "The payment endpoint must turn every gateway failure into an HTTP answer. An exception must extend `Throwable`, so the base is a sealed class, not an interface of records. It is abstract, so the switch needs no case for the base itself (unit 2.5.2):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "abstract sealed class PaymentException extends Exception\n        permits Declined, InsufficientFunds, GatewayTimeout {\n    PaymentException(String message) { super(message); }\n}\nfinal class Declined extends PaymentException {\n    Declined(String code) { super(\"declined, code \" + code); }\n}\nfinal class InsufficientFunds extends PaymentException {\n    InsufficientFunds() { super(\"insufficient funds\"); }\n}\nfinal class GatewayTimeout extends PaymentException {\n    GatewayTimeout() { super(\"no answer from the gateway\"); }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static String pay(String card) {\n    try {\n        charge(card);\n        return \"200 paid\";\n    } catch (PaymentException e) {\n        return switch (e) {\n            case Declined d -> \"402 \" + d.getMessage();\n            case InsufficientFunds f -> \"402 \" + f.getMessage();\n            case GatewayTimeout t -> \"503 retry later\";\n        };\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The usual alternative is a catch clause per subtype:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static String payWithClauses(String card) throws PaymentException {\n    try {\n        charge(card);\n        return \"200 paid\";\n    } catch (Declined | InsufficientFunds e) {\n        return \"402 \" + e.getMessage();\n    } catch (GatewayTimeout e) {\n        return \"503 retry later\";\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "Both versions answer cards 4111, 4105, 4151 and 4199 the same way. javac doesn't count the clauses as covering the sealed base: without `throws PaymentException`, the clause version fails with `unreported exception PaymentException; must be caught or declared to be thrown`. Now the gateway adds `FraudHold` to the `permits` list, and javac reports only the switch:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Gateway.java:35: error: the switch expression does not cover all possible input values\n            return switch (e) {\n                   ^\n1 error"
+    },
+    {
+      "type": "para",
+      "text": "With a case added there, card 4166 shows what the clause version does:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "4166: 403 held for fraud review | escaped: FraudHold: held for fraud review"
+    },
+    {
+      "type": "para",
+      "text": "The fraud hold left the endpoint as an unhandled exception, a 500. Seal a family of exceptions when one handler must answer all of them; leave it open when callers only catch the base."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls"
+      "text": "Public Sealed Interfaces Over Package-Private Records Let Callers Match but Not Implement"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Overuse of sealed classes can lead to inflexible designs.",
-        "Forgetting to declare subclasses as either `final`, `sealed`, or `non-sealed`.",
-        "Not considering future extensibility needs when sealing a class."
-      ]
+      "type": "para",
+      "text": "A shipping library returns tracking states. Callers must switch over them, and must not build a `Delivered` the carrier never reported. Public records fail the second rule: anyone can call their constructor. Package-private records fail the first: a caller can't name them in a case:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "app/Peek.java:7: error: InTransitRecord is not public in shipping; cannot be accessed from outside package\n        return t instanceof shipping.InTransitRecord r ? r.hub() : \"-\";\n                                    ^"
+    },
+    {
+      "type": "para",
+      "text": "The library publishes one sealed interface per variant, each permitting a hidden record:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "package shipping;\n\npublic sealed interface Tracking permits Tracking.InTransit, Tracking.Delivered {\n    String parcelId();\n\n    sealed interface InTransit extends Tracking permits InTransitRecord {\n        String hub();\n    }\n\n    sealed interface Delivered extends Tracking permits DeliveredRecord {\n        String signedBy();\n    }\n\n    static Tracking of(String parcelId) {               // stands in for the carrier's API\n        return parcelId.startsWith(\"D\")\n                ? new DeliveredRecord(parcelId, \"Jane Doe\")\n                : new InTransitRecord(parcelId, \"Leipzig\");\n    }\n}\n\nrecord InTransitRecord(String parcelId, String hub) implements Tracking.InTransit {}\n\nrecord DeliveredRecord(String parcelId, String signedBy) implements Tracking.Delivered {}"
+    },
+    {
+      "type": "para",
+      "text": "A caller in another package switches over `Tracking.InTransit` and `Tracking.Delivered` with no `default`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "P-31 is at Leipzig\nD-07 was signed for by Jane Doe"
+    },
+    {
+      "type": "para",
+      "text": "If it implements `Delivered` itself, javac refuses:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "app/Fake.java:6: error: class is not allowed to extend sealed class: Delivered (as it is not listed in its 'permits' clause)"
+    },
+    {
+      "type": "para",
+      "text": "The cost is two types per variant, and callers lose record patterns, since an interface has no components. Their tests can't build a `Delivered` either, so the library ships a factory for them. A public final class with a package-private constructor gives the same guarantees with one type: `new` from another package fails with `is not public in Delivered`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview Insights"
+      "text": "An Expression Tree Is Records and a Recursive switch: Keep the Walk Exhaustive, Only the Rules Partial"
+    },
+    {
+      "type": "para",
+      "text": "A pricing rule, a search query or a formula is a tree. Each node is a record, and each operation is a function with one switch, no visitor needed: this program's `eval` and `show` are one switch each. Nested record patterns (unit 1.5.3) let a rewrite rule match a shape two levels deep in one case:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "sealed interface Expr permits Num, Var, Add, Mul {}\nrecord Num(int value) implements Expr {}\nrecord Var(String name) implements Expr {}\nrecord Add(Expr left, Expr right) implements Expr {}\nrecord Mul(Expr left, Expr right) implements Expr {}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Expr simplify(Expr e) {\n    Expr walked = switch (e) {                       // the walk: one case per node, no default\n        case Num n -> n;\n        case Var v -> v;\n        case Add(Expr l, Expr r) -> new Add(simplify(l), simplify(r));\n        case Mul(Expr l, Expr r) -> new Mul(simplify(l), simplify(r));\n    };\n    return switch (walked) {                         // the rules: partial by nature\n        case Add(Num(int a), Num(int b)) -> new Num(a + b);\n        case Mul(Num(int a), Num(int b)) -> new Num(a * b);\n        case Add(Expr l, Num(int z)) when z == 0 -> l;\n        case Mul(Num(int z), Expr r) when z == 0 -> new Num(0);\n        case Mul(Num(int one), Expr r) when one == 1 -> r;\n        default -> walked;\n    };\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "expression:  (1 * (x + 2 * 3) + 0 * x)\nat x = 4:    10\nsimplified:  (x + 6)"
+    },
+    {
+      "type": "para",
+      "text": "Rules never cover every tree, so the rule switch needs its `default`. Written as one switch, the rules and the recursion share it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Expr simplifyOneSwitch(Expr e) {\n    return switch (e) {\n        case Add(Num(int a), Num(int b)) -> new Num(a + b);\n        case Mul(Num(int a), Num(int b)) -> new Num(a * b);\n        case Add(Expr l, Expr r) -> new Add(simplifyOneSwitch(l), simplifyOneSwitch(r));\n        case Mul(Expr l, Expr r) -> new Mul(simplifyOneSwitch(l), simplifyOneSwitch(r));\n        default -> e;\n    };\n}"
+    },
+    {
+      "type": "para",
+      "text": "We added `record Neg(Expr operand)` to `permits`. javac reported `eval`, `show` and the walk, and not `simplifyOneSwitch`. With cases added to the three it named, simplifying `Neg(2 * 3)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "simplify:          -(6)\nsimplifyOneSwitch: -(2 * 3)"
+    },
+    {
+      "type": "para",
+      "text": "The one-switch version never looks inside the new node. The price of the split is that every operation lists every node, which suits a tree whose operations grow faster than its node types."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Be prepared to discuss the trade-offs between sealed classes and traditional inheritance.",
-        "Understand how sealed classes relate to pattern matching and switch expressions.",
-        "Consider performance implications, especially in terms of compilation and runtime checks."
+        "**A sealed `Result` makes an expected failure a value.** A batch keeps going and a switch must name `Failure`, but a dropped result compiles and each layer passes failures on by hand.",
+        "**A record per state holds only that state's data.** A transition that takes `Paid` refuses a `Pending` at compile time; the compact constructor, not the record, refuses a null.",
+        "**An enum stays right for fixed variants without data**; a field on a constant is shared by everyone.",
+        "**A sealed exception base lets one catch switch over every failure**, and a new subtype breaks that switch. javac doesn't count one clause per subtype as covering the base, so the method declares the base and a new subtype escapes.",
+        "**Public sealed interfaces over package-private records** let callers match but not implement or construct; their tests need a factory.",
+        "**An expression tree is records plus a recursive switch.** Keep the walk free of `default`, so a new node breaks the build."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Interview Q&A:"
+      "text": "Reference"
     },
     {
       "type": "para",
-      "text": "Q: What are the main benefits of using sealed classes in Java? A: The main benefits of using sealed classes in Java are:"
+      "text": "**Which design refuses which mistake (javac 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Design",
+        "Refused at compile time",
+        "Still compiles"
+      ],
+      "rows": [
+        [
+          "sealed `Result`, switch without `default`",
+          "a switch that omits `Failure`",
+          "dropping the result; `instanceof` with no `else`"
+        ],
+        [
+          "record per state, transitions typed by state",
+          "`ship(pending, ...)`",
+          "`new Shipped(id, null)` unless the compact constructor checks"
+        ],
+        [
+          "sealed exception, switch inside one `catch`",
+          "a new subtype the switch doesn't name",
+          "catch clauses that miss it, when the method declares the base"
+        ],
+        [
+          "public sealed interfaces, package-private records",
+          "implementing a variant; naming or building a record",
+          "—"
+        ],
+        [
+          "tree walk without `default`",
+          "a new node the walk doesn't handle",
+          "a new node under a `default`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Enum or sealed interface:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Need",
+        "Enum",
+        "Sealed interface"
+      ],
+      "rows": [
+        [
+          "different data per instance",
+          "no: one shared instance per constant",
+          "yes: one record per variant"
+        ],
+        [
+          "`values()`, `valueOf`, `EnumSet`, `EnumMap`",
+          "yes",
+          "no"
+        ],
+        [
+          "exhaustive switch without `default`",
+          "yes",
+          "yes"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "Restricted inheritance: You can control which classes can extend or implement a sealed class or interface.",
-        "Better domain modeling: Sealed classes are ideal for representing finite sets of subtypes in a domain model.",
-        "Enhanced pattern matching: They work well with switch expressions, allowing for exhaustive checking of all possible subtypes.",
-        "Improved API design: Sealed classes provide a clear contract for implementers when designing APIs.",
-        "Middle ground between final and open classes: They offer more flexibility than final classes while still maintaining control over the class hierarchy."
+        "Your service has 40 methods that throw `OrderNotFoundException`. Which would you move to a `Result`, and what does each caller have to change?",
+        "The order states gain `Cancelled`, reachable from `Pending` and `Paid` but not from `Shipped`. Write the transition methods so a wrong one doesn't compile, and count what else changes.",
+        "The shipping library must add `Lost`, and some callers can't recompile this quarter. How would you ship it, and what do those callers' switches do meanwhile?"
       ]
     },
     {
-      "type": "para",
-      "text": "Q: How do sealed classes improve pattern matching in switch expressions? A: Sealed classes improve pattern matching in switch expressions by:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Enabling exhaustiveness checking: The compiler can ensure that all possible subtypes are handled in the switch expression.",
-        "Providing type-safe casting: Each case in the switch can safely cast to the specific subtype without additional checks.",
-        "Eliminating the need for a default case: When all subtypes are covered, no default case is required, reducing the risk of unhandled cases."
-      ]
+      "type": "heading",
+      "level": 2,
+      "text": "Design Note: A Public Sealed Type Makes Every New Variant a Breaking Change"
     },
     {
       "type": "para",
-      "text": "Here's an example:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public String describeVehicle(VehicleType vehicle) {\n    return switch (vehicle) {\n        case Car c -> \"This is a car with \" + c.getWheelCount() + \" wheels\";\n        case Motorcycle m -> \"This is a motorcycle with \" + m.getWheelCount() + \" wheels\";\n        case Truck t -> \"This is a truck with \" + t.getWheelCount() + \" wheels\";\n    };\n}"
-    },
-    {
-      "type": "para",
-      "text": "Q: What are some potential drawbacks or limitations of using sealed classes? A: Some potential drawbacks or limitations of using sealed classes include:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Reduced flexibility: Sealing a class hierarchy can make it harder to extend in the future if new subtypes are needed.",
-        "Increased coupling: Sealed classes and their permitted subclasses must be defined in the same module or package, which can increase coupling between classes.",
-        "Complexity in large hierarchies: Managing a large number of permitted subclasses can become complex and harder to maintain.",
-        "Limited use in libraries: Sealed classes may be less useful in public libraries where extensibility is often desired.",
-        "Learning curve: Developers new to sealed classes may need time to understand and effectively use this feature."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Q: How do sealed classes relate to the concept of algebraic data types in functional programming? A: Sealed classes in Java provide a way to implement algebraic data types, which are common in functional programming languages. Here's how they relate:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Sum types: Sealed classes can represent sum types (also known as tagged unions or discriminated unions) where a type can be one of several variants. Each permitted subclass represents a variant of the type.",
-        "Product types: When combined with records, sealed classes can effectively model product types, where a type is composed of multiple fields.",
-        "Pattern matching: Like algebraic data types in functional languages, sealed classes in Java work well with pattern matching, allowing for exhaustive checking of all possible variants.",
-        "Immutability: Sealed classes, especially when used with records, encourage immutable data structures, which is a key principle in functional programming."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Here's an example of how sealed classes can model an algebraic data type:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public sealed interface Shape permits Circle, Rectangle, Triangle {\n    double area();\n}\n\nrecord Circle(double radius) implements Shape {\n    @Override\n    public double area() {\n        return Math.PI * radius * radius;\n    }\n}\n\nrecord Rectangle(double width, double height) implements Shape {\n    @Override\n    public double area() {\n        return width * height;\n    }\n}\n\nrecord Triangle(double base, double height) implements Shape {\n    @Override\n    public double area() {\n        return 0.5 * base * height;\n    }\n}\n\n// Usage with pattern matching\npublic String describeShape(Shape shape) {\n    return switch (shape) {\n        case Circle c -> \"Circle with radius \" + c.radius();\n        case Rectangle r -> \"Rectangle \" + r.width() + \"x\" + r.height();\n        case Triangle t -> \"Triangle with base \" + t.base() + \" and height \" + t.height();\n    };\n}"
+      "text": "Inside one codebase, the compile error a new variant causes is the point: it lists every switch to update. Across a library boundary the same error lands in code the library team doesn't own, and callers who don't recompile get a `MatchException` when the new variant reaches their switch (unit 1.5.4). A library that seals a public type promises its variants as part of its API, so it adds one only in a release that may break callers. When the set must grow freely, a `non-sealed` branch (unit 2.5.2) or a plain interface lets it grow without breaking callers."
     },
     {
       "type": "heading",
@@ -227,17 +445,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 12,
-    "code": 2,
-    "tables": 0,
-    "lists": 9,
+    "headings": 12,
+    "paras": 32,
+    "code": 27,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "b6f6843f9b3c885ba84524e321c545372c3490d6ba21711afc2ed2c1ddc027e3"
+  "content_sha256": "ed0dc9363787b5772edf6790a4f5384624192117a64c0ef2691f740bf8580a78"
 }

@@ -1,878 +1,421 @@
 # 5.3.4. Best Practices for Safe Concurrent Programming
 
-## Concept Explanation
+A monitoring dashboard froze during Monday's peak, and the on-call engineer took a thread dump
+before restarting it. Two threads were `BLOCKED`: `sensor` in `Dashboard.markStale` and `screen`
+in `Gauge.value`, each waiting for a monitor the other held. `Gauge` and `Dashboard` each have one
+lock, each passed review on its own, and neither nests two `synchronized` blocks. The post-mortem
+went through the service class by class with two questions: which threads touch this state, and
+what guards it? For half the classes nobody could answer.
 
-Writing safe concurrent code is one of the hardest challenges in software engineering. Concurrency bugs are
-non-deterministic, difficult to reproduce, and often invisible during testing only to surface catastrophically in
-production under load. Rather than trying to debug concurrency issues after the fact, the most effective approach is to
-follow proven **best practices** that eliminate entire categories of bugs by design.
+Most of what makes concurrent code safe is decided before the first lock: whether the state is
+shared at all, whether what is shared can change, and, for the state that is left, which lock
+guards it and what runs while it is held. Every output here is from Java 21 on a 20-core machine.
 
-**Real-world analogy**: Think of a busy commercial kitchen. The head chef doesn't try to debug why orders are getting
-mixed up after the fact -- they establish systems upfront: each station has its own cutting board (thread confinement),
-recipes are printed on laminated cards that nobody modifies (immutability), orders flow through a single ticket rail
-(message passing via queues), and the walk-in fridge has a one-person-at-a-time rule for inventory changes (minimal
-locking). These practices don't make concurrency problems impossible, but they make them rare and localized.
+## State Confined to One Thread Needs No Lock, Until a Callback Runs Somewhere Else
 
-### The Hierarchy of Safe Concurrency Strategies
+A local variable is confined
+to its thread as long as the object it refers to isn't handed to another (unit 4.4.4 shows a
+parallel stream doing exactly that). State that outlives one call gets an owner: a trading service
+keeps its positions in a plain `HashMap` that only the `ledger` thread, a single-thread executor,
+reads or writes. Other threads don't lock the map; they submit tasks to `ledger`.
 
-The following strategies are listed in order of preference -- from the safest and simplest to the most error-prone:
-
-1. **Avoid shared mutable state entirely**: If threads don't share data, there are no concurrency issues. Use message
-   passing, task isolation, or functional designs.
-2. **Share only immutable state**: Immutable objects (records, final fields) can be shared freely across threads without
-   synchronization.
-3. **Confine mutable state to a single thread**: Use `ThreadLocal` or stack confinement so that each thread has its own
-   copy.
-4. **Use high-level concurrent abstractions**: `ConcurrentHashMap`, `BlockingQueue`, `AtomicInteger`, etc. -- these
-   classes encapsulate correct synchronization internally.
-5. **Use explicit locks with minimal scope**: `ReentrantLock`, `ReadWriteLock`, `StampedLock` -- hold the lock for the
-   shortest possible duration.
-6. **Use `synchronized` blocks**: The simplest form of mutual exclusion, but coarse-grained and can pin virtual threads.
-7. **Roll your own lock-free algorithms**: CAS loops, VarHandle -- only for experts building infrastructure libraries.
-
-## Key Points to Remember
-
-1. **Immutability is the gold standard**: If data cannot be changed after construction, it cannot be corrupted by
-   concurrent access. Java records, `final` fields, and unmodifiable copies (`List.of`, `List.copyOf`, …) are your
-   primary tools. (`Collections.unmodifiableXxx()` is only a read-only view: the backing collection can still change.)
-2. **Thread confinement eliminates sharing**: `ThreadLocal`, stack-local variables, and task-scoped data ensure no two
-   threads ever access the same mutable state.
-3. **High-level abstractions handle synchronization for you**: `ConcurrentHashMap.computeIfAbsent()`,
-   `BlockingQueue.put()/take()`, `AtomicReference.compareAndSet()` -- use these instead of hand-rolling synchronized
-   blocks.
-4. **Minimize lock scope**: Perform expensive computations outside the lock. Only hold the lock for the actual state
-   mutation.
-5. **Prefer `ReentrantLock` over `synchronized` on virtual threads**: `synchronized` blocks can pin virtual threads to
-   their carrier OS thread; `ReentrantLock` does not have this limitation (as of Java 21).
-6. **Use `ReadWriteLock` for read-heavy workloads**: Multiple readers can proceed concurrently; only writers require
-   exclusive access.
-7. **Use `CopyOnWriteArrayList` for read-heavy lists with rare writes**: Iteration is always safe (snapshot semantics),
-   but writes copy the entire array.
-8. **Always clean up `ThreadLocal` in thread pool environments**: Call `remove()` in a `finally` block to prevent memory
-   leaks when threads are reused.
-9. **Design for testability**: Use `CountDownLatch`, `CyclicBarrier`, and `Awaitility` to write deterministic concurrent
-   tests.
-10. **Document thread-safety guarantees**: Use `@ThreadSafe`, `@NotThreadSafe`, `@GuardedBy` annotations from the
-    jcip-annotations library.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: Enable a thread-per-task programming model where blocking is cheap. This reduces the
-  need for complex asynchronous, callback-based architectures. However, virtual threads do NOT change the JMM -- all
-  synchronization rules still apply. Key consideration: prefer `ReentrantLock` over `synchronized` in hot paths because
-  `synchronized` can pin the virtual thread to its carrier.
-- **Structured concurrency (JEP 453, preview)**: Provides a `StructuredTaskScope` that manages the lifecycle of subtasks
-  as a group. When the scope completes, all subtasks are guaranteed to have finished. This eliminates many patterns where
-  shared mutable state was used to coordinate between tasks.
-- **Scoped values (JEP 446, preview)**: A modern, immutable alternative to `ThreadLocal` designed for structured
-  concurrency. A scoped value is set once, inherited by child tasks, and automatically cleaned up when the scope exits.
-  Eliminates `ThreadLocal` memory leak risks.
-- **Record classes (JEP 395)**: Immutable by default (all components are `final`). Combined with a `volatile` reference,
-  records enable lock-free atomic state replacement -- create a new record for each state change and publish it via a
-  volatile write.
-- **Sequenced collections (JEP 431)**: Provide well-defined encounter order for collections. Not thread-safe by default,
-  but useful with concurrent wrappers.
-
-### Evolution of Concurrency Best Practices Across Java Versions
-
-| Version  | Feature                                       | Best Practice Impact                                        |
-|----------|-----------------------------------------------|-------------------------------------------------------------|
-| Java 1.0 | `synchronized`, `wait()/notify()`            | Only tool available; error-prone, coarse-grained            |
-| Java 5   | `java.util.concurrent` (JSR-166)             | ConcurrentHashMap, BlockingQueue, Executors, AtomicXxx -- paradigm shift |
-| Java 5   | JSR-133 (revised JMM)                        | Formalized happens-before; made volatile and final reliable |
-| Java 7   | Fork/Join framework                           | Divide-and-conquer parallelism                              |
-| Java 8   | CompletableFuture, StampedLock, LongAdder    | Async composition, optimistic reads, high-throughput counters |
-| Java 9   | VarHandle, reactive Flows                    | Fine-grained memory ordering, reactive streams              |
-| Java 16  | Records                                       | Immutable value types -- safe for sharing by default        |
-| Java 21  | Virtual threads, structured concurrency      | Thread-per-task model, reduced need for thread pools         |
-
-## Common Pitfalls and How to Avoid Them
-
-### 1. Using mutable shared state when immutability would suffice
+A task on the ledger thread books a trade at the current rate, which the rate service returns as a
+`CompletableFuture`. `update` merges the rate into the positions and prints the name of the thread
+it runs on; `answer` is a latch the program releases once the callback is attached:
 
 ```java
-// PROBLEM: Mutable configuration object shared between threads
-public class MutableConfig {
-    private String host;       // Can be changed by any thread at any time
-    private int port;
-    private boolean ssl;
-
-    // Getters and setters -- no synchronization!
-    public void setHost(String host) { this.host = host; }
-    public String getHost() { return host; }
-    // ... reader may see inconsistent state (new host, old port)
-}
-```
-
-```java
-// SOLUTION: Immutable record + volatile reference for atomic replacement
-public record Config(String host, int port, boolean ssl) {
-    public Config {
-        Objects.requireNonNull(host);
-        if (port < 0 || port > 65535) throw new IllegalArgumentException("Invalid port");
+ledger.submit(() -> {                                      // a task on the ledger thread
+    CompletableFuture<Long> rate = fetchRate("EUR/USD", cached, answer);
+    switch (how) {
+        case "thenAccept" -> rate.thenAccept(update);
+        case "thenAcceptAsync" -> rate.thenAcceptAsync(update);
+        default -> rate.thenAcceptAsync(update, ledger);
     }
-    public Config withHost(String newHost) { return new Config(newHost, port, ssl); }
-}
+}).get();
+```
 
-public class ConfigManager {
-    private volatile Config config; // Atomic reference swap
+Pause here: which thread runs `update`? A cached rate is a future that is already complete; a
+fetched one is completed later by a thread of the `io` pool:
 
-    public ConfigManager(Config initial) { this.config = Objects.requireNonNull(initial); }
-    public void update(Config c) { this.config = Objects.requireNonNull(c); }
-    public Config get() { return config; } // Always a consistent, fully constructed snapshot
+```text
+thenAccept                   cached  update ran on: ledger
+thenAccept                   fetched update ran on: io
+thenAcceptAsync              fetched update ran on: ForkJoinPool.commonPool-worker-1
+thenAcceptAsync(.., ledger)  cached  update ran on: ledger
+thenAcceptAsync(.., ledger)  fetched update ran on: ledger
+```
+
+A callback attached with a method that isn't `Async` runs on the thread that completes the future,
+or, when the future is already complete, right away on the thread that attaches it. (The javadoc
+promises less: any thread that calls a completion method may run it.) An `Async`
+method without an executor runs it on `ForkJoinPool.commonPool()`. Only the form that names the
+owner's executor keeps the update on the owner.
+
+The rate service's test double returned completed futures, so every test ran `update` on the
+ledger thread and passed. In production a rate that isn't cached arrives on an `io` thread, which
+then writes the `HashMap` while the ledger thread may be writing it too: the unsynchronized map of
+unit 6.5.2, in a class whose design says it needs no lock. Hand every result back to its owner
+through the owner's executor: `thenAcceptAsync(update, ledger)`. Another thread that needs to
+read the positions submits the read the same way, `supplyAsync(read, ledger)`.
+
+<!-- practice 1 -->
+
+## What Passes Between Threads Is Immutable, or Its Sender Never Touches It Again
+
+Confined parts of a program talk through queues, and what travels is a reference. A price feed reuses one tick object to save
+allocations:
+
+```java
+MutableTick tick = new MutableTick();
+for (int i = 0; i < 3; i++) {
+    tick.sku = skus[i];
+    tick.cents = cents[i];
+    queue.put(tick);
 }
 ```
 
-### 2. Forgetting to clean up ThreadLocal in thread pools
+The consumer has fallen behind and takes the three entries after the third `put`. The second run
+puts a new `record Tick(String sku, long cents)` each time:
 
-```java
-// PROBLEM: ThreadLocal leak in a thread pool
-public class LeakyHandler {
-    private static final ThreadLocal<UserSession> session = new ThreadLocal<>();
-
-    public void handle(Request req) {
-        session.set(loadSession(req));
-        process();
-        // MISSING: session.remove() -- the thread is returned to the pool with stale session data!
-    }
-}
+```text
+mutable, reused: C-300=899
+mutable, reused: C-300=899
+mutable, reused: C-300=899
+record, new each time: Tick[sku=A-100, cents=1999]
+record, new each time: Tick[sku=B-200, cents=4550]
+record, new each time: Tick[sku=C-300, cents=899]
 ```
 
-```java
-// SOLUTION: Always remove in a finally block
-public class SafeHandler {
-    private static final ThreadLocal<UserSession> session = new ThreadLocal<>();
+The queue held three references to one object, and the producer changed it after handing it over.
+A `put` happens-before the `take` that removes the element (unit 5.2.2), which covers the writes
+made before the `put`, not the ones after. A consumer that keeps up gets something less
+predictable than three copies of the last tick: it reads fields the producer may be writing at that
+moment, a data race (unit 5.3.1) that can pair one tick's SKU with another's price.
 
-    public void handle(Request req) {
-        session.set(loadSession(req));
-        try {
-            process();
-        } finally {
-            session.remove(); // Critical: prevents leak and stale data on reused threads
-        }
-    }
-}
+Hand an object over in one of two ways. Send an immutable value, a new record per message
+with its collections copied (unit 5.2.3), and "never touched again" holds by construction. Or
+transfer ownership: fill a mutable object, put it, and drop every reference to it, allocating a
+new one for the next message. Nothing checks the second, so keep it for large buffers you can't
+afford to copy.
+
+## A Latch or a Queue Remembers a Signal That wait() Can Miss
+
+`wait()` and `notifyAll()` are correct when every rule of unit 6.2.1 is kept: a condition held in a
+field, checked in a loop, under the monitor that is notified. Skip the field and the order of two
+threads decides the outcome. At startup the service waits until its cache has loaded, and this
+time the loader is quick and notifies before the starter begins to wait:
+
+```java
+synchronized (lock) { lock.notifyAll(); }                  // the loader is done
+// then, on the starter thread:
+synchronized (lock) { lock.wait(); }
 ```
 
-### 3. Holding locks during expensive operations
+The same order with a `CountDownLatch`:
 
 ```java
-// PROBLEM: Lock held during expensive computation -- starves other threads
-public class WideLock {
+CountDownLatch loaded = new CountDownLatch(1);
+loaded.countDown();
+boolean open = loaded.await(5, TimeUnit.SECONDS);
+```
+
+```text
+notifyAll() then wait(): starter WAITING after 500 ms
+countDown() then await(): true after 2 ms
+```
+
+`notifyAll()` wakes the threads that are waiting at that moment and records nothing, so the
+starter waits for a notification that has already happened. The latch keeps its count: an
+`await()` after the count has reached zero returns at once, and its javadoc adds that actions
+before a `countDown()` happen-before the actions after a successful return from `await()` in
+another thread. A `BlockingQueue` keeps its
+elements, a `Semaphore` its permits (unit 6.3.2), a `Future` its result. Each has the state field,
+the loop and the notification already written and tested, so application code uses them instead
+of `wait()`.
+
+Three cache loaders count down one latch, and the tax
+loader throws first:
+
+```java
+Thread loader = new Thread(() -> {
+    if (cache.equals("tax")) throw new IllegalStateException("tax service down");
+    three.countDown();
+}, cache);
+```
+
+```text
+  tax loader died: tax service down
+one loader threw: await(1 s) = false, getCount() = 1
+```
+
+Without its timeout the `await` would return only when interrupted. If the service may start with a cache missing,
+count down in a `finally` and record the failure where the starter can see it. If it may not, the
+failure has to reach the waiter: a `Future` carries the exception to `get()`.
+
+<!-- practice 2 -->
+
+## Write Down Which Lock Guards Each Field, and Let the Code Check It
+
+A lock protects a field only if every access takes it, and the code shows that only to someone who
+reads every method. Write the policy where the field is declared. The usual convention is
+`@GuardedBy("lock")`, from the annotations of *Java Concurrency in Practice*. The JDK has no such
+annotation, so this class declares its own:
+
+```java
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Seat holds for one performance. Thread-safe: every field below is guarded by lock. */
+public class Seats {
+
+    /** The field or method may be used only while holding the named lock. A convention: javac checks nothing. */
+    @Documented
+    @Retention(RetentionPolicy.CLASS)
+    @Target({ElementType.FIELD, ElementType.METHOD})
+    @interface GuardedBy { String value(); }
+
     private final Object lock = new Object();
-    private final List<String> results = new ArrayList<>();
+    @GuardedBy("lock") private final Map<String, String> holder = new HashMap<>();
 
-    public void processAndStore(String input) {
+    public boolean hold(String seat, String customer) {
         synchronized (lock) {
-            String result = expensiveComputation(input); // 500ms under lock!
-            results.add(result);
+            return holdLocked(seat, customer);
         }
     }
-}
-```
 
-```java
-// SOLUTION: Compute outside the lock; only hold lock for the state mutation
-public class NarrowLock {
-    private final ReentrantLock lock = new ReentrantLock();
-    private final List<String> results = new ArrayList<>();
+    /** Added months later, for group bookings. */
+    public void holdAll(List<String> seats, String customer) {
+        for (String seat : seats) holdLocked(seat, customer);    // no lock taken
+    }
 
-    public void processAndStore(String input) {
-        String result = expensiveComputation(input); // Outside the lock
-        lock.lock();
-        try {
-            results.add(result); // Only the insertion is under the lock
-        } finally {
-            lock.unlock();
-        }
+    @GuardedBy("lock")
+    private boolean holdLocked(String seat, String customer) {
+        assert Thread.holdsLock(lock) : "holdLocked called without the lock";
+        return holder.putIfAbsent(seat, customer) == null;
+    }
+
+    public static void main(String[] args) {
+        Seats seats = new Seats();
+        System.out.println("hold(\"F12\"): " + seats.hold("F12", "Jane Doe"));
+        seats.holdAll(List.of("F13", "F14"), "John Roe");
+        System.out.println("holdAll(F13, F14): returned");
     }
 }
 ```
 
-### 4. Using HashMap in concurrent contexts instead of ConcurrentHashMap
-
-```java
-// PROBLEM: HashMap is not thread-safe
-public class UnsafeRegistry {
-    private final Map<String, String> services = new HashMap<>();
-
-    public void register(String name, String endpoint) {
-        if (!services.containsKey(name)) { // Check-then-act race!
-            services.put(name, endpoint);
-        }
-    }
-}
-```
-
-```java
-// SOLUTION: ConcurrentHashMap with atomic operations
-public class SafeRegistry {
-    private final ConcurrentHashMap<String, String> services = new ConcurrentHashMap<>();
-
-    public boolean register(String name, String endpoint) {
-        return services.putIfAbsent(name, endpoint) == null; // Atomic check-and-insert
-    }
-}
-```
-
-### 5. Using synchronized instead of ReentrantLock with virtual threads
-
-```java
-// PROBLEM: synchronized pins virtual threads to carrier threads
-public class PinnedVirtualThread {
-    private final Object lock = new Object();
-
-    public void doWork() {
-        synchronized (lock) {     // Pins the virtual thread!
-            blockingIoOperation(); // Carrier thread is blocked, reducing scalability
-        }
-    }
-}
-```
-
-```java
-// SOLUTION: Use ReentrantLock -- does not pin virtual threads
-public class UnpinnedVirtualThread {
-    private final ReentrantLock lock = new ReentrantLock();
-
-    public void doWork() {
-        lock.lock();
-        try {
-            blockingIoOperation(); // Virtual thread can unmount from carrier
-        } finally {
-            lock.unlock();
-        }
-    }
-}
-```
-
-## Best Practices and Optimization Techniques
-
-1. **Design for immutability first**: Start with records and `final` fields. Only introduce mutability when profiling
-   proves it necessary. An immutable object shared via a `volatile` reference provides atomic state replacement without
-   locks.
-
-2. **Use the producer-consumer pattern for inter-thread communication**: `BlockingQueue` decouples producers from
-   consumers, handles all synchronization internally, and provides natural flow control via bounded capacity.
-
-3. **Prefer `ConcurrentHashMap.computeIfAbsent()` over manual check-then-act**: The `computeIfAbsent` method is atomic
-   -- the mapping function is called at most once per key, even under concurrent access.
-
-4. **Use `ReadWriteLock` when reads vastly outnumber writes**: Allows unlimited concurrent readers with exclusive writer
-   access. Consider `StampedLock` for even better read performance via optimistic reads.
-
-5. **Return defensive copies from synchronized methods**: When a method returns a collection or mutable object, return a
-   copy to prevent callers from modifying the internal state outside the lock.
-
-6. **Use `CopyOnWriteArrayList` for event listener registries**: Listeners are read (iterated) frequently during event
-   notification but modified rarely (registration/deregistration). `CopyOnWriteArrayList` is ideal for this pattern.
-
-7. **Prefer task-based concurrency over thread-based**: Use `ExecutorService`, `CompletableFuture`, or structured
-   concurrency instead of manually creating and managing threads. This separates the "what" (the task) from the "how"
-   (the threading model).
-
-8. **Test concurrent code with stress tests**: Use `@RepeatedTest`, `CountDownLatch` for synchronization barriers, and
-   `Awaitility` for assertion polling. Run with many threads to expose races.
-
-9. **Profile before optimizing**: Don't use complex lock-free algorithms unless profiling shows lock contention is a
-   bottleneck. `synchronized` and `ReentrantLock` are correct and sufficient for most applications.
-
-10. **Document thread-safety contracts**: Every class that is accessed by multiple threads should have a clear
-    thread-safety specification: is it thread-safe, conditionally thread-safe, or not thread-safe?
-
-## Edge Cases and Their Handling
-
-### 1. ThreadLocal with virtual threads
-
-Virtual threads are cheap to create and typically short-lived. Using `ThreadLocal` with virtual threads can lead to
-excessive memory usage because each virtual thread gets its own copy. Prefer `ScopedValue` (preview in Java 21) for
-structured concurrency, or pass context explicitly.
-
-```java
-// Acceptable: ThreadLocal with platform threads (long-lived, pooled)
-private static final ThreadLocal<DateFormat> FORMAT =
-    ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
-
-// Problematic: ThreadLocal with millions of virtual threads
-// Each virtual thread allocates its own DateFormat -- millions of instances!
-
-// Better: Use ScopedValue (Java 21 preview) or pass context as a parameter
-```
-
-### 2. CopyOnWriteArrayList with frequent writes
-
-`CopyOnWriteArrayList` copies the entire internal array on every mutation. If writes are frequent, this causes excessive
-garbage and poor performance. Use it only when reads vastly outnumber writes (e.g., listener registries,
-configuration lists).
-
-```java
-// Good: Read-heavy, write-rare (event listeners)
-private final List<EventListener> listeners = new CopyOnWriteArrayList<>();
-
-// Bad: Write-heavy (log buffer, metrics collection)
-// Use ConcurrentLinkedQueue or a synchronized List instead
-private final Queue<LogEntry> logBuffer = new ConcurrentLinkedQueue<>();
-```
-
-### 3. ReadWriteLock fairness and writer starvation
-
-The default `ReentrantReadWriteLock` is non-fair, which can cause writer starvation under high read contention (readers
-keep acquiring the read lock, preventing writers from ever acquiring the write lock).
-
-```java
-// Non-fair (default): risk of writer starvation under high read load
-var rwLock = new ReentrantReadWriteLock();
-
-// Fair: readers and writers are served in order -- prevents starvation but lower throughput
-var fairRwLock = new ReentrantReadWriteLock(true);
-```
-
-### 4. Defensive copies under locks
-
-Returning a reference to an internal collection from a synchronized method allows the caller to modify the collection
-outside the lock, bypassing thread safety.
-
-```java
-// UNSAFE: Caller gets a direct reference to internal state
-public synchronized List<String> getItems() {
-    return items; // Caller can modify 'items' without holding the lock!
-}
-
-// SAFE: Return a snapshot (defensive copy)
-public List<String> getItems() {
-    lock.lock();
-    try {
-        return new ArrayList<>(items); // Caller gets an independent copy
-    } finally {
-        lock.unlock();
-    }
-}
-```
-
-### 5. Bounded BlockingQueue and backpressure
-
-When using a bounded `BlockingQueue`, the producer blocks when the queue is full. This provides natural backpressure but
-can cause deadlocks if the producer and consumer share the same thread pool with a limited number of threads.
-
-```java
-// RISK: If all pool threads are producers waiting on a full queue, no consumer can run
-ExecutorService pool = Executors.newFixedThreadPool(4);
-BlockingQueue<Task> queue = new ArrayBlockingQueue<>(10);
-
-// SAFER: Use separate pools for producers and consumers, or use offer() with timeout
-boolean offered = queue.offer(task, 1, TimeUnit.SECONDS);
-if (!offered) {
-    // Handle backpressure: drop, log, or apply different strategy
-}
-```
-
-## Interview-specific Insights
-
-Interviewers focus on:
-
-- **Design-level thinking**: Can you design a system that minimizes shared mutable state? Do you reach for immutability,
-  thread confinement, or message passing before reaching for locks?
-- **Knowledge of `java.util.concurrent`**: Can you explain when to use `ConcurrentHashMap` vs. `Collections.synchronizedMap()`?
-  When to use `BlockingQueue` vs. a shared list with locks?
-- **Lock granularity**: Do you understand why minimizing lock scope improves throughput? Can you refactor a wide-locked
-  method into a narrow-locked one?
-- **Virtual thread awareness**: Do you know that `synchronized` pins virtual threads and that `ReentrantLock` does not?
-- **Testing concurrent code**: How do you write tests that exercise concurrent behavior deterministically?
-- **Trade-off analysis**: Can you articulate the trade-offs between `CopyOnWriteArrayList` (safe iteration, expensive
-  writes) and `Collections.synchronizedList()` (cheap writes, unsafe iteration)?
-
-Common tricky questions:
-
-- "How would you make this class thread-safe?" -- Start with immutability, then confinement, then concurrent collections,
-  then locks. Don't jump straight to `synchronized`.
-- "What's wrong with `Collections.synchronizedMap()` + iteration?" -- The map's methods are individually synchronized,
-  but iterating is not atomic. You need to synchronize on the map during iteration.
-- "When would you NOT use `ConcurrentHashMap`?" -- When you need a consistent view of the entire map (e.g., size() +
-  iteration as one atomic operation), or when you need a sorted concurrent map (use `ConcurrentSkipListMap`).
-- "What are the risks of ThreadLocal with virtual threads?" -- Memory overhead (one copy per virtual thread, potentially
-  millions), and the lifetime of virtual threads may not align with the expected lifecycle of ThreadLocal values.
-
-## Interview Q&A Section
-
-**Q1: What is the hierarchy of strategies for safe concurrent programming, and which should you prefer?**
+`holdLocked` expects its caller to hold `lock` and says so twice: in the annotation for readers,
+and in an `assert` for tests. `holdAll` calls it without the lock. javac compiles it without a
+warning. Two runs, differing only in `-ea`:
 
 ```text
-A1: The strategies, from most preferred to least, are:
-
-1. No shared mutable state: The safest option. Use message passing (BlockingQueue), task
-   isolation, or a purely functional design where each task receives its input and produces
-   its output without side effects.
-
-2. Shared immutable state: Use records, final fields, or unmodifiable collections. Immutable
-   objects can be shared freely across threads with zero synchronization -- only the reference
-   needs safe publication (e.g., via volatile).
-
-3. Thread-confined mutable state: Use ThreadLocal or stack confinement so each thread has its
-   own copy of the data. No sharing = no race conditions.
-
-4. High-level concurrent abstractions: ConcurrentHashMap, BlockingQueue, AtomicInteger, etc.
-   These classes handle synchronization internally and are thoroughly tested.
-
-5. Explicit locks (ReentrantLock, ReadWriteLock): Use when you need fine-grained control over
-   locking behavior (tryLock, timed locking, read-write separation).
-
-6. synchronized: Simplest locking mechanism but coarse-grained. Pins virtual threads. Use for
-   simple, low-contention cases.
-
-7. Lock-free algorithms (CAS, VarHandle): Expert-level only. Very error-prone. Only justified
-   for infrastructure libraries with extreme performance requirements.
-
-The key insight interviewers look for: the higher you stay in this hierarchy, the fewer
-concurrency bugs you'll encounter. Most production code should use strategies 1-4.
+$ java Seats
+hold("F12"): true
+holdAll(F13, F14): returned
+$ java -ea Seats
+hold("F12"): true
+Exception in thread "main" java.lang.AssertionError: holdLocked called without the lock
+	at Seats.holdLocked(Seats.java:35)
+	at Seats.holdAll(Seats.java:30)
+	at Seats.main(Seats.java:42)
 ```
 
-```java
-// Strategy 1: No shared state -- tasks communicate via a queue
-BlockingQueue<Task> queue = new ArrayBlockingQueue<>(100);
+Without the check, every single-threaded test passes, and the bug shows only when two group
+bookings of the same seats run at the same moment: two `putIfAbsent` calls on a `HashMap` with no lock between
+them, and both customers may be told the seat is theirs. With the check, the first test that calls
+`holdAll` fails and names the missing lock; Maven Surefire runs tests with `-ea` unless told not
+to. Production runs without `-ea`, where the check costs next to nothing.
 
-// Producer thread
-queue.put(new Task("process-data"));
-
-// Consumer thread
-Task task = queue.take(); // No shared mutable state between producer and consumer
-
-// Strategy 2: Shared immutable state via record + volatile
-record AppConfig(String host, int port) {}
-volatile AppConfig config = new AppConfig("localhost", 8080); // a field of some class (volatile is not allowed on locals)
-
-// Strategy 3: Thread-confined state via ThreadLocal
-ThreadLocal<SimpleDateFormat> formatter =
-    ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd"));
-
-// Strategy 4: High-level abstraction
-ConcurrentHashMap<String, String> registry = new ConcurrentHashMap<>();
-registry.putIfAbsent("service-a", "http://host:8080"); // Atomic operation
-```
-
-**Q2: Why should you prefer immutable objects for concurrent programming, and how do you implement them in Java 21?**
+`Thread.holdsLock` knows only monitors. A class guarded by a `ReentrantLock` asks the lock:
 
 ```text
-A2: Immutable objects are the strongest tool against concurrency bugs because they eliminate the
-root cause: shared mutable state. If an object's state cannot change after construction, then:
-
-- No data race is possible (no writes to race on).
-- No visibility issue is possible (final fields have JMM guarantees).
-- No atomicity violation is possible (there are no compound state updates).
-- No lock is needed for reading the object's state.
-- The object can be freely shared, cached, and passed between threads.
-
-In Java 21, the best way to create immutable objects is with records:
-
-1. Records automatically generate final fields for all components.
-2. The compact constructor runs validation before fields are assigned.
-3. Records generate equals(), hashCode(), and toString() automatically.
-4. The "with" pattern (withXxx methods) creates new instances for modifications.
-
-For atomic state replacement, combine a record with a volatile reference:
-- Create a new record instance for each state change.
-- Assign it to a volatile field -- the volatile write ensures the new state is fully
-  visible to all threads.
-- Readers always see a consistent, fully constructed snapshot.
-
-This pattern is lock-free, simple, and correct by construction. java.util.concurrent uses the
-same idea (e.g., CopyOnWriteArrayList publishes a new array through a volatile field on every write).
+this thread holds it:    Thread.holdsLock(lock) = false, isHeldByCurrentThread() = true
+another thread holds it: isLocked() = true, isHeldByCurrentThread() = false
 ```
+
+`Thread.holdsLock(lock)` asks about the `ReentrantLock` object's monitor, which nobody holds, so
+that assertion fails on every correct call. `isLocked()` is true when any thread holds the lock,
+so an assertion built on it passes in an unlocked caller whenever some other thread holds it.
+`isHeldByCurrentThread()` is the check; its own javadoc shows it in an `assert`. For confined state the assertion names the owner instead:
+`assert Thread.currentThread() == ledgerThread`.
+
+The class's Javadoc carries the rest of the policy: whether the class is thread-safe, which thread
+owns which state, and any lock that callers must take themselves, as the javadoc of
+`Collections.synchronizedList` does for iteration.
+
+> **Static checkers.** Some analysers, such as Error Prone's `GuardedBy` check, read the annotation
+> and report an unguarded access at compile time. No such tool was run for this page.
+
+<!-- practice 4 -->
+
+## A Call to Another Object Under Your Lock Adds That Object's Locks to Your Lock Order
+
+Unit 6.2.1 breaks a deadlock between two accounts by always locking the lower id first, which works
+when one method takes both locks and can sort them. `Gauge` and `Dashboard` each lock only
+themselves:
 
 ```java
-// Immutable configuration record with validation
-public record DatabaseConfig(String url, String user, int poolSize) {
-    public DatabaseConfig {
-        Objects.requireNonNull(url, "url must not be null");
-        Objects.requireNonNull(user, "user must not be null");
-        if (poolSize < 1) throw new IllegalArgumentException("poolSize must be >= 1");
-    }
-
-    // "With" pattern: creates a new instance, leaving the original unchanged
-    public DatabaseConfig withPoolSize(int newPoolSize) {
-        return new DatabaseConfig(url, user, newPoolSize);
-    }
+// Gauge
+synchronized void set(long v) {
+    value = v;
+    for (LongConsumer l : listeners) l.accept(v);        // calls whoever subscribed, lock held
 }
 
-// Thread-safe config manager using volatile reference to immutable record
-public class ConfigManager {
-    private volatile DatabaseConfig config;
+synchronized long value() { return value; }
 
-    public ConfigManager(DatabaseConfig initial) {
-        this.config = Objects.requireNonNull(initial);
-    }
+// Dashboard, which subscribes markStale() to every gauge it shows
+synchronized void markStale() { stale = true; }
 
-    public void updateConfig(DatabaseConfig newConfig) {
-        this.config = Objects.requireNonNull(newConfig); // Atomic volatile write
-    }
-
-    public DatabaseConfig getConfig() {
-        return config; // Atomic volatile read -- always a consistent snapshot
-    }
+synchronized String render() {
+    StringBuilder sb = new StringBuilder();
+    for (Gauge g : gauges) sb.append(g.name).append('=').append(g.value()).append(' ');
+    stale = false;
+    return sb.toString();
 }
 ```
 
-**Q3: When and how should you use the producer-consumer pattern with BlockingQueue?**
+A `sensor` thread sets the gauge a million times while a `screen` thread renders the dashboard a
+million times. Pause here: does it finish? After two seconds the program calls
+`ThreadMXBean.findDeadlockedThreads()` and prints, for each thread it returns, the method it is
+blocked in, the lock it waits for and that lock's owner:
 
 ```text
-A3: The producer-consumer pattern is ideal when:
-- One or more threads produce work items and one or more threads consume them.
-- You need to decouple the rate of production from the rate of consumption.
-- You want natural flow control (backpressure) when consumers are slower than producers.
-
-BlockingQueue implementations handle all synchronization internally:
-- put() blocks if the queue is full (backpressure).
-- take() blocks if the queue is empty (wait for work).
-- offer(timeout) and poll(timeout) wait at most the given time; offer() and poll() without a timeout
-  never block.
-
-Choosing the right BlockingQueue:
-- ArrayBlockingQueue: Bounded, array-backed. Best for fixed-capacity buffers. Fair ordering
-  possible.
-- LinkedBlockingQueue: Optionally bounded, linked-node based. Better throughput under high
-  contention (separate locks for head and tail).
-- PriorityBlockingQueue: Unbounded, priority-ordered. Consumers always get the highest-priority
-  item.
-- SynchronousQueue: Zero-capacity -- each put() blocks until a corresponding take() (direct
-  handoff). Used by Executors.newCachedThreadPool().
-
-Benefits:
-- Eliminates shared mutable state between producer and consumer.
-- Built-in thread safety -- no external synchronization needed.
-- Natural backpressure via bounded capacity.
-- Clean shutdown via poison pill pattern or Thread.interrupt().
+calls under the lock: still running after 2 s; findDeadlockedThreads(): 2 threads
+  sensor in Dashboard.markStale, waits for Dashboard held by screen
+  screen in Gauge.value, waits for Gauge held by sensor
 ```
+
+`set` holds the gauge and, through a listener, asks for the dashboard; `render` holds the dashboard
+and asks for the gauge. Each second lock is taken one call away, so neither class shows a nested
+lock, and the order is set by whoever subscribed at run time.
+
+The fix belongs in the class that calls out: hold the lock for the state, copy what the call needs,
+and make the call with no lock held. *Java Concurrency in Practice* calls this an **open call**:
 
 ```java
-public class ProducerConsumerExample {
-    private final BlockingQueue<String> queue = new ArrayBlockingQueue<>(50);
-    private volatile boolean running = true;
-
-    // Producer: generates items and puts them on the queue
-    public void produce() throws InterruptedException {
-        int count = 0;
-        while (running) {
-            String item = "item-" + count++;
-            queue.put(item); // Blocks if queue is full (backpressure)
-        }
+void setOpen(long v) {
+    List<LongConsumer> toCall;
+    synchronized (this) {
+        value = v;
+        toCall = List.copyOf(listeners);                 // copy what the call needs...
     }
-
-    // Consumer: takes items from the queue and processes them
-    public void consume() throws InterruptedException {
-        while (running || !queue.isEmpty()) {
-            String item = queue.poll(1, TimeUnit.SECONDS); // Timeout avoids infinite block
-            if (item != null) {
-                process(item);
-            }
-        }
-    }
-
-    // Graceful shutdown
-    public void shutdown() {
-        running = false;
-    }
-
-    private void process(String item) {
-        System.out.println(Thread.currentThread().getName() + " processed: " + item);
-    }
+    for (LongConsumer l : toCall) l.accept(v);           // ...and call with no lock held
 }
 ```
-
-**Q4: How do ReadWriteLock and CopyOnWriteArrayList optimize for read-heavy workloads?**
 
 ```text
-A4: Both ReadWriteLock and CopyOnWriteArrayList optimize for the common scenario where reads
-vastly outnumber writes, but they use fundamentally different strategies:
-
-ReadWriteLock (ReentrantReadWriteLock):
-- Multiple threads can hold the read lock simultaneously -- reads proceed in parallel.
-- Only one thread can hold the write lock, and it requires exclusive access (no concurrent
-  readers or writers).
-- Good for: caches, lookup tables, configuration stores where data changes occasionally.
-- Trade-off: Writers must wait for all readers to release; readers must wait for writers.
-- Variant: StampedLock (Java 8+) supports optimistic reads -- the reader doesn't acquire a
-  lock at all; it just checks afterward whether a write occurred and retries if so.
-
-CopyOnWriteArrayList:
-- All mutations (add, remove, set) create a NEW internal array, copying all existing elements.
-- Iterators operate on a snapshot of the array at the time the iterator was created.
-- Reads never block and never throw ConcurrentModificationException.
-- Good for: event listener registries, infrequently-updated lists iterated by many threads.
-- Trade-off: Writes are O(n) because they copy the entire array. Not suitable for large lists
-  with frequent writes.
-
-When to use which:
-- ReadWriteLock: Data is too large to copy on every write, or writes happen at moderate
-  frequency. Access is key-based (maps, caches).
-- CopyOnWriteArrayList: List is small, writes are rare, and safe iteration is critical (e.g.,
-  event listeners, observer pattern).
+open calls: both threads done in 130 ms
 ```
 
-```java
-// ReadWriteLock: thread-safe cache with concurrent reads
-public class RWLockCache<K, V> {
-    private final Map<K, V> data = new HashMap<>();
-    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+`render` still calls `value()` under the dashboard's lock, but a cycle needs both halves, and the
+gauge no longer holds its lock while it waits for the dashboard. Each class can vouch only for its
+own calls, so each makes the open calls it can: `render` could copy the gauge list under its lock
+and read the values after releasing it. The lock is now held only for the gauge's state, the
+short critical section whose throughput unit 6.2.1 measures.
 
-    public V get(K key) {
-        rwLock.readLock().lock();   // Multiple readers can enter simultaneously
-        try {
-            return data.get(key);
-        } finally {
-            rwLock.readLock().unlock();
-        }
-    }
+With open calls, two `set` calls on different threads can notify in the opposite order to their
+writes, so a listener that needs the latest value reads `value()` rather than its argument.
 
-    public void put(K key, V value) {
-        rwLock.writeLock().lock();  // Exclusive access
-        try {
-            data.put(key, value);
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-
-    public Map<K, V> snapshot() {
-        rwLock.readLock().lock();
-        try {
-            return new HashMap<>(data); // Defensive copy under read lock
-        } finally {
-            rwLock.readLock().unlock();
-        }
-    }
-}
-
-// CopyOnWriteArrayList: safe iteration for event listeners
-public class EventBus {
-    private final List<EventListener> listeners = new CopyOnWriteArrayList<>();
-
-    public void addListener(EventListener l) { listeners.add(l); }       // Copies array
-    public void removeListener(EventListener l) { listeners.remove(l); } // Copies array
-
-    public void fireEvent(Event e) {
-        // Safe: iterates over a snapshot -- no ConcurrentModificationException
-        for (EventListener l : listeners) {
-            l.onEvent(e);
-        }
-    }
-}
-```
-
-**Q5: Why does `synchronized` pin virtual threads, and what should you use instead?**
+`findDeadlockedThreads()` also finds a cycle of `ReentrantLock`s, which the older
+`findMonitorDeadlockedThreads()` doesn't:
 
 ```text
-A5: In Java 21, virtual threads are multiplexed onto a small pool of platform (carrier) threads.
-When a virtual thread blocks on an I/O operation or a ReentrantLock, it can "unmount" from its
-carrier thread, freeing the carrier to run other virtual threads. This is what makes virtual
-threads lightweight and scalable.
-
-However, when a virtual thread enters a synchronized block (or a synchronized method), it
-"pins" itself to the carrier thread. While pinned:
-- The virtual thread cannot unmount.
-- The carrier thread is blocked along with the virtual thread.
-- Other virtual threads waiting for a carrier thread must wait.
-
-This reduces the scalability advantage of virtual threads. Under high contention, pinning can
-effectively turn virtual threads into platform threads in terms of resource consumption.
-
-Why does this happen? In Java 21 the JVM's monitor implementation records the owner of a monitor
-as the carrier (OS) thread, so a virtual thread holding a monitor cannot be unmounted. Java 24
-(JEP 491) reworked this so that synchronized no longer pins.
-
-The solution: use ReentrantLock instead of synchronized in code paths that run on virtual
-threads. ReentrantLock uses AbstractQueuedSynchronizer (AQS), which supports parking and
-unparking virtual threads without pinning.
-
-Note: This limitation was removed in Java 24 (JEP 491). On Java 21 the practical advice is:
-1. For new code on virtual threads: use ReentrantLock.
-2. For existing code: monitor for pinning using -Djdk.tracePinnedThreads=short or full.
-3. Short, non-blocking synchronized blocks are usually fine -- pinning is only problematic
-   when combined with blocking operations inside the synchronized block.
+ReentrantLock cycle: findDeadlockedThreads() = 2 threads, findMonitorDeadlockedThreads() = null
 ```
 
-```java
-// PROBLEM: synchronized pins the virtual thread
-public class PinningExample {
-    private final Object lock = new Object();
+Neither finds a cycle that runs through a `Future` (unit 6.2.1), and in Java 21 the javadoc of
+both says cycles that include virtual threads are not found. Both report only what is stuck at the
+moment of the call, so `null` doesn't prove the code is free of deadlocks. A test of code that can
+deadlock runs it on daemon threads, waits with a timeout, and asks the detector what is stuck
+before it fails; a service can run the same check from a watchdog thread and log the stacks.
 
-    public void handleRequest() {
-        synchronized (lock) {              // Virtual thread is pinned here
-            String data = fetchFromDb();    // Blocking I/O while pinned -- carrier is stuck!
-            processData(data);
-        }
-    }
-}
+<!-- practice 3 -->
 
-// SOLUTION: ReentrantLock allows virtual thread to unmount
-public class NonPinningExample {
-    private final ReentrantLock lock = new ReentrantLock();
+## Summary
 
-    public void handleRequest() {
-        lock.lock();
-        try {
-            String data = fetchFromDb();   // Virtual thread can unmount during I/O
-            processData(data);
-        } finally {
-            lock.unlock();
-        }
-    }
-}
+- **State confined to one thread needs no lock, until a callback runs it somewhere else.** A
+  non-async callback runs on the thread that completes the future, or on the attaching thread if
+  it is already complete; hand results back through the owner's executor.
+- **What passes between threads is immutable, or its sender never touches it again.** A queue
+  hands over a reference, and its happens-before edge covers only the writes made before the `put`.
+- **A latch or a queue remembers a signal that `wait()` can miss.** `notifyAll()` records nothing;
+  the library classes keep state, and a latch counts only the `countDown()` calls that happen.
+- **Write down which lock guards each field, and let the code check it.** `@GuardedBy` is a
+  convention javac ignores; an `assert` of `Thread.holdsLock` or `isHeldByCurrentThread()` makes
+  tests catch an unguarded call.
+- **A call to another object under your lock adds its locks to your lock order.** Make open calls:
+  copy under the lock, call after releasing it; `findDeadlockedThreads()` names a cycle once it has
+  formed.
 
-// Detecting pinning: run with -Djdk.tracePinnedThreads=short
-// Output shows stack traces where virtual threads are pinned
-```
+## Reference
 
-**Q6: How do you minimize lock scope, and why is it important?**
+**Which thread runs a `CompletableFuture` callback (as observed above, Java 21):**
 
-```text
-A6: Lock scope refers to the amount of code executed while holding a lock. Minimizing lock scope
-means holding the lock for the shortest possible duration -- only for the actual state mutation,
-not for any preparatory computation or I/O.
+| Attached with | Runs on |
+|---|---|
+| `thenAccept`, `thenApply`, `whenComplete` on a pending future | the thread that completes the future (javadoc: or any caller of a completion method) |
+| the same, on a future already complete | the thread that attaches it, before the method returns |
+| `thenAcceptAsync(fn)`, any `...Async` without an executor | `ForkJoinPool.commonPool()` (javadoc: a new thread per task if its parallelism is below 2) |
+| `thenAcceptAsync(fn, executor)` | a thread of `executor` |
 
-Why it matters:
-1. Throughput: While one thread holds a lock, all other threads waiting for that lock are
-   blocked. The longer the lock is held, the more time threads spend waiting.
-2. Latency: Under contention, the time a thread waits for a lock directly impacts request
-   latency.
-3. Deadlock risk: The longer a lock is held, the more likely it is that the holding thread
-   will need another lock -- increasing deadlock risk.
-4. Virtual thread pinning: With synchronized blocks on virtual threads, a wider scope means
-   longer pinning.
+**Hand-written handshakes and the classes that replace them:**
 
-Technique: Compute outside, mutate inside.
-1. Perform all expensive computations (parsing, network calls, serialization) BEFORE acquiring
-   the lock.
-2. Acquire the lock.
-3. Perform only the minimal state mutation.
-4. Release the lock.
-5. Perform any post-processing after releasing the lock.
+| With `wait`/`notify` | Class | What it keeps |
+|---|---|---|
+| "ready" waited for once | `CountDownLatch` | its count, which can't be reset |
+| a bounded buffer | `ArrayBlockingQueue`, `LinkedBlockingQueue` | its elements |
+| a result handed from a task | `Future`, `CompletableFuture` | the result or the exception |
+| N threads meet before each round | `CyclicBarrier`, `Phaser` | how many have arrived this round |
+| at most N threads inside | `Semaphore` | its permits |
 
-This pattern can improve throughput substantially under high contention.
-```
+**Who holds the lock:**
 
-```java
-// BEFORE: Wide lock scope -- entire computation under lock
-public class WideLockScope {
-    private final ReentrantLock lock = new ReentrantLock();
-    private final List<String> results = new ArrayList<>();
+| Check | True when |
+|---|---|
+| `Thread.holdsLock(obj)` | the current thread holds `obj`'s monitor; `false` for a `ReentrantLock` taken with `lock()` |
+| `ReentrantLock.isHeldByCurrentThread()` | the current thread holds the lock |
+| `ReentrantLock.isLocked()` | any thread holds the lock |
+| `ReentrantLock.getHoldCount()` | holds by the current thread; `0` if none |
 
-    public void processAndStore(String rawInput) {
-        lock.lock();
-        try {
-            // Expensive parsing and validation -- 100ms
-            String validated = validate(rawInput);
-            String transformed = transform(validated);
-            String formatted = format(transformed);
-            results.add(formatted);  // Only this line needs the lock!
-        } finally {
-            lock.unlock();
-        }
-    }
-}
+**Deadlock detection (`ThreadMXBean`):**
 
-// AFTER: Minimal lock scope -- only state mutation under lock
-public class NarrowLockScope {
-    private final ReentrantLock lock = new ReentrantLock();
-    private final List<String> results = new ArrayList<>();
+| Method | Reports |
+|---|---|
+| `findDeadlockedThreads()` | threads in a cycle of monitors or ownable synchronizers such as `ReentrantLock`; `null` if none |
+| `findMonitorDeadlockedThreads()` | threads in a cycle of monitors only; `null` if none |
+| either, Java 21 | cycles that include virtual threads are not found |
+| `getThreadInfo(ids, depth)` | for each thread, the lock it waits for (`getLockName()`), its owner (`getLockOwnerName()`) and its stack |
 
-    public void processAndStore(String rawInput) {
-        // All computation outside the lock -- threads work in parallel
-        String validated = validate(rawInput);
-        String transformed = transform(validated);
-        String formatted = format(transformed);
+## Challenges
 
-        // Only the state mutation is under the lock
-        lock.lock();
-        try {
-            results.add(formatted);
-        } finally {
-            lock.unlock();
-        }
-    }
-}
-```
+These have no single answer.
 
-**Q7: How do you test concurrent code effectively?**
+1. Take a class you know with several `synchronized` methods and write `@GuardedBy` on each field.
+   Which field has no single answer, and what does that tell you about the class?
+2. The ledger thread owns the positions. A risk report needs a consistent view of all of them every
+   second, without stopping the ledger for long. Do you submit a copying task to the ledger, publish
+   an immutable snapshot after each trade, or something else? What does each cost at 10,000 trades a
+   second?
+3. A listener registry delivers with open calls. A listener unsubscribes and then closes a file it
+   writes to in `onEvent`; a delivery that copied the list before the unsubscribe still calls it.
+   How do you guarantee "no calls after `unsubscribe` returns", and what does it cost the publisher?
 
-```text
-A7: Testing concurrent code is inherently challenging because bugs are non-deterministic.
-However, several techniques can expose concurrency issues with high probability:
+## Design Note: Why Java Leaves the Locking Policy to Comments
 
-1. Stress testing with @RepeatedTest: Run the same test many times to increase the chance
-   of triggering a race condition. Use a high iteration count (50-100).
+Every Java object has a monitor, and any code with a reference can lock it. A field and the lock
+that guards it are related only by what the author meant, so the compiler can't tell which
+`synchronized` block protects which field and can't report the one that's missing. `@GuardedBy`,
+assertions and static checkers recover part of that intent after the fact.
 
-2. CountDownLatch for synchronization barriers: Use a latch to ensure all threads start
-   their work simultaneously, maximizing contention:
-   - Create a CountDownLatch(1) as a "start gate."
-   - All threads await the latch.
-   - Release the latch to start all threads at once.
-
-3. Awaitility for asynchronous assertions: Poll a condition repeatedly with a timeout
-   instead of using Thread.sleep() (which is flaky and slow).
-
-4. Assertions on invariants: After all threads complete, verify that invariants hold
-   (e.g., counter == expected, no duplicates, no lost entries).
-
-5. CopyOnWriteArrayList for collecting per-thread results: Each thread adds its result to
-   a COWAL; after all threads finish, assert on the collected results.
-
-6. AtomicInteger for error counting: Increment an AtomicInteger in each thread when an
-   unexpected condition is detected; assert it's zero at the end.
-
-7. JCStress: For infrastructure code, use the Java Concurrency Stress framework, which
-   explores thread interleavings far more aggressively than JUnit.
-
-Best practices:
-- Never use Thread.sleep() as a synchronization mechanism in tests.
-- Always set timeouts on joins and awaits to prevent tests from hanging.
-- Use virtual threads (Thread.ofVirtual()) for lightweight test threads.
-```
-
-```java
-@RepeatedTest(10) // Run multiple times to expose races
-void concurrentIncrementsMustNotLoseUpdates() throws InterruptedException {
-    var counter = new AtomicInteger(0);
-    int threads = 100;
-    int incrementsPerThread = 1000;
-    int expected = threads * incrementsPerThread;
-
-    CountDownLatch startGate = new CountDownLatch(1);   // All threads start together
-    CountDownLatch doneLatch = new CountDownLatch(threads);
-
-    for (int i = 0; i < threads; i++) {
-        Thread.ofVirtual().start(() -> {
-            try {
-                startGate.await(); // Wait until all threads are ready
-                for (int j = 0; j < incrementsPerThread; j++) {
-                    counter.incrementAndGet();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } finally {
-                doneLatch.countDown();
-            }
-        });
-    }
-
-    startGate.countDown();  // Release all threads simultaneously
-    boolean completed = doneLatch.await(10, TimeUnit.SECONDS);
-
-    assertThat(completed).isTrue();
-    assertThat(counter.get()).isEqualTo(expected);
-}
-
-// Using Awaitility for async assertions
-@Test
-void eventuallyConverges() {
-    var flag = new AtomicBoolean(false);
-    Thread.ofVirtual().start(() -> {
-        try { Thread.sleep(100); } catch (InterruptedException e) {}
-        flag.set(true);
-    });
-
-    await().atMost(Duration.ofSeconds(2))
-           .untilTrue(flag); // Polls until true or timeout
-}
-```
+The stronger fix is to make the policy structural rather than written: keep the state private in a
+class whose every method takes the class's own lock, or behind a single owner thread, so that no
+outside code can reach the state any other way. The price is granularity: one lock or one thread
+per piece of state serializes work that finer locking could run side by side.
 
 ## Code Examples
 

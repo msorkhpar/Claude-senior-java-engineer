@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "Tell hidden classes from anonymous and named ones",
+  "title": "Check a start script against the next Java release",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,23 @@
     },
     {
       "type": "para",
-      "text": "Java 15's hidden classes (JEP 371) are classes that cannot be discovered by other classes: they are registered in no class loader's namespace, so `Class.forName()` cannot find them, and their names contain a `/`. Since Java 15 the JVM implements every lambda with a hidden class, and `Class.isHidden()` tells whether a class is one. The page warns against assuming hidden classes behave like normal classes, and interviewers like to ask how they differ from anonymous classes."
+      "text": "The payments platform runs forty services, each with a start script full of `-XX` options that people added over ten years. The services are moving from Java 11 to the next LTS release in one step. The platform team keeps an inventory of HotSpot options: for each, the release in which it was deprecated, made obsolete, and expired, with `null` where that hasn't happened yet. Before any service moves, a check reads its options against the inventory and reports what the new JVM will do with them."
     },
     {
       "type": "para",
-      "text": "Write the class `Classes`:"
+      "text": "`StartOptionsCheck` already reads the options and builds the report. Finish the two `TODO` methods in `src/main/java/practice/StartOptionsCheck.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`kind(Class<?> c)` returns `\"hidden\"` for a hidden class, `\"anonymous\"` for the class of an anonymous class expression (`new Runnable() { ... }`), and `\"named\"` for any other class. Note that a lambda's class is also marked *synthetic*; that does not make it anonymous.",
-        "`loadable(Class<?> c)` returns whether `Class.forName(c.getName(), false, c.getClassLoader())` finds that same class. When the lookup fails, return `false` rather than throwing."
+        "`stage(...)`: where an option is in its life on a given release;",
+        "`refusesToStart(...)`: whether an option in that stage stops the JVM from starting."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`kind(String.class)`, `loadable(String.class)`",
-          "`\"named\"`, `true`"
-        ],
-        [
-          "`kind(((Runnable) () -> {}).getClass())`",
-          "`\"hidden\"`"
-        ],
-        [
-          "`kind(new Runnable() { public void run() {} }.getClass())`",
-          "`\"anonymous\"`"
-        ],
-        [
-          "`loadable(((Runnable) () -> {}).getClass())`",
-          "`false`"
-        ],
-        [
-          "`loadable(int.class)`",
-          "`false` (no class is named `\"int\"`)"
-        ]
-      ]
+      "type": "para",
+      "text": "The report must tell the team which options only cost a warning and which would take a service down on its first deploy. About six lines in total. The tests use a made-up inventory, not the history of real options."
     },
     {
       "type": "heading",
@@ -75,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class Classes {\n\n    private Classes() {\n    }\n\n    /** \"hidden\", \"anonymous\" or \"named\". */\n    public static String kind(Class<?> c) {\n        if (c.isHidden()) {\n            return \"hidden\";\n        }\n        if (c.isAnonymousClass()) {\n            return \"anonymous\";\n        }\n        return \"named\";\n    }\n\n    /** Whether looking the class up by its name finds that same class. */\n    public static boolean loadable(Class<?> c) {\n        try {\n            return Class.forName(c.getName(), false, c.getClassLoader()) == c;\n        } catch (ClassNotFoundException e) {\n            return false;\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Checks a service's -XX options against the option inventory before the service moves to a new\n * Java release, and says what the new JVM will do with each one.\n */\npublic class StartOptionsCheck {\n\n    /** Where an option is in its life on a given release. */\n    public enum Stage { SUPPORTED, DEPRECATED, OBSOLETE, EXPIRED }\n\n    /**\n     * One entry of the inventory: the release in which the option was deprecated, made obsolete,\n     * and expired, or null where that has not happened.\n     */\n    public record History(Integer deprecatedIn, Integer obsoleteIn, Integer expiredIn) {\n        public static final History NONE = new History(null, null, null);\n    }\n\n    /** What the check found: the options per stage, and whether the JVM will start. */\n    public record Result(boolean starts, List<String> deprecated, List<String> obsolete, List<String> expired) { }\n\n    /** \"-XX:+UseFoo\", \"-XX:-UseFoo\" and \"-XX:Foo=12\" all name the option \"Foo\". */\n    static String optionName(String option) {\n        String name = option.substring(\"-XX:\".length());\n        if (name.startsWith(\"+\") || name.startsWith(\"-\")) name = name.substring(1);\n        int eq = name.indexOf('=');\n        return eq < 0 ? name : name.substring(0, eq);\n    }\n\n    /** The stage of an option with this history on the given release. */\n    static Stage stage(History history, int release) {\n        if (history.expiredIn() != null && release >= history.expiredIn()) return Stage.EXPIRED;\n        if (history.obsoleteIn() != null && release >= history.obsoleteIn()) return Stage.OBSOLETE;\n        if (history.deprecatedIn() != null && release >= history.deprecatedIn()) return Stage.DEPRECATED;\n        return Stage.SUPPORTED;\n    }\n\n    /** Whether a JVM refuses to start when it is given an option in this stage. */\n    static boolean refusesToStart(Stage stage) {\n        return stage == Stage.EXPIRED;\n    }\n\n    public static Result check(List<String> options, Map<String, History> inventory, int release) {\n        List<String> deprecated = new ArrayList<>();\n        List<String> obsolete = new ArrayList<>();\n        List<String> expired = new ArrayList<>();\n        boolean starts = true;\n        for (String option : options) {\n            Stage stage = stage(inventory.getOrDefault(optionName(option), History.NONE), release);\n            switch (stage) {\n                case DEPRECATED -> deprecated.add(option);\n                case OBSOLETE -> obsolete.add(option);\n                case EXPIRED -> expired.add(option);\n                case SUPPORTED -> { }\n            }\n            if (refusesToStart(stage)) starts = false;\n        }\n        return new Result(starts, deprecated, obsolete, expired);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Classes {\n\n    private Classes() {\n    }\n\n    /** \"hidden\", \"anonymous\" or \"named\". */\n    public static String kind(Class<?> c) {\n        throw new UnsupportedOperationException(\"write kind\");\n    }\n\n    /** Whether looking the class up by its name finds that same class. */\n    public static boolean loadable(Class<?> c) {\n        throw new UnsupportedOperationException(\"write loadable\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Checks a service's -XX options against the option inventory before the service moves to a new\n * Java release, and says what the new JVM will do with each one.\n */\npublic class StartOptionsCheck {\n\n    /** Where an option is in its life on a given release. */\n    public enum Stage { SUPPORTED, DEPRECATED, OBSOLETE, EXPIRED }\n\n    /**\n     * One entry of the inventory: the release in which the option was deprecated, made obsolete,\n     * and expired, or null where that has not happened.\n     */\n    public record History(Integer deprecatedIn, Integer obsoleteIn, Integer expiredIn) {\n        public static final History NONE = new History(null, null, null);\n    }\n\n    /** What the check found: the options per stage, and whether the JVM will start. */\n    public record Result(boolean starts, List<String> deprecated, List<String> obsolete, List<String> expired) { }\n\n    /** \"-XX:+UseFoo\", \"-XX:-UseFoo\" and \"-XX:Foo=12\" all name the option \"Foo\". */\n    static String optionName(String option) {\n        String name = option.substring(\"-XX:\".length());\n        if (name.startsWith(\"+\") || name.startsWith(\"-\")) name = name.substring(1);\n        int eq = name.indexOf('=');\n        return eq < 0 ? name : name.substring(0, eq);\n    }\n\n    /** The stage of an option with this history on the given release. */\n    static Stage stage(History history, int release) {\n        // TODO: Answer which stage the option is in on this release, from the releases its\n        //       history records.\n        throw new IllegalStateException(\"TODO: stage\");\n    }\n\n    /** Whether a JVM refuses to start when it is given an option in this stage. */\n    static boolean refusesToStart(Stage stage) {\n        // TODO: Answer whether a JVM given an option in this stage fails to start.\n        throw new IllegalStateException(\"TODO: refusesToStart\");\n    }\n\n    public static Result check(List<String> options, Map<String, History> inventory, int release) {\n        List<String> deprecated = new ArrayList<>();\n        List<String> obsolete = new ArrayList<>();\n        List<String> expired = new ArrayList<>();\n        boolean starts = true;\n        for (String option : options) {\n            Stage stage = stage(inventory.getOrDefault(optionName(option), History.NONE), release);\n            switch (stage) {\n                case DEPRECATED -> deprecated.add(option);\n                case OBSOLETE -> obsolete.add(option);\n                case EXPIRED -> expired.add(option);\n                case SUPPORTED -> { }\n            }\n            if (refusesToStart(stage)) starts = false;\n        }\n        return new Result(starts, deprecated, obsolete, expired);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -106,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8387dbffb1b3706fd8773e6354d9bd7b22f4915785311fde7b65e8b496b81a4c",
-  "starting_code": "package practice;\n\npublic final class Classes {\n\n    private Classes() {\n    }\n\n    /** \"hidden\", \"anonymous\" or \"named\". */\n    public static String kind(Class<?> c) {\n        throw new UnsupportedOperationException(\"write kind\");\n    }\n\n    /** Whether looking the class up by its name finds that same class. */\n    public static boolean loadable(Class<?> c) {\n        throw new UnsupportedOperationException(\"write loadable\");\n    }\n}\n",
+  "content_sha256": "65671ce05c201eb230b15a624778867c07d6ca936d757c2c2a6628a426ca4a0c",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\n\n/**\n * Checks a service's -XX options against the option inventory before the service moves to a new\n * Java release, and says what the new JVM will do with each one.\n */\npublic class StartOptionsCheck {\n\n    /** Where an option is in its life on a given release. */\n    public enum Stage { SUPPORTED, DEPRECATED, OBSOLETE, EXPIRED }\n\n    /**\n     * One entry of the inventory: the release in which the option was deprecated, made obsolete,\n     * and expired, or null where that has not happened.\n     */\n    public record History(Integer deprecatedIn, Integer obsoleteIn, Integer expiredIn) {\n        public static final History NONE = new History(null, null, null);\n    }\n\n    /** What the check found: the options per stage, and whether the JVM will start. */\n    public record Result(boolean starts, List<String> deprecated, List<String> obsolete, List<String> expired) { }\n\n    /** \"-XX:+UseFoo\", \"-XX:-UseFoo\" and \"-XX:Foo=12\" all name the option \"Foo\". */\n    static String optionName(String option) {\n        String name = option.substring(\"-XX:\".length());\n        if (name.startsWith(\"+\") || name.startsWith(\"-\")) name = name.substring(1);\n        int eq = name.indexOf('=');\n        return eq < 0 ? name : name.substring(0, eq);\n    }\n\n    /** The stage of an option with this history on the given release. */\n    static Stage stage(History history, int release) {\n        // TODO: Answer which stage the option is in on this release, from the releases its\n        //       history records.\n        throw new IllegalStateException(\"TODO: stage\");\n    }\n\n    /** Whether a JVM refuses to start when it is given an option in this stage. */\n    static boolean refusesToStart(Stage stage) {\n        // TODO: Answer whether a JVM given an option in this stage fails to start.\n        throw new IllegalStateException(\"TODO: refusesToStart\");\n    }\n\n    public static Result check(List<String> options, Map<String, History> inventory, int release) {\n        List<String> deprecated = new ArrayList<>();\n        List<String> obsolete = new ArrayList<>();\n        List<String> expired = new ArrayList<>();\n        boolean starts = true;\n        for (String option : options) {\n            Stage stage = stage(inventory.getOrDefault(optionName(option), History.NONE), release);\n            switch (stage) {\n                case DEPRECATED -> deprecated.add(option);\n                case OBSOLETE -> obsolete.add(option);\n                case EXPIRED -> expired.add(option);\n                case SUPPORTED -> { }\n            }\n            if (refusesToStart(stage)) starts = false;\n        }\n        return new Result(starts, deprecated, obsolete, expired);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-3/src/main/java/practice/Classes.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-3/src/test/java/practice/ClassesTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-3/src/main/java/practice/StartOptionsCheck.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-03/practice-3/src/test/java/practice/StartOptionsCheckTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,24 +106,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ClassesTest#namedClassesAreNamedAndLoadable",
+        "id": "practice.StartOptionsCheckTest#anOptionNobodyRemovedIsSupported",
         "kind": "main",
-        "says": "An ordinary class is \"named\" and can be found again by its name."
+        "says": "options with no history are reported in no stage, and the JVM starts"
       },
       {
-        "id": "practice.ClassesTest#lambdaClassesAreHidden",
-        "kind": "edge",
-        "says": "The class of a lambda or a method reference is \"hidden\"."
+        "id": "practice.StartOptionsCheckTest#anOldReleaseStartsWithEveryOption",
+        "kind": "main",
+        "says": "on a release before any option's history begins, nothing is reported and the JVM starts"
       },
       {
-        "id": "practice.ClassesTest#anonymousClassesAreNotHidden",
-        "kind": "edge",
-        "says": "The class of an anonymous class expression is \"anonymous\", not \"hidden\"."
+        "id": "practice.StartOptionsCheckTest#aDeprecatedOptionStillStarts",
+        "kind": "main",
+        "says": "an option deprecated before the target release is reported as deprecated, and the JVM starts"
       },
       {
-        "id": "practice.ClassesTest#hiddenClassesAreNotLoadable",
+        "id": "practice.StartOptionsCheckTest#anObsoleteOptionIsReportedButTheJvmStillStarts",
         "kind": "edge",
-        "says": "Looking a lambda's class up by its name does not find it, and neither does looking up a primitive such as int."
+        "says": "an option made obsolete before the target release is reported as obsolete, and the JVM still starts"
+      },
+      {
+        "id": "practice.StartOptionsCheckTest#anExpiredOptionStopsTheJvm",
+        "kind": "edge",
+        "says": "an option that expired before the target release is reported as expired, and the JVM does not start"
+      },
+      {
+        "id": "practice.StartOptionsCheckTest#eachStageStartsInTheReleaseTheInventoryNames",
+        "kind": "edge",
+        "says": "an option enters each stage in the very release the inventory names for it"
       }
     ],
     "report": {
@@ -157,11 +142,10 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.3.md",
-      "section": "Q4: What are hidden classes and why were they introduced?"
+      "section": "A Removed JVM Option Is Ignored for a While, Then Stops the JVM From Starting"
     },
     "concepts": [
-      "A hidden class is in no class loader's namespace, so Class.forName cannot find it.",
-      "Since Java 15 the JVM implements lambdas with hidden classes, which Class.isHidden() reports."
+      "A HotSpot option is deprecated (works, warns), then obsolete (accepted and ignored, warns), then expired (unrecognized, the JVM refuses to start), each from the release named."
     ]
   }
 }

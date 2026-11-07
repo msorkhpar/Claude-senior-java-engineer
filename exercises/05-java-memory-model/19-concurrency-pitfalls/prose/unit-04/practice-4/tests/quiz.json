@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "05-java-memory-model",
+    "19-concurrency-pitfalls"
+  ],
+  "variant": "prose",
+  "unit": 4,
+  "ordinal": 4,
+  "title": "Check yourself: safe concurrent programming",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-engine-book-callback",
+        "stem": "A matching engine keeps its order book in an ArrayDeque that only the engine's single-thread executor reads or writes. A task on that executor calls riskCheck(order), which returns a CompletableFuture<Boolean> completed later by a thread of the risk service's pool, and attaches `.thenAcceptAsync(ok -> book.add(order))` to it. Where does book.add run?",
+        "options": [
+          {
+            "id": "a",
+            "text": "On a thread of the common pool, since an Async method given no executor runs its callback on the default async pool",
+            "correct": true,
+            "says": "an Async method without an executor runs the callback on ForkJoinPool.commonPool(); only the form that names the owner's executor keeps it on the owner"
+          },
+          {
+            "id": "b",
+            "text": "On the engine's thread, since an Async method given no executor runs its callback on the thread that attached it",
+            "correct": false,
+            "says": "an Async method given no executor runs its callback on ForkJoinPool.commonPool(); it runs on the engine's thread only when given the engine's executor"
+          },
+          {
+            "id": "c",
+            "text": "On a thread of the risk pool, since an Async method given no executor runs its callback on the thread that completes the future",
+            "correct": false,
+            "says": "the completing thread runs non-async callbacks; an Async one without an executor goes to the common pool"
+          },
+          {
+            "id": "d",
+            "text": "On the engine's thread, since an Async method given no executor queues its callback on the executor that attached it",
+            "correct": false,
+            "says": "an Async method without an executor knows nothing of the engine's executor; it uses ForkJoinPool.commonPool()"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.4.md",
+          "section": "State Confined to One Thread Needs No Lock, Until a Callback Runs Somewhere Else"
+        }
+      },
+      {
+        "id": "q-log-chunks-shared-array",
+        "stem": "A log shipper's reader thread reads 64 KB of a file into a byte[] buffer, puts `new Chunk(offset, buffer)` (a record) on a BlockingQueue, then reads the next 64 KB into buffer and puts the next Chunk. An uploader thread takes the chunks and sends them. What does the uploader send?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Each chunk as it was read, since each Chunk record holds the buffer in a final field",
+            "correct": false,
+            "says": "the record is new but its array is the reader's one array, which the reader keeps writing after the put"
+          },
+          {
+            "id": "b",
+            "text": "Each chunk as it was read, since the put happens-before the take, so the uploader sees the buffer as it was at the put",
+            "correct": false,
+            "says": "the edge covers the writes made before the put, not the reader's writes into the array after it"
+          },
+          {
+            "id": "c",
+            "text": "Chunks that may hold bytes of later reads, since every Chunk refers to the buffer, which the reader goes on filling",
+            "correct": true,
+            "says": "the queue hands over a reference; the sender changed the object after handing it over"
+          },
+          {
+            "id": "d",
+            "text": "Chunks that may hold bytes of later reads, since the queue may hand the chunks' buffers out of order once the uploader falls behind",
+            "correct": false,
+            "says": "the chunks come out in the order they were put; the damage comes from the one buffer every chunk shares, which the reader keeps filling"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.4.md",
+          "section": "What Passes Between Threads Is Immutable, or Its Sender Never Touches It Again"
+        }
+      },
+      {
+        "id": "q-ratelimiter-guard-check",
+        "stem": "A RateLimiter is guarded by `private final ReentrantLock lock`, and its helper refillLocked() is documented \"caller holds lock\". A reviewer wants a unit test to fail when some method calls refillLocked() without the lock, and correct calls to pass, even while another thread happens to hold the lock. What should the reviewer add to refillLocked()?",
+        "options": [
+          {
+            "id": "a",
+            "text": "`assert Thread.holdsLock(lock);`, since it reports whether the calling thread holds the lock it is given",
+            "correct": false,
+            "says": "Thread.holdsLock knows only monitors; on a ReentrantLock it is false even while the caller holds it, so every correct call fails"
+          },
+          {
+            "id": "b",
+            "text": "`assert lock.isLocked();`, since it reports whether the lock is held at the moment of the check",
+            "correct": false,
+            "says": "isLocked() is true when any thread holds it, so an unlocked caller passes whenever another thread holds the lock"
+          },
+          {
+            "id": "c",
+            "text": "`assert lock.isHeldByCurrentThread();`, since it reports whether the calling thread holds the lock",
+            "correct": true,
+            "says": "isHeldByCurrentThread() is the check for a ReentrantLock; Surefire runs tests with -ea"
+          },
+          {
+            "id": "d",
+            "text": "`@GuardedBy(\"lock\")` on the method, since it makes javac reject a call made where the lock isn't held",
+            "correct": false,
+            "says": "@GuardedBy is a convention; javac checks nothing"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.4.md",
+          "section": "Write Down Which Lock Guards Each Field, and Let the Code Check It"
+        }
+      },
+      {
+        "id": "q-inventory-reorder",
+        "stem": "Inventory's synchronized reserve(sku) calls listener.onLowStock(sku) when stock falls below 5. The listener is a Reorder service whose synchronized onLowStock calls inventory.available(sku), also synchronized; its nightly job holds Reorder's lock while it calls inventory.available() for every SKU. Each class only ever takes its own lock. A request reserves the last units while the nightly job runs. Can the two threads deadlock, and what change, if any, is needed?",
+        "options": [
+          {
+            "id": "a",
+            "text": "They can deadlock, since each holds its own lock and asks for the other's; Inventory should call the listener after leaving its synchronized block",
+            "correct": true,
+            "says": "the second lock is taken one call away, so the order is set by whoever subscribed; an open call removes the notifying side's half of the cycle"
+          },
+          {
+            "id": "b",
+            "text": "They can deadlock, since each holds its own lock and asks for the other's; Inventory should call the listener inside a ReentrantLock-guarded block instead",
+            "correct": false,
+            "says": "a ReentrantLock taken with lock() waits just like a monitor, so the cycle stays; findDeadlockedThreads reports such a cycle too"
+          },
+          {
+            "id": "c",
+            "text": "They can't deadlock, since no method nests two locks and each class takes only its own; nothing needs to change",
+            "correct": false,
+            "says": "the Gauge and Dashboard each lock only themselves and still deadlock, through a call made while holding the lock"
+          },
+          {
+            "id": "d",
+            "text": "They can't deadlock, since monitors are reentrant and a thread inside Inventory's lock may enter Reorder's; nothing needs to change",
+            "correct": false,
+            "says": "reentrancy lets a thread re-enter a monitor it already holds, not one another thread holds"
+          }
+        ],
+        "origin": {
+          "path": "19-concurrency-pitfalls/README_5.3.4.md",
+          "section": "A Call to Another Object Under Your Lock Adds That Object's Locks to Your Lock Order"
+        }
+      }
+    ]
+  }
+}

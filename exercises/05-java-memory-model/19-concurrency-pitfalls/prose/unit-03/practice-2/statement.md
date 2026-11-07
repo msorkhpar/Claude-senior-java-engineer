@@ -1,20 +1,17 @@
-The page's `CorrectSingleton` shows double-checked locking done right: a
-**volatile** field, one read of it into a local, a lock only when it is still
-`null`, and a second check under the lock. Without `volatile`, the reference
-may be published before the constructor finishes. Without the second check,
-two racing threads both build the object. Taking the lock on every call is
-correct but gives up the point of the pattern.
+This practice continues the previous one: `Store` now replaces the rules on every change, and send
+threads read them without a lock. Each send thread takes a batch of up to 5,000 queued messages at a
+time and hands the allowed ones to the mail transfer agent through a `Transport`.
 
-Write the generic `Lazy<T>`, built with a `Supplier<T> factory`:
+When a partner domain asks the service to stop, the admin blocks it, and the partner expects the
+mail to stop within a message or two. The batch that was sending at the time must not finish the
+domain's queue first, and a sender that has been running since the morning must not keep the rules
+it started with.
 
-- `get()` returns the value, calling `factory.get()` the first time only,
-  **exactly once** even when several threads make that first call together.
-  A factory that returns `null` makes `get()` throw `NullPointerException`.
-- Once the value exists, `get()` returns it **without taking any lock**.
-- `isInitialized()` says whether the value exists yet.
+Finish `sendAll(...)` of `Sender` in `src/main/java/practice/DeliveryRules.java`. A sender gets its
+rules from a `Supplier<Rules>`, which is `store::current` in production. When you're done, it sends
+each message the rules allow, in order, and returns how many it sent; a change to the rules applies
+from the next message on; and a message is never let through by one version's block list together
+with another version's size limit. About seven lines in total.
 
-| calls | factory calls | result |
-|---|---|---|
-| `get()` | 1 | the new value |
-| `get()`, `get()`, `get()` | 1 | the same value each time |
-| two threads call `get()` together, first time | 1 | both get the same value |
+The tests change the rules from inside the transport, between two messages, and hand the sender
+suppliers that return a different version on every call.

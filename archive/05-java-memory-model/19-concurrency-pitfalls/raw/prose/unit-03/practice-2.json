@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Lazy initialization with double-checked locking",
+  "title": "Make every send thread honour a block within one message",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,19 @@
     },
     {
       "type": "para",
-      "text": "The page's `CorrectSingleton` shows double-checked locking done right: a **volatile** field, one read of it into a local, a lock only when it is still `null`, and a second check under the lock. Without `volatile`, the reference may be published before the constructor finishes. Without the second check, two racing threads both build the object. Taking the lock on every call is correct but gives up the point of the pattern."
+      "text": "This practice continues the previous one: `Store` now replaces the rules on every change, and send threads read them without a lock. Each send thread takes a batch of up to 5,000 queued messages at a time and hands the allowed ones to the mail transfer agent through a `Transport`."
     },
     {
       "type": "para",
-      "text": "Write the generic `Lazy<T>`, built with a `Supplier<T> factory`:"
+      "text": "When a partner domain asks the service to stop, the admin blocks it, and the partner expects the mail to stop within a message or two. The batch that was sending at the time must not finish the domain's queue first, and a sender that has been running since the morning must not keep the rules it started with."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`get()` returns the value, calling `factory.get()` the first time only, **exactly once** even when several threads make that first call together. A factory that returns `null` makes `get()` throw `NullPointerException`.",
-        "Once the value exists, `get()` returns it **without taking any lock**.",
-        "`isInitialized()` says whether the value exists yet."
-      ]
+      "type": "para",
+      "text": "Finish `sendAll(...)` of `Sender` in `src/main/java/practice/DeliveryRules.java`. A sender gets its rules from a `Supplier<Rules>`, which is `store::current` in production. When you're done, it sends each message the rules allow, in order, and returns how many it sent; a change to the rules applies from the next message on; and a message is never let through by one version's block list together with another version's size limit. About seven lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "factory calls",
-        "result"
-      ],
-      "rows": [
-        [
-          "`get()`",
-          "1",
-          "the new value"
-        ],
-        [
-          "`get()`, `get()`, `get()`",
-          "1",
-          "the same value each time"
-        ],
-        [
-          "two threads call `get()` together, first time",
-          "1",
-          "both get the same value"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests change the rules from inside the transport, between two messages, and hand the sender suppliers that return a different version on every call."
     },
     {
       "type": "heading",
@@ -72,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\npublic final class Lazy<T> {\n\n    private final Supplier<T> factory;\n    private volatile T value;\n\n    public Lazy(Supplier<T> factory) {\n        this.factory = Objects.requireNonNull(factory);\n    }\n\n    /** The value, built by the factory exactly once, on first use. */\n    public T get() {\n        T result = value;\n        if (result == null) {\n            synchronized (this) {\n                result = value;\n                if (result == null) {\n                    result = Objects.requireNonNull(factory.get(), \"the factory returned null\");\n                    value = result;\n                }\n            }\n        }\n        return result;\n    }\n\n    public boolean isInitialized() {\n        return value != null;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.function.Supplier;\n\n/**\n * The rules the mail service's send threads apply to every outgoing message, and the store the\n * admin API changes them through.\n */\npublic class DeliveryRules {\n\n    /** One version of the rules: which recipient domains are blocked, and each domain's size limit. */\n    public static final class Rules {\n        static final int DEFAULT_MAX_SIZE_KB = 10_240;\n\n        private final Set<String> blockedDomains;\n        private final Map<String, Integer> maxSizeKb;\n\n        Rules(Set<String> blockedDomains, Map<String, Integer> maxSizeKb) {\n            this.blockedDomains = blockedDomains;\n            this.maxSizeKb = maxSizeKb;\n        }\n\n        public boolean isBlocked(String domain) {\n            return blockedDomains.contains(domain);\n        }\n\n        public int maxSizeKb(String domain) {\n            return maxSizeKb.getOrDefault(domain, DEFAULT_MAX_SIZE_KB);\n        }\n    }\n\n    /**\n     * Holds the rules in force. Send threads call current() for every message; the admin API calls\n     * the other methods, from one thread at a time.\n     */\n    public static final class Store {\n        private volatile Rules current = new Rules(new HashSet<>(), new HashMap<>());\n\n        public Rules current() {\n            return current;\n        }\n\n        /** Stops all mail to the domain. */\n        public void block(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.add(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Lets mail to the domain through again. */\n        public void unblock(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.remove(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Sets the largest message, in KB, that may be sent to the domain. */\n        public void setMaxSizeKb(String domain, int kb) {\n            Map<String, Integer> limits = new HashMap<>(current.maxSizeKb);\n            limits.put(domain, kb);\n            current = new Rules(current.blockedDomains, limits);\n        }\n    }\n\n    /** An outgoing message: an id, the recipient's domain and the size in KB. */\n    public record Message(String id, String domain, int sizeKb) {}\n\n    /** Hands a message to the mail transfer agent. */\n    public interface Transport {\n        void send(Message message);\n    }\n\n    /**\n     * One send thread's loop over a batch of queued messages. In production the rules come from\n     * {@code store::current}.\n     */\n    public static final class Sender {\n        private final Supplier<Rules> rules;\n        private final Transport transport;\n\n        public Sender(Supplier<Rules> rules, Transport transport) {\n            this.rules = rules;\n            this.transport = transport;\n        }\n\n        /** Sends, in order, each message the rules allow, and returns how many it sent. */\n        public int sendAll(List<Message> batch) {\n            int sent = 0;\n            for (Message m : batch) {\n                Rules r = rules.get();\n                if (r.isBlocked(m.domain()) || m.sizeKb() > r.maxSizeKb(m.domain())) continue;\n                transport.send(m);\n                sent++;\n            }\n            return sent;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\npublic final class Lazy<T> {\n\n    private final Supplier<T> factory;\n\n    public Lazy(Supplier<T> factory) {\n        this.factory = Objects.requireNonNull(factory);\n    }\n\n    /** The value, built by the factory exactly once, on first use. */\n    public T get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public boolean isInitialized() {\n        throw new UnsupportedOperationException(\"write isInitialized\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.function.Supplier;\n\n/**\n * The rules the mail service's send threads apply to every outgoing message, and the store the\n * admin API changes them through.\n */\npublic class DeliveryRules {\n\n    /** One version of the rules: which recipient domains are blocked, and each domain's size limit. */\n    public static final class Rules {\n        static final int DEFAULT_MAX_SIZE_KB = 10_240;\n\n        private final Set<String> blockedDomains;\n        private final Map<String, Integer> maxSizeKb;\n\n        Rules(Set<String> blockedDomains, Map<String, Integer> maxSizeKb) {\n            this.blockedDomains = blockedDomains;\n            this.maxSizeKb = maxSizeKb;\n        }\n\n        public boolean isBlocked(String domain) {\n            return blockedDomains.contains(domain);\n        }\n\n        public int maxSizeKb(String domain) {\n            return maxSizeKb.getOrDefault(domain, DEFAULT_MAX_SIZE_KB);\n        }\n    }\n\n    /**\n     * Holds the rules in force. Send threads call current() for every message; the admin API calls\n     * the other methods, from one thread at a time.\n     */\n    public static final class Store {\n        private volatile Rules current = new Rules(new HashSet<>(), new HashMap<>());\n\n        public Rules current() {\n            return current;\n        }\n\n        /** Stops all mail to the domain. */\n        public void block(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.add(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Lets mail to the domain through again. */\n        public void unblock(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.remove(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Sets the largest message, in KB, that may be sent to the domain. */\n        public void setMaxSizeKb(String domain, int kb) {\n            Map<String, Integer> limits = new HashMap<>(current.maxSizeKb);\n            limits.put(domain, kb);\n            current = new Rules(current.blockedDomains, limits);\n        }\n    }\n\n    /** An outgoing message: an id, the recipient's domain and the size in KB. */\n    public record Message(String id, String domain, int sizeKb) {}\n\n    /** Hands a message to the mail transfer agent. */\n    public interface Transport {\n        void send(Message message);\n    }\n\n    /**\n     * One send thread's loop over a batch of queued messages. In production the rules come from\n     * {@code store::current}.\n     */\n    public static final class Sender {\n        private final Supplier<Rules> rules;\n        private final Transport transport;\n\n        public Sender(Supplier<Rules> rules, Transport transport) {\n            this.rules = rules;\n            this.transport = transport;\n        }\n\n        /** Sends, in order, each message the rules allow, and returns how many it sent. */\n        public int sendAll(List<Message> batch) {\n            // TODO: Send each message of the batch that the rules allow, in order, through the\n            //       transport, and count them. A block or a new limit must reach this loop quickly,\n            //       and each message must be checked against rules that agree with each other.\n            throw new IllegalStateException(\"TODO: sendAll\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -103,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "3a370828a703a753aedfe81bac344f045aec4a0f776ee96800d18ee7c7821064",
-  "starting_code": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\npublic final class Lazy<T> {\n\n    private final Supplier<T> factory;\n\n    public Lazy(Supplier<T> factory) {\n        this.factory = Objects.requireNonNull(factory);\n    }\n\n    /** The value, built by the factory exactly once, on first use. */\n    public T get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n\n    public boolean isInitialized() {\n        throw new UnsupportedOperationException(\"write isInitialized\");\n    }\n}\n",
+  "content_sha256": "9482fc322330c9ec485cab44d7bcafb12b5ef2bb11bdee0a90012f79104da7b9",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.function.Supplier;\n\n/**\n * The rules the mail service's send threads apply to every outgoing message, and the store the\n * admin API changes them through.\n */\npublic class DeliveryRules {\n\n    /** One version of the rules: which recipient domains are blocked, and each domain's size limit. */\n    public static final class Rules {\n        static final int DEFAULT_MAX_SIZE_KB = 10_240;\n\n        private final Set<String> blockedDomains;\n        private final Map<String, Integer> maxSizeKb;\n\n        Rules(Set<String> blockedDomains, Map<String, Integer> maxSizeKb) {\n            this.blockedDomains = blockedDomains;\n            this.maxSizeKb = maxSizeKb;\n        }\n\n        public boolean isBlocked(String domain) {\n            return blockedDomains.contains(domain);\n        }\n\n        public int maxSizeKb(String domain) {\n            return maxSizeKb.getOrDefault(domain, DEFAULT_MAX_SIZE_KB);\n        }\n    }\n\n    /**\n     * Holds the rules in force. Send threads call current() for every message; the admin API calls\n     * the other methods, from one thread at a time.\n     */\n    public static final class Store {\n        private volatile Rules current = new Rules(new HashSet<>(), new HashMap<>());\n\n        public Rules current() {\n            return current;\n        }\n\n        /** Stops all mail to the domain. */\n        public void block(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.add(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Lets mail to the domain through again. */\n        public void unblock(String domain) {\n            Set<String> blocked = new HashSet<>(current.blockedDomains);\n            blocked.remove(domain);\n            current = new Rules(blocked, current.maxSizeKb);\n        }\n\n        /** Sets the largest message, in KB, that may be sent to the domain. */\n        public void setMaxSizeKb(String domain, int kb) {\n            Map<String, Integer> limits = new HashMap<>(current.maxSizeKb);\n            limits.put(domain, kb);\n            current = new Rules(current.blockedDomains, limits);\n        }\n    }\n\n    /** An outgoing message: an id, the recipient's domain and the size in KB. */\n    public record Message(String id, String domain, int sizeKb) {}\n\n    /** Hands a message to the mail transfer agent. */\n    public interface Transport {\n        void send(Message message);\n    }\n\n    /**\n     * One send thread's loop over a batch of queued messages. In production the rules come from\n     * {@code store::current}.\n     */\n    public static final class Sender {\n        private final Supplier<Rules> rules;\n        private final Transport transport;\n\n        public Sender(Supplier<Rules> rules, Transport transport) {\n            this.rules = rules;\n            this.transport = transport;\n        }\n\n        /** Sends, in order, each message the rules allow, and returns how many it sent. */\n        public int sendAll(List<Message> batch) {\n            // TODO: Send each message of the batch that the rules allow, in order, through the\n            //       transport, and count them. A block or a new limit must reach this loop quickly,\n            //       and each message must be checked against rules that agree with each other.\n            throw new IllegalStateException(\"TODO: sendAll\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-2/src/main/java/practice/Lazy.java",
-    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-2/src/test/java/practice/LazyTest.java",
+    "main_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-2/src/main/java/practice/DeliveryRules.java",
+    "test_path": "practice/05-java-memory-model/19-concurrency-pitfalls/prose/unit-03/practice-2/src/test/java/practice/DeliverySenderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,24 +102,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LazyTest#createsOnceAndReturnsTheSameValue",
+        "id": "practice.DeliverySenderTest#sendsWhatTheRulesAllowAndSkipsTheRest",
         "kind": "main",
-        "says": "get() calls the factory on first use only and returns that same value on every later call."
+        "says": "a batch sends, in order, the messages the rules allow and skips blocked domains and messages over their domain's size limit"
       },
       {
-        "id": "practice.LazyTest#racingFirstCallsShareOneCreation",
+        "id": "practice.DeliverySenderTest#aBlockMadeWhileABatchIsSendingStopsTheRestOfTheBatch",
         "kind": "edge",
-        "says": "Two threads calling get() at once for the first time make the factory run exactly once."
+        "says": "a block made while a batch is being sent stops the batch's later messages to that domain"
       },
       {
-        "id": "practice.LazyTest#theCachedFieldIsVolatile",
+        "id": "practice.DeliverySenderTest#aChangeMadeBetweenTwoBatchesAppliesToTheNextBatch",
         "kind": "edge",
-        "says": "The field that caches the value is volatile, so no thread can see it before the value is fully built."
+        "says": "a change made after the sender was created applies to the batches it sends afterwards"
       },
       {
-        "id": "practice.LazyTest#aReadyValueTakesNoLock",
+        "id": "practice.DeliverySenderTest#oneMessageIsCheckedAgainstOneVersionOfTheRules",
         "kind": "edge",
-        "says": "Once the value exists, get() returns it without taking a lock."
+        "says": "the block check and the size check of one message use the same version of the rules, even when the rules change between them"
       }
     ],
     "report": {
@@ -154,10 +128,10 @@
     },
     "origin": {
       "path": "19-concurrency-pitfalls/README_5.3.3.md",
-      "section": "3. Broken double-checked locking (missing volatile)"
+      "section": "Settings Are One Immutable Snapshot, Replaced Whole and Read Once per Unit of Work"
     },
     "concepts": [
-      "Double-checked locking needs a volatile field, a second check under the lock, and no lock once the value exists."
+      "A replaced snapshot reaches a reader only when it reads the field again, so a reader reads it once per unit of work, never once per batch or per worker, and uses that one snapshot for every check of the unit."
     ]
   }
 }
