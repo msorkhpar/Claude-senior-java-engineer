@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "How the invoke instructions and lambdas reach their targets",
+  "title": "Check yourself: bytecode execution",
   "blocks": [
     {
       "type": "heading",
@@ -45,65 +45,146 @@
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-super-call",
-        "stem": "A method that overrides describe() calls super.describe(). Which instruction does javac emit, and why does the call reach the superclass version?",
+        "id": "q-old-jar-new-jdk",
+        "stem": "A logging library was compiled with javac 11 (--release 11) and is never rebuilt. Its toString() methods build text with +. The service using it moves from JDK 11 to JDK 21. On JDK 21, which code joins the parts of those strings?",
         "options": [
           {
             "id": "a",
-            "text": "invokevirtual, because the receiver is typed as the superclass at that call.",
-            "correct": false,
-            "says": "invokevirtual would dispatch on the runtime type and reach the override itself; a super call uses invokespecial."
+            "text": "Code that JDK 21 generates when each call site first runs, since the class file names a bootstrap method and a recipe",
+            "correct": true,
+            "says": "the + compiled to invokedynamic with StringConcatFactory as bootstrap; the running JDK builds the code at first execution"
           },
           {
             "id": "b",
-            "text": "invokespecial, because it calls the named class's method without virtual dispatch.",
-            "correct": true,
-            "says": "invokespecial is used for constructors and super calls: the target comes from the reference, so the override in the subclass is not chosen."
+            "text": "Code that javac 11 chose when it compiled the library, since the class file records the concatenation strategy",
+            "correct": false,
+            "says": "javac records only the recipe and the bootstrap method; the strategy belongs to the JDK that links the call site"
           },
           {
             "id": "c",
-            "text": "invokestatic, because the superclass method is bound at compile time.",
+            "text": "A StringBuilder chain that javac 11 emitted, since only class files compiled for release 21 use invokedynamic",
             "correct": false,
-            "says": "describe() is an instance method with a receiver; invokestatic is for static methods."
+            "says": "javac has emitted invokedynamic for + since release 9; only release 8 or -XDstringConcat=inline gives a StringBuilder chain"
+          },
+          {
+            "id": "d",
+            "text": "A StringBuilder chain that JDK 21 substitutes, since the JVM rewrites the + of class files older than its own release",
+            "correct": false,
+            "says": "the JVM does not rewrite old class files; it links their invokedynamic through the JDK 21 bootstrap"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.2.md",
-          "section": "Interview Q&A Section"
+          "section": "invokedynamic Leaves the Choice of Code to the First Run"
         }
       },
       {
-        "id": "q-lambda",
-        "stem": "How does javac compile a lambda expression such as () -> System.out.println(\"lambda\")?",
+        "id": "q-first-request-slow",
+        "stem": "Right after a deploy, the first call to formatOrderLine(order), a method that returns \"#\" + id + \" x\" + qty, takes 7 ms; every later call takes a few microseconds. The Order class was loaded and used by other code well before that call. What explains the slow first call?",
         "options": [
           {
             "id": "a",
-            "text": "As an extra class file like an anonymous class, created with new and invokespecial.",
-            "correct": false,
-            "says": "That is how anonymous inner classes compile; a lambda produces no extra class file at compile time."
+            "text": "The first execution ran the bootstrap method behind the method's invokedynamic, which built the code that later calls reuse",
+            "correct": true,
+            "says": "the first execution of an invokedynamic calls its bootstrap method, which generates the code and links the call site; later executions go to the linked code"
           },
           {
             "id": "b",
-            "text": "As a static nested class that the class loader defines when the enclosing class loads.",
+            "text": "The first execution ran the JIT compiler on the whole method, which built the machine code that later calls reuse",
             "correct": false,
-            "says": "No nested class exists in the class file; the implementing class is generated at run time when the call site is first linked."
+            "says": "a method starts interpreted and is compiled only once it is hot (unit 10.5.3); the first-call cost here is the bootstrap"
           },
           {
             "id": "c",
-            "text": "As a private method plus an invokedynamic call site that LambdaMetafactory links on first use.",
-            "correct": true,
-            "says": "The body is desugared into a method such as lambda$new$0, and the bootstrap method returns a CallSite that is cached for later executions."
+            "text": "The first execution allocated a StringBuilder for the method's concatenation, whose buffer later calls reuse",
+            "correct": false,
+            "says": "the method contains no StringBuilder: it is one invokedynamic, and no buffer survives between calls"
+          },
+          {
+            "id": "d",
+            "text": "The first execution loaded the Order class for the method's parameters, whose metadata later calls reuse",
+            "correct": false,
+            "says": "the stem says Order was loaded before; the cost is the invokedynamic bootstrap"
           }
         ],
         "origin": {
           "path": "43-jvm-internals/README_10.5.2.md",
-          "section": "Interview Q&A Section"
+          "section": "invokedynamic Leaves the Choice of Code to the First Run"
+        }
+      },
+      {
+        "id": "q-colliding-labels",
+        "stem": "A switch on a String has the labels case \"Ab\", case \"BC\" and a default; both labels have hashCode() 2113. It is called with a String \"BC\" read from a file. Which branch runs?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The \"BC\" branch, since javac follows the hash match with an equals check against each label sharing that hash",
+            "correct": true,
+            "says": "javac emits a lookupswitch on hashCode(), then an equals for each label with that hash, then a tableswitch on the matching index"
+          },
+          {
+            "id": "b",
+            "text": "The \"BC\" branch, since javac gives each of the two colliding labels a key of its own in the lookupswitch",
+            "correct": false,
+            "says": "the lookupswitch keys are hash values, so the two labels share one key and are told apart by equals"
+          },
+          {
+            "id": "c",
+            "text": "The \"Ab\" branch, since the hash match leads straight to the first label declared with that hash",
+            "correct": false,
+            "says": "the hash only leads to the labels that share it; equals decides between them"
+          },
+          {
+            "id": "d",
+            "text": "The \"Ab\" branch, since javac keeps one label per hash in the lookupswitch and folds the later one into it",
+            "correct": false,
+            "says": "javac keeps every label; colliding labels go into the same bucket and each is compared with equals"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.2.md",
+          "section": "A switch on Strings Is a hashCode lookupswitch Followed by equals"
+        }
+      },
+      {
+        "id": "q-return-in-finally",
+        "stem": "A method reads try { return loadConfig(); } finally { return cached; } and is compiled with @SuppressWarnings(\"finally\"). loadConfig() throws IllegalStateException. What does the caller see, and why?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It gets cached and no exception, since the exception path's copy of the finally code ends in a return, not an athrow",
+            "correct": true,
+            "says": "the any handler saves the exception in a local, runs its copy of the finally code, and that copy returns, so nothing rethrows it"
+          },
+          {
+            "id": "b",
+            "text": "It gets cached and no exception, since javac leaves the try out of the exception table when the finally returns",
+            "correct": false,
+            "says": "the exception table still sends the try's range to an any handler; the handler is what ends in a return"
+          },
+          {
+            "id": "c",
+            "text": "It gets the IllegalStateException, since the JVM rethrows any pending exception once a finally block completes",
+            "correct": false,
+            "says": "there is no finally instruction and no pending exception in the JVM; the rethrow is an athrow javac copies, and here it was replaced by a return"
+          },
+          {
+            "id": "d",
+            "text": "It gets the IllegalStateException, since a return in finally only replaces the value of a try that returned normally",
+            "correct": false,
+            "says": "javac copies the return onto the exception path too, so it replaces the rethrow as well"
+          }
+        ],
+        "origin": {
+          "path": "43-jvm-internals/README_10.5.2.md",
+          "section": "finally Is Copied Onto Every Exit, and a return There Replaces the athrow"
         }
       }
     ],
     "concepts": [
-      "invokevirtual, invokeinterface, invokespecial, invokestatic and invokedynamic each choose their target differently, and a super call uses invokespecial with no virtual dispatch.",
-      "A lambda compiles to a private synthetic method plus an invokedynamic call site that LambdaMetafactory links on first use, with no class file at compile time."
+      "The class file holds only the concatenation recipe, so the running JDK decides the code; a class compiled for release 8 or with -XDstringConcat=inline keeps a StringBuilder chain.",
+      "A concatenation or a lambda compiles to invokedynamic; its bootstrap method (StringConcatFactory, LambdaMetafactory) generates the code on the first execution of the call site, which costs milliseconds once, and later executions use the linked code.",
+      "javac copies the finally code onto the exception path, an any handler that stores the exception and ends in athrow; a return in finally is copied there too and replaces the athrow, so the exception is never rethrown."
     ]
   }
 }

@@ -1,497 +1,365 @@
 # 10.4.3. Annotation Retention Policies (SOURCE, CLASS, RUNTIME)
 
-## Concept Explanation
+A payments team writes its own `@Transactional` and a small interceptor that opens a transaction
+around every method carrying it. The build is clean, even with `-Xlint:all`, and the tests of the
+transfer logic pass. In production a transfer fails between the debit and the credit, and the
+debit stays. The interceptor's log has no `BEGIN` for any call: it never found the annotation.
 
-Every annotation in Java has a retention policy that determines at what stage of the program's lifecycle the annotation
-is available. The retention policy is specified using the `@Retention` meta-annotation with one of three values from
-the `RetentionPolicy` enum.
+An annotation's **retention policy**, `@Retention(RetentionPolicy.X)` on its declaration, decides
+whether it reaches the class file and whether reflection sees it (unit 10.4.2 covers the rest of a
+declaration). Every output below is from Java 21 (Temurin 21.0.12).
 
-**Real-world analogy**: Think of retention policies like different types of ink used on shipping labels:
-- **SOURCE** is like pencil marks made during packing — useful for the packer, erased before shipping. The label never
-  leaves the warehouse (compiler).
-- **CLASS** is like ink that survives shipping but fades before the recipient opens the box. The label is in the package
-  (bytecode) but invisible when the item is used (runtime).
-- **RUNTIME** is like permanent marker — the label is visible at every stage: packing (compilation), shipping (bytecode),
-  and when the recipient opens the box (runtime reflection).
+## SOURCE Stops at the Compiler, CLASS Stops in the Class File, Only RUNTIME Reaches Reflection
 
-### The Three Retention Policies
-
-1. **`RetentionPolicy.SOURCE`** — The annotation is discarded by the compiler. It exists only in source code and is not
-   present in the compiled `.class` file. Used for compile-time checks and IDE hints.
-   - Examples: `@Override`, `@SuppressWarnings`
-
-2. **`RetentionPolicy.CLASS`** (default) — The annotation is retained in the `.class` file by the compiler but is NOT
-   loaded by the JVM at runtime. It is invisible to reflection. Used by bytecode analysis tools.
-   - This is the default if no `@Retention` is specified.
-
-3. **`RetentionPolicy.RUNTIME`** — The annotation is retained in the `.class` file AND loaded by the JVM, making it
-   accessible via the Reflection API at runtime. Used by frameworks for runtime behavior.
-   - Examples: `@Deprecated`, `@FunctionalInterface`, most custom framework annotations.
-
-## Key Points to Remember
-
-1. If `@Retention` is not specified, the default is `RetentionPolicy.CLASS` — NOT RUNTIME.
-2. RUNTIME retention includes everything CLASS retention provides, plus reflection access.
-3. CLASS retention includes everything SOURCE retention provides, plus bytecode presence.
-4. `SOURCE < CLASS < RUNTIME` in terms of availability scope.
-5. Only RUNTIME-retained annotations can be read using `getAnnotation()`, `isAnnotationPresent()`, etc.
-6. SOURCE-retained annotations are processed by annotation processors during compilation (JSR 269); processors see
-   annotations of every retention policy in the source they compile.
-7. CLASS-retained annotations can be read by bytecode engineering tools (ASM, Byte Buddy, CGLIB).
-8. Most custom annotations should use RUNTIME retention unless there's a specific reason not to.
-9. The `@Target` meta-annotation controls WHERE an annotation can be placed (TYPE, METHOD, FIELD, PARAMETER, etc.) —
-   this is orthogonal to retention.
-
-## Relevant Java 21 Features
-
-- **Annotation processing** (JSR 269, `javax.annotation.processing`) — Compile-time annotation processors can process
-  annotations of any retention (SOURCE, CLASS or RUNTIME) to generate code, validate usage, or produce documentation.
-- **TYPE_USE target** (Java 8+) — Enables annotations on any type usage, useful with retention policies for
-  compile-time null checking (`@NonNull`) or runtime type validation.
-- **Record patterns and sealed classes** — Annotations on record components are propagated based on `@Target`, and their
-  retention policies determine whether they're available for compile-time or runtime processing.
-- Modern build tools and IDEs leverage CLASS-retained annotations for code analysis without runtime overhead.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting to set RUNTIME retention for reflection-based annotations**: The most common mistake.
-   ```java
-   // BUG: Default CLASS retention — invisible to reflection!
-   @Target(ElementType.METHOD)
-   @interface Transactional { }
-
-   // FIX: Explicit RUNTIME retention
-   @Retention(RetentionPolicy.RUNTIME)
-   @Target(ElementType.METHOD)
-   @interface Transactional { }
-   ```
-
-2. **Trying to read SOURCE-retained annotations at runtime**: They simply don't exist after compilation.
-   ```java
-   @Retention(RetentionPolicy.SOURCE)
-   @interface CompileCheck { }
-
-   // This will ALWAYS return false
-   method.isAnnotationPresent(CompileCheck.class); // false
-   ```
-
-3. **Confusing `getAnnotation()` with `getDeclaredAnnotation()`**:
-   - `getAnnotation()` includes inherited annotations (if `@Inherited`)
-   - `getDeclaredAnnotation()` only returns directly-applied annotations
-   ```java
-   // Parent has @Auditable (which is @Inherited)
-   Child.class.getAnnotation(Auditable.class);         // returns parent's annotation
-   Child.class.getDeclaredAnnotation(Auditable.class);  // returns null
-   ```
-
-4. **Assuming CLASS retention annotations are available via reflection**: They are embedded in bytecode but NOT loaded
-   by the JVM's classloader into reflection data.
-
-5. **Not considering annotation retention when choosing a processing strategy**: Use SOURCE + annotation processor for
-   compile-time code generation; use RUNTIME + reflection for framework behavior.
-
-## Best Practices and Optimization Techniques
-
-1. **Choose the right retention for your use case**:
-   - SOURCE: Compile-time checks, code generation via annotation processors, IDE hints
-   - CLASS: Bytecode analysis tools, dependency injection frameworks using bytecode manipulation
-   - RUNTIME: Reflection-based frameworks, validation, serialization, REST endpoint mapping
-
-2. **Default to RUNTIME** for custom annotations unless you have a specific reason to use SOURCE or CLASS.
-
-3. **Use SOURCE retention for compile-time-only annotations** to avoid unnecessary bytecode and runtime overhead.
-
-4. **Document the retention policy** in annotation Javadoc, especially if it's not RUNTIME, so users understand when
-   the annotation is available.
-
-5. **Combine with appropriate `@Target`** to prevent misuse and provide clear error messages when the annotation is
-   applied to an incorrect element.
-
-6. **For performance-sensitive code**, prefer SOURCE retention with annotation processing over RUNTIME retention with
-   reflection, as reflection has higher overhead.
-
-## Edge Cases and Their Handling
-
-1. **Local variable annotations**: Even with RUNTIME retention, annotations on local variables are NOT accessible
-   via reflection. A declaration annotation on a local variable is not written to the class file at all (JLS 9.6.4.2);
-   a TYPE_USE annotation on a local variable's type is written (RuntimeVisibleTypeAnnotations) but core reflection
-   offers no API to read it.
-
-2. **Parameter annotations with RUNTIME retention**: These ARE accessible via `Method.getParameterAnnotations()`.
-
-3. **Annotations on type uses**: TYPE_USE annotations with RUNTIME retention are accessible via
-   `AnnotatedType` objects.
-
-4. **Multiple annotations of the same type**: Use `@Repeatable` with RUNTIME retention to access all instances via
-   `getAnnotationsByType()`.
-
-5. **Annotations on inherited methods**: Method annotations are NOT inherited by overriding methods (regardless of
-   `@Inherited`). Each override must declare its own annotations.
-
-6. **Annotation interfaces themselves have annotations**: You can read meta-annotations from an annotation's class
-   object: `MyAnnotation.class.getAnnotation(Retention.class)`.
-
-## Interview-specific Insights
-
-Interviewers frequently test:
-
-- Whether candidates know the three retention policies and their differences
-- What the DEFAULT retention is (CLASS, not RUNTIME — a common mistake)
-- Whether SOURCE-retained annotations can be read at runtime (no)
-- The relationship between retention policy and reflection
-- When to choose each retention policy for real-world scenarios
-- Understanding `getAnnotation()` vs. `getDeclaredAnnotation()` vs. `getAnnotationsByType()`
-
-Common tricky questions:
-- "What is the default retention policy?" (CLASS)
-- "Can you read @Override at runtime?" (No — SOURCE retention)
-- "Can you read @Deprecated at runtime?" (Yes — RUNTIME retention)
-- "Where are CLASS-retained annotations visible?" (In bytecode but not via reflection)
-
-## Interview Q&A Section
-
-**Q1: What are the three annotation retention policies and when would you use each?**
-
-```text
-A1: Java provides three retention policies that control annotation lifetime:
-
-1. SOURCE (RetentionPolicy.SOURCE):
-   - Discarded by the compiler — not present in .class files
-   - Use for: compile-time checks, IDE hints, annotation processors
-   - Examples: @Override, @SuppressWarnings
-   - Advantage: Zero bytecode/runtime overhead
-
-2. CLASS (RetentionPolicy.CLASS):
-   - Retained in .class files but NOT loaded by the JVM at runtime
-   - This is the DEFAULT if no @Retention is specified
-   - Use for: bytecode analysis tools, build-time processing
-   - Examples: Some internal JDK annotations
-   - Advantage: Available for offline bytecode analysis without runtime cost
-
-3. RUNTIME (RetentionPolicy.RUNTIME):
-   - Retained in .class files AND loaded by the JVM — accessible via reflection
-   - Use for: frameworks that process annotations at runtime (Spring, Jakarta EE, etc.)
-   - Examples: @Deprecated, @FunctionalInterface, @Entity, @Autowired
-   - Advantage: Full runtime accessibility for dynamic behavior
-
-Decision guide:
-- Need compile-time checking only? → SOURCE
-- Need bytecode-level tooling? → CLASS
-- Need runtime reflection? → RUNTIME (most common for custom annotations)
-```
+Three annotations that differ only in their retention, on one method:
 
 ```java
-import java.lang.annotation.*;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.reflect.Method;
+import java.util.Arrays;
 
-// SOURCE: Only for compiler — e.g., documentation hint
-@Retention(RetentionPolicy.SOURCE)
+@Retention(RetentionPolicy.SOURCE)  @interface AuditedSource  { String value(); }
+@Retention(RetentionPolicy.CLASS)   @interface AuditedClass   { String value(); }
+@Retention(RetentionPolicy.RUNTIME) @interface AuditedRuntime { String value(); }
+
+class Payments {
+    @AuditedSource("refunds") @AuditedClass("refunds") @AuditedRuntime("refunds")
+    void refund(long cents) { }
+}
+
+public class Retentions {
+    public static void main(String[] args) throws Exception {
+        Method refund = Payments.class.getDeclaredMethod("refund", long.class);
+        System.out.println("AuditedSource:  " + refund.getAnnotation(AuditedSource.class));
+        System.out.println("AuditedClass:   " + refund.getAnnotation(AuditedClass.class));
+        System.out.println("AuditedRuntime: " + refund.getAnnotation(AuditedRuntime.class));
+        System.out.println("all:            " + Arrays.toString(refund.getDeclaredAnnotations()));
+    }
+}
+```
+
+```text
+AuditedSource:  null
+AuditedClass:   null
+AuditedRuntime: @AuditedRuntime("refunds")
+all:            [@AuditedRuntime("refunds")]
+```
+
+`javap -v -p -cp out Payments` shows where the other two went (the method's part of its output):
+
+```text
+  void refund(long);
+    descriptor: (J)V
+    flags: (0x0000)
+    Code:
+      stack=0, locals=3, args_size=2
+         0: return
+      LineNumberTable:
+        line 12: 0
+    RuntimeVisibleAnnotations:
+      0: #14(#15=s#16)
+        AuditedRuntime(
+          value="refunds"
+        )
+    RuntimeInvisibleAnnotations:
+      0: #18(#15=s#16)
+        AuditedClass(
+          value="refunds"
+        )
+```
+
+javac wrote `AuditedRuntime` into a `RuntimeVisibleAnnotations` attribute, the one reflection
+reads. `AuditedClass` went into `RuntimeInvisibleAnnotations`, value and all, which reflection
+doesn't read. `AuditedSource` isn't in the class file: the name appears nowhere in `javap -v`'s
+output, constant pool included.
+
+The other two have their own readers. SOURCE annotations are for the compiler and for annotation
+processors: `@Override` (unit 10.4.1) is SOURCE, and a processor run over this file (unit 10.4.4
+builds one) reports all three annotations on `refund`. CLASS annotations are for tools that read
+class files, as `javap` just did.
+
+The costly misreading is that CLASS means "compile time only". A CLASS annotation ships in every
+class file that carries it, with its values: `value="refunds"` above. A note such as
+`@Review("fraud check skipped for partner 12")` with CLASS retention can be read by anyone who runs
+`javap -v` on the jar; only SOURCE retention keeps it out.
+
+<!-- practice 1 -->
+
+## An Annotation Without @Retention Is CLASS, and Reflection Returns null for It
+
+The opening's `@Transactional`, with the interceptor reduced to its check:
+
+```java
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
+import java.lang.reflect.Method;
+
 @Target(ElementType.METHOD)
-@interface ReviewNeeded {
-    String reason();
+@interface Transactional { }                       // no @Retention
+
+class TransferService {
+    @Transactional
+    void transfer(String from, String to, long cents) {
+        System.out.println("  debit " + from + ", credit " + to + ": " + cents);
+    }
 }
 
-// CLASS: For bytecode tools — not reflection-accessible
-@Retention(RetentionPolicy.CLASS)
-@Target(ElementType.TYPE)
-@interface GeneratedCode {
-    String generator();
-}
+public class TxDemo {
+    /** What a framework does before calling a method: look for the annotation. */
+    static void call(Object target, Method m, Object... args) throws Exception {
+        boolean tx = m.isAnnotationPresent(Transactional.class);
+        if (tx) System.out.println("  BEGIN");
+        m.invoke(target, args);
+        if (tx) System.out.println("  COMMIT");
+    }
 
-// RUNTIME: For framework processing — reflection-accessible
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
-@interface Cacheable {
-    String cacheName() default "default";
-    int ttlSeconds() default 300;
+    public static void main(String[] args) throws Exception {
+        Method transfer = TransferService.class.getDeclaredMethod(
+                "transfer", String.class, String.class, long.class);
+        System.out.println("getAnnotation: " + transfer.getAnnotation(Transactional.class));
+        System.out.println("@Retention on Transactional: " + Transactional.class.getAnnotation(Retention.class));
+        call(new TransferService(), transfer, "acct-17", "acct-42", 12_500L);
+    }
 }
-
-// Demonstration
-class Service {
-    @ReviewNeeded(reason = "Optimize SQL query")
-    @Cacheable(cacheName = "users", ttlSeconds = 600)
-    public List<User> getUsers() { return List.of(); }
-}
-
-// At runtime
-Method m = Service.class.getDeclaredMethod("getUsers");
-m.isAnnotationPresent(ReviewNeeded.class);  // false (SOURCE)
-m.isAnnotationPresent(Cacheable.class);     // true  (RUNTIME)
 ```
 
-**Q2: What is the default retention policy if @Retention is not specified?**
+```text
+getAnnotation: null
+@Retention on Transactional: null
+  debit acct-17, credit acct-42: 12500
+```
+
+`javac -Xlint:all` printed nothing for this file. The interceptor can't tell an invisible
+annotation from no annotation, so nothing fails. `javap -v` shows the annotation in the class file, under
+`RuntimeInvisibleAnnotations`.
+
+The `Retention` javadoc gives the rule: with no `@Retention` on the declaration, the policy is
+`CLASS`. Asking the annotation type for its `@Retention` returns `null`, not `CLASS`, so code that
+checks a policy has to treat `null` as `CLASS` itself. Adding `@Retention(RUNTIME)` fixes it:
+
+```diff
+ @Target(ElementType.METHOD)
+-@interface Transactional { }                       // no @Retention
++@Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
++@interface Transactional { }
+```
 
 ```text
-A2: The default retention policy is RetentionPolicy.CLASS.
+getAnnotation: @Transactional()
+@Retention on Transactional: @java.lang.annotation.Retention(RUNTIME)
+  BEGIN
+  debit acct-17, credit acct-42: 12500
+  COMMIT
+```
 
-This is a frequently misunderstood point — many developers assume the default is RUNTIME
-or SOURCE. The default CLASS retention means:
+A test that calls `transfer()` directly passes with either declaration. Only a test that goes
+through the interceptor and checks that a transaction was opened tells them apart.
 
-1. The annotation IS written into the .class bytecode file by the compiler
-2. The annotation is NOT loaded by the JVM classloader at runtime
-3. The annotation is NOT accessible via reflection (isAnnotationPresent returns false)
+<!-- practice 2 -->
 
-This default exists for historical reasons and is useful for bytecode analysis tools, but
-it's rarely what you want for custom annotations. As a result:
+## javac Applies Retention When It Compiles the Annotated Class, and Reflection Checks It Again
 
-- ALWAYS explicitly specify @Retention on custom annotations
-- For framework/library annotations, RUNTIME is almost always correct
-- For compile-time-only checks, SOURCE is appropriate
-- CLASS is rarely the intentional choice for custom annotations
+Suppose the fix goes into a shared library: `Audited` changes from CLASS to RUNTIME and the library
+is released, but the service whose `Orders` class carries `@Audited` isn't rebuilt. `Audited.java`
+is the two lines `import java.lang.annotation.*;` and
+`@Retention(RetentionPolicy.CLASS) @interface Audited { }`, with `RUNTIME` in the second step.
+We compile all three files, then change and recompile `Audited` alone, then recompile `Orders`,
+then set `Audited` back to CLASS and recompile it alone. `Check` prints the annotation on
+`Orders.cancel` after each step:
 
-This is a very common interview trap question.
+```java
+class Orders {
+    @Audited void cancel(long id) { }
+}
 ```
 
 ```java
-// NO @Retention specified — defaults to CLASS
-@Target(ElementType.METHOD)
-@interface DefaultRetention { }
-
-// Explicitly RUNTIME
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
-@interface ExplicitRuntime { }
-
-class Demo {
-    @DefaultRetention
-    @ExplicitRuntime
-    public void myMethod() { }
+public class Check {
+    public static void main(String[] args) throws Exception {
+        System.out.println(Orders.class.getDeclaredMethod("cancel", long.class).getAnnotation(Audited.class));
+    }
 }
-
-// At runtime
-Method m = Demo.class.getDeclaredMethod("myMethod");
-
-// DEFAULT (CLASS) — NOT available at runtime!
-System.out.println(m.isAnnotationPresent(DefaultRetention.class)); // false
-
-// EXPLICIT RUNTIME — available at runtime
-System.out.println(m.isAnnotationPresent(ExplicitRuntime.class));  // true
 ```
 
-**Q3: How do you read annotations at runtime using reflection?**
-
 ```text
-A3: Java's Reflection API provides several methods to read RUNTIME-retained annotations:
+== all three compiled, Audited is CLASS
+null
+== Audited recompiled as RUNTIME, Orders not
+null
+== Orders recompiled
+@Audited()
+== Audited recompiled as CLASS again, Orders not
+null
+```
 
-On Class, Method, Field, Constructor, and Parameter objects:
+javac chose the attribute for `@Audited` when it compiled `Orders`, from the retention `Audited`
+had at that moment. Recompiling `Audited` doesn't touch `Orders.class`, which still says invisible.
+The last step shows that reflection checks the type too: `Orders.class` now has `@Audited` under
+`RuntimeVisibleAnnotations`, but the loaded `Audited` is CLASS, so reflection returns `null`. An
+annotation reaches reflection only when the class file's attribute and the annotation type's
+current retention both say RUNTIME.
 
-1. isAnnotationPresent(Class<A>) — checks if an annotation of the given type exists
-2. getAnnotation(Class<A>) — returns the annotation instance (or null)
-3. getAnnotations() — returns all annotations (including inherited)
-4. getDeclaredAnnotations() — returns only directly-applied annotations
-5. getAnnotationsByType(Class<A>) — returns all instances (including repeatable)
+So raising a retention to RUNTIME takes effect only after every user is recompiled. Lowering it
+hides the annotation from reflection at once, but its values stay in old class files until they
+are recompiled.
 
-For parameters specifically:
-- Method.getParameterAnnotations() — returns a 2D array of annotations
+## A RUNTIME Annotation Whose Class Is Missing at Run Time Disappears Without an Error
 
-Important distinctions:
-- getAnnotation() respects @Inherited for class-level annotations
-- getDeclaredAnnotation() ignores inheritance
-- getAnnotationsByType() unwraps repeatable annotation containers
+An annotation's jar is often on the compile class path and missing from the deployment: a
+`provided` dependency the server was supposed to supply, or a plug-in class loader that can't see
+the API. Here a new `Audited`, RUNTIME and with a value, is on `Orders` and on `cancel`. `Scan`
+reads the annotations the way a framework's class scanner does. Then
+`Audited.class` is deleted and `Scan` runs again:
+
+```java
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
+@Retention(RetentionPolicy.RUNTIME)
+@interface Audited { String value(); }
 ```
 
 ```java
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD})
-@interface Info {
-    String description();
-    int priority() default 0;
+@Audited("orders")
+class Orders {
+    @Audited("cancellations")
+    void cancel(long id) { System.out.println("  cancel(" + id + ") ran"); }
 }
-
-@Info(description = "Core service", priority = 1)
-class MyService {
-    @Info(description = "Primary data", priority = 2)
-    private String data;
-
-    @Info(description = "Process data", priority = 3)
-    public void process() { }
-}
-
-// Reading annotations at runtime
-Class<?> clazz = MyService.class;
-
-// Class-level
-Info classInfo = clazz.getAnnotation(Info.class);
-System.out.println(classInfo.description()); // "Core service"
-
-// Method-level
-Method method = clazz.getDeclaredMethod("process");
-Info methodInfo = method.getAnnotation(Info.class);
-System.out.println(methodInfo.priority()); // 3
-
-// Field-level
-Field field = clazz.getDeclaredField("data");
-field.setAccessible(true);
-Info fieldInfo = field.getAnnotation(Info.class);
-System.out.println(fieldInfo.description()); // "Primary data"
-
-// All annotations on a class
-Annotation[] all = clazz.getAnnotations();
-// Includes inherited annotations (if any parent has @Inherited annotations)
-```
-
-**Q4: What is the difference between getAnnotation() and getDeclaredAnnotation()?**
-
-```text
-A4: These two methods differ in how they handle annotation inheritance:
-
-getAnnotation(Class<A>):
-- Returns the annotation if directly present OR inherited (via @Inherited)
-- Looks up the class hierarchy for inherited class-level annotations
-- For methods and fields, behaves the same as getDeclaredAnnotation()
-  (methods/fields don't inherit annotations)
-
-getDeclaredAnnotation(Class<A>):
-- Returns the annotation ONLY if directly present on the element
-- Ignores @Inherited — never looks at parent classes
-- Useful when you need to distinguish between direct and inherited annotations
-
-The same pattern applies to getAnnotations() vs getDeclaredAnnotations():
-- getAnnotations() includes inherited class-level annotations
-- getDeclaredAnnotations() only returns directly-applied annotations
-
-Important: For methods, fields, and parameters, both methods behave identically because
-annotation inheritance only applies at the class level.
 ```
 
 ```java
-@Inherited
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.TYPE)
-@interface Auditable { String level() default "INFO"; }
+import java.lang.reflect.Method;
+import java.util.Arrays;
 
-@Auditable(level = "DEBUG")
-class Parent { }
-
-class Child extends Parent { }
-
-// getAnnotation — includes inherited
-Auditable a1 = Child.class.getAnnotation(Auditable.class);
-System.out.println(a1);        // @Auditable(level="DEBUG") — found via inheritance
-System.out.println(a1.level()); // "DEBUG"
-
-// getDeclaredAnnotation — only direct
-Auditable a2 = Child.class.getDeclaredAnnotation(Auditable.class);
-System.out.println(a2); // null — not directly on Child
-
-// getAnnotations vs getDeclaredAnnotations
-Annotation[] all = Child.class.getAnnotations();       // includes @Auditable
-Annotation[] direct = Child.class.getDeclaredAnnotations(); // empty (no direct annotations)
+/** Scans by reflection without naming the annotation type. */
+public class Scan {
+    public static void main(String[] args) throws Exception {
+        Class<?> orders = Class.forName("Orders");
+        Method cancel = orders.getDeclaredMethod("cancel", long.class);
+        System.out.println("class:  " + Arrays.toString(orders.getDeclaredAnnotations()));
+        System.out.println("method: " + Arrays.toString(cancel.getDeclaredAnnotations()));
+        var o = orders.getDeclaredConstructor().newInstance();
+        cancel.invoke(o, 7L);
+    }
+}
 ```
-
-**Q5: Can you access annotations on local variables at runtime?**
 
 ```text
-A5: No, you cannot access annotations on local variables at runtime, even if the annotation
-has RUNTIME retention. The language specification (JLS 9.6.4.2) says an annotation on a local
-variable declaration is never retained in the binary representation, and the Reflection API
-has no method for local variables.
-
-Here's what happens with each retention policy for local variable annotations:
-- SOURCE: The annotation is discarded by the compiler (as expected)
-- CLASS and RUNTIME: For a declaration annotation (@Target(LOCAL_VARIABLE)) the result is
-  the same -- the compiler does not write it to the class file at all
-- A TYPE_USE annotation on the local variable's type is different: it is written to the
-  method's RuntimeVisibleTypeAnnotations (or RuntimeInvisibleTypeAnnotations) attribute,
-  where bytecode tools can read it, but core reflection still cannot
-
-Local variable annotations are primarily useful for:
-1. Compile-time annotation processors
-2. Static analysis tools (FindBugs, SpotBugs, Checker Framework)
-3. IDE plugins for code hints and navigation
-
-If you need runtime access to a "local variable annotation," consider:
-- Moving the annotation to the method parameter
-- Moving the annotation to a field
-- Using a different approach (e.g., method-level annotation with element values)
+== with Audited.class
+class:  [@Audited("orders")]
+method: [@Audited("cancellations")]
+  cancel(7) ran
+== without Audited.class
+class:  []
+method: []
+  cancel(7) ran
 ```
+
+Reflection returned empty arrays and `cancel` ran, with no exception and no warning. `Orders.class` still holds `Audited(value="cancellations")` under
+`RuntimeVisibleAnnotations`; reflection drops an annotation whose type it can't load. If the
+annotation meant "audit this", auditing is off, and the first sign is an audit table with no rows.
+
+Naming the missing type does fail: `getAnnotation(Audited.class)` throws
+`java.lang.NoClassDefFoundError: Audited` at that line. And when the annotation type is present but
+a class named in one of its elements isn't, the annotation comes back and fails only when that
+element is read:
 
 ```java
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.LOCAL_VARIABLE)  // Only applies to local variables
-@interface Immutable { }
+@interface Retry { Class<? extends Exception> on(); int times(); }
 
-void example() {
-    @Immutable
-    String name = "hello";
+class GatewayTimeout extends Exception { }
 
-    // There is NO way to read @Immutable at runtime via standard reflection.
-    // The Reflection API does not expose local variable annotations.
+class Client {
+    @Retry(on = GatewayTimeout.class, times = 3)
+    void charge() { }
 }
 
-// For parameters (NOT local variables), annotations ARE accessible:
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.PARAMETER)
-@interface Validated { String message() default "Invalid"; }
-
-void process(@Validated(message = "Required") String input) { }
-
-// Parameter annotations can be read:
-Method m = getClass().getDeclaredMethod("process", String.class);
-Annotation[][] paramAnns = m.getParameterAnnotations();
-// paramAnns[0] contains @Validated — this works!
+public class Named {
+    public static void main(String[] args) throws Exception {
+        Retry r = Client.class.getDeclaredMethod("charge").getAnnotation(Retry.class);
+        System.out.println("annotation: " + r);
+        System.out.println("times:      " + r.times());
+        System.out.println("on:         " + r.on());
+    }
+}
 ```
 
-**Q6: How does @Target interact with retention policies?**
+With `GatewayTimeout.class` deleted:
 
 ```text
-A6: @Target and @Retention are orthogonal meta-annotations that control different aspects:
-
-@Target controls WHERE an annotation can be applied:
-- ElementType.TYPE — classes, interfaces, enums, records
-- ElementType.METHOD — methods
-- ElementType.FIELD — fields (including enum constants)
-- ElementType.PARAMETER — method parameters
-- ElementType.CONSTRUCTOR — constructors
-- ElementType.LOCAL_VARIABLE — local variables
-- ElementType.ANNOTATION_TYPE — other annotations (meta-annotation)
-- ElementType.PACKAGE — package declarations
-- ElementType.TYPE_PARAMETER — generic type parameters (Java 8+)
-- ElementType.TYPE_USE — any type usage (Java 8+)
-- ElementType.MODULE — modules (Java 9+)
-- ElementType.RECORD_COMPONENT — record components (Java 16+; preview in 14 and 15)
-
-@Retention controls WHEN the annotation is available:
-- SOURCE, CLASS, or RUNTIME
-
-These are independent — you can combine any @Target with any @Retention. However, some
-combinations are more useful than others:
-- LOCAL_VARIABLE + RUNTIME: The annotation is NOT written to bytecode, so reflection cannot see it
-- PARAMETER + RUNTIME: Accessible via Method.getParameterAnnotations()
-- TYPE_USE + RUNTIME: Accessible via AnnotatedType objects
-
-If @Target is not specified, the annotation can be applied to any declaration (type
-parameters included, in Java 21) but to no type use.
+annotation: @Retry(on=GatewayTimeout.class /* Warning: type not present! */, times=3)
+times:      3
+Exception in thread "main" java.lang.TypeNotPresentException: Type GatewayTimeout not present
 ```
 
-```java
-// RUNTIME + multiple targets — most flexible
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD})
-@interface RuntimeInfo {
-    String description();
-}
+The `AnnotatedElement` javadoc specifies this `TypeNotPresentException`, and an
+`EnumConstantNotPresentException` for an enum constant that no longer exists. A start-up check
+that names each annotation type the service relies on, reads its elements, and asserts that the
+annotation is present where it is expected turns a missing jar into a failed start, and catches a
+retention that is too short as well.
 
-// SOURCE + METHOD — compile-time method check only
-@Retention(RetentionPolicy.SOURCE)
-@Target(ElementType.METHOD)
-@interface CheckReturnValue { }
+<!-- practice 3 -->
 
-// RUNTIME + PARAMETER — accessible via parameter reflection
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.PARAMETER)
-@interface RequestParam {
-    String name();
-    boolean required() default true;
-}
+## Summary
 
-// RUNTIME + TYPE_USE — annotates the type itself
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.TYPE_USE)
-@interface NonNull { }
+- **SOURCE stops at the compiler, CLASS in the class file, RUNTIME reaches reflection.** A CLASS
+  annotation ships with its values; only SOURCE keeps a note out of the jar.
+- **No `@Retention` means CLASS.** `getAnnotation` returns `null`, javac doesn't warn, and an
+  interceptor silently does nothing.
+- **Retention is applied when the annotated class is compiled and checked again when it is
+  read.** Raising it to RUNTIME needs every user recompiled.
+- **A missing annotation class makes the annotation vanish; the class still loads.** Naming the type
+  throws `NoClassDefFoundError`; a missing class inside an element throws
+  `TypeNotPresentException` when that element is read.
 
-// Usage of TYPE_USE annotation
-List<@NonNull String> names;  // Annotates the String type usage
-```
+## Reference
+
+**Where javac 21 writes an annotation (`javap -v`):**
+
+| Placed on | SOURCE | CLASS | RUNTIME | Read at run time with |
+|---|---|---|---|---|
+| class, method, field | not written | `RuntimeInvisibleAnnotations` | `RuntimeVisibleAnnotations` | `getAnnotation`, `getDeclaredAnnotations` |
+| method parameter | not written | `RuntimeInvisibleParameterAnnotations` | `RuntimeVisibleParameterAnnotations` | `Method.getParameterAnnotations()` |
+| type use (`List<@X String>`) | not written | `RuntimeInvisibleTypeAnnotations` | `RuntimeVisibleTypeAnnotations` | `getAnnotatedType()` and `AnnotatedType`, for fields, parameters and return types; nothing inside a method body |
+| local variable, declaration annotation (`@Target(LOCAL_VARIABLE)`) | not written | not written | not written | nothing |
+
+**Retention of the JDK's own annotations (read with `getAnnotation(Retention.class)`):**
+
+| Retention | Annotations |
+|---|---|
+| SOURCE | `@Override`, `@SuppressWarnings` |
+| RUNTIME | `@Deprecated`, `@FunctionalInterface`, `@SafeVarargs`, `@Retention`, `@Target`, `@Inherited`, `@Documented`, `@Repeatable` |
+
+## Challenges
+
+1. Your service relies on five annotation types from three libraries. Write the start-up check
+   that fails when any of them can't be read. Which failures on this page does it catch, and which
+   still need a test through the interceptor?
+2. A build step leaves `provided` jars out of the container image. How would you find, from the
+   class files alone, every annotation type your classes carry that the image doesn't contain?
+3. A library wants its annotation's values out of its users' class files without breaking users
+   compiled against the RUNTIME version. What do those users' class files and reflection show at
+   each step of the change?
+
+## Design Note: Why a Missing Annotation Is Ignored
+
+The language treats an annotation as information attached to a program element, with no effect
+at run time of its own (JLS 9.7). The JVM loads a class without loading its annotation types, and
+reflection skips the ones it can't load. That lets one class carry RUNTIME annotations for
+frameworks that one deployment includes and another leaves out, each needing its jar only where
+it is read.
+
+This costs you when an annotation does change behaviour, through an interceptor or a scanner.
+Then its absence changes behaviour too, and nothing reports it. A retention that is too short
+fails the same way. Neither the compiler nor the JVM can tell that you meant the annotation to
+matter, so the check has to come from the code that depends on it: a test through the interceptor,
+or a start-up check that names the types it needs.
 
 ## Code Examples
 

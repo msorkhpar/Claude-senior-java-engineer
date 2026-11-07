@@ -18,387 +18,473 @@
       "text": "10.2.2. Garbage Collection Algorithms"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "A pricing service runs with a 1 GB heap. It keeps a 400 MB cache of price lists and allocates a few kilobytes per request, and its p99 latency has spikes of tens of milliseconds. One colleague wants ZGC because \"it has no pauses\", another wants Parallel because \"it has the best throughput\", and a third adds `System.gc()` after every cache reload. None of them has read the GC log."
     },
     {
       "type": "para",
-      "text": "Garbage collection (GC) is the process by which the JVM automatically reclaims memory occupied by objects that are no longer reachable from the application. Understanding GC algorithms is critical for senior engineers because GC behavior directly impacts application latency, throughput, and memory efficiency."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Imagine a library (the heap) where patrons (threads) borrow books (objects). Over time, some books are returned and shelved, but others are left on tables with no one reading them. The librarian (garbage collector) periodically walks through the library, identifies books that no one is using (unreachable objects), and puts them back on the shelf (frees memory). Different librarians use different strategies: some do a quick scan of recently placed books (minor GC), while others do a full inventory of the entire library (major GC)."
+      "text": "Every run here is Java 21 (Temurin 21.0.12) on one machine with 20 CPUs. Absolute pause times vary with hardware, heap and version; compare the runs with each other. Where objects live and what `OutOfMemoryError` looks like is unit 10.2.1."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Mark-and-Sweep Algorithm"
+      "level": 2,
+      "text": "A Young Collection Costs What Survives, Not What Was Allocated"
     },
     {
       "type": "para",
-      "text": "The foundational GC algorithm. It works in two phases:"
+      "text": "This program allocates 8 GB of 1 KB arrays. Each array stays in a ring of `window` slots, so it lives until `window` more arrays have been allocated:"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Mark Phase**: Starting from GC roots (local variables, static fields, active threads, JNI references), the collector traverses the object graph and marks every reachable object.",
-        "**Sweep Phase**: The collector scans the heap and frees memory occupied by unmarked (unreachable) objects."
-      ]
+      "type": "code",
+      "lang": "java",
+      "text": "public class GcLoad {\n    public static void main(String[] args) {\n        int window = Integer.parseInt(args[0]);\n        long totalMb = Long.parseLong(args[1]);\n        long count = totalMb * 1024;                 // number of 1 KB arrays\n        byte[][] alive = new byte[window][];\n        long start = System.nanoTime();\n        long sum = 0;\n        for (long i = 0; i < count; i++) {\n            byte[] b = new byte[1024];\n            b[0] = (byte) i;\n            alive[(int) (i % window)] = b;           // the array it replaces becomes garbage\n            sum += alive[(int) ((i * 7) % window)] == null ? 0 : 1;\n        }\n        long ms = (System.nanoTime() - start) / 1_000_000;\n        System.out.printf(\"window %,d: allocated %,d MB in %,d ms (%d)%n\", window, totalMb, ms, sum % 2);\n    }\n}"
     },
     {
       "type": "para",
-      "text": "The key insight is that circular references between unreachable objects are still collected, because the mark phase only follows references starting from roots."
+      "text": "With a window of 1,000, about 1 MB is alive at any moment; with 200,000, about 200 MB. How do the pauses compare? We ran each window with `java -Xms1g -Xmx1g -Xlog:gc:file=gc.log GcLoad <window> 8000` on G1, the default collector, and summed each log's `Pause` lines with a short script. The first run of each:"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Mark-and-Compact"
-    },
-    {
-      "type": "para",
-      "text": "An improvement over mark-and-sweep that adds a **compaction** phase. After sweeping, surviving objects are moved together to eliminate memory fragmentation. This makes future allocation faster (bump-pointer allocation) but the compaction step is expensive."
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Generational Garbage Collection"
+      "type": "code",
+      "lang": "text",
+      "text": "window 1,000: allocated 8,000 MB in 421 ms (1)\nlogs/gen-1000-1.log: pauses 14, total 12.9 ms, longest 2.0 ms\n   Pause Young (Normal)           14  total     12.9 ms  longest    2.0 ms\nwindow 200,000: allocated 8,000 MB in 1,684 ms (1)\nlogs/gen-200000-1.log: pauses 97, total 1251.0 ms, longest 51.3 ms\n   Pause Cleanup                  12  total      1.5 ms  longest    0.2 ms\n   Pause Remark                   12  total      5.8 ms  longest    0.7 ms\n   Pause Young (Concurrent Start)   12  total    210.5 ms  longest   40.2 ms\n   Pause Young (Mixed)            12  total    252.0 ms  longest   31.6 ms\n   Pause Young (Normal)           37  total    515.7 ms  longest   32.4 ms\n   Pause Young (Prepare Mixed)    12  total    265.6 ms  longest   51.3 ms"
     },
     {
       "type": "para",
-      "text": "Based on the **weak generational hypothesis**: most objects die young. The heap is divided into generations:"
+      "text": "Over three runs: 14 pauses and 12–13 ms in total for the small window, 90–99 pauses and 508–1251 ms for the large one. Two young collections from the first log:"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        [
-          "**Young Generation**: Where new objects are allocated",
-          {
-            "type": "list",
-            "ordered": false,
-            "items": [
-              "**Eden Space**: Initial allocation area",
-              "**Survivor Spaces (S0, S1)**: Objects that survive a young GC are copied here"
-            ]
-          }
-        ],
-        "**Old Generation (Tenured)**: Objects that survive multiple young GCs are promoted here",
-        "**Metaspace** (since Java 8): Stores class metadata (replaced PermGen); it is native memory, not part of the heap"
-      ]
+      "type": "code",
+      "lang": "text",
+      "text": "[0.150s][info][gc] GC(2) Pause Young (Normal) (G1 Evacuation Pause) 614M->2M(1024M) 0.715ms\n[0.391s][info][gc] GC(12) Pause Young (Normal) (G1 Evacuation Pause) 614M->2M(1024M) 0.871ms"
     },
     {
       "type": "para",
-      "text": "**Minor GC** collects the young generation (fast, frequent). **Major GC** collects the old generation, and a **Full GC** collects the entire heap (slow, infrequent); the two terms are often used interchangeably."
+      "text": "G1 splits the heap into regions. A young collection copies the live objects out of the young regions and reuses those regions whole. It never visits the 612 MB of dead arrays, so its cost follows the 2 MB that survive. That is the bet a generational collector makes: most objects die young, so collecting the young part often is cheap. With the 200,000 window almost every young object is still alive at the collection, so each one is copied, then promoted (moved to old regions), and later found dead there by a concurrent marking cycle, after which mixed collections clean the old regions."
+    },
+    {
+      "type": "para",
+      "text": "\"Alive\" means reachable from a root: a local variable of a running method, a static field, a thread. Nothing counts references, so two objects that refer only to each other are garbage:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Node a = new Node(), b = new Node();\na.next = b;\nb.next = a;                                           // each is referenced by the other\nWeakReference<Node> watchA = new WeakReference<>(a);\na = null;\nb = null;\nSystem.gc();\nSystem.out.println(\"cycle collected: \" + (watchA.get() == null));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "cycle collected: true"
+    },
+    {
+      "type": "para",
+      "text": "The costly objects live a little while, such as a batch held across a few requests. They are copied in the young generation and then marked in the old one."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Modern GC Implementations"
+      "level": 2,
+      "text": "Each Collector Puts the Cost Somewhere: Pauses, Stalls or CPU"
     },
     {
       "type": "para",
-      "text": "Java 21 includes several garbage collectors:"
+      "text": "The pricing service as a program: a 400 MB cache that changes slowly, plus 16 GB of request data, each array kept for the next 20,000 allocations:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.HashMap;\nimport java.util.Map;\n\npublic class GcMix {\n    public static void main(String[] args) {\n        int liveMb = Integer.parseInt(args[0]);\n        int window = Integer.parseInt(args[1]);\n        long totalMb = Long.parseLong(args[2]);\n        Map<Integer, byte[]> cache = new HashMap<>();\n        for (int i = 0; i < liveMb * 1024; i++) cache.put(i, new byte[1024]);\n        byte[][] recent = new byte[window][];\n        long start = System.nanoTime();\n        long count = totalMb * 1024, sum = 0;\n        for (long i = 0; i < count; i++) {\n            byte[] b = new byte[1024];\n            b[0] = (byte) i;\n            recent[(int) (i % window)] = b;\n            if ((i & 1023) == 0) cache.put((int) (i % (liveMb * 1024L)), new byte[1024]); // the cache changes slowly\n            sum += b[0];\n        }\n        System.out.printf(\"cache %d MB, window %,d: allocated %,d MB in %,d ms (%d)%n\",\n                liveMb, window, totalMb, (System.nanoTime() - start) / 1_000_000, sum & 1);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "We ran `GcMix 400 20000 16000` five times under each collector, with `-Xms1g -Xmx1g -Xlog:gc,gc+phases:file=gc.log` (with `-Xlog:gc` alone, ZGC's pause lines don't appear). Each cell is the range over the five runs; CPU is user plus system time of the whole JVM:"
     },
     {
       "type": "table",
       "headers": [
-        "Collector",
-        "Type",
-        "Key Characteristic"
+        "Collector (flag)",
+        "Pauses",
+        "Total pause",
+        "Longest pause",
+        "Allocation stalls",
+        "Loop",
+        "CPU"
       ],
       "rows": [
         [
-          "Serial GC",
-          "Stop-the-world",
-          "Single-threaded, for small heaps (<100MB)"
+          "G1 (default)",
+          "47–61",
+          "114–173 ms",
+          "6.8–11.7 ms",
+          "none",
+          "830–1038 ms",
+          "2.5–3.5 s"
         ],
         [
-          "Parallel GC",
-          "Stop-the-world",
-          "Multi-threaded, maximizes throughput"
+          "Parallel (`-XX:+UseParallelGC`)",
+          "65",
+          "861–1187 ms",
+          "45.9–53.4 ms",
+          "none",
+          "1490–1911 ms",
+          "11.6–12.7 s"
         ],
         [
-          "G1 GC",
-          "Mostly concurrent",
-          "Region-based, balances latency and throughput (default since Java 9)"
+          "Serial (`-XX:+UseSerialGC`)",
+          "65",
+          "536–653 ms",
+          "94.3–122.1 ms",
+          "none",
+          "1085–1305 ms",
+          "1.4–1.6 s"
         ],
         [
-          "ZGC",
-          "Concurrent",
-          "Sub-millisecond pauses, scales to TB heaps"
+          "ZGC (`-XX:+UseZGC`)",
+          "93–102",
+          "about 1 ms",
+          "under 0.1 ms",
+          "29–30 stalls, 561–623 ms in total",
+          "1565–1710 ms",
+          "4.3–5.3 s"
         ],
         [
-          "Shenandoah",
-          "Concurrent",
-          "Low-pause, concurrent compaction"
+          "Generational ZGC (`-XX:+UseZGC -XX:+ZGenerational`, see the note below)",
+          "217–290",
+          "1–4 ms",
+          "under 0.1 ms",
+          "none",
+          "854–1153 ms",
+          "2.4–3.1 s"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "Lines from each first run, decorations cut, collector's name in front:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "G1        GC(0) Pause Young (Normal) (G1 Evacuation Pause) 52M->52M(1024M) 8.285ms\nParallel  GC(3) Pause Full (Ergonomics) 737M->450M(981M) 46.660ms\nSerial    GC(1) Pause Young (Allocation Failure) 523M->450M(989M) 120.548ms\nSerial    GC(4) Pause Full (Allocation Failure) 723M->450M(989M) 59.896ms\nZGC       Allocation Stall (main) 21.356ms\nZGC       GC(2) Pause Relocate Start 0.009ms"
+    },
+    {
+      "type": "para",
+      "text": "**ZGC's pauses are tiny, and the application still waited.** Single-generation ZGC marks the whole heap, including the 400 MB cache, in every cycle. The request data filled the heap faster than a cycle finished, so the allocating thread stopped in `Allocation Stall` until the cycle freed memory: about 20 ms at a time, 30 times per run, longer than G1's longest pause. A latency dashboard sees those as pauses whatever the log calls them. Generational ZGC collects the young objects on their own, kept up with the same program, and never stalled."
+    },
+    {
+      "type": "para",
+      "text": "**Parallel was the slowest and used the most CPU.** With 450 MB live in a 1 GB heap, its sizing policy predicted that a young collection's survivors would not fit in the old generation, and ran a full collection instead: in every run 62 of its 65 pauses are `Pause Full (Ergonomics)`, each marking the whole cache with 15 GC threads. With `-Xmx2g`, in one run, the same program had 44 young pauses, no full one, 240 ms of pauses in total and 2.9 s of CPU."
+    },
+    {
+      "type": "para",
+      "text": "**Serial had the longest pauses and the least CPU.** One thread does all the work, with the application stopped. In every run its two longest pauses (80–122 ms) are the first two young collections, which copy the freshly built cache into the old generation."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Versions differ.** On Java 21 ZGC is single-generation unless `-XX:+ZGenerational` is given. JDK 23 made generational the default (JEP 474) and JDK 24 removed the single-generation mode (JEP 490): on Java 25 the flag prints `Ignoring option ZGenerational; support was removed in 24.0`."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "System.gc() Is a Request, and JVM Flags Decide What It Does"
+    },
+    {
+      "type": "para",
+      "text": "After each reload, the third colleague's code calls `System.gc()` \"to clean up\". This program holds 300 MB, creates a `WeakReference` to an object nothing else holds, and times the call:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "for (int i = 0; i < 300 * 1024; i++) cache.put(i, new byte[1024]);   // 300 MB that stays\nWeakReference<Object> weak = new WeakReference<>(new Object());       // garbage from the start\nlong start = System.nanoTime();\nSystem.gc();\nlong ms = (System.nanoTime() - start) / 1_000_000;\nSystem.out.println(\"System.gc() returned after \" + ms + \" ms, weak referent cleared: \"\n        + (weak.get() == null));"
+    },
+    {
+      "type": "para",
+      "text": "With `-Xlog:gc`, under five flag sets (each followed by the GC lines the call caused, then the program's line):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "G1 (default):\n[0.115s][info][gc] GC(7) Pause Full (System.gc()) 346M->322M(1200M) 18.710ms\nSystem.gc() returned after 18 ms, weak referent cleared: true\n-XX:+DisableExplicitGC:\nSystem.gc() returned after 0 ms, weak referent cleared: false\n-XX:+ExplicitGCInvokesConcurrent:\n[0.100s][info][gc] GC(7) Pause Young (Concurrent Start) (System.gc()) 348M->352M(1944M) 3.840ms\nSystem.gc() returned after 21 ms, weak referent cleared: true\n-XX:+UseParallelGC:\n[0.106s][info][gc] GC(2) Pause Young (System.gc()) 347M->344M(768M) 4.776ms\n[0.137s][info][gc] GC(3) Pause Full (System.gc()) 344M->321M(768M) 30.643ms\nSystem.gc() returned after 35 ms, weak referent cleared: true\n-XX:+UseZGC -XX:+ZGenerational:\n[0.257s][info][gc] GC(0) Major Collection (System.gc()) 372M(4%)->338M(3%) 0.088s\nSystem.gc() returned after 87 ms, weak referent cleared: true"
+    },
+    {
+      "type": "para",
+      "text": "The javadoc says the call \"suggests\" a collection, with no guarantee of what it reclaims. On G1 and Parallel the best effort is a full, stop-the-world collection of the whole heap, so every reload adds a pause for all request threads (18–40 ms over two runs of each), and it reclaims nothing the collector would not have reclaimed on its own later. With `-XX:+DisableExplicitGC`, which some deployments set for that reason, the call does nothing at all and the weak reference stays uncleared. A test that relies on `System.gc()` to clear a reference fails on a machine that sets this flag. With `ExplicitGCInvokesConcurrent` or ZGC the pause is short, but the calling thread still waits for the whole cycle."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A WeakHashMap Entry Goes Only When Nothing Else Reaches Its Key"
+    },
+    {
+      "type": "para",
+      "text": "A `WeakHashMap` holds its keys through weak references and its values strongly. A weak reference is cleared by the first collection that traces its object and finds it reachable only through weak references. The program builds three maps with three kinds of key:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.WeakHashMap;\n\npublic class WeakKeys {\n    record Session(String id) {}\n    record Audit(Session session, String note) {}\n\n    public static void main(String[] args) throws InterruptedException {\n        Map<Object, Object> plain = new WeakHashMap<>();\n        Map<Object, Object> literalKey = new WeakHashMap<>();\n        Map<Object, Object> backRef = new WeakHashMap<>();\n\n        Session s1 = new Session(\"s-17\"), s2 = new Session(\"s-18\");\n        plain.put(s1, \"note\");\n        literalKey.put(\"s-17\", \"note\");                       // a string literal: the class keeps it\n        backRef.put(s2, new Audit(s2, \"note\"));               // the value refers to its key\n        System.out.printf(\"before:  plain %d, literal key %d, value -> key %d%n\",\n                plain.size(), literalKey.size(), backRef.size());\n\n        s1 = null;                                            // the last strong references outside the maps\n        s2 = null;\n        System.gc();\n        System.out.printf(\"after gc: plain %d, literal key %d, value -> key %d%n\",\n                plain.size(), literalKey.size(), backRef.size());\n        Thread.sleep(100);\n        System.out.printf(\"100 ms on: plain %d, literal key %d, value -> key %d%n\",\n                plain.size(), literalKey.size(), backRef.size());\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "before:  plain 1, literal key 1, value -> key 1\nafter gc: plain 1, literal key 1, value -> key 1\n100 ms on: plain 0, literal key 1, value -> key 1"
+    },
+    {
+      "type": "para",
+      "text": "Only the plain map lost its entry. A string literal is interned and stays reachable while the class that uses it is loaded, so it never becomes weakly reachable. In the third map the value refers to its key, and the map holds the value strongly, so the key is reachable from the map itself. That map leaks like a `HashMap`."
+    },
+    {
+      "type": "para",
+      "text": "The plain entry also did not go at the collection. The collector cleared the weak reference, then the JDK's reference-handler thread put it on the map's queue, and the map removes entries for queued references on its next call. So `size()` still said 1 right after `System.gc()` returned: the removal races with the caller on any machine, and code that checks for it has to wait. Unit 9.3.2 shows the opposite failure: a listener held only weakly is lost at the first collection."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Soft Cache Survives Collections While There Is Room, and Empties When an Allocation Doesn't Fit"
+    },
+    {
+      "type": "para",
+      "text": "The javadoc leaves clearing a `SoftReference` to the collector. It asks only that every soft reference be cleared before an `OutOfMemoryError`, and that recently created or used ones be cleared last. Ten 4 MB entries in a soft cache, with a 64 MB heap:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<SoftReference<byte[]>> cache = new ArrayList<>();\nfor (int i = 0; i < 10; i++) cache.add(new SoftReference<>(new byte[4 << 20]));  // 10 x 4 MB\nSystem.gc();\nSystem.out.println(\"after System.gc():        \" + alive(cache) + \" of 10 cached\");\n\nList<byte[]> work = new ArrayList<>();\nfor (int mb = 4; ; mb += 4) {\n    work.add(new byte[4 << 20]);                    // the application needs memory\n    int left = alive(cache);\n    if (left < 10) {\n        System.out.println(\"after \" + mb + \" MB more allocated: \" + left + \" of 10 cached\");\n        break;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "after System.gc():        10 of 10 cached\nafter 12 MB more allocated: 0 of 10 cached"
+    },
+    {
+      "type": "para",
+      "text": "The same in all three runs with `-Xmx64m`; with `-XX:+UseSerialGC` it took 20 MB, and then also 0 of 10. A full `System.gc()` with room to spare kept every entry. Once 12 MB more had been allocated, none of the ten was left."
+    },
+    {
+      "type": "para",
+      "text": "HotSpot decides by age and room: a soft reference survives roughly `-XX:SoftRefLRUPolicyMSPerMB` (default 1000) milliseconds per MB of free heap since its last `get()`. With that flag set to 0, the same `System.gc()` left 4 and 3 of 10 in two runs. As the heap fills, the allowance shrinks towards nothing, and a collection that still can't make room clears every soft reference."
+    },
+    {
+      "type": "para",
+      "text": "So a soft cache empties at once under memory pressure, when recomputing every entry hurts most. A map with a size bound (an LRU map with a maximum size) evicts the entries you choose, when you choose."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**Collectors differ.** On generational ZGC the same program printed between 0 and 7 of 10 after `System.gc()` in six runs."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Cleaner Runs After a Collection Finds Its Object, So close() Is the Release You Can Count On"
+    },
+    {
+      "type": "para",
+      "text": "`finalize()` is deprecated for removal. Its replacement, `java.lang.ref.Cleaner`, runs an action on its own thread once the registered object becomes phantom reachable: no strong, soft or weak reference reaches it any more. A buffer that releases native memory registers a release action and calls it from `close()`; a second buffer's action is a lambda that reads its own field:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.lang.ref.Cleaner;\nimport java.lang.ref.WeakReference;\n\npublic class Cleaners {\n    static final Cleaner CLEANER = Cleaner.create();\n\n    /** The cleaning action: it knows the name, not the buffer. */\n    record Release(String name) implements Runnable {\n        public void run() { System.out.println(\"  released \" + name); }\n    }\n\n    static final class Buffer implements AutoCloseable {\n        private final Cleaner.Cleanable cleanable;\n        Buffer(String name) { cleanable = CLEANER.register(this, new Release(name)); }\n        @Override public void close() { cleanable.clean(); }\n    }\n\n    static final class CapturingBuffer {\n        private final String name;\n        CapturingBuffer(String name) {\n            this.name = name;\n            CLEANER.register(this, () -> System.out.println(\"  released \" + this.name));\n        }\n    }\n\n    public static void main(String[] args) throws InterruptedException {\n        try (Buffer b = new Buffer(\"b-2\")) {\n            System.out.println(\"closing b-2\");\n        }\n        new Buffer(\"b-1\");                                    // never closed\n        WeakReference<CapturingBuffer> c = new WeakReference<>(new CapturingBuffer(\"c-1\"));\n        if (args.length == 0) {\n            System.out.println(\"System.gc()\");\n            System.gc();\n        }\n        Thread.sleep(200);\n        System.out.println(\"c-1 still reachable: \" + (c.get() != null));\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "closing b-2\n  released b-2\nSystem.gc()\n  released b-1\nc-1 still reachable: true"
+    },
+    {
+      "type": "para",
+      "text": "Run with an argument, so that no collection happens, and with `-Xlog:gc`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "[0.002s][info][gc] Using G1\nclosing b-2\n  released b-2\nc-1 still reachable: true"
+    },
+    {
+      "type": "para",
+      "text": "`b-2` was released by `close()`, at once; `clean()` runs the action at most once, so a collection later does not release it again. The forgotten `b-1` was released only after a collection found it. In the second run, with no collection before the JVM exited, it was never released. A forgotten buffer that has reached the old generation waits for an old-generation collection, holding its native memory until then."
+    },
+    {
+      "type": "para",
+      "text": "`c-1` is never released. The lambda reads `this.name`, so it holds the buffer, and the `Cleaner` holds the lambda, so the buffer stays reachable from the `Cleaner` for the life of the JVM. The action must hold only what it needs to release, as `Release` does with the name."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "**A young collection costs what survives.** Short-lived garbage is nearly free; objects that live through a few collections are copied, promoted and marked again.",
+        "**Each collector puts the cost somewhere.** G1 in pauses of a few milliseconds, Serial and Parallel in longer ones, single-generation ZGC in allocation stalls when the heap fills faster than it collects; the log and the CPU time show which.",
+        "**`System.gc()` is a request.** On G1 and Parallel it is a full stop-the-world collection; with `-XX:+DisableExplicitGC` it does nothing.",
+        "**A `WeakHashMap` entry goes only when nothing else reaches its key**, and only after the reference is queued, not at the collection.",
+        "**A soft cache survives collections while there is room, and empties when an allocation doesn't fit.** HotSpot keeps recently used soft references longer when the heap has room, and clears them all when a collection can't free enough.",
+        "**A `Cleaner` runs only after a collection finds its object**, and never if its action holds the object. `close()` is the release."
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**Reference types (Java 21 javadoc, and the runs above):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Type",
+        "`get()`",
+        "Cleared"
+      ],
+      "rows": [
+        [
+          "strong (a field, a local)",
+          "—",
+          "never, while reachable from a root"
+        ],
+        [
+          "`SoftReference`",
+          "the object until cleared",
+          "at the collector's discretion; all of them before an `OutOfMemoryError`"
+        ],
+        [
+          "`WeakReference`",
+          "the object until cleared",
+          "by the first collection that traces the object and finds it only weakly reachable"
+        ],
+        [
+          "`PhantomReference`",
+          "always `null`",
+          "enqueued after the object becomes phantom reachable; the base of `Cleaner`"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Flags used on this page (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Flag",
+        "Effect"
+      ],
+      "rows": [
+        [
+          "`-XX:+UseG1GC`, `-XX:+UseParallelGC`, `-XX:+UseSerialGC`, `-XX:+UseZGC`",
+          "selects the collector; G1 is the default"
+        ],
+        [
+          "`-XX:+ZGenerational`",
+          "generational mode of ZGC (default from JDK 23, the only mode from JDK 24)"
+        ],
+        [
+          "`-Xlog:gc`",
+          "one line per collection (with its pause, for a stop-the-world collection); `-Xlog:gc,gc+phases` adds ZGC's pauses"
+        ],
+        [
+          "`-Xlog:gc:file=gc.log`",
+          "the same, to a file"
+        ],
+        [
+          "`-XX:+DisableExplicitGC`",
+          "`System.gc()` does nothing"
+        ],
+        [
+          "`-XX:SoftRefLRUPolicyMSPerMB=n`",
+          "how long, per MB of free heap, an unused soft reference survives (default 1000 ms)"
+        ],
+        [
+          "`-XX:+ExplicitGCInvokesConcurrent`",
+          "`System.gc()` starts a concurrent cycle on G1 instead of a full collection"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "**Log lines (Java 21, `-Xlog:gc`):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Line",
+        "Meaning"
+      ],
+      "rows": [
+        [
+          "`Pause Young (Normal)`",
+          "G1 young collection"
+        ],
+        [
+          "`Pause Young (Concurrent Start)`, `Pause Remark`, `Pause Cleanup`, `Pause Young (Mixed)`",
+          "G1's old-generation cycle"
+        ],
+        [
+          "`Pause Full (Ergonomics)`",
+          "Parallel's full collection chosen by its sizing policy"
+        ],
+        [
+          "`Pause Full (System.gc())`",
+          "a full collection from `System.gc()`"
+        ],
+        [
+          "`Allocation Stall (thread)`",
+          "a ZGC thread waited for memory"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**GC roots** include: local variables in active threads, static fields, JNI references, active monitor locks, and class objects loaded by system classloader.",
-        "**Mark-and-sweep** correctly handles circular references -- only reachability from roots matters.",
-        "**Generational GC** exploits the fact that most objects are short-lived, making young generation collection very fast.",
-        "**Minor GC** is typically much faster than Major GC -- illustratively 10-100x, depending on the JVM, the collector, the heap and the hardware -- because the young generation is small and mostly dead.",
-        "**Stop-the-world pauses** freeze all application threads during GC; modern collectors minimize these.",
-        "**G1 GC** is the default collector since Java 9 and divides the heap into equal-sized regions rather than contiguous generations.",
-        "**ZGC** (production-ready since Java 15, generational mode added in Java 21) achieves sub-millisecond pause times regardless of heap size, using colored pointers and load barriers.",
-        "**`System.gc()`** is a suggestion, not a command -- the JVM may ignore it.",
-        "**Finalization** (`finalize()`) is deprecated; use `Cleaner` or `PhantomReference` for cleanup.",
-        "**GC tuning** should be data-driven: measure with GC logs, JFR, or monitoring tools before changing defaults."
+        "Rerun `GcMix` under single-generation ZGC with `-Xmx2g`, then `-Xmx4g`. At what heap size do the allocation stalls stop, and what does the extra heap cost the service?",
+        "`GcMix`'s window of 20,000 is the request data's lifetime. Find the window at which G1's young pauses start to grow, and say what in a real service sets that lifetime.",
+        "A library you depend on calls `System.gc()` after loading its data. Which flag would you set, what does it change for the library, and what would you check before setting it in production?",
+        "Your image cache uses `SoftReference`s and empties under load. Design a replacement and say what it does when the heap is nearly full."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Generational ZGC (JEP 439)**: ZGC now supports generational collection, combining ultra-low pause times with the throughput benefits of generational collection. Enabled with `-XX:+UseZGC -XX:+ZGenerational` (it became the default ZGC mode in JDK 23).",
-        "**Deprecation of finalize()**: `Object.finalize()` is deprecated for removal. Use `java.lang.ref.Cleaner` instead.",
-        "**G1 region pinning (JDK 22, not 21)**: From JDK 22 (JEP 423), G1 pins regions during JNI critical sections instead of disabling GC; in Java 21 a JNI critical section still blocks G1 collections.",
-        "**Compact Object Headers (Lilliput, not in 21)**: Experimental from JDK 24 (JEP 450); reduces object header size, directly reducing GC pressure by making objects smaller.",
-        "**GC logging unification**: All collectors use the unified GC logging framework (`-Xlog:gc*`), available since Java 9."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        [
-          "**Calling `System.gc()` in production code**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Triggering full GC causes stop-the-world pause\npublic void clearCache() {\n    cache.clear();\n    System.gc(); // DON'T DO THIS -- causes unpredictable pauses\n}\n\n// Fix: Let the GC manage itself; clear references instead\npublic void clearCache() {\n    cache.clear(); // sufficient -- GC will collect when needed\n}"
-          }
-        ],
-        [
-          "**Relying on `finalize()` for resource cleanup**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: finalize() is unreliable, deprecated, and causes GC issues\npublic class OldStyle {\n    @Override\n    protected void finalize() throws Throwable {\n        closeNativeResource(); // may never be called!\n    }\n}\n\n// Fix: Use AutoCloseable + try-with-resources, or Cleaner\npublic class ModernStyle implements AutoCloseable {\n    private static final Cleaner cleaner = Cleaner.create();\n    private final Cleaner.Cleanable cleanable;\n    \n    public ModernStyle() {\n        cleanable = cleaner.register(this, () -> {\n            // cleanup action -- runs after object becomes phantom-reachable\n        });\n    }\n    \n    @Override\n    public void close() {\n        cleanable.clean(); // explicit cleanup\n    }\n}"
-          }
-        ],
-        [
-          "**Ignoring GC overhead in throughput calculations**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Measuring only application time, ignoring GC pauses\nlong start = System.nanoTime();\nprocessData(hugeDataset);\nlong elapsed = System.nanoTime() - start; // includes GC pauses!\n\n// Fix: Use JFR or GC logs to separate application time from GC time\n// Run with: -Xlog:gc*:file=gc.log:time,uptime,level,tags"
-          }
-        ],
-        [
-          "**Creating too many short-lived large objects**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Large objects bypass Eden and go directly to Old Gen\n// (in G1: any object larger than half a region is \"humongous\"; 10MB is humongous for regions up to 16MB)\npublic void processItems(List<Item> items) {\n    for (Item item : items) {\n        byte[] buffer = new byte[10_000_000]; // 10MB per iteration!\n        process(item, buffer);\n    }\n}\n\n// Fix: Reuse buffers\npublic void processItems(List<Item> items) {\n    byte[] buffer = new byte[10_000_000]; // allocate once\n    for (Item item : items) {\n        Arrays.fill(buffer, (byte) 0);\n        process(item, buffer);\n    }\n}"
-          }
-        ],
-        [
-          "**Premature GC tuning without measurement**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Problem: Blindly setting GC flags without understanding the workload\n// -XX:+UseG1GC -XX:MaxGCPauseMillis=10 -XX:G1HeapRegionSize=32m\n\n// Fix: Measure first, tune second\n// 1. Enable GC logging: -Xlog:gc*:file=gc.log\n// 2. Analyze with tools: GCViewer, gceasy.io, JFR\n// 3. Identify whether latency or throughput is the priority\n// 4. Make targeted changes based on data"
-          }
-        ]
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Start with defaults** -- G1 GC is well-tuned for most workloads. Only switch collectors if you have specific latency or throughput requirements.",
-        "**Enable GC logging in production**: `-Xlog:gc*:file=gc.log:time,uptime,level,tags:filecount=5,filesize=100m`",
-        "**Set heap size explicitly**: `-Xms` and `-Xmx` should be equal in production to avoid heap resizing pauses.",
-        "**Prefer object reuse** in hot paths: buffer pools, `StringBuilder` reuse, flyweight pattern.",
-        "**Avoid premature promotion**: If objects are promoted too quickly, tune `-XX:MaxTenuringThreshold`.",
-        "**Monitor GC metrics**: Track GC pause time, frequency, and throughput ratio using JMX or Prometheus exporters.",
-        "**Use ZGC** for latency-sensitive applications requiring sub-millisecond pauses.",
-        "**Use Parallel GC** for batch processing jobs where throughput matters more than latency.",
-        "**Size the young generation** appropriately: too small causes frequent minor GCs; too large causes long minor GC pauses.",
-        "**Profile before optimizing**: Use JFR (`-XX:StartFlightRecording`) or async-profiler to identify actual allocation hot spots."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**GC during class unloading**: Classes can be unloaded during a full GC if their classloader is unreachable. This affects Metaspace usage.",
-        "**Humongous objects in G1**: Objects larger than half a G1 region are \"humongous\" and allocated specially. They skip the young generation entirely.",
-        "**GC with off-heap memory**: Direct ByteBuffers (`ByteBuffer.allocateDirect()`) use off-heap memory not tracked by the GC. A Cleaner frees them when the ByteBuffer object is collected.",
-        "**Concurrent mode failure**: In CMS (removed in Java 14), if the old generation filled up before concurrent collection completed, a full stop-the-world GC was triggered. G1 has the same risk: if concurrent marking and mixed collections cannot free space fast enough, allocation fails and G1 falls back to a full stop-the-world GC.",
-        "**JNI and GC roots**: Objects passed to native code via JNI become GC roots and cannot be collected until released.",
-        "**Soft reference clearing timing**: The JVM has discretion on when to clear soft references. Under memory pressure, all soft references may be cleared simultaneously, causing a \"cache stampede.\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Java Never Promises When an Object Is Collected"
     },
     {
       "type": "para",
-      "text": "Interviewers expect senior candidates to:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Explain the mark-and-sweep algorithm** step by step, including how circular references are handled",
-        "**Describe generational GC** and the weak generational hypothesis",
-        "**Compare G1, ZGC, and Parallel GC** with trade-offs for different workloads",
-        "**Discuss GC tuning** -- what flags they have used and why",
-        "**Identify GC-related performance issues** in code samples (excessive allocation, memory leaks)",
-        "**Know when NOT to tune** -- understanding that defaults work well for most cases"
-      ]
+      "text": "Java collects by reachability and leaves the timing to the collector. That freedom is what lets G1 skip the dead young objects, ZGC move objects while the application runs, and Parallel spend fifteen threads on a full collection. Each collector meets its own goal because nothing in the language says when an unreachable object goes."
     },
     {
       "type": "para",
-      "text": "Common interview traps:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"How does GC handle circular references?\" (It does, because mark-and-sweep is root-based)",
-        "\"What does `System.gc()` do?\" (It's a hint; the JVM may ignore it)",
-        "\"Is `finalize()` reliable for cleanup?\" (No; it's deprecated and non-deterministic)",
-        "\"Which GC should I use?\" (Depends on requirements -- latency vs throughput vs footprint)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Explain how the Mark-and-Sweep garbage collection algorithm works.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Mark-and-Sweep is the foundational GC algorithm that works in two phases:\n\nMARK PHASE:\n1. Start from GC roots (thread stacks, static fields, JNI refs, etc.)\n2. Traverse the object graph, following all references from each root\n3. Mark every object reached as \"alive\" (set a mark bit)\n4. If an object has already been marked, skip it (handles circular references)\n5. After traversal, all reachable objects are marked\n\nSWEEP PHASE:\n1. Scan the entire heap linearly\n2. For each object:\n   - If marked: clear the mark bit (reset for next cycle), keep the object\n   - If NOT marked: the object is unreachable garbage, free its memory\n3. After sweeping, freed memory is available for new allocations\n\nHandling circular references:\nMark-and-Sweep does NOT use reference counting. It starts from roots and follows\nreachability. If objects A and B reference each other but neither is reachable from\nany root, they are both unmarked and collected. This is a key advantage over\nreference-counting GC (used in Python, Objective-C).\n\nDrawback: Basic mark-and-sweep causes memory fragmentation because freed objects\nleave gaps. This is addressed by mark-and-compact (moving surviving objects together)\nor by copying collectors (used in young generation)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Simulation of mark-and-sweep\npublic class MarkAndSweepSimulation {\n    static class Node {\n        String name;\n        List<Node> refs = new ArrayList<>();\n        boolean marked = false;\n    }\n\n    // Mark phase: DFS from roots\n    static void mark(List<Node> roots) {\n        for (Node root : roots) {\n            markDFS(root);\n        }\n    }\n\n    static void markDFS(Node node) {\n        if (node == null || node.marked) return;\n        node.marked = true;\n        for (Node ref : node.refs) {\n            markDFS(ref);\n        }\n    }\n\n    // Sweep phase: collect unmarked\n    static List<Node> sweep(List<Node> allNodes) {\n        List<Node> garbage = new ArrayList<>();\n        for (Node node : allNodes) {\n            if (!node.marked) {\n                garbage.add(node); // unreachable -- free this\n            } else {\n                node.marked = false; // reset for next cycle\n            }\n        }\n        return garbage;\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: What is generational garbage collection and why is it effective?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Generational GC divides the heap into generations based on object age:\n\nYOUNG GENERATION (typically 1/3 of heap):\n- Eden Space: Where new objects are allocated (bump-pointer allocation = fast)\n- Survivor Spaces (S0, S1): Hold objects that survived at least one minor GC\n- Collection: Minor GC (fast, frequent, uses copying collector)\n\nOLD GENERATION / TENURED (typically 2/3 of heap):\n- Holds long-lived objects promoted from young generation\n- Collection: Major GC (slow, infrequent, uses mark-sweep-compact or similar)\n\nMETASPACE (off-heap since Java 8):\n- Stores class metadata, method bytecode, constant pools\n- Grows dynamically (no fixed PermGen limit)\n\nWhy it works -- the Weak Generational Hypothesis:\nResearch shows that the vast majority (~90-95%) of objects die young. By collecting\nthe young generation frequently, the GC can reclaim most garbage quickly without\nscanning the entire heap.\n\nObject lifecycle:\n1. Object allocated in Eden\n2. First minor GC: if alive, copied to Survivor S0\n3. Second minor GC: if alive, copied from S0 to S1 (or vice versa)\n4. After enough minor GCs: promoted to Old Gen. The tenuring threshold adapts at\n   runtime and is capped by MaxTenuringThreshold (default 15); objects are promoted\n   earlier if the survivor space overflows\n5. Objects in Old Gen are collected during Major GC\n\nPerformance impact (illustrative orders of magnitude only; real pauses depend on the\nJVM, the collector, heap size, live data and hardware -- measure with GC logs):\n- Minor GC: ~10ms (young gen is small, most objects are dead)\n- Major GC: ~100ms-1s+ (entire heap, more live objects to process)\n- This is why reducing object promotion to Old Gen is important"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Simulating generational promotion\npublic class GenerationalDemo {\n    enum Generation { EDEN, SURVIVOR, OLD }\n\n    record GCObject(String id, Generation gen, int age) {\n        GCObject promote() {\n            return switch (gen) {\n                case EDEN -> new GCObject(id, Generation.SURVIVOR, age + 1);\n                case SURVIVOR -> age >= 3\n                    ? new GCObject(id, Generation.OLD, age + 1)\n                    : new GCObject(id, Generation.SURVIVOR, age + 1);\n                case OLD -> new GCObject(id, Generation.OLD, age + 1);\n            };\n        }\n    }\n\n    public static void main(String[] args) {\n        GCObject obj = new GCObject(\"myObj\", Generation.EDEN, 0);\n        System.out.println(obj); // EDEN, age 0\n\n        // Simulate 5 minor GCs\n        for (int i = 0; i < 5; i++) {\n            obj = obj.promote();\n            System.out.println(obj); // Tracks promotion through generations\n        }\n        // After 5 promotions: OLD generation, age 5\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Compare G1 GC, ZGC, and Parallel GC. When would you use each?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Each collector is designed for different workload characteristics. The pause times\nbelow are illustrative orders of magnitude; real values depend on the JVM version, heap\nsize, live data, and hardware:\n\nPARALLEL GC (-XX:+UseParallelGC):\n- Strategy: Stop-the-world with multiple GC threads\n- Pause times: 100ms-1s+ (proportional to heap size)\n- Throughput: Highest (minimal CPU overhead for GC bookkeeping)\n- Use when: Batch processing, offline analytics, where throughput matters\n  and pauses are acceptable (e.g., Spark jobs, ETL pipelines)\n- Heap range: Any size, but pauses grow with heap\n\nG1 GC (-XX:+UseG1GC) -- DEFAULT since Java 9:\n- Strategy: Region-based, partially concurrent\n- Pause times: 10-200ms (configurable target via -XX:MaxGCPauseMillis)\n- Throughput: Good (slight overhead vs Parallel for concurrent phases)\n- Use when: General-purpose workloads needing balanced latency and throughput\n  (e.g., web servers, microservices, most production applications)\n- Heap range: 4GB-64GB is the sweet spot\n- Key feature: Predictable pauses via region selection\n\nZGC (-XX:+UseZGC):\n- Strategy: Fully concurrent (no stop-the-world for most phases)\n- Pause times: <1ms regardless of heap size\n- Throughput: Slightly lower due to concurrent overhead and load barriers\n- Use when: Latency-critical applications (e.g., trading systems, real-time\n  APIs, game servers) or very large heaps (hundreds of GB to TBs)\n- Heap range: Any size, designed for multi-terabyte heaps\n- Key feature: Colored pointers + load barriers for concurrent relocation\n\nDecision framework:\n1. Need sub-ms latency? → ZGC\n2. Need max throughput for batch jobs? → Parallel GC\n3. General purpose / not sure? → G1 GC (default, well-tuned)\n4. Low memory footprint? → Serial GC (-XX:+UseSerialGC) for small heaps"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// JVM flags for each collector:\n// Parallel GC (max throughput):\n//   java -XX:+UseParallelGC -Xms4g -Xmx4g -jar app.jar\n\n// G1 GC (balanced, default):\n//   java -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xms4g -Xmx4g -jar app.jar\n\n// ZGC (ultra-low latency):\n//   java -XX:+UseZGC -Xms4g -Xmx4g -jar app.jar\n\n// Monitoring GC behavior programmatically:\nimport java.lang.management.GarbageCollectorMXBean;\nimport java.lang.management.ManagementFactory;\n\npublic class GCMonitorExample {\n    public static void printGCInfo() {\n        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {\n            System.out.printf(\"Collector: %s%n\", gc.getName());\n            System.out.printf(\"  Collection count: %d%n\", gc.getCollectionCount());\n            System.out.printf(\"  Collection time:  %d ms%n\", gc.getCollectionTime());\n            System.out.printf(\"  Memory pools:     %s%n\",\n                    String.join(\", \", gc.getMemoryPoolNames()));\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does the JVM determine which objects are garbage? What are GC roots?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: The JVM uses reachability analysis (not reference counting) to determine\nwhich objects are garbage. Starting from a set of \"GC roots,\" the collector\ntraverses the entire object graph. Any object not reachable from a root is garbage.\n\nGC Roots in Java:\n1. Local variables and parameters in active thread stacks\n   - Every running thread's stack frames contain references\n2. Static fields of loaded classes\n   - Class<T> objects themselves are roots (loaded by system classloader)\n3. Active Java threads (Thread objects themselves)\n4. JNI references\n   - Local and global references created by native code\n5. Synchronized monitors\n   - Objects used as locks in synchronized blocks\n6. JVM internal references\n   - Basic type Class objects, system classloader, etc.\n\nReachability states:\n1. Strongly reachable: reachable from a root via strong references\n2. Softly reachable: only reachable via soft references\n3. Weakly reachable: only reachable via weak references\n4. Phantom reachable: finalized, only tracked by phantom reference\n5. Unreachable: not reachable at all -- eligible for collection\n\nWhy NOT reference counting:\nReference counting cannot handle circular references without additional\ncycle detection. Java's mark-and-sweep approach handles cycles naturally.\nPython uses reference counting WITH cycle detection as a supplement.\n\nImportant: An object can transition from reachable to unreachable mid-method\nif the JIT compiler determines the variable is no longer used (even before\nit goes out of scope). This is called \"aggressive reachability analysis.\""
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating different reachability scenarios\npublic class GCRootsDemo {\n\n    static Object staticRoot = new Object(); // GC root: static field\n\n    public void methodWithRoots() {\n        Object localRoot = new Object();     // GC root: local variable\n        Object[] array = new Object[2];      // GC root: local variable\n        array[0] = new Object();             // reachable via array -> [0]\n        \n        // At this point, all objects are reachable\n        \n        array[0] = null;  // Object formerly at array[0] is now unreachable\n        // GC can collect it even though 'array' is still alive\n        \n        localRoot = null;  // Now the Object localRoot referred to is unreachable\n        // (assuming no other references exist); 'array' is still reachable through its own local variable\n    }\n\n    // Circular reference example -- both collected\n    public void circularReference() {\n        Object a = new Object(); // temporarily reachable\n        Object b = new Object(); // temporarily reachable\n        // Simulate: a.ref = b; b.ref = a; (conceptually)\n        \n        a = null;\n        b = null;\n        // Both objects are unreachable despite referencing each other\n        // Mark-and-sweep will collect both\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What GC tuning flags should a senior engineer know, and when to use them?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Here are the most important GC tuning flags, categorized by purpose:\n\nHEAP SIZING (most impactful):\n- -Xms / -Xmx: Initial and maximum heap size (set equal in production)\n- -XX:NewRatio: Ratio of Old to Young gen (default 2, meaning 1/3 Young)\n- -XX:MaxMetaspaceSize: Limit metaspace growth\n\nGC SELECTION:\n- -XX:+UseG1GC: G1 collector (default since Java 9)\n- -XX:+UseZGC: ZGC for ultra-low latency\n- -XX:+UseParallelGC: Parallel for max throughput\n- -XX:+UseShenandoahGC: Shenandoah for low latency (OpenJDK)\n\nG1-SPECIFIC:\n- -XX:MaxGCPauseMillis=200: Target pause time (default 200ms)\n- -XX:G1HeapRegionSize: Region size (a power of 2; ergonomics picks 1MB-32MB, and since\n  JDK 18 it can be set up to 512MB)\n- -XX:InitiatingHeapOccupancyPercent: When to start concurrent marking (default 45%; only\n  the initial value, since adaptive IHOP (-XX:+G1UseAdaptiveIHOP) is on by default)\n\nGENERATIONAL:\n- -XX:MaxTenuringThreshold: How many minor GCs before promoting to Old (default 15)\n- -XX:SurvivorRatio: Eden to Survivor ratio (default 8)\n\nLOGGING (essential for diagnosis):\n- -Xlog:gc*:file=gc.log:time,uptime,level,tags\n\nMONITORING:\n- -XX:+HeapDumpOnOutOfMemoryError: Auto heap dump on OOM\n- -XX:HeapDumpPath=/path/to/dump: Where to save heap dumps\n\nTuning workflow:\n1. Start with defaults and enable GC logging\n2. Run under production-like load\n3. Analyze logs with tools (GCViewer, gceasy.io, JFR)\n4. Identify whether issue is throughput, latency, or footprint\n5. Make ONE change at a time and re-measure\n6. Document every change and its measured impact"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Programmatic heap monitoring for adaptive behavior\nimport java.lang.management.*;\n\npublic class GCTuningAwareness {\n    \n    public static void monitorAndReport() {\n        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();\n        MemoryUsage heap = memBean.getHeapMemoryUsage();\n        \n        double usedPercent = (double) heap.getUsed() / heap.getMax() * 100;\n        System.out.printf(\"Heap: %dMB used / %dMB max (%.1f%%)%n\",\n                heap.getUsed() / (1024 * 1024),\n                heap.getMax() / (1024 * 1024),\n                usedPercent);\n        \n        // List all GC activity\n        for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {\n            System.out.printf(\"GC [%s]: count=%d, time=%dms%n\",\n                    gc.getName(), gc.getCollectionCount(), gc.getCollectionTime());\n        }\n        \n        // Memory pool details (Eden, Survivor, Old Gen)\n        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {\n            if (pool.getType() == MemoryType.HEAP) {\n                MemoryUsage usage = pool.getUsage();\n                System.out.printf(\"Pool [%s]: %dKB used%n\",\n                        pool.getName(), usage.getUsed() / 1024);\n            }\n        }\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does G1 GC work internally? What makes it different from previous collectors?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: G1 (Garbage First) GC is a region-based, partially concurrent collector that\naims to provide predictable pause times while maintaining good throughput.\n\nArchitecture:\n- Divides the heap into equal-sized regions (ergonomically 1MB-32MB, aiming at about 2048 regions)\n- Each region can be Eden, Survivor, Old, or Humongous (large objects)\n- No fixed contiguous generation boundaries\n\nCollection phases:\n1. Young-only phase:\n   - Concurrent marking: identifies regions with most garbage\n   - Uses SATB (Snapshot At The Beginning) to track reference changes\n   \n2. Space reclamation phase:\n   - Collects young AND selected old regions (ones with most garbage)\n   - \"Garbage First\" = prioritizes regions with the most reclaimable space\n   - Copies live objects to new regions, freeing entire old regions\n\nKey innovations:\n1. Predictable pauses: G1 selects WHICH regions to collect based on time budget\n   (-XX:MaxGCPauseMillis). It won't collect more regions than it can within the target.\n2. Region-based: No need for contiguous generations. Any region can change role.\n3. Remembered sets: Track cross-region references so G1 doesn't need to scan\n   the entire old generation when collecting young regions.\n4. Mixed collections: Can collect old regions alongside young regions incrementally,\n   spreading the work across multiple pauses.\n\nWhat makes it better than previous collectors:\n- vs Parallel GC: G1 offers predictable pauses (Parallel has no pause target)\n- vs CMS: G1 does compaction (CMS doesn't, leading to fragmentation)\n- vs Serial: G1 uses multiple threads and concurrent phases\n\nLimitations:\n- Higher memory footprint than Parallel (remembered sets overhead, illustratively ~5-20%;\n  it depends on the heap and the workload)\n- Concurrent marking uses CPU that could go to application\n- Not ideal for very small heaps (<1GB) or max-throughput batch workloads"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// G1 GC configuration example for a web service\n// java -XX:+UseG1GC \\\n//      -Xms4g -Xmx4g \\\n//      -XX:MaxGCPauseMillis=100 \\\n//      -XX:G1HeapRegionSize=4m \\\n//      -XX:InitiatingHeapOccupancyPercent=40 \\\n//      -Xlog:gc*:file=gc.log:time,uptime \\\n//      -jar webservice.jar\n\n// Detecting G1 at runtime\npublic class G1Detection {\n    public static String detectCollector() {\n        return ManagementFactory.getGarbageCollectorMXBeans()\n                .stream()\n                .map(GarbageCollectorMXBean::getName)\n                .reduce((a, b) -> a + \", \" + b)\n                .orElse(\"unknown\");\n        // Example output (JDK 21): \"G1 Young Generation, G1 Concurrent GC, G1 Old Generation\"\n        // or: \"ZGC Cycles, ZGC Pauses\" for ZGC\n    }\n    \n    public static boolean isG1() {\n        return ManagementFactory.getGarbageCollectorMXBeans()\n                .stream()\n                .anyMatch(gc -> gc.getName().contains(\"G1\"));\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q7: What is the difference between `System.gc()`, `Runtime.gc()`, and actual garbage collection?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A7: This is an important distinction that shows understanding of GC internals:\n\nSystem.gc() and Runtime.getRuntime().gc():\n- Both are equivalent -- System.gc() internally calls Runtime.gc()\n- They are REQUESTS (hints) to the JVM to perform garbage collection\n- The JVM is free to ignore these requests entirely\n- When honored, they typically trigger a FULL GC (expensive!)\n- Can be disabled entirely with -XX:+DisableExplicitGC\n\nActual Garbage Collection:\n- Triggered automatically by the JVM based on internal heuristics\n- The GC decides WHEN, WHAT, and HOW to collect\n- Minor GC: triggered when Eden space is full\n- Major GC: triggered when Old Gen is nearly full or promotion fails\n- The GC algorithm determines which objects to collect and how\n\nWhy System.gc() is almost always wrong:\n1. It triggers a FULL GC, causing a long stop-the-world pause\n2. The JVM's heuristics are better at timing GC than application code\n3. It disrupts the GC's ability to optimize its own scheduling\n4. In production, -XX:+DisableExplicitGC is often set\n\nLegitimate uses of System.gc() (rare):\n1. Testing and benchmarking (before measuring to establish baseline)\n2. Before entering a latency-critical section (to reduce chance of GC during it)\n3. After bulk loading data (to compact before steady-state operation)\n\nEven in these cases, consider alternatives:\n- For benchmarking: use JMH which handles warmup and GC properly\n- For latency: switch to ZGC for sub-ms pauses\n- For bulk load: tune NewSize so objects are collected in minor GCs"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating System.gc() behavior\npublic class SystemGcDemo {\n    \n    // BAD: Using System.gc() for resource management\n    public void badPractice() {\n        // Don't do this -- it's not reliable\n        Object obj = new Object();\n        obj = null;\n        System.gc(); // may or may not collect the object\n    }\n    \n    // Legitimate use: benchmarking setup\n    public long benchmarkAllocations(int count) {\n        System.gc(); // try to start from clean state\n        try { Thread.sleep(100); } catch (InterruptedException e) {}\n        \n        Runtime rt = Runtime.getRuntime();\n        long before = rt.totalMemory() - rt.freeMemory();\n        \n        Object[] objects = new Object[count];\n        for (int i = 0; i < count; i++) {\n            objects[i] = new byte[1024];\n        }\n        \n        long after = rt.totalMemory() - rt.freeMemory();\n        return after - before;\n    }\n    \n    // Better: use JMX for monitoring instead of System.gc()\n    public static void monitorWithoutForcing() {\n        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();\n        MemoryUsage usage = memBean.getHeapMemoryUsage();\n        \n        System.out.printf(\"Used: %dMB, Committed: %dMB, Max: %dMB%n\",\n                usage.getUsed() / (1024*1024),\n                usage.getCommitted() / (1024*1024),\n                usage.getMax() / (1024*1024));\n    }\n}"
+      "text": "The cost falls on everything that wants to act on collection. `finalize()` ran late or never, and was deprecated. A `Cleaner`, a `WeakHashMap` and a soft cache inherit the same uncertainty: they act after some later collection, on another thread, and `System.gc()` can't force it because it is only a request. Code that must release something at a known time does it explicitly, with `close()`."
     },
     {
       "type": "heading",
@@ -418,17 +504,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 14,
-    "paras": 17,
-    "code": 14,
-    "tables": 1,
-    "lists": 10,
+    "headings": 12,
+    "paras": 33,
+    "code": 16,
+    "tables": 4,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 2,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "2674dd22a8e70d7c2a6c5b50ba22a076cf0a7d244d455c971abfc1271a7833f7"
+  "content_sha256": "59332671ac662b61b86382b3d9c56c4257b258c7ef859b0e9d433e318e9a5727"
 }

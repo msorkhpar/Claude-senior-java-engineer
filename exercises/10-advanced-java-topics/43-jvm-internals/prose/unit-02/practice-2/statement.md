@@ -1,22 +1,15 @@
-javac adds methods the source never shows. A **bridge method** keeps
-overriding working after type erasure or a covariant return: for
-`class Upper implements Transformer<String>` it adds
-`Object transform(Object)`, which casts and calls `String transform(String)`.
-A bridge is flagged both *bridge* and *synthetic*. A lambda body becomes a
-private method such as `lambda$greeting$0`, which is **synthetic but not a
-bridge**.
+The team's chat-ops bot reads a command from each message and runs it. Its `CommandTable` turns
+the typed name into the command's position, which `reply` switches on. The table files commands
+by `hashCode()` when it is built, and the admin page that lists those groups has to keep working,
+so `byHash` stays.
 
-Write `Bridges` with two methods over a class's **declared** methods, each
-method written as `ReturnType name(Param1, Param2)` with simple type names,
-in any order:
+Finish the two `TODO`s in `src/main/java/practice/CommandTable.java`:
 
-- `bridgesOf(type)`: the bridge methods only.
-- `sourceMethodsOf(type)`: the methods the source declares, leaving out
-  **every synthetic method**.
+- `file(command)`: put a command into `byHash` while the table is built;
+- `indexOf(name)`: the typed name's position in the command list, or `-1` when it is no command.
 
-| class | `bridgesOf` | `sourceMethodsOf` |
-|---|---|---|
-| `Upper implements Transformer<String>` | `Object transform(Object)` | `String transform(String)` |
-| `Word implements Comparable<Word>` | `int compareTo(Object)` | `int compareTo(Word)` |
-| `Circle extends Shape`, overriding `Shape copy()` as `Circle copy()` | `Shape copy()` | `Circle copy()` |
-| `Greeter` with `Supplier<String> greeting()` returning a lambda | none | `Supplier greeting()` |
+When you're done, every command the table was built with is found at its own position, any other
+name is unknown, and a message with no command text (`indexOf(null)`) is unknown too, not an
+error. About twelve lines in total.
+
+The tests build their tables from their own command names, and type each name as a new `String`.

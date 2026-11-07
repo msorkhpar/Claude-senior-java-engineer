@@ -1,21 +1,14 @@
-`@Deprecated` has RUNTIME retention, so a tool can list at run time what a
-class has deprecated and how urgently. Write
-`DeprecationReport.of(Class<?> type)`, one line per deprecated method or
-constructor **the class itself declares**, sorted:
+The warehouse service builds every shipment through `Shipment.of(...)`. The team turned on
+`-Xlint:unchecked -Werror`, and now the routing module, which ships one parcel of any type from a
+generic helper, no longer compiles: javac warns at its call to `Shipment.of`. A teammate's first
+fix also went wrong in production: the loading screen reuses one array for every truck, and
+shipments that had already left changed their parcels when the next truck was loaded.
 
-- the signature: the method name, or for a constructor the class's simple
-  name, then the parameter types' simple names in parentheses, joined with
-  `", "`;
-- then `" since <version>"` when `since` is set (**an empty `since` is left
-  out**);
-- then `", for removal"` when `forRemoval` is true.
+Finish the `TODO` in `src/main/java/practice/Shipment.java`:
 
-Deprecated **constructors are listed too**. Members a class inherits are not
-its own and are not listed.
+- `of(parcels)`: build the shipment from its parcels.
 
-| class | report |
-|---|---|
-| the page's `LegacyApi` | `[legacyCalculation(int, int) since 1.5, oldMethod() since 2.0, for removal]` |
-| `Connection` with `@Deprecated(since = "3.0") Connection(String url)` | `[Connection(String) since 3.0]` |
-| `Job` with plain `@Deprecated void run()` | `[run()]` |
-| `class Modern extends LegacyApi`, nothing deprecated | `[]` |
+When you're done, generic code calls `of` without a warning, and a shipment's parcels stay what
+they were when `of` returned. About three lines in total, the method's declaration included.
+
+The tests compile a generic caller with the JDK's compiler, against your class.

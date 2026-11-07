@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Simulate mark-and-sweep from GC roots",
+  "title": "Stop the tracer from keeping finished requests",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Mark-and-sweep in two phases, as on the page. **Mark**: starting from the GC roots, follow references and mark every object reached; **an already marked object is skipped**, which is how cycles end. **Sweep**: free every unmarked object and **clear the marks of survivors** for the next collection. So **reachability from roots decides, not reference counts**: two objects that point at each other but that no root reaches are both garbage."
+      "text": "The checkout service traces every request: `SpanTable` keeps a span per request object, and the web layer calls `event(request, ...)` while it handles it. Since the tracer went in, the heap grows by a request body for every request served, and a heap dump shows finished requests still reachable from the tracer. An exporter also keeps finished spans for a while, to send them in batches, and needs their labels then."
     },
     {
       "type": "para",
-      "text": "Write `Heap`, a simulation over named objects:"
+      "text": "`SpanTable` already records events and labels spans. Finish the two `TODO`s in `src/main/java/practice/SpanTable.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`allocate(name)` adds an object (a name already used is refused with `IllegalArgumentException`); `reference(from, to)` makes `from` point to `to`.",
-        "`addRoot(name)` / `removeRoot(name)`.",
-        "`collect()` runs mark and sweep and returns the names it freed, in allocation order; freed objects are gone from `live()` (also in allocation order)."
+        "`newTable()`: the map from each request to its span;",
+        "`open(request)`: a new span labelled `\"<method> <path>\"`, for example `\"POST /orders\"`."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "setup",
-        "`collect()`",
-        "`live()`"
-      ],
-      "rows": [
-        [
-          "A, B, C, D; root A; A->B, B->D",
-          "`[C]`",
-          "`[A, B, D]`"
-        ],
-        [
-          "X, Y; X->Y, Y->X; no roots",
-          "`[X, Y]`",
-          "`[]`"
-        ],
-        [
-          "root A; A->B, B->A",
-          "`[]`",
-          "`[A, B]`"
-        ],
-        [
-          "then `removeRoot(A)`, `collect()`",
-          "`[A, B]`",
-          "`[]`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the tracer holds a span for as long as the web layer holds its request, and not after; a span the exporter still holds gives its label without keeping its request in memory. About four lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests ask the JVM for collections with `System.gc()` and wait, up to ten seconds, for a finished request to be collected."
     },
     {
       "type": "heading",
@@ -77,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.LinkedHashSet;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.NoSuchElementException;\nimport java.util.Set;\n\npublic final class Heap {\n\n    private static final class Obj {\n        final String name;\n        final List<Obj> refs = new ArrayList<>();\n        boolean marked;\n\n        Obj(String name) {\n            this.name = name;\n        }\n    }\n\n    private final Map<String, Obj> objects = new LinkedHashMap<>();\n    private final Set<Obj> roots = new LinkedHashSet<>();\n\n    private Obj get(String name) {\n        Obj o = objects.get(name);\n        if (o == null) {\n            throw new NoSuchElementException(\"no object \" + name);\n        }\n        return o;\n    }\n\n    /** Adds an object; a name already in use is refused. */\n    public void allocate(String name) {\n        if (objects.containsKey(name)) {\n            throw new IllegalArgumentException(\"already allocated: \" + name);\n        }\n        objects.put(name, new Obj(name));\n    }\n\n    /** Makes object 'from' refer to object 'to'. */\n    public void reference(String from, String to) {\n        get(from).refs.add(get(to));\n    }\n\n    public void addRoot(String name) {\n        roots.add(get(name));\n    }\n\n    public void removeRoot(String name) {\n        roots.remove(get(name));\n    }\n\n    /** Marks from the roots, sweeps, and returns the freed names in allocation order. */\n    public List<String> collect() {\n        for (Obj root : roots) {\n            mark(root);\n        }\n        List<String> freed = new ArrayList<>();\n        var it = objects.values().iterator();\n        while (it.hasNext()) {\n            Obj o = it.next();\n            if (o.marked) {\n                o.marked = false;\n            } else {\n                freed.add(o.name);\n                it.remove();\n            }\n        }\n        return freed;\n    }\n\n    private void mark(Obj start) {\n        List<Obj> pending = new ArrayList<>();\n        pending.add(start);\n        while (!pending.isEmpty()) {\n            Obj o = pending.remove(pending.size() - 1);\n            if (o.marked) {\n                continue;\n            }\n            o.marked = true;\n            pending.addAll(o.refs);\n        }\n    }\n\n    /** Names of the objects still allocated, in allocation order. */\n    public List<String> live() {\n        return new ArrayList<>(objects.keySet());\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.WeakHashMap;\nimport java.util.function.Supplier;\n\n/**\n * The tracer's table of spans: one span per request the service is handling. The web layer owns\n * the requests; the tracer only looks at them while they are being handled.\n */\npublic class SpanTable {\n\n    /** A request as the web layer hands it over, body included. */\n    public static final class Request {\n        private final String id;\n        private final String method;\n        private final String path;\n        private final byte[] body;\n\n        public Request(String id, String method, String path, int bodyBytes) {\n            this.id = id;\n            this.method = method;\n            this.path = path;\n            this.body = new byte[bodyBytes];\n        }\n\n        public String id() { return id; }\n        public String method() { return method; }\n        public String path() { return path; }\n        public int bodyBytes() { return body.length; }\n    }\n\n    /** What the tracer records about one request. An exporter may keep it after the request ends. */\n    public static final class Span {\n        private final Supplier<String> label;\n        private final List<String> events = new ArrayList<>();\n\n        public Span(Supplier<String> label) {\n            this.label = label;\n        }\n\n        /** Built when asked: most spans are sampled away and never exported. */\n        public String label() { return label.get(); }\n\n        public synchronized void add(String event) { events.add(event); }\n\n        public synchronized List<String> events() { return List.copyOf(events); }\n    }\n\n    private final Map<Request, Span> spans = newTable();\n\n    /** The span of this request, opened on first use. */\n    public synchronized Span spanFor(Request request) {\n        return spans.computeIfAbsent(request, this::open);\n    }\n\n    public void event(Request request, String event) {\n        spanFor(request).add(event);\n    }\n\n    /** How many requests the table holds a span for. */\n    public synchronized int size() {\n        return spans.size();\n    }\n\n    /** The table that maps each request to its span. */\n    Map<Request, Span> newTable() {\n        return new WeakHashMap<>();\n    }\n\n    /** A new span for this request, labelled \"<method> <path>\", for example \"POST /orders\". */\n    Span open(Request request) {\n        String method = request.method();\n        String path = request.path();\n        return new Span(() -> method + \" \" + path);\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Heap {\n\n    /** Adds an object; a name already in use is refused. */\n    public void allocate(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Makes object 'from' refer to object 'to'. */\n    public void reference(String from, String to) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void addRoot(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void removeRoot(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Marks from the roots, sweeps, and returns the freed names in allocation order. */\n    public List<String> collect() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Names of the objects still allocated, in allocation order. */\n    public List<String> live() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * The tracer's table of spans: one span per request the service is handling. The web layer owns\n * the requests; the tracer only looks at them while they are being handled.\n */\npublic class SpanTable {\n\n    /** A request as the web layer hands it over, body included. */\n    public static final class Request {\n        private final String id;\n        private final String method;\n        private final String path;\n        private final byte[] body;\n\n        public Request(String id, String method, String path, int bodyBytes) {\n            this.id = id;\n            this.method = method;\n            this.path = path;\n            this.body = new byte[bodyBytes];\n        }\n\n        public String id() { return id; }\n        public String method() { return method; }\n        public String path() { return path; }\n        public int bodyBytes() { return body.length; }\n    }\n\n    /** What the tracer records about one request. An exporter may keep it after the request ends. */\n    public static final class Span {\n        private final Supplier<String> label;\n        private final List<String> events = new ArrayList<>();\n\n        public Span(Supplier<String> label) {\n            this.label = label;\n        }\n\n        /** Built when asked: most spans are sampled away and never exported. */\n        public String label() { return label.get(); }\n\n        public synchronized void add(String event) { events.add(event); }\n\n        public synchronized List<String> events() { return List.copyOf(events); }\n    }\n\n    private final Map<Request, Span> spans = newTable();\n\n    /** The span of this request, opened on first use. */\n    public synchronized Span spanFor(Request request) {\n        return spans.computeIfAbsent(request, this::open);\n    }\n\n    public void event(Request request, String event) {\n        spanFor(request).add(event);\n    }\n\n    /** How many requests the table holds a span for. */\n    public synchronized int size() {\n        return spans.size();\n    }\n\n    /** The table that maps each request to its span. */\n    Map<Request, Span> newTable() {\n        // TODO: The heap of the service grows with every request it has served, and a heap dump\n        //       shows each finished request still reachable from this table. Choose a table that\n        //       keeps a span only as long as the web layer still holds its request.\n        throw new IllegalStateException(\"TODO: newTable\");\n    }\n\n    /** A new span for this request, labelled \"<method> <path>\", for example \"POST /orders\". */\n    Span open(Request request) {\n        // TODO: An exporter keeps finished spans for a while to send them in batches. A span must\n        //       be able to give its label then, without keeping its request (and its body) alive.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -108,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5f7d5eb9540e4a3ef2fc13ce5a40f55bb8e0d1427715f083e4f3a1fca813f5ed",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Heap {\n\n    /** Adds an object; a name already in use is refused. */\n    public void allocate(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Makes object 'from' refer to object 'to'. */\n    public void reference(String from, String to) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void addRoot(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    public void removeRoot(String name) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Marks from the roots, sweeps, and returns the freed names in allocation order. */\n    public List<String> collect() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Names of the objects still allocated, in allocation order. */\n    public List<String> live() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "8d142ee801d73c8a0d47e55ba696ca10c6817522a954c48792a0e35cbd884f9b",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.function.Supplier;\n\n/**\n * The tracer's table of spans: one span per request the service is handling. The web layer owns\n * the requests; the tracer only looks at them while they are being handled.\n */\npublic class SpanTable {\n\n    /** A request as the web layer hands it over, body included. */\n    public static final class Request {\n        private final String id;\n        private final String method;\n        private final String path;\n        private final byte[] body;\n\n        public Request(String id, String method, String path, int bodyBytes) {\n            this.id = id;\n            this.method = method;\n            this.path = path;\n            this.body = new byte[bodyBytes];\n        }\n\n        public String id() { return id; }\n        public String method() { return method; }\n        public String path() { return path; }\n        public int bodyBytes() { return body.length; }\n    }\n\n    /** What the tracer records about one request. An exporter may keep it after the request ends. */\n    public static final class Span {\n        private final Supplier<String> label;\n        private final List<String> events = new ArrayList<>();\n\n        public Span(Supplier<String> label) {\n            this.label = label;\n        }\n\n        /** Built when asked: most spans are sampled away and never exported. */\n        public String label() { return label.get(); }\n\n        public synchronized void add(String event) { events.add(event); }\n\n        public synchronized List<String> events() { return List.copyOf(events); }\n    }\n\n    private final Map<Request, Span> spans = newTable();\n\n    /** The span of this request, opened on first use. */\n    public synchronized Span spanFor(Request request) {\n        return spans.computeIfAbsent(request, this::open);\n    }\n\n    public void event(Request request, String event) {\n        spanFor(request).add(event);\n    }\n\n    /** How many requests the table holds a span for. */\n    public synchronized int size() {\n        return spans.size();\n    }\n\n    /** The table that maps each request to its span. */\n    Map<Request, Span> newTable() {\n        // TODO: The heap of the service grows with every request it has served, and a heap dump\n        //       shows each finished request still reachable from this table. Choose a table that\n        //       keeps a span only as long as the web layer still holds its request.\n        throw new IllegalStateException(\"TODO: newTable\");\n    }\n\n    /** A new span for this request, labelled \"<method> <path>\", for example \"POST /orders\". */\n    Span open(Request request) {\n        // TODO: An exporter keeps finished spans for a while to send them in batches. A span must\n        //       be able to give its label then, without keeping its request (and its body) alive.\n        throw new IllegalStateException(\"TODO: open\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-1/src/main/java/practice/Heap.java",
-    "test_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-1/src/test/java/practice/HeapTest.java",
+    "main_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-1/src/main/java/practice/SpanTable.java",
+    "test_path": "practice/10-advanced-java-topics/40-memory-management/prose/unit-02/practice-1/src/test/java/practice/SpanTableTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,24 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.HeapTest#freesWhatNoRootReaches",
+        "id": "practice.SpanTableTest#recordsEventsAndLabelsPerRequest",
         "kind": "main",
-        "says": "With root A, A -> B and B -> D, collect() frees the unreferenced C and keeps A, B and D, reached through B."
+        "says": "each request gets one span that collects its events and is labelled with its method and path"
       },
       {
-        "id": "practice.HeapTest#aCycleNoRootReachesIsFreed",
-        "kind": "edge",
-        "says": "X -> Y and Y -> X, with no root reaching either, are both freed although each is still referenced."
+        "id": "practice.SpanTableTest#keepsTheSpansOfRequestsStillBeingHandled",
+        "kind": "main",
+        "says": "a request the web layer still holds keeps its span through collections"
       },
       {
-        "id": "practice.HeapTest#aCycleAmongLiveObjectsIsMarkedOnce",
+        "id": "practice.SpanTableTest#aRequestNobodyHoldsAnyMoreLeavesTheTable",
         "kind": "edge",
-        "says": "Marking A -> B -> A -> ... stops at the already marked A, and nothing is freed."
+        "says": "once nothing outside the tracer holds a request, a collection frees it and its span leaves the table"
       },
       {
-        "id": "practice.HeapTest#marksAreClearedForTheNextCollection",
+        "id": "practice.SpanTableTest#aSpanKeptAfterItsRequestDoesNotKeepTheRequest",
         "kind": "edge",
-        "says": "After a collection keeps A and B, removing root A makes the next collection free both."
+        "says": "a span held after its request ends still gives its label, and does not keep the request reachable"
       }
     ],
     "report": {
@@ -159,11 +136,10 @@
     },
     "origin": {
       "path": "40-memory-management/README_10.2.2.md",
-      "section": "Mark-and-Sweep Algorithm"
+      "section": "A WeakHashMap Entry Goes Only When Nothing Else Reaches Its Key"
     },
     "concepts": [
-      "Mark-and-sweep marks everything reachable from the roots, skipping objects already marked, then frees the unmarked and clears the survivors' marks.",
-      "The JVM decides garbage by reachability from GC roots, not by reference counts, so an unreachable cycle is collected."
+      "A WeakHashMap entry goes only when nothing else reaches its key; a value that refers to its key, or an interned literal key, keeps the entry."
     ]
   }
 }

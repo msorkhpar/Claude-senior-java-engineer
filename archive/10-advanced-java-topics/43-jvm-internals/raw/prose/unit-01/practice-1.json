@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A class loader that defines classes from bytes",
+  "title": "Give each report plugin its own libraries and the server's API",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,23 @@
     },
     {
       "type": "para",
-      "text": "A class loader follows the **parent delegation model**: asked for a class, it first asks its parent, and only when the parent cannot load it does it define the class itself. A class's runtime identity is its name **plus** the loader that defined it. A `null` parent means the bootstrap loader."
+      "text": "The report server runs exporters that customers write themselves. Each plugin arrives as a jar built with everything it was compiled against: the server's plugin API and the libraries the customer tested with, which are often older or newer than the server's own copies."
     },
     {
       "type": "para",
-      "text": "Write `BytesLoader extends ClassLoader`. `new BytesLoader(parent, classes)` gets a parent (possibly `null`) and a map from binary class name to the bytes of a `.class` file."
+      "text": "Two attempts have shipped so far. The first gave every plugin its own `URLClassLoader` with no link to the server, and the server could no longer use a single plugin: every one failed with `ClassCastException` on the line that hands it to the scheduler. The second made the server's loader the parent, and a customer's ledger export began formatting numbers the way the server's version of their formatting library does, not the way the version in their jar does."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`loadClass(name)` asks the parent chain first, and defines the class from the map only when no parent can load it.",
-        "One loader defines a name **once**: asking again returns the same `Class`.",
-        "Two loaders that each define the same bytes hold two different classes.",
-        "A name that no parent and no map entry knows fails with `ClassNotFoundException`."
-      ]
+      "type": "para",
+      "text": "`PluginLoader` already knows what the jar holds (`inBundle`), which classes are the server's API (`isApi`), and how to define a class from the jar (`defineFromBundle`). Finish the `TODO` in `src/main/java/practice/PluginLoader.java`: `loadClass(...)`, which decides what each class name the plugin uses resolves to."
     },
     {
-      "type": "table",
-      "headers": [
-        "loaders",
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`a = new BytesLoader(null, {Plugin})`",
-          "`a.loadClass(\"...Plugin\")`",
-          "a new class, defined by `a`"
-        ],
-        [
-          "`a`",
-          "`a.loadClass(\"java.lang.String\")`",
-          "`String.class` (bootstrap)"
-        ],
-        [
-          "`child = new BytesLoader(a, {Plugin})`",
-          "`child.loadClass(\"...Plugin\")`",
-          "the class defined by `a`"
-        ],
-        [
-          "`a` and `b`, both `(null, {Plugin})`",
-          "load `Plugin` from each",
-          "two classes, same name"
-        ],
-        [
-          "`a`",
-          "`a.loadClass(\"practice.Missing\")`",
-          "`ClassNotFoundException`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, the server can use every plugin through the API types it knows, each plugin runs on the library versions in its own jar, and anything the jar doesn't carry, the JDK included, comes from the server. About eight lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests build a plugin jar in memory from compiled classes, so its classes have the same names as classes the server already has."
     },
     {
       "type": "heading",
@@ -83,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Map;\n\npublic class BytesLoader extends ClassLoader {\n\n    private final Map<String, byte[]> classes;\n\n    /**\n     * @param parent  the parent loader, or {@code null} for the bootstrap loader\n     * @param classes binary class name to the bytes of its class file\n     */\n    public BytesLoader(ClassLoader parent, Map<String, byte[]> classes) {\n        super(parent);\n        this.classes = Map.copyOf(classes);\n    }\n\n    // ClassLoader.loadClass already checks findLoadedClass, then the parent\n    // (the bootstrap loader when the parent is null), and only then calls findClass.\n    @Override\n    protected Class<?> findClass(String name) throws ClassNotFoundException {\n        byte[] bytes = classes.get(name);\n        if (bytes == null) {\n            throw new ClassNotFoundException(name);\n        }\n        return defineClass(name, bytes, 0, bytes.length);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The class loader the report server gives one customer's plugin.\n *\n * <p>The plugin's jar is handed over as a map from binary class name to class-file bytes. Its\n * build bundles everything the plugin was compiled against: the server's plugin API and the\n * libraries the plugin uses, in the versions the plugin was tested with.\n */\npublic class PluginLoader extends ClassLoader {\n\n    private final Map<String, byte[]> bundle;\n    private final Set<String> apiPrefixes;\n\n    /**\n     * @param server      the report server's own loader, which holds the API and the JDK\n     * @param bundle      every class in the plugin's jar: binary name to class-file bytes\n     * @param apiPrefixes the server's plugin API is every class whose binary name starts with one of these\n     */\n    public PluginLoader(ClassLoader server, Map<String, byte[]> bundle, Set<String> apiPrefixes) {\n        super(\"plugin\", server);\n        this.bundle = Map.copyOf(bundle);\n        this.apiPrefixes = Set.copyOf(apiPrefixes);\n    }\n\n    /** Whether the class belongs to the server's plugin API. */\n    boolean isApi(String name) {\n        return apiPrefixes.stream().anyMatch(name::startsWith);\n    }\n\n    /** Whether the plugin's jar holds a class of this name. */\n    boolean inBundle(String name) {\n        return bundle.containsKey(name);\n    }\n\n    /** Defines a class in this loader from the bytes in the plugin's jar. */\n    Class<?> defineFromBundle(String name) {\n        byte[] bytes = bundle.get(name);\n        return defineClass(name, bytes, 0, bytes.length);\n    }\n\n    /**\n     * Every class the plugin's code names comes through here: the plugin class the server asks for,\n     * and each class the JVM resolves while running the plugin.\n     */\n    @Override\n    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {\n        synchronized (getClassLoadingLock(name)) {\n            Class<?> c = findLoadedClass(name);\n            if (c == null) {\n                c = inBundle(name) && !isApi(name) ? defineFromBundle(name) : getParent().loadClass(name);\n            }\n            if (resolve) {\n                resolveClass(c);\n            }\n            return c;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Map;\n\npublic class BytesLoader extends ClassLoader {\n\n    /**\n     * @param parent  the parent loader, or {@code null} for the bootstrap loader\n     * @param classes binary class name to the bytes of its class file\n     */\n    public BytesLoader(ClassLoader parent, Map<String, byte[]> classes) {\n        super(parent);\n    }\n\n    @Override\n    protected Class<?> findClass(String name) throws ClassNotFoundException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The class loader the report server gives one customer's plugin.\n *\n * <p>The plugin's jar is handed over as a map from binary class name to class-file bytes. Its\n * build bundles everything the plugin was compiled against: the server's plugin API and the\n * libraries the plugin uses, in the versions the plugin was tested with.\n */\npublic class PluginLoader extends ClassLoader {\n\n    private final Map<String, byte[]> bundle;\n    private final Set<String> apiPrefixes;\n\n    /**\n     * @param server      the report server's own loader, which holds the API and the JDK\n     * @param bundle      every class in the plugin's jar: binary name to class-file bytes\n     * @param apiPrefixes the server's plugin API is every class whose binary name starts with one of these\n     */\n    public PluginLoader(ClassLoader server, Map<String, byte[]> bundle, Set<String> apiPrefixes) {\n        super(\"plugin\", server);\n        this.bundle = Map.copyOf(bundle);\n        this.apiPrefixes = Set.copyOf(apiPrefixes);\n    }\n\n    /** Whether the class belongs to the server's plugin API. */\n    boolean isApi(String name) {\n        return apiPrefixes.stream().anyMatch(name::startsWith);\n    }\n\n    /** Whether the plugin's jar holds a class of this name. */\n    boolean inBundle(String name) {\n        return bundle.containsKey(name);\n    }\n\n    /** Defines a class in this loader from the bytes in the plugin's jar. */\n    Class<?> defineFromBundle(String name) {\n        byte[] bytes = bundle.get(name);\n        return defineClass(name, bytes, 0, bytes.length);\n    }\n\n    /**\n     * Every class the plugin's code names comes through here: the plugin class the server asks for,\n     * and each class the JVM resolves while running the plugin.\n     *\n     * TODO: return the class this name must mean for the plugin. The server must be able to use the\n     * plugin through its API types; the plugin must run against the library versions it ships with;\n     * and the plugin may be asked for the same class more than once.\n     */\n    @Override\n    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {\n        throw new IllegalStateException(\"TODO: loadClass\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,10 +70,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 5,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -114,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "8ab726b8feb4a59433fd5703ea4fcab8e2f6c083aa51bb28a500e602140838da",
-  "starting_code": "package practice;\n\nimport java.util.Map;\n\npublic class BytesLoader extends ClassLoader {\n\n    /**\n     * @param parent  the parent loader, or {@code null} for the bootstrap loader\n     * @param classes binary class name to the bytes of its class file\n     */\n    public BytesLoader(ClassLoader parent, Map<String, byte[]> classes) {\n        super(parent);\n    }\n\n    @Override\n    protected Class<?> findClass(String name) throws ClassNotFoundException {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "d07cbe501d1b21bf93f936a449213588949175e75a902e2ca1b9ba1d2f3ec31d",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The class loader the report server gives one customer's plugin.\n *\n * <p>The plugin's jar is handed over as a map from binary class name to class-file bytes. Its\n * build bundles everything the plugin was compiled against: the server's plugin API and the\n * libraries the plugin uses, in the versions the plugin was tested with.\n */\npublic class PluginLoader extends ClassLoader {\n\n    private final Map<String, byte[]> bundle;\n    private final Set<String> apiPrefixes;\n\n    /**\n     * @param server      the report server's own loader, which holds the API and the JDK\n     * @param bundle      every class in the plugin's jar: binary name to class-file bytes\n     * @param apiPrefixes the server's plugin API is every class whose binary name starts with one of these\n     */\n    public PluginLoader(ClassLoader server, Map<String, byte[]> bundle, Set<String> apiPrefixes) {\n        super(\"plugin\", server);\n        this.bundle = Map.copyOf(bundle);\n        this.apiPrefixes = Set.copyOf(apiPrefixes);\n    }\n\n    /** Whether the class belongs to the server's plugin API. */\n    boolean isApi(String name) {\n        return apiPrefixes.stream().anyMatch(name::startsWith);\n    }\n\n    /** Whether the plugin's jar holds a class of this name. */\n    boolean inBundle(String name) {\n        return bundle.containsKey(name);\n    }\n\n    /** Defines a class in this loader from the bytes in the plugin's jar. */\n    Class<?> defineFromBundle(String name) {\n        byte[] bytes = bundle.get(name);\n        return defineClass(name, bytes, 0, bytes.length);\n    }\n\n    /**\n     * Every class the plugin's code names comes through here: the plugin class the server asks for,\n     * and each class the JVM resolves while running the plugin.\n     *\n     * TODO: return the class this name must mean for the plugin. The server must be able to use the\n     * plugin through its API types; the plugin must run against the library versions it ships with;\n     * and the plugin may be asked for the same class more than once.\n     */\n    @Override\n    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {\n        throw new IllegalStateException(\"TODO: loadClass\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-1/src/main/java/practice/BytesLoader.java",
-    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-1/src/test/java/practice/BytesLoaderTest.java",
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-1/src/main/java/practice/PluginLoader.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-1/src/test/java/practice/PluginLoaderTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,24 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.BytesLoaderTest#definesAClassFromItsBytes",
+        "id": "practice.PluginLoaderTest#loadsThePluginAndRunsIt",
         "kind": "main",
-        "says": "A loader with a null parent defines Plugin from its bytes as a new class, distinct from the test's own Plugin and from the Plugin a second loader defines, while java.lang.String still comes from the bootstrap loader."
+        "says": "the plugin class loads from its jar and runs, and JDK classes resolve through the loader"
       },
       {
-        "id": "practice.BytesLoaderTest#theParentIsAskedFirst",
+        "id": "practice.PluginLoaderTest#theServerCanUseThePluginThroughItsApi",
         "kind": "edge",
-        "says": "When the parent loader also has the bytes, the child returns the parent's class instead of defining its own."
+        "says": "the server can cast the plugin to the API interface it knows, although the plugin's jar carries a copy of that interface"
       },
       {
-        "id": "practice.BytesLoaderTest#askingTwiceGivesTheSameClass",
+        "id": "practice.PluginLoaderTest#thePluginRunsOnTheLibraryVersionItShipsWith",
         "kind": "edge",
-        "says": "Loading the same name twice from one loader returns the same Class, without defining it again."
+        "says": "the plugin runs on the version of a library its jar carries, not on the server's version of the same class"
       },
       {
-        "id": "practice.BytesLoaderTest#anUnknownNameIsClassNotFound",
+        "id": "practice.PluginLoaderTest#askingForAClassAgainGivesTheSameClass",
         "kind": "edge",
-        "says": "A name that neither the parents nor the map know fails with ClassNotFoundException."
+        "says": "asking the loader for a class it has already loaded returns that class again rather than failing"
       }
     ],
     "report": {
@@ -165,12 +132,11 @@
     },
     "origin": {
       "path": "43-jvm-internals/README_10.5.1.md",
-      "section": "Interview Q&A Section"
+      "section": "A Class Is Its Name Plus the Loader That Defined It"
     },
     "concepts": [
-      "A class's runtime identity is its name plus its defining loader, so two loaders defining the same bytes give two distinct classes, while one loader defining a name twice is a LinkageError.",
-      "A custom class loader built with a null parent has the bootstrap loader as its parent, not the application loader.",
-      "A class loader asks its parent first and defines a class itself only when no parent can load it, so core classes always come from the bootstrap loader."
+      "A loader defines a name once: defining it again is a LinkageError, and a custom loader can't define a java.* class.",
+      "A class is identified by its name and its defining loader, so a plugin loader that defines its own copy of the host's interface produces objects the host can't cast to it, while parent-first delegation gives both sides one class."
     ]
   }
 }

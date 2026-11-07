@@ -1,19 +1,11 @@
-When `@Role` is written twice on a method, the compiler wraps both in the
-container `@Roles`. The page's Q4 warns that a single `@Role` is **not
-wrapped**: then `getAnnotation(Roles.class)` is `null` and only
-`getAnnotation(Role.class)` finds it. `getAnnotationsByType(Role.class)`
-handles both cases.
+The tracing agent decides per handler class how closely to trace it, from a `@Traced(level = ...)`
+annotation. Teams put it where it suits them: on the handler class, on a base class their handlers
+extend, or on a service interface such as `Ingest`, which a handler may implement directly, through
+its base class, or through another interface (`interface BulkIngest extends Ingest`). After the
+last release the agent's dashboards show no traces from about a third of the handlers, all of them
+handlers that teams say are annotated.
 
-`Role` and `Roles` are given. Write:
-
-- `rolesOf(AnnotatedElement e)`: the role names on `e`, in the order written,
-  whether there is one `@Role` or several.
-- `canCall(Method m, Set<String> granted)`: `true` when `granted` holds at
-  least one of `m`'s roles. **A method without roles is open to everyone.**
-  Role names are **compared by value**.
-
-| method | `rolesOf` | `canCall` with `{MANAGER}` | with `{}` |
-|---|---|---|---|
-| `@Role("ADMIN") @Role("MANAGER") listUsers()` | `[ADMIN, MANAGER]` | `true` | `false` |
-| `@Role("ADMIN") createUser()` | `[ADMIN]` | `false` | `false` |
-| `health()` | `[]` | `true` | `true` |
+Finish `levelOf(Class<?> handler)` and `fromInterfaces(Class<?>[] interfaces)` in
+`src/main/java/practice/TraceLookup.java`. A handler is traced at the level of the `@Traced` on
+its class or nearest superclass; failing that, at the level of the first traced interface found
+from the class upward; with none anywhere, it isn't traced. About twelve lines in total.

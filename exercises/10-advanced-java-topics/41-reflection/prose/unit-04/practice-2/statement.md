@@ -1,24 +1,14 @@
-Two classic reflection slowdowns: **looking members up in a loop**, and
-**calling `setAccessible(true)` on every call**. Frameworks avoid both by
-scanning a class **once**, preparing its members (made accessible then) and
-caching them per class, so each later read is just `field.get(bean)`.
+The checkout service prices every order line through rules named in configuration: a rule is any
+object with a public `int apply(int cents)`, registered at startup with `add(name, rule)`. Since
+the rules were added, the allocation profile of a busy checkout node shows `java.lang.Integer` as
+its top allocated type, with the stacks ending in the rule table, and young-generation GCs have
+doubled.
 
-Write `PropertyReader`. Its constructor takes a `scanner` that returns a
-class's fields (normally `Class::getDeclaredFields`); the tests watch it.
+Finish the `TODO` in `src/main/java/practice/RuleTable.java`: `prepare(rule)` turns one rule
+object into the `IntUnaryOperator` that `apply(name, cents)` calls for it.
 
-- `read(bean, property)` returns the value of the field named `property` of
-  `bean`'s class (any access level).
-- The first read of a class asks the scanner for its fields **once**, makes
-  **each of them accessible once, right then**, and caches them by name. Later
-  reads of that class, on any bean, use the cache.
-- The cache is **per class**: two classes with a field of the same name each
-  read their own.
-- An unknown property is an `IllegalArgumentException`.
+When you're done, every name applies its own rule object, an object without `int apply(int)` is
+refused when it is added, and applying a rule allocates nothing. About ten lines in total.
 
-| calls | scanner calls for `Person` | result |
-|---|---|---|
-| `read(ann, "name")` | 1 | `"Ann"` |
-| then `read(ann, "age")`, `read(bob, "name")` | still 1 | `41`, `"Bob"` |
-| `read(rex, "name")`, `rex` a `Pet` | 1 for `Pet` | `"Rex"` |
-| `read(mug, "label")`, `read(pen, "label")` for `Shop.Item` and `Store.Item` | 1 each | `"mug"`, `"pen"` |
-| `read(ann, "salary")` | | `IllegalArgumentException` |
+The tests measure allocation with the thread's allocation counter, over amounts well outside the
+`Integer` cache.

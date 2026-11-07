@@ -1,376 +1,397 @@
 # 10.4.1. Built-in Annotations (@Override, @Deprecated, @SuppressWarnings)
 
-## Concept Explanation
+The payments team upgraded its shared retry library from version 1 to version 2. The build was
+green, javac printed nothing, and in production every retry now waits a full second: the team's
+backoff of 100, 200, 400 ms no longer runs. Version 2 had added a parameter to the method the team
+overrode.
 
-Java provides several built-in annotations in the `java.lang` and `java.lang.annotation` packages that serve as
-metadata instructions for the compiler, runtime, and documentation tools. These annotations are the foundation of Java's
-annotation system and are used extensively in everyday Java development.
+The annotations in `java.lang` are instructions to javac. `@Override` and `@Deprecated` add a
+check; `@SuppressWarnings` and `@SafeVarargs` switch one off. Every output is from Java 21. `@FunctionalInterface` is
+in unit 4.1.3, and how long an annotation survives is unit 10.4.3.
 
-**Real-world analogy**: Think of built-in annotations like standardized road signs. Just as a "STOP" sign universally
-tells drivers to stop regardless of the country, built-in annotations like `@Override` universally tell the Java compiler
-to verify a method correctly overrides a parent method. They are pre-defined, universally understood, and enforced by the
-"traffic system" (the compiler or JVM).
+## @Override Turns a Method That Stopped Overriding into a Compile Error
 
-The most commonly used built-in annotations include:
-
-- **`@Override`** — Indicates a method overrides a superclass method or implements an interface method. The compiler
-  generates an error if the method does not actually override anything.
-- **`@Deprecated`** — Marks a program element as obsolete or discouraged. Since Java 9, it supports `since` and
-  `forRemoval` attributes.
-- **`@SuppressWarnings`** — Instructs the compiler to suppress specific warning categories (e.g., `"unchecked"`,
-  `"deprecation"`, `"rawtypes"`).
-- **`@FunctionalInterface`** — Ensures an interface qualifies as a functional interface (exactly one abstract method).
-- **`@SafeVarargs`** — Suppresses unchecked warnings for methods or constructors with generic varargs parameters.
-- **`@Native`** — Indicates a constant field may be referenced from native code.
-
-## Key Points to Remember
-
-1. `@Override` has **SOURCE** retention — it is discarded by the compiler and not present in bytecode or at runtime.
-2. `@Deprecated` has **RUNTIME** retention — it can be read via reflection and is preserved in bytecode.
-3. `@SuppressWarnings` has **SOURCE** retention — it only affects the compiler and is not present at runtime.
-4. `@FunctionalInterface` has **RUNTIME** retention — it can be queried via reflection.
-5. `@SafeVarargs` has **RUNTIME** retention and can only be applied to `static`, `final`, or `private` methods and constructors.
-6. `@Override` prevents subtle bugs: without it, a typo in a method name creates a new method instead of overriding.
-7. `@Deprecated(forRemoval = true)` generates a stronger warning than `@Deprecated` alone.
-8. `@SuppressWarnings` accepts an array of strings: `@SuppressWarnings({"unchecked", "rawtypes"})`.
-
-## Relevant Java 21 Features
-
-- **`@Deprecated(since, forRemoval)`** — Enhanced in Java 9 with `since` (version string) and `forRemoval` (boolean)
-  attributes, allowing more precise deprecation communication.
-- **`@FunctionalInterface`** — Introduced in Java 8, remains essential for lambda expressions and method references
-  through Java 21.
-- **`@SafeVarargs`** — Since Java 9, also applicable to private instance methods (previously only static/final).
-- **Pattern matching and sealed classes** — `@Override` is used with sealed class hierarchies and pattern matching for
-  `switch` to ensure correct method signatures.
-- Java 21 continues to use these annotations extensively in the standard library, with many legacy APIs marked
-  `@Deprecated(forRemoval = true)`.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Forgetting `@Override` when overriding methods**: Without it, a signature mismatch silently creates a new method
-   instead of overriding.
-   ```java
-   // BUG: Missing @Override — "euqals" is a typo, creates a new method
-   public boolean euqals(Object other) { return true; }
-
-   // FIX: Add @Override — compiler catches the typo
-   @Override
-   public boolean equals(Object other) { return true; }
-   ```
-
-2. **Suppressing too broadly with `@SuppressWarnings("all")`**: This hides all warnings, potentially masking real issues.
-   ```java
-   // BAD: Suppresses everything
-   @SuppressWarnings("all")
-   public void method() { ... }
-
-   // GOOD: Suppress only the specific warning
-   @SuppressWarnings("unchecked")
-   public void method() { ... }
-   ```
-
-3. **Using `@Deprecated` without providing an alternative**: Always document the replacement in the Javadoc.
-   ```java
-   // BAD: No guidance for users
-   @Deprecated
-   public void oldMethod() { ... }
-
-   // GOOD: Clear migration path
-   /**
-    * @deprecated Use {@link #newMethod()} instead.
-    */
-   @Deprecated(since = "2.0", forRemoval = true)
-   public void oldMethod() { ... }
-   ```
-
-4. **Assuming `@Override` is available at runtime**: It has SOURCE retention and is discarded after compilation. You
-   cannot check for it via reflection.
-
-5. **Misusing `@SafeVarargs` on methods that actually do unsafe operations**: The annotation is a promise that the method
-   is safe. Using it incorrectly suppresses valid heap pollution warnings.
-
-## Best Practices and Optimization Techniques
-
-1. **Always use `@Override`** on every method that overrides a superclass method or implements an interface method.
-2. **Use `@Deprecated(since = "X.Y", forRemoval = true)`** to communicate timeline and urgency for migration.
-3. **Pair `@Deprecated` with `@SuppressWarnings("deprecation")`** in calling code only when you have a justified reason
-   to keep using the deprecated API temporarily.
-4. **Use `@FunctionalInterface`** on all interfaces intended for lambda usage — it documents intent and prevents
-   accidental addition of abstract methods.
-5. **Minimize `@SuppressWarnings` scope** — apply at the narrowest scope (local variable > method > class).
-6. **Use `@SafeVarargs` only when you are certain** the varargs parameter is not used in an unsafe way.
-
-## Edge Cases and Their Handling
-
-1. **`@Override` on interface default methods**: You can use `@Override` when a class overrides a default method from an
-   interface.
-2. **`@Deprecated` on a constructor**: Constructors can be deprecated, guiding users toward factory methods.
-3. **`@SuppressWarnings` on a local variable declaration**: You can suppress warnings at the local variable level for
-   minimal scope.
-4. **`@FunctionalInterface` with methods from Object**: An interface with one abstract method plus `toString()`,
-   `equals()`, or `hashCode()` is still functional — Object methods don't count.
-5. **`@SafeVarargs` on a non-final instance method**: Prior to Java 9, this was a compilation error; since Java 9,
-   private instance methods are also allowed.
-
-## Interview-specific Insights
-
-Interviewers commonly test:
-
-- Whether candidates understand the **retention policies** of each built-in annotation
-- The difference between `@Override` in classes vs. interfaces
-- Why `@Override` is important for correctness (the classic `equals` typo question)
-- The semantics of `@Deprecated(forRemoval = true)` vs. `@Deprecated`
-- When `@SuppressWarnings` is appropriate vs. when you should fix the underlying issue
-- The relationship between `@FunctionalInterface` and lambda expressions
-
-## Interview Q&A Section
-
-**Q1: Why should you always use @Override when overriding a method?**
-
-```text
-A1: The @Override annotation serves as a compile-time safety check. Without it, if you make a
-typo in the method name or get the parameter types wrong, the compiler will silently create a
-new method instead of overriding the intended one. This is especially dangerous with equals()
-and hashCode(), where a signature mismatch causes the method to never be called by collections
-or other framework code.
-
-With @Override, the compiler immediately flags the error:
-- "Method does not override or implement a method from a supertype"
-
-This is a zero-cost annotation (SOURCE retention) that prevents subtle, hard-to-debug issues.
-```
+Version 1 of `Retry` declares `protected long delayMillis(int attempt)`, version 2
+`delayMillis(int attempt, Exception cause)`. Both return 1000, and a final `plan(n)` lists the
+delay for each of `n` attempts. The team's subclass:
 
 ```java
-class Animal {
-    public String speak() { return "..."; }
-}
+/** Our code: doubles the delay on each attempt. */
+public class Backoff extends Retry {
+    protected long delayMillis(int attempt) { return 100L << (attempt - 1); }
 
-class Dog extends Animal {
-    // Without @Override, this typo creates a new method silently
-    // public String speck() { return "Woof!"; }
-
-    // With @Override, the compiler catches the typo
-    @Override
-    public String speak() { return "Woof!"; }
-}
-```
-
-**Q2: What is the difference between @Deprecated and @Deprecated(forRemoval = true)?**
-
-```text
-A2: Both mark an API element as deprecated, but they communicate different levels of urgency:
-
-1. @Deprecated (or @Deprecated(forRemoval = false)):
-   - Indicates the API is discouraged but may remain indefinitely
-   - Generates a standard deprecation warning
-   - Example: An older API that has a better alternative but won't be removed
-
-2. @Deprecated(forRemoval = true):
-   - Indicates the API WILL be removed in a future release
-   - Generates a stronger "removal" warning (a different warning category)
-   - The 'since' attribute documents when it was deprecated
-   - Example: Security Manager APIs in recent Java versions
-
-The 'since' attribute (a String) documents the version when deprecation occurred,
-helping developers assess the urgency of migration.
-```
-
-```java
-public class LegacyApi {
-    // Will remain but is discouraged
-    @Deprecated(since = "1.5")
-    public int legacyCalculation(int a, int b) {
-        return a + b;
-    }
-
-    // Will be removed — stronger warning
-    @Deprecated(since = "2.0", forRemoval = true)
-    public String oldMethod() {
-        return "old result";
-    }
-
-    // The replacement
-    public int modernCalculation(int a, int b) {
-        return Math.addExact(a, b); // overflow-safe
+    public static void main(String[] args) {
+        System.out.println("delays: " + new Backoff().plan(4));
     }
 }
 ```
 
-**Q3: What are the common warning categories for @SuppressWarnings?**
+Compiled and run against each version:
 
 ```text
-A3: The most commonly used warning categories include:
-
-1. "unchecked" — Suppresses unchecked cast warnings (e.g., casting raw types to generic types)
-2. "deprecation" — Suppresses warnings when using deprecated APIs
-3. "rawtypes" — Suppresses warnings about using raw types instead of parameterized types
-4. "serial" — Suppresses warnings about missing serialVersionUID in Serializable classes
-5. "unused" — Suppresses warnings about unused variables, imports, or methods (IDE/Eclipse)
-6. "all" — Suppresses ALL warnings in IDEs and the Eclipse compiler (strongly discouraged);
-   javac does not recognise it
-7. "fallthrough" — Suppresses warnings about switch case fall-through
-8. "restriction" — Suppresses warnings about using restricted/internal APIs (Eclipse)
-
-javac honours only its own -Xlint keys (such as unchecked, deprecation, removal, rawtypes,
-serial, fallthrough, cast, varargs) and silently ignores any other string.
-
-Best practice: Always use the narrowest category and the narrowest scope possible.
-Apply @SuppressWarnings to the local variable or method, not the class.
+v1 compiled
+delays: 100 200 400 800
+v2 compiled
+delays: 1000 1000 1000 1000
 ```
 
+Against version 2, `delayMillis(int)` matches no method of `Retry`, so it is a new method of
+`Backoff`, an overload that nothing calls, and javac has nothing to report. With `@Override` on
+it, the same upgrade fails the build on the line that has to
+change:
+
+```text
+Backoff.java:3: error: method does not override or implement a method from a supertype
+    @Override protected long delayMillis(int attempt) { return 100L << (attempt - 1); }
+    ^
+1 error
+```
+
+A method overrides by its signature, with or without the annotation. `@Override` adds a claim,
+"this overrides something", and javac checks it against the supertypes each time the subclass
+compiles, so it also catches a change someone else makes to the supertype later. The check runs
+only at compile time: the annotated `Backoff`, compiled against version 1 and run with version 2's `Retry.class`
+on the class path, printed `delays: 1000 1000 1000 1000` too. A plugin built against one version
+of a library and deployed into a host that ships another gets no check at all.
+
+A misspelt name does the same to the methods every class overrides. Here `equals` is right and
+`hashCode` is written `hashcode`:
+
 ```java
-public class WarningExamples {
-    // Suppressing a single warning type
+final class AccountId {
+    private final String value;
+    AccountId(String value) { this.value = value.strip().toUpperCase(); }
+
+    @Override public boolean equals(Object o) {
+        return o instanceof AccountId other && value.equals(other.value);
+    }
+    public int hashcode() { return value.hashCode(); }
+}
+```
+
+`new AccountId("acc-1042")` and `new AccountId(" ACC-1042 ")` both go into a `HashSet`:
+
+```text
+equals: true, accounts in the set: 2
+```
+
+`HashSet` calls `hashCode()`, which is still `Object`'s identity hash, so the two equal IDs almost
+always have different hash codes, and `HashSet` never calls `equals`. `@Override public int hashcode()`
+fails with the same error. Unit 1.3.4 shows the overload form, `equals(Sku)`, and unit 1.3.1
+`@Override` on a static method.
+
+## A Use of a forRemoval Element Warns by Default; Plain Deprecation Is Only a Note
+
+A payment library deprecates two methods, one of them for removal:
+
+```java
+/** A payment library, version 4. */
+public class Gateway {
+    /** @deprecated use {@link #capture(String, long)}, which is idempotent */
+    @Deprecated(since = "3.1")
+    public String charge(long cents) { return "charged " + cents; }
+
+    /** @deprecated refunds move to RefundClient in version 5 */
+    @Deprecated(since = "4.0", forRemoval = true)
+    public String refund(long cents) { return "refunded " + cents; }
+
+    public String capture(String key, long cents) { return "captured " + cents + " as " + key; }
+}
+```
+
+`Checkout` calls `charge(1999)` on line 4 and `refund(500)` on line 5. Before reading on: which
+of the two does a plain `javac` report, and does a build with `-Werror` pass?
+
+```text
+$ javac Checkout.java
+Checkout.java:5: warning: [removal] refund(long) in Gateway has been deprecated and marked for removal
+        System.out.println(g.refund(500));
+                            ^
+Note: Checkout.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+1 warning
+$ javac -Xlint:deprecation Checkout.java
+Checkout.java:4: warning: [deprecation] charge(long) in Gateway has been deprecated
+        System.out.println(g.charge(1999));
+                            ^
+Checkout.java:5: warning: [removal] refund(long) in Gateway has been deprecated and marked for removal
+        System.out.println(g.refund(500));
+                            ^
+2 warnings
+$ javac -Werror Checkout.java
+Checkout.java:5: warning: [removal] refund(long) in Gateway has been deprecated and marked for removal
+        System.out.println(g.refund(500));
+                            ^
+error: warnings found and -Werror specified
+Note: Checkout.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+1 error
+1 warning
+```
+
+javac reports each use of a `forRemoval` element as a `[removal]` warning; `-Xlint:-removal` turns
+them into a note. Uses of plainly deprecated elements are folded into one note per file, and
+listed only with `-Xlint:deprecation`. A note isn't a warning, so `-Werror` doesn't count it. A
+team that builds with `-Werror` and no `-Xlint` can call `charge` for years without a failed
+build. The release that sets `forRemoval = true` fails it at every call, which is what the library
+author wants.
+
+The two levels are also suppressed separately. In `Refunds`, one method carries
+`@SuppressWarnings("deprecation")` and another is itself `@Deprecated`; both call `charge` and
+`refund`. A test double in `TestGateway` overrides `refund`:
+
+```text
+$ javac -Xlint:deprecation Refunds.java
+Refunds.java:3: warning: [removal] refund(long) in Gateway has been deprecated and marked for removal
+    static String partial(Gateway g) { return g.charge(700) + ", " + g.refund(300); }
+                                                                      ^
+Refunds.java:7: warning: [removal] refund(long) in Gateway has been deprecated and marked for removal
+    static String legacy(Gateway g) { return g.charge(100) + ", " + g.refund(100); }
+                                                                     ^
+2 warnings
+$ javac -Xlint:deprecation TestGateway.java
+TestGateway.java:2: warning: [removal] refund(long) in Gateway has been deprecated and marked for removal
+    @Override public String refund(long cents) { return "test refund " + cents; }
+                            ^
+1 warning
+```
+
+`"deprecation"` silenced `charge` and not `refund`, which takes `@SuppressWarnings("removal")`. A
+deprecated caller is exempt from deprecation warnings but not from removal warnings (JLS §9.6.4.6),
+and overriding a for-removal method counts as a use. Unit 7.1.4 shows the JDK's own `[removal]`
+warnings on the Security Manager, and a `--release` flag that hides them.
+
+## @SuppressWarnings Covers Its Whole Declaration, Including Warnings Added Later
+
+A service reads its ports from parsed YAML, a tree of maps, lists and scalars. The author cast the
+`http` list once, decided the schema made it safe, and suppressed the warning on the method. A
+later release added the `admin` line:
+
+```java
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class Ports {
+    /** raw: the parsed YAML, a tree of maps, lists and scalars. */
     @SuppressWarnings("unchecked")
-    public List<String> unsafeCast(Object obj) {
-        return (List<String>) obj;
+    static Map<String, List<Integer>> ports(Map<String, Object> raw) {
+        Map<String, List<Integer>> out = new HashMap<>();
+        out.put("http", (List<Integer>) raw.get("http"));     // the YAML schema says: integers
+        List admin = (List) raw.get("admin");                 // added in a later release
+        out.put("admin", admin);
+        return out;
     }
 
-    // Suppressing multiple warning types
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    public List rawToTyped(List rawList) {
-        return new ArrayList<String>(rawList);
-    }
-
-    // Narrowest scope: suppress at local variable level
-    public void example() {
-        @SuppressWarnings("unchecked")
-        List<String> list = (List<String>) getObject();
+    public static void main(String[] args) {
+        Map<String, Object> yaml = Map.of("http", List.of(8080, 8081), "admin", List.of("9090"));
+        Map<String, List<Integer>> ports = ports(yaml);
+        System.out.println("loaded: " + ports);
+        int first = ports.get("admin").get(0);
+        System.out.println("admin listens on " + first);
     }
 }
 ```
 
-**Q4: Can @Override be detected at runtime via reflection?**
+`javac Ports.java` and `javac -Xlint:unchecked Ports.java` both print nothing. The run:
 
 ```text
-A4: No. @Override has SOURCE retention policy, meaning it is discarded by the compiler and does
-not appear in the compiled bytecode (.class file) or at runtime. This is by design — @Override
-is purely a compile-time check with no runtime meaning.
-
-The three retention policies are:
-- SOURCE: Discarded by the compiler (e.g., @Override, @SuppressWarnings)
-- CLASS: Retained in .class file but not loaded by the JVM (default if unspecified)
-- RUNTIME: Retained and accessible via reflection (e.g., @Deprecated, @FunctionalInterface)
-
-If you need to detect at runtime whether a method is an override, you must use reflection to
-inspect the class hierarchy — check if a superclass or interface declares the same method
-signature.
+loaded: {http=[8080, 8081], admin=[9090]}
+Exception in thread "main" java.lang.ClassCastException: class java.lang.String cannot be cast to class java.lang.Integer (java.lang.String and java.lang.Integer are in module java.base of loader 'bootstrap')
+	at Ports.main(Ports.java:20)
 ```
+
+The YAML had the port quoted, so `admin` holds the string `"9090"`. Storing a raw `List` in a
+`Map<String, List<Integer>>` is an unchecked conversion, and the map now claims integers it
+doesn't hold. That heap pollution fails at line 20, where javac inserted a cast to
+`Integer` into a line that has none. The method's annotation covered the new line, because a
+suppression applies to everything inside the declaration that carries it, code written after the
+annotation included.
+
+`@SuppressWarnings` goes on declarations, not statements, so the narrowest scope is a local
+variable declared for the purpose:
 
 ```java
-import java.lang.reflect.Method;
-
-public class OverrideCheck {
-    public static void main(String[] args) throws Exception {
-        Method speakMethod = Dog.class.getDeclaredMethod("speak");
-
-        // This is ALWAYS false — @Override has SOURCE retention
-        boolean hasOverride = speakMethod.isAnnotationPresent(Override.class);
-        System.out.println("Has @Override: " + hasOverride); // false
-
-        // To check if it's actually an override, inspect the superclass
-        // (getDeclaredMethod never returns null: it throws NoSuchMethodException if absent)
-        boolean isOverride;
-        try {
-            Dog.class.getSuperclass().getDeclaredMethod("speak");
-            isOverride = true;
-        } catch (NoSuchMethodException e) {
-            isOverride = false; // this checks only the direct superclass
-        }
-        System.out.println("Is actually an override: " + isOverride); // true
-    }
-}
+@SuppressWarnings("unchecked")
+List<Integer> http = (List<Integer>) raw.get("http"); // the YAML schema says: integers
+out.put("http", http);
 ```
 
-**Q5: What is @FunctionalInterface and when should you use it?**
+Now a plain `javac` prints `Note: Ports.java uses unchecked or unsafe operations.`, and
+`-Xlint:unchecked` names the new line, line 13 of the changed file:
 
 ```text
-A5: @FunctionalInterface is a marker annotation that verifies an interface is a valid
-functional interface — one with exactly one abstract method (SAM: Single Abstract Method).
-
-When to use it:
-1. On ANY interface intended to be used with lambda expressions
-2. On interfaces that serve as types for method references
-3. When you want to prevent accidental addition of abstract methods
-
-What qualifies as a functional interface:
-- Exactly one abstract method
-- May have any number of default methods
-- May have any number of static methods
-- Methods inherited from Object (toString, equals, hashCode) don't count
-
-The annotation is optional — an interface with one abstract method IS a functional interface
-regardless. But the annotation:
-- Documents intent clearly
-- Causes a compilation error if the contract is broken
-- Has RUNTIME retention, so it can be checked via reflection
+Ports.java:13: warning: [unchecked] unchecked method invocation: method put in interface Map is applied to given types
+        out.put("admin", admin);
+               ^
+  required: K,V
+  found:    String,List
+  where K,V are type-variables:
+    K extends Object declared in interface Map
+    V extends Object declared in interface Map
+Ports.java:13: warning: [unchecked] unchecked conversion
+        out.put("admin", admin);
+                         ^
+  required: V
+  found:    List
+  where V is a type-variable:
+    V extends Object declared in interface Map
+2 warnings
 ```
+
+The suppressed cast is still unchecked: `(List<Integer>)` checks that the object is a `List` and
+nothing about its elements. Code that converts untyped input checks each element instead, and then
+needs no suppression.
+
+javac silently ignores a key it doesn't know. On a method with an unchecked cast,
+`@SuppressWarnings("uncheked")` and `@SuppressWarnings("all")` both left `-Xlint:all` reporting
+`[unchecked] unchecked cast`: `"all"` is not a javac 21 key, whatever an IDE does with it.
+
+<!-- practice 1 -->
+
+## @SafeVarargs Removes the Warning at the Cause, and javac Doesn't Check the Promise
+
+A label printer builds batches with a varargs factory, and a retry path wraps one label in a
+batch through a generic helper:
 
 ```java
-@FunctionalInterface
-interface Transformer<T, R> {
-    R transform(T input);  // The single abstract method
+public class Labels {
+    /** One print job's labels. */
+    static final class Batch<T> {
+        private final T[] items;
+        private Batch(T[] items) { this.items = items; }
 
-    // Default methods are allowed
-    default <V> Transformer<T, V> andThen(Transformer<R, V> after) {
-        return input -> after.transform(this.transform(input));
+        @SafeVarargs
+        static <T> Batch<T> of(T... items) { return new Batch<>(items); }
+
+        T[] items() { return items; }
     }
 
-    // Static methods are allowed
-    static <T> Transformer<T, T> identity() {
-        return input -> input;
+    static <T> Batch<T> single(T item) { return Batch.of(item); }
+
+    static void print(Batch<String> batch) {
+        for (String label : batch.items()) System.out.println("label " + label);
+    }
+
+    public static void main(String[] args) {
+        print(Batch.of("A-17", "B-02"));
+        Batch<String> retry = single("C-33");
+        System.out.println("retry batch built");
+        print(retry);
     }
 }
-
-// Usage with lambda
-Transformer<String, Integer> length = String::length;
-Transformer<String, String> pipeline = length.andThen(i -> "Length: " + i);
-System.out.println(pipeline.transform("hello")); // "Length: 5"
 ```
-
-**Q6: What is @SafeVarargs and when is it appropriate to use?**
 
 ```text
-A6: @SafeVarargs suppresses unchecked warnings related to varargs parameters with generic
-types. When you declare a method like foo(List<String>... lists), the compiler warns about
-potential "heap pollution" because Java's type erasure means the varargs array is actually
-Object[] at runtime.
-
-When to use @SafeVarargs:
-- When the method only reads from the varargs array (safe)
-- When the method creates a collection from the varargs elements (safe)
-
-When NOT to use it:
-- When the method stores into the varargs array with different types (unsafe)
-- When the method exposes the varargs array to external code
-
-Rules for application:
-- Can be applied to: static methods, final methods, private methods (Java 9+), constructors
-- Cannot be applied to: non-final, non-static, non-private instance methods
-  (because they could be overridden unsafely)
+label A-17
+label B-02
+retry batch built
+Exception in thread "main" java.lang.ClassCastException: class [Ljava.lang.Object; cannot be cast to class [Ljava.lang.String; ([Ljava.lang.Object; and [Ljava.lang.String; are in module java.base of loader 'bootstrap')
+	at Labels.print(Labels.java:16)
+	at Labels.main(Labels.java:23)
 ```
 
-```java
-public class SafeVarargsExample {
-    // SAFE: Only reads from the array
-    @SafeVarargs
-    public static <T> List<T> safeListOf(T... elements) {
-        List<T> list = new ArrayList<>();
-        for (T element : elements) {
-            list.add(element);
-        }
-        return list;
-    }
+Inside `single`, `T` is erased, so the array javac builds for `Batch.of(item)` is an `Object[]`
+(unit 1.3.2 shows why). `Batch` keeps it, `items()` returns it as a `T[]`, and the cast javac
+inserted into `print`'s loop fails. The trace names `print` and `main`, not `single`, where the wrong
+array was made.
 
-    // UNSAFE: Writes to the array — DO NOT use @SafeVarargs
-    public static void unsafeMethod(List<String>... lists) {
-        Object[] array = lists;
-        array[0] = List.of(42);     // No ArrayStoreException: the array is a List[] at run time
-        String s = lists[0].get(0); // Heap pollution: ClassCastException here
-    }
-}
+With the annotation replaced by a comment, `-Xlint:all` points at the cause:
+
+```text
+Labels.java:8: warning: [unchecked] Possible heap pollution from parameterized vararg type T
+        static <T> Batch<T> of(T... items) { return new Batch<>(items); }
+                                    ^
+  where T is a type-variable:
+    T extends Object declared in method <T>of(T...)
+Labels.java:13: warning: [unchecked] unchecked generic array creation for varargs parameter of type T[]
+    static <T> Batch<T> single(T item) { return Batch.of(item); }
+                                                        ^
+  where T is a type-variable:
+    T extends Object declared in method <T>single(T)
+2 warnings
 ```
+
+With it, a plain `javac` prints nothing, and `-Xlint:all` only this:
+
+```text
+Labels.java:8: warning: [varargs] Varargs method could cause heap pollution from non-reifiable varargs parameter items
+        static <T> Batch<T> of(T... items) { return new Batch<>(items); }
+                                                                ^
+1 warning
+```
+
+`@SafeVarargs` is the author's statement that the method only reads the elements of its array and
+doesn't let the array escape. javac takes it on trust and stops warning every caller, line 13
+included. `of` keeps the array and `items()` hands it out, so the statement is false. The
+`[varargs]` lint doesn't check it either: it flags any use that passes or returns the array
+itself, and element reads, `length` and a for-each loop draw nothing. The fix, a `List<T>` field filled with `List.of(items)` and returned by `items()`, prints
+`label C-33` and draws the same `[varargs]` warning. Unit 1.3.2 lists where the annotation is
+allowed: constructors and methods that can't be overridden.
+
+<!-- practice 2 -->
+
+<!-- practice 3 -->
+
+## Summary
+
+- **`@Override` turns a method that stopped overriding into a compile error.** Without it, a
+  supertype change or a misspelt name leaves a new method that nothing calls; the check runs only
+  when the subclass compiles.
+- **A use of a `forRemoval` element warns by default; plain deprecation is a note.** `-Werror`
+  ignores the note, `"deprecation"` doesn't suppress `[removal]`, and a deprecated caller is still
+  warned about removal.
+- **`@SuppressWarnings` covers its whole declaration.** On a method it hides the next unchecked
+  line too; on a local variable it hides one cast. javac ignores unknown keys, `"all"` included.
+- **`@SafeVarargs` removes the warning at the cause, unchecked.** A method that lets its varargs
+  array escape as a `T[]` pollutes the heap, and the `ClassCastException` lands in code with no cast.
+
+## Reference
+
+**The built-in annotations (Java 21, read by reflection):**
+
+| Annotation | Retention | Allowed on |
+|---|---|---|
+| `@Override` | SOURCE | methods |
+| `@Deprecated` | RUNTIME | constructors, fields, local variables, methods, packages, modules, parameters, types |
+| `@SuppressWarnings` | SOURCE | no `@Target`: any declaration |
+| `@SafeVarargs` | RUNTIME | constructors, methods (static, final or private) |
+| `@FunctionalInterface` | RUNTIME | types |
+
+**javac 21 lint keys on this page:**
+
+| Key | Without `-Xlint` | Suppressed by |
+|---|---|---|
+| `removal` | a warning per use | `@SuppressWarnings("removal")`; `-Xlint:-removal` leaves a note |
+| `deprecation` | one note per file | `@SuppressWarnings("deprecation")`; a caller that is itself `@Deprecated` |
+| `unchecked` | one note per file | `@SuppressWarnings("unchecked")`; `@SafeVarargs` at call sites |
+| `rawtypes` | nothing | `@SuppressWarnings("rawtypes")` |
+| `varargs` | nothing | `@SuppressWarnings("varargs")` |
+
+A use inside the outermost class that declares a deprecated element gets no warning of either
+kind, even with `-Xlint:all`.
+
+## Challenges
+
+1. Your build passes `-Werror`. Which `-Xlint` keys would you add, and what does each one cost on
+   a codebase that has never seen them?
+2. A host application loads plugins built against older versions of its API. What would catch a
+   plugin method that no longer overrides anything, since the plugin's own `@Override` can't?
+3. You maintain a library and want to remove a method in two releases. What do you ship in each
+   release, and which of your users' builds fail at which step?
+4. Find every `@SuppressWarnings` on a method or class in a codebase you know. How many would
+   still be needed on a local variable?
+
+## Design Note: Why javac Trusts @SafeVarargs
+
+Whether a generic varargs method is safe depends on what it does with the array, and the array can
+leave through a field, a return value, or a call into code javac isn't compiling. Java 7 chose a
+promise over an analysis: the author states it once, only on a method no subclass can override,
+and every caller stops warning. The `[varargs]` lint is what remains of the check, and it can't
+tell a copy from a leak.
+
+A false promise fails at the first read with the wrong type, in code that did nothing wrong, and
+the warning that would have pointed at the cause is the one the annotation removed.
 
 ## Code Examples
 

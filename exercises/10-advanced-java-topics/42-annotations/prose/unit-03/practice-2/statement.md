@@ -1,24 +1,14 @@
-The page's Q1 gives one annotation per retention policy:
+The platform team's `Interceptors` registry runs an action before every method that carries a
+given annotation: services register `@Idempotent` to attach an idempotency key, `@Audited` to
+write an audit row, and so on. Twice this quarter a service registered its own annotation, saw no
+error, and shipped with the action never running.
 
-- `@ReviewNeeded(reason)`: a note for people and the compiler. It must
-  **never reach the class file**: SOURCE.
-- `@GeneratedCode(generator)`: for bytecode tools. It must be **kept in the
-  class file but hidden from reflection**: CLASS, which the page says to
-  state explicitly even though it is the default.
-- `@Cacheable(cacheName, ttlSeconds)`: read by a framework while the program
-  runs: RUNTIME.
+`register` should refuse, at start-up, any annotation type the registry could never find on a
+method, and say why. It already does once you finish the two `TODO` methods in
+`src/main/java/practice/Interceptors.java`:
 
-`Retained` declares the three without any `@Retention`, plus the page's
-`Service` that uses them. Give each the right `@Retention`, then write
-`cached(Class<?> type)`: one line `"<method> -> <cacheName> (<ttlSeconds>s)"`
-per method `type` declares with `@Cacheable`, sorted.
+- `policyOf(type)`: the retention policy that applies to annotations of that type;
+- `visibleToReflection(policy)`: whether annotations kept under that policy can be found on a
+  method while the program runs.
 
-The tests also read `Service`'s compiled `.class` file to see which
-annotations the compiler wrote into it.
-
-| check | expected |
-|---|---|
-| `cached(Service.class)` | `[config -> default (300s), getUsers -> users (600s)]` |
-| `@ReviewNeeded` in `Service`'s class file | absent |
-| `@GeneratedCode` in `Service`'s class file | present |
-| `Service.class.isAnnotationPresent(GeneratedCode.class)` | `false` |
+About four lines in total. The tests register annotation types of their own and the JDK's.

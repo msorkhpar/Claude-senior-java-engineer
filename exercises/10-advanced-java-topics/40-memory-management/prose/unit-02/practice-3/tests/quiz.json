@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "10-advanced-java-topics",
+    "40-memory-management"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 3,
+  "title": "Check yourself: garbage collection",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-batch-buffer",
+        "stem": "Two batch jobs on G1 each allocate 20 GB over an hour. Job A parses each record and drops it at once. Job B parses the same records into a buffer of 500,000 and drops them when the buffer is written out. Which job spends more time in GC pauses?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Job B, since its records outlive young collections and get copied into the old generation",
+            "correct": true,
+            "says": "a young collection copies what is alive, so records that outlive a few collections cost copying, promotion and old-generation marking"
+          },
+          {
+            "id": "b",
+            "text": "About the same, since a young collection costs in proportion to the bytes allocated",
+            "correct": false,
+            "says": "a young collection never visits dead objects; with the same allocation, 2 MB surviving cost 12-13 ms in total and 200 MB surviving cost 508-1251 ms"
+          },
+          {
+            "id": "c",
+            "text": "Job A, since its collections find more dead records, and finding and freeing them is the work",
+            "correct": false,
+            "says": "dead young objects are not visited at all: their regions are reused whole, so garbage is the cheap part"
+          },
+          {
+            "id": "d",
+            "text": "About the same, since G1 resizes its young generation to keep each pause near its target",
+            "correct": false,
+            "says": "with the same allocation and heap, G1's pause count and total grew several times over when objects lived longer"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.2.md",
+          "section": "A Young Collection Costs What Survives, Not What Was Allocated"
+        }
+      },
+      {
+        "id": "q-low-pause-p99",
+        "stem": "A team on Java 21 moves a service from G1 to ZGC with -XX:+UseZGC, keeping its 1 GB heap, which is mostly a long-lived cache. Every Pause line in the new GC log is under 0.1 ms, yet the p99 latency is worse than before. What explains it?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Not the collector, since pauses under 0.1 ms are too short to move a p99 latency",
+            "correct": false,
+            "says": "a thread that allocates while the heap is full waits for the cycle to free memory, and that wait is not a Pause line"
+          },
+          {
+            "id": "b",
+            "text": "Not the collector, since ZGC marks and moves objects on its own threads, beside the requests",
+            "correct": false,
+            "says": "when the heap fills before a cycle ends, the request thread itself stops in an allocation stall"
+          },
+          {
+            "id": "c",
+            "text": "The collector, since a request thread waits for free memory when the heap fills before a cycle ends",
+            "correct": true,
+            "says": "single-generation ZGC marks the whole heap each cycle; when allocation outruns it, the log shows Allocation Stall lines, about 20 ms each in the page's run"
+          },
+          {
+            "id": "d",
+            "text": "The collector, since its many short pauses add up to more stopped time than G1's longer ones",
+            "correct": false,
+            "says": "the short pauses added up to about 1 ms per run; the waiting happened in stalls, not pauses"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.2.md",
+          "section": "Each Collector Puts the Cost Somewhere: Pauses, Stalls or CPU"
+        }
+      },
+      {
+        "id": "q-ci-weak-test",
+        "stem": "A test drops its last reference to a key, calls System.gc() once, waits on a reference queue until the key's own WeakReference is enqueued (giving up after 5 s), then asserts that a WeakHashMap holding that key is empty. It passes on laptops and times out on the CI agents, whose JVM options add -XX:+DisableExplicitGC. What does that flag do to the test?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The flag limits the call to a young collection, which leaves a key that has reached the old generation",
+            "correct": false,
+            "says": "with the flag set the call starts no collection of any kind, young or full"
+          },
+          {
+            "id": "b",
+            "text": "The flag makes the call return at once, and no collection runs that could find the key unreachable",
+            "correct": true,
+            "says": "-XX:+DisableExplicitGC turns System.gc() into a no-op; the page's run returned after 0 ms with the weak reference not cleared"
+          },
+          {
+            "id": "c",
+            "text": "The flag makes the call return at once, and the collection runs in the background after the test gives up",
+            "correct": false,
+            "says": "with this flag the call starts no collection, in the background or otherwise; the page's run returned after 0 ms with the weak reference still set. A concurrent cycle comes from -XX:+ExplicitGCInvokesConcurrent, and the caller waits for it"
+          },
+          {
+            "id": "d",
+            "text": "The flag limits the call to clearing references, but the map drops its entries only when it next grows",
+            "correct": false,
+            "says": "with the flag set the call does nothing, so no reference is cleared; and the map removes entries for queued references on its next call, such as size()"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.2.md",
+          "section": "System.gc() Is a Request, and JVM Flags Decide What It Does"
+        }
+      },
+      {
+        "id": "q-soft-thumbnails",
+        "stem": "A thumbnail service on G1 keeps 2,000 thumbnails as SoftReferences, in a heap otherwise near its limit. A burst of traffic needs room for a few more thumbnails than is free. What happens to the cache?",
+        "options": [
+          {
+            "id": "a",
+            "text": "A few of the oldest go, since the collector frees about as much as the new allocation needs",
+            "correct": false,
+            "says": "in the page's run none of the 10 entries was left once 12 MB more had been allocated; a collection that can't make room clears every soft reference"
+          },
+          {
+            "id": "b",
+            "text": "None of them go yet, since soft references wait for a full collection such as System.gc() to clear them",
+            "correct": false,
+            "says": "a full System.gc() kept all 10 entries in the page's run; they were cleared when an allocation needed the memory"
+          },
+          {
+            "id": "c",
+            "text": "A few of the least recently read go, since the collector keeps the soft references used most lately",
+            "correct": false,
+            "says": "HotSpot keeps recently read soft references longer only while the heap has room; near the limit it clears them all"
+          },
+          {
+            "id": "d",
+            "text": "Nearly all of them go at once, since the collector clears soft references together when an allocation needs room",
+            "correct": true,
+            "says": "a full System.gc() with room kept all 10 entries, but once memory was short a collection cleared all 10 together"
+          }
+        ],
+        "origin": {
+          "path": "40-memory-management/README_10.2.2.md",
+          "section": "A Soft Cache Survives Collections While There Is Room, and Empties When an Allocation Doesn't Fit"
+        }
+      }
+    ]
+  }
+}

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Run int bytecode on an operand stack",
+  "title": "Make the bytecode tracer agree with the JVM on increments",
   "blocks": [
     {
       "type": "heading",
@@ -19,88 +19,27 @@
     },
     {
       "type": "para",
-      "text": "The JVM is a **stack machine**: loads push values onto the operand stack, an arithmetic instruction pops its operands and pushes the result, and a store pops a value into a local variable. For `isub` and `idiv` the **right operand is on top**, so it is popped first."
+      "text": "A code-review bot explains suspicious arithmetic by running the bytecode javac produced for a method and printing what it returns, so a reviewer can see why `total = total++ + bonus` doesn't do what it looks like. Its interpreter, `IntMachine`, reads instructions as `javap -c` prints them. Loads, stores and constants already work; two pieces don't."
     },
     {
       "type": "para",
-      "text": "Write `StackMachine.run(program, args)`. `program` is a list of instructions as `javap -c` prints them; `args` fill local variables `0, 1, 2, ...` (there are 16 locals, all starting at 0). Support:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/IntMachine.java`:"
     },
     {
-      "type": "table",
-      "headers": [
-        "instruction",
-        "effect"
-      ],
-      "rows": [
-        [
-          "`iload_<n>`, `iload <n>`",
-          "push local `n`"
-        ],
-        [
-          "`istore_<n>`, `istore <n>`",
-          "pop into local `n`"
-        ],
-        [
-          "`iconst_<n>` (`n` 0 to 5), `bipush <v>`",
-          "push the constant"
-        ],
-        [
-          "`iadd`, `isub`, `imul`, `idiv`",
-          "pop two, push the result as Java `int` arithmetic does"
-        ],
-        [
-          "`iinc <n> <d>`",
-          "add `d` to local `n`; the stack is untouched"
-        ],
-        [
-          "`ireturn`",
-          "pop and return the top value"
-        ]
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "`increment(local, delta)`: what the `iinc` instruction does;",
+        "`arithmetic(op)`: what `iadd`, `isub`, `imul` and `idiv` do."
       ]
     },
     {
       "type": "para",
-      "text": "`int` arithmetic **wraps** in 32 bits, and `idiv` **truncates toward zero** (dividing by zero throws `ArithmeticException`). An instruction that finds **too few values** on the stack throws `IllegalStateException`, as the verifier would reject it."
+      "text": "When you're done, every method the tests feed it returns exactly what the JVM returned when it ran the same method. About eight lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "program",
-        "args",
-        "result"
-      ],
-      "rows": [
-        [
-          "`iload_0, iload_1, iadd, ireturn`",
-          "`5, 3`",
-          "`8`"
-        ],
-        [
-          "`iload_0, iload_0, imul, iconst_2, iload_0, imul, iadd, iconst_1, iadd, ireturn`",
-          "`3`",
-          "`16`"
-        ],
-        [
-          "`iload_0, iload_1, isub, ireturn`",
-          "`10, 3`",
-          "`7`"
-        ],
-        [
-          "`iload_0, iconst_1, iadd, ireturn`",
-          "`Integer.MAX_VALUE`",
-          "`Integer.MIN_VALUE`"
-        ],
-        [
-          "`iload_0, iinc 0 1, istore_0, iload_0, ireturn` (`i = i++`)",
-          "`5`",
-          "`5`"
-        ],
-        [
-          "`iload_0, iadd, ireturn`",
-          "`5`",
-          "`IllegalStateException`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests hold each program next to the Java method javac compiled it from, and compare the two results."
     },
     {
       "type": "heading",
@@ -115,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\npublic final class StackMachine {\n\n    private StackMachine() {\n    }\n\n    /** Runs {@code program} with {@code args} in the first local variables and returns what ireturn pops. */\n    public static int run(List<String> program, int... args) {\n        int[] locals = new int[16];\n        System.arraycopy(args, 0, locals, 0, args.length);\n        Deque<Integer> stack = new ArrayDeque<>();\n        for (String instruction : program) {\n            String[] parts = instruction.trim().split(\"[ _]+\");\n            switch (parts[0]) {\n                case \"iload\" -> stack.push(locals[Integer.parseInt(parts[1])]);\n                case \"istore\" -> locals[Integer.parseInt(parts[1])] = pop(stack);\n                case \"iconst\", \"bipush\" -> stack.push(Integer.parseInt(parts[1]));\n                case \"iinc\" -> locals[Integer.parseInt(parts[1])] += Integer.parseInt(parts[2]);\n                case \"iadd\", \"isub\", \"imul\", \"idiv\" -> {\n                    int right = pop(stack);\n                    int left = pop(stack);\n                    stack.push(switch (parts[0]) {\n                        case \"iadd\" -> left + right;\n                        case \"isub\" -> left - right;\n                        case \"imul\" -> left * right;\n                        default -> left / right;\n                    });\n                }\n                case \"ireturn\" -> {\n                    return pop(stack);\n                }\n                default -> throw new IllegalArgumentException(\"unknown instruction: \" + instruction);\n            }\n        }\n        throw new IllegalStateException(\"the program ended without ireturn\");\n    }\n\n    private static int pop(Deque<Integer> stack) {\n        if (stack.isEmpty()) {\n            throw new IllegalStateException(\"operand stack underflow\");\n        }\n        return stack.pop();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Runs the int instructions of one static method, written as javap -c prints them\n * (\"iload_0\", \"iinc          0, 1\", \"bipush        10\"), and returns what ireturn pops.\n */\npublic final class IntMachine {\n\n    private final int[] locals = new int[8];\n    private final Deque<Integer> stack = new ArrayDeque<>();\n\n    private IntMachine(int... args) {\n        System.arraycopy(args, 0, locals, 0, args.length);\n    }\n\n    /** The arguments fill locals 0, 1, 2, ... as they do for a static method. */\n    public static int run(List<String> program, int... args) {\n        return new IntMachine(args).execute(program);\n    }\n\n    private int execute(List<String> program) {\n        for (String line : program) {\n            String[] parts = line.trim().split(\"[\\\\s,_]+\");\n            String op = parts[0];\n            switch (op) {\n                case \"iload\" -> stack.push(locals[Integer.parseInt(parts[1])]);\n                case \"istore\" -> locals[Integer.parseInt(parts[1])] = pop();\n                case \"iconst\" -> stack.push(parts[1].equals(\"m1\") ? -1 : Integer.parseInt(parts[1]));\n                case \"bipush\", \"sipush\" -> stack.push(Integer.parseInt(parts[1]));\n                case \"iinc\" -> increment(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));\n                case \"iadd\", \"isub\", \"imul\", \"idiv\" -> arithmetic(op);\n                case \"ireturn\" -> {\n                    return pop();\n                }\n                default -> throw new IllegalArgumentException(\"not supported: \" + line);\n            }\n        }\n        throw new IllegalStateException(\"the program ended without ireturn\");\n    }\n\n    // What iinc does with its two operands, as javac uses it for i++, ++i, i += 5 and i--.\n    void increment(int local, int delta) {\n        locals[local] += delta;\n    }\n\n    // Pops the two operands of iadd, isub, imul or idiv and pushes the int result.\n    void arithmetic(String op) {\n        int right = pop();\n        int left = pop();\n        stack.push(switch (op) {\n            case \"iadd\" -> left + right;\n            case \"isub\" -> left - right;\n            case \"imul\" -> left * right;\n            default -> left / right;\n        });\n    }\n\n    int pop() {\n        if (stack.isEmpty()) {\n            throw new IllegalStateException(\"operand stack is empty\");\n        }\n        return stack.pop();\n    }\n\n    void push(int value) {\n        stack.push(value);\n    }\n}\n"
         }
       ]
     },
@@ -127,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class StackMachine {\n\n    private StackMachine() {\n    }\n\n    /** Runs {@code program} with {@code args} in the first local variables and returns what ireturn pops. */\n    public static int run(List<String> program, int... args) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Runs the int instructions of one static method, written as javap -c prints them\n * (\"iload_0\", \"iinc          0, 1\", \"bipush        10\"), and returns what ireturn pops.\n */\npublic final class IntMachine {\n\n    private final int[] locals = new int[8];\n    private final Deque<Integer> stack = new ArrayDeque<>();\n\n    private IntMachine(int... args) {\n        System.arraycopy(args, 0, locals, 0, args.length);\n    }\n\n    /** The arguments fill locals 0, 1, 2, ... as they do for a static method. */\n    public static int run(List<String> program, int... args) {\n        return new IntMachine(args).execute(program);\n    }\n\n    private int execute(List<String> program) {\n        for (String line : program) {\n            String[] parts = line.trim().split(\"[\\\\s,_]+\");\n            String op = parts[0];\n            switch (op) {\n                case \"iload\" -> stack.push(locals[Integer.parseInt(parts[1])]);\n                case \"istore\" -> locals[Integer.parseInt(parts[1])] = pop();\n                case \"iconst\" -> stack.push(parts[1].equals(\"m1\") ? -1 : Integer.parseInt(parts[1]));\n                case \"bipush\", \"sipush\" -> stack.push(Integer.parseInt(parts[1]));\n                case \"iinc\" -> increment(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));\n                case \"iadd\", \"isub\", \"imul\", \"idiv\" -> arithmetic(op);\n                case \"ireturn\" -> {\n                    return pop();\n                }\n                default -> throw new IllegalArgumentException(\"not supported: \" + line);\n            }\n        }\n        throw new IllegalStateException(\"the program ended without ireturn\");\n    }\n\n    // TODO: what iinc does with its two operands, as javac uses it for i++, ++i, i += 5 and i--.\n    void increment(int local, int delta) {\n        throw new IllegalStateException(\"TODO: increment\");\n    }\n\n    // TODO: pop the two operands of iadd, isub, imul or idiv and push the int result.\n    // pop() and push(int) are below.\n    void arithmetic(String op) {\n        throw new IllegalStateException(\"TODO: arithmetic\");\n    }\n\n    int pop() {\n        if (stack.isEmpty()) {\n            throw new IllegalStateException(\"operand stack is empty\");\n        }\n        return stack.pop();\n    }\n\n    void push(int value) {\n        stack.push(value);\n    }\n}\n"
     }
   ],
   "video": null,
@@ -135,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 2,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -146,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e9aeb3b873cc7cd4ece3ed0b098aae0169bf97e0a5a21bdcd197b3ddb03c70d6",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class StackMachine {\n\n    private StackMachine() {\n    }\n\n    /** Runs {@code program} with {@code args} in the first local variables and returns what ireturn pops. */\n    public static int run(List<String> program, int... args) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "b8d2f1aeebcdb73adee72e8f88ead43a7e28e697478d0708ff73ea1d126e230b",
+  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.List;\n\n/**\n * Runs the int instructions of one static method, written as javap -c prints them\n * (\"iload_0\", \"iinc          0, 1\", \"bipush        10\"), and returns what ireturn pops.\n */\npublic final class IntMachine {\n\n    private final int[] locals = new int[8];\n    private final Deque<Integer> stack = new ArrayDeque<>();\n\n    private IntMachine(int... args) {\n        System.arraycopy(args, 0, locals, 0, args.length);\n    }\n\n    /** The arguments fill locals 0, 1, 2, ... as they do for a static method. */\n    public static int run(List<String> program, int... args) {\n        return new IntMachine(args).execute(program);\n    }\n\n    private int execute(List<String> program) {\n        for (String line : program) {\n            String[] parts = line.trim().split(\"[\\\\s,_]+\");\n            String op = parts[0];\n            switch (op) {\n                case \"iload\" -> stack.push(locals[Integer.parseInt(parts[1])]);\n                case \"istore\" -> locals[Integer.parseInt(parts[1])] = pop();\n                case \"iconst\" -> stack.push(parts[1].equals(\"m1\") ? -1 : Integer.parseInt(parts[1]));\n                case \"bipush\", \"sipush\" -> stack.push(Integer.parseInt(parts[1]));\n                case \"iinc\" -> increment(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));\n                case \"iadd\", \"isub\", \"imul\", \"idiv\" -> arithmetic(op);\n                case \"ireturn\" -> {\n                    return pop();\n                }\n                default -> throw new IllegalArgumentException(\"not supported: \" + line);\n            }\n        }\n        throw new IllegalStateException(\"the program ended without ireturn\");\n    }\n\n    // TODO: what iinc does with its two operands, as javac uses it for i++, ++i, i += 5 and i--.\n    void increment(int local, int delta) {\n        throw new IllegalStateException(\"TODO: increment\");\n    }\n\n    // TODO: pop the two operands of iadd, isub, imul or idiv and push the int result.\n    // pop() and push(int) are below.\n    void arithmetic(String op) {\n        throw new IllegalStateException(\"TODO: arithmetic\");\n    }\n\n    int pop() {\n        if (stack.isEmpty()) {\n            throw new IllegalStateException(\"operand stack is empty\");\n        }\n        return stack.pop();\n    }\n\n    void push(int value) {\n        stack.push(value);\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-1/src/main/java/practice/StackMachine.java",
-    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-1/src/test/java/practice/StackMachineTest.java",
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-1/src/main/java/practice/IntMachine.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-02/practice-1/src/test/java/practice/IntMachineTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -171,34 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.StackMachineTest#runsThePagesPrograms",
+        "id": "practice.IntMachineTest#computesAnExpressionWithoutIncrements",
         "kind": "main",
-        "says": "The page's add, quadratic and c = a + b programs give 8, 16 and 8, with parameters in the first local variables."
+        "says": "a method of loads, multiplications and additions returns what the JVM returns"
       },
       {
-        "id": "practice.StackMachineTest#subtractionPopsTheRightOperandFirst",
+        "id": "practice.IntMachineTest#aPostIncrementInsideAnExpressionUsesTheValueBeforeTheIncrement",
         "kind": "edge",
-        "says": "isub and idiv pop the right operand first, so 10 - 3 is 7 and 10 / 3 is 3, not the reverse."
+        "says": "a post-increment inside an expression contributes the value loaded before the increment"
       },
       {
-        "id": "practice.StackMachineTest#intArithmeticWrapsAround",
+        "id": "practice.IntMachineTest#subtractionAndDivisionTakeTheirOperandsInSourceOrder",
         "kind": "edge",
-        "says": "iadd and imul wrap in 32 bits: Integer.MAX_VALUE + 1 is Integer.MIN_VALUE and 65536 * 65536 is 0, with no exception."
+        "says": "subtraction and division use the earlier-loaded value as the left operand"
       },
       {
-        "id": "practice.StackMachineTest#divisionTruncatesTowardZero",
+        "id": "practice.IntMachineTest#compoundAssignmentsAndDecrementsChangeTheLocalByTheirOwnAmount",
         "kind": "edge",
-        "says": "idiv rounds toward zero, so -7 / 2 is -3, and dividing by zero throws ArithmeticException."
-      },
-      {
-        "id": "practice.StackMachineTest#iincChangesTheLocalNotTheStack",
-        "kind": "edge",
-        "says": "iinc adds to a local variable without touching the stack, so the bytecode of i = i++ leaves i at 5 while i = ++i gives 6."
-      },
-      {
-        "id": "practice.StackMachineTest#tooFewOperandsIsRefused",
-        "kind": "edge",
-        "says": "An instruction that finds too few values on the stack throws IllegalStateException instead of inventing a zero."
+        "says": "a compound assignment or decrement changes the local by the amount it names"
       }
     ],
     "report": {
@@ -207,12 +136,11 @@
     },
     "origin": {
       "path": "43-jvm-internals/README_10.5.2.md",
-      "section": "Interview Q&A Section"
+      "section": "Bytecode Works on an Operand Stack, So `i = i++` Stores the Old Value Back"
     },
     "concepts": [
-      "The int instructions wrap on overflow and idiv truncates toward zero, and iinc changes a local variable without touching the stack.",
-      "Bytecode runs on an operand stack: loads push, arithmetic pops its operands and pushes the result, stores pop into local variables, with parameters in the first locals.",
-      "The verifier rejects bytecode that would pop more values than the stack holds or mix types, before the class runs."
+      "Arithmetic instructions pop the right operand first: isub subtracts the top of the stack from the value under it, which was loaded earlier.",
+      "i++ pushes the variable's old value before iinc changes the local, so i = i++ stores the old value back and an expression that uses i++ sees the value before the increment."
     ]
   }
 }

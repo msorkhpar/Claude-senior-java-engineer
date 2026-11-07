@@ -1,19 +1,15 @@
-An annotation type's retention is itself an annotation, `@Retention`, and it
-is RUNTIME-retained, so reflection can read it from the annotation's class
-object. The page's key points: **with no `@Retention` the policy is CLASS**,
-not RUNTIME, and the stages nest as `SOURCE < CLASS < RUNTIME`, so **a longer
-retention includes the shorter stages**.
+Release 4.2 of the invoicing module went out with three complaints:
 
-Write `Retentions`:
+- a partner ran `javap -v` on the released jar and read one of the team's review notes, word for
+  word, in `InvoiceService`'s class file;
+- the coverage report suddenly counts `InvoiceMapper`, which the mapper generator writes and the
+  coverage tool is supposed to leave out (the tool reads compiled `.class` files, never sources);
+- the cache layer caches nothing.
 
-- `policyOf(Class<? extends Annotation> type)`: the retention policy of `type`.
-- `availableIn(Class<? extends Annotation> type, RetentionPolicy stage)`:
-  whether an annotation of `type` still exists at `stage` (`SOURCE` = in the
-  source, `CLASS` = in the `.class` file, `RUNTIME` = to reflection).
+All three annotations are declared in `src/main/java/practice/Invoicing.java`, each with a `TODO`
+above the retention it shipped with. Give each the retention its reader needs, then write
+`cacheSeconds(Class<?>)`, which the cache layer calls on every service class at start-up: each
+method the class declares with `@Cached`, by name, with its seconds.
 
-| type | `policyOf` | `availableIn(.., SOURCE)` | `CLASS` | `RUNTIME` |
-|---|---|---|---|---|
-| `Deprecated` | `RUNTIME` | `true` | `true` | `true` |
-| `Override` | `SOURCE` | `true` | `false` | `false` |
-| `@Retention(CLASS) @interface Generated` | `CLASS` | `true` | `true` | `false` |
-| `@interface Plain` (no `@Retention`) | `CLASS` | `true` | `true` | `false` |
+About eight lines in total. The tests read the compiled class files the same way the coverage
+tool does, and call `cacheSeconds` on classes of their own.

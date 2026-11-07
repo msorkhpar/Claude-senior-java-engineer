@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Load, initialise and tell the class-loading failures apart",
+  "title": "Make the shop's tariffs right whichever page is opened first",
   "blocks": [
     {
       "type": "heading",
@@ -19,57 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Class loading has three phases: **loading** finds the bytes and creates the `Class`, **linking** verifies and prepares it, and **initialization** runs the static initializers. The failures look alike but mean different things:"
+      "text": "The subscription shop has two ways in. Most visitors open the price list first; some go straight to the sign-up form. After a restart last week, the first visitor went straight to sign-up, and every customer who signed up until the next restart was billed without VAT. In the staging environment, where the price list is usually opened first, the sign-up form failed instead: new customers had no tariff at all."
+    },
+    {
+      "type": "para",
+      "text": "`Tariff` and its `STANDARD` tariff are fine as they are. Finish the two `TODO`s in `src/main/java/practice/Pricing.java`, both in `Rates`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`ClassNotFoundException` (checked): a dynamic lookup such as `Class.forName` found no such class.",
-        "`ExceptionInInitializerError`: the class's static initializer threw, the first time the class was initialised.",
-        "`NoClassDefFoundError`: every later use of that class, which the JVM has marked unusable."
+        "`vatPercent()`: the VAT configured for this deployment (`configuredVat()` reads it);",
+        "`defaultTariff()`: the tariff a new customer starts on, which is the standard tariff."
       ]
     },
     {
       "type": "para",
-      "text": "Write `ClassProbe` with the nested enum `Outcome { LOADED, NOT_FOUND, INIT_FAILED, UNUSABLE }`:"
+      "text": "When you're done, the standard tariff charges the configured VAT and every new customer starts on it, whichever of the two the shop uses first after a start. About three lines in total."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`initialise(name, loader)` loads **and initialises** the class through `loader` and returns the outcome; it never throws for these three failures.",
-        "`isPresent(name, loader)` says whether the class can be loaded, **without initialising it**."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`initialise(\"java.lang.String\", loader)`",
-          "`LOADED`"
-        ],
-        [
-          "`initialise(\"com.example.DoesNotExist\", loader)`",
-          "`NOT_FOUND`"
-        ],
-        [
-          "`initialise(broken, loader)` (static block throws)",
-          "`INIT_FAILED`"
-        ],
-        [
-          "`initialise(broken, loader)` again",
-          "`UNUSABLE`"
-        ],
-        [
-          "`isPresent(broken, loader)` on a fresh broken class",
-          "`true`, and its static block has not run"
-        ]
-      ]
+      "type": "para",
+      "text": "Each test starts the shop afresh: it loads its own copy of the `Pricing` classes, so their static fields are set up again, in the order that test uses them."
     },
     {
       "type": "heading",
@@ -84,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic final class ClassProbe {\n\n    public enum Outcome { LOADED, NOT_FOUND, INIT_FAILED, UNUSABLE }\n\n    private ClassProbe() {\n    }\n\n    /** Loads and initialises {@code name} through {@code loader}, and says how it went. */\n    public static Outcome initialise(String name, ClassLoader loader) {\n        try {\n            Class.forName(name, true, loader);\n            return Outcome.LOADED;\n        } catch (ClassNotFoundException e) {\n            return Outcome.NOT_FOUND;\n        } catch (ExceptionInInitializerError e) {\n            return Outcome.INIT_FAILED;\n        } catch (NoClassDefFoundError e) {\n            return Outcome.UNUSABLE;\n        }\n    }\n\n    /** Whether {@code name} can be loaded through {@code loader}, without initialising it. */\n    public static boolean isPresent(String name, ClassLoader loader) {\n        try {\n            Class.forName(name, false, loader);\n            return true;\n        } catch (ClassNotFoundException e) {\n            return false;\n        }\n    }\n}\n"
+          "text": "package practice;\n\n/** Prices for the subscription shop: the tariffs customers are on, and the VAT they pay. */\npublic final class Pricing {\n\n    private Pricing() {\n    }\n\n    /** The VAT percentage configured for this deployment. */\n    static int configuredVat() {\n        return Integer.parseInt(System.getProperty(\"pricing.vat\", \"20\"));\n    }\n\n    /** A tariff: its name and the VAT percentage it charges. */\n    public static final class Tariff {\n\n        /** The tariff most customers are on, built once when the class is first used. */\n        public static final Tariff STANDARD = new Tariff(\"standard\", Rates.vatPercent());\n\n        private final String name;\n        private final int vatPercent;\n\n        Tariff(String name, int vatPercent) {\n            this.name = name;\n            this.vatPercent = vatPercent;\n        }\n\n        public String name() {\n            return name;\n        }\n\n        public int vatPercent() {\n            return vatPercent;\n        }\n\n        /** The price a customer pays for a net price, both in cents. */\n        public long grossCents(long netCents) {\n            return netCents + netCents * vatPercent / 100;\n        }\n    }\n\n    /** The rates the rest of the shop reads. */\n    public static final class Rates {\n\n        private static final int VAT_PERCENT = configuredVat();\n\n        /** The VAT percentage every price in this deployment uses. */\n        public static int vatPercent() {\n            return VAT_PERCENT;\n        }\n\n        /** The tariff a new customer starts on: the standard tariff. */\n        public static Tariff defaultTariff() {\n            return Tariff.STANDARD;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -96,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class ClassProbe {\n\n    public enum Outcome { LOADED, NOT_FOUND, INIT_FAILED, UNUSABLE }\n\n    private ClassProbe() {\n    }\n\n    /** Loads and initialises {@code name} through {@code loader}, and says how it went. */\n    public static Outcome initialise(String name, ClassLoader loader) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether {@code name} can be loaded through {@code loader}, without initialising it. */\n    public static boolean isPresent(String name, ClassLoader loader) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\n/** Prices for the subscription shop: the tariffs customers are on, and the VAT they pay. */\npublic final class Pricing {\n\n    private Pricing() {\n    }\n\n    /** The VAT percentage configured for this deployment. */\n    static int configuredVat() {\n        return Integer.parseInt(System.getProperty(\"pricing.vat\", \"20\"));\n    }\n\n    /** A tariff: its name and the VAT percentage it charges. */\n    public static final class Tariff {\n\n        /** The tariff most customers are on, built once when the class is first used. */\n        public static final Tariff STANDARD = new Tariff(\"standard\", Rates.vatPercent());\n\n        private final String name;\n        private final int vatPercent;\n\n        Tariff(String name, int vatPercent) {\n            this.name = name;\n            this.vatPercent = vatPercent;\n        }\n\n        public String name() {\n            return name;\n        }\n\n        public int vatPercent() {\n            return vatPercent;\n        }\n\n        /** The price a customer pays for a net price, both in cents. */\n        public long grossCents(long netCents) {\n            return netCents + netCents * vatPercent / 100;\n        }\n    }\n\n    /** The rates the rest of the shop reads. */\n    public static final class Rates {\n\n        /**\n         * The VAT percentage every price in this deployment uses.\n         *\n         * TODO: the VAT configured for this deployment\n         */\n        public static int vatPercent() {\n            throw new IllegalStateException(\"TODO: vatPercent\");\n        }\n\n        /**\n         * The tariff a new customer starts on: the standard tariff.\n         *\n         * TODO: the standard tariff, whichever part of the shop is used first\n         */\n        public static Tariff defaultTariff() {\n            throw new IllegalStateException(\"TODO: defaultTariff\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -104,10 +74,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 2,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -115,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "4fce9d54874caa499f7a5e88e6e618fcbf2fe632769368b486d172c1006d6184",
-  "starting_code": "package practice;\n\npublic final class ClassProbe {\n\n    public enum Outcome { LOADED, NOT_FOUND, INIT_FAILED, UNUSABLE }\n\n    private ClassProbe() {\n    }\n\n    /** Loads and initialises {@code name} through {@code loader}, and says how it went. */\n    public static Outcome initialise(String name, ClassLoader loader) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** Whether {@code name} can be loaded through {@code loader}, without initialising it. */\n    public static boolean isPresent(String name, ClassLoader loader) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "8c6f7407f94f35de10b3cb9d467e30b9561a17bfa474cd7769101b93ca72a474",
+  "starting_code": "package practice;\n\n/** Prices for the subscription shop: the tariffs customers are on, and the VAT they pay. */\npublic final class Pricing {\n\n    private Pricing() {\n    }\n\n    /** The VAT percentage configured for this deployment. */\n    static int configuredVat() {\n        return Integer.parseInt(System.getProperty(\"pricing.vat\", \"20\"));\n    }\n\n    /** A tariff: its name and the VAT percentage it charges. */\n    public static final class Tariff {\n\n        /** The tariff most customers are on, built once when the class is first used. */\n        public static final Tariff STANDARD = new Tariff(\"standard\", Rates.vatPercent());\n\n        private final String name;\n        private final int vatPercent;\n\n        Tariff(String name, int vatPercent) {\n            this.name = name;\n            this.vatPercent = vatPercent;\n        }\n\n        public String name() {\n            return name;\n        }\n\n        public int vatPercent() {\n            return vatPercent;\n        }\n\n        /** The price a customer pays for a net price, both in cents. */\n        public long grossCents(long netCents) {\n            return netCents + netCents * vatPercent / 100;\n        }\n    }\n\n    /** The rates the rest of the shop reads. */\n    public static final class Rates {\n\n        /**\n         * The VAT percentage every price in this deployment uses.\n         *\n         * TODO: the VAT configured for this deployment\n         */\n        public static int vatPercent() {\n            throw new IllegalStateException(\"TODO: vatPercent\");\n        }\n\n        /**\n         * The tariff a new customer starts on: the standard tariff.\n         *\n         * TODO: the standard tariff, whichever part of the shop is used first\n         */\n        public static Tariff defaultTariff() {\n            throw new IllegalStateException(\"TODO: defaultTariff\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-2/src/main/java/practice/ClassProbe.java",
-    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-2/src/test/java/practice/ClassProbeTest.java",
+    "main_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-2/src/main/java/practice/Pricing.java",
+    "test_path": "practice/10-advanced-java-topics/43-jvm-internals/prose/unit-01/practice-2/src/test/java/practice/PricingTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -140,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.ClassProbeTest#initialisesKnownClassesAndReportsMissingOnes",
+        "id": "practice.PricingTest#pricesUseTheConfiguredVat",
         "kind": "main",
-        "says": "initialise() loads and initialises String and a counted class (its static block runs once), and reports an unknown name as NOT_FOUND."
+        "says": "the VAT the shop reports is the one configured for the deployment"
       },
       {
-        "id": "practice.ClassProbeTest#aFailedInitialiserMakesTheClassUnusable",
-        "kind": "edge",
-        "says": "A class whose static initializer throws gives INIT_FAILED the first time and UNUSABLE every time after."
+        "id": "practice.PricingTest#theStandardTariffChargesTheConfiguredVat",
+        "kind": "main",
+        "says": "when the standard tariff is the first thing used, it charges the configured VAT"
       },
       {
-        "id": "practice.ClassProbeTest#presenceDoesNotInitialise",
+        "id": "practice.PricingTest#aCustomerWhoSignsUpBeforeAnyPriceIsShownPaysTheConfiguredVat",
         "kind": "edge",
-        "says": "isPresent() finds a class without running its static initializer, even one whose initializer would throw."
+        "says": "when the default tariff is the first thing used, it still charges the configured VAT"
+      },
+      {
+        "id": "practice.PricingTest#aCustomerWhoSignsUpAfterAPriceWasShownStartsOnTheStandardTariff",
+        "kind": "edge",
+        "says": "when the standard tariff was used first, the default tariff asked for afterwards is that standard tariff"
       }
     ],
     "report": {
@@ -161,11 +136,10 @@
     },
     "origin": {
       "path": "43-jvm-internals/README_10.5.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "Static Initialisers Run in Textual Order, and a Cycle Lets Code Read a Field Before It Is Set"
     },
     "concepts": [
-      "ClassNotFoundException is a checked failure of a dynamic lookup, while a failed static initializer gives ExceptionInInitializerError once and NoClassDefFoundError on every later use.",
-      "Loading, linking and initialization are separate phases, and a class can be loaded without running its static initializers."
+      "Static initialisers run in textual order, and in a cycle between two classes the class used second reads the first one's field before it is set, so a final field keeps a default value that depends on which class was used first."
     ]
   }
 }

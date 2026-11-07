@@ -18,370 +18,359 @@
       "text": "10.5.2. Bytecode Execution and Interpretation"
     },
     {
+      "type": "para",
+      "text": "After a load test of 1,000 requests, the dashboard's request counter still shows 0. The line that counts is `hits = hits++;`, and two reviewers read it as \"add one\". javac compiled it without a warning, even with `-Xlint:all`."
+    },
+    {
+      "type": "para",
+      "text": "javac produces bytecode, instructions for a stack machine. The JVM loads and verifies it (unit 10.5.1), interprets it, and compiles hot methods to machine code (unit 10.5.3). `javap -c` prints it."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Bytecode Works on an Operand Stack, So `i = i++` Stores the Old Value Back"
+    },
+    {
+      "type": "para",
+      "text": "Before reading on, predict what these three methods return for 5:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class Increments {\n    static int post(int i) {\n        i = i++;\n        return i;\n    }\n\n    static int pre(int i) {\n        i = ++i;\n        return i;\n    }\n\n    static int both(int i) {\n        return i++ - ++i;\n    }\n\n    public static void main(String[] args) {\n        int hits = 0;\n        for (int request = 0; request < 1_000; request++) {\n            hits = hits++;                       // meant to count requests\n        }\n        System.out.println(\"post(5) = \" + post(5) + \", pre(5) = \" + pre(5) + \", both(5) = \" + both(5));\n        System.out.println(\"hits after 1000 requests: \" + hits);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "post(5) = 5, pre(5) = 6, both(5) = -2\nhits after 1000 requests: 0"
+    },
+    {
+      "type": "para",
+      "text": "`javac Increments.java && javap -c Increments` shows why:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  static int post(int);\n    Code:\n       0: iload_0\n       1: iinc          0, 1\n       4: istore_0\n       5: iload_0\n       6: ireturn\n\n  static int pre(int);\n    Code:\n       0: iinc          0, 1\n       3: iload_0\n       4: istore_0\n       5: iload_0\n       6: ireturn\n\n  static int both(int);\n    Code:\n       0: iload_0\n       1: iinc          0, 1\n       4: iinc          0, 1\n       7: iload_0\n       8: isub\n       9: ireturn"
+    },
+    {
+      "type": "para",
+      "text": "Each method call has an array of local variables (the parameter `i` is local 0 in a static method) and an operand stack. `iload_0` pushes a copy of local 0, `istore_0` pops the top into local 0, and `iadd`, `isub` and the other binary arithmetic instructions pop two values and push the result. `iinc 0, 1` works differently: it adds 1 to local 0 in place and leaves the stack alone."
+    },
+    {
+      "type": "para",
+      "text": "In `post`, `iload_0` pushes 5, `iinc` makes the local 6, and `istore_0` writes the 5 from the stack back over it. The JLS defines it this way: the value of `i++` is the variable's value before the increment, and the assignment stores that value after the increment has happened. `++i` increments first, then loads, so `pre` stores 6. In `both`, the left operand is loaded first (5), two increments make the local 7, the right operand loads 7, and `isub` subtracts the top of the stack from the value under it: 5 − 7 = −2."
+    },
+    {
+      "type": "para",
+      "text": "So `hits = hits++` stores the old value back on each of the 1,000 iterations, and the counter stays at 0. As a loop's update, `for (...; i < n; i = i++)` runs forever. Write `hits++` on its own, and don't read a variable again in the expression that increments it."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "invokedynamic Leaves the Choice of Code to the First Run"
     },
     {
       "type": "para",
-      "text": "Java bytecode is the intermediate representation of Java source code that the JVM executes. When you compile a `.java` file with `javac`, the compiler produces a `.class` file containing bytecode -- a set of instructions for the JVM's stack-based virtual machine. This bytecode is platform-independent and is what enables Java's \"write once, run anywhere\" capability."
+      "text": "String concatenation (unit 1.4.2) and lambdas (unit 4.1.1) both compile to `invokedynamic`. This program times the first three calls of one of each:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.function.IntSupplier;\n\npublic class Linking {\n    static String label(String host, int port) {\n        return host + \":\" + port;\n    }\n\n    static IntSupplier fixed() {\n        return () -> 42;\n    }\n\n    static long timed(Runnable r) {\n        long t0 = System.nanoTime();\n        r.run();\n        return (System.nanoTime() - t0) / 1_000;\n    }\n\n    public static void main(String[] args) {\n        for (int call = 1; call <= 3; call++) {\n            long concat = timed(() -> label(\"example.com\", 8080));\n            long lambda = timed(() -> fixed());\n            System.out.printf(\"call %d: label %5d us, fixed() %5d us%n\", call, concat, lambda);\n        }\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "call 1: label  8564 us, fixed()   583 us\ncall 2: label    24 us, fixed()     1 us\ncall 3: label    15 us, fixed()     0 us"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of bytecode as sheet music. The Java source code is the composer's original manuscript. The compiler (`javac`) transcribes it into a universal notation (bytecode) that any musician (JVM implementation) can read and perform. Different musicians may interpret it differently (different JVM implementations), but the result should sound the same (produce the same output). The interpreter reads one note at a time, while the JIT compiler memorizes entire passages to play them faster."
+      "text": "Each method centres on one `invokedynamic`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  static java.lang.String label(java.lang.String, int);\n    Code:\n       0: aload_0\n       1: iload_1\n       2: invokedynamic #7,  0              // InvokeDynamic #0:makeConcatWithConstants:(Ljava/lang/String;I)Ljava/lang/String;\n       7: areturn\n  static java.util.function.IntSupplier fixed();\n    Code:\n       0: invokedynamic #11,  0             // InvokeDynamic #1:getAsInt:()Ljava/util/function/IntSupplier;\n       5: areturn"
+    },
+    {
+      "type": "para",
+      "text": "`#0` and `#1` index the class's `BootstrapMethods` table (`javap -v`, first two entries, descriptors replaced by `...`):"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "BootstrapMethods:\n  0: #94 REF_invokeStatic java/lang/invoke/StringConcatFactory.makeConcatWithConstants:(...)\n    Method arguments:\n      #81 \\u0001:\\u0001\n  1: #100 REF_invokeStatic java/lang/invoke/LambdaMetafactory.metafactory:(...)\n    Method arguments:\n      #83 ()I\n      #84 REF_invokeStatic Linking.lambda$fixed$0:()I\n      #83 ()I"
+    },
+    {
+      "type": "para",
+      "text": "The class file holds no concatenation code and no `IntSupplier` class. It holds a description (the recipe `\\u0001:\\u0001`, the method `lambda$fixed$0`) and the JDK method that builds the code. The first time an `invokedynamic` runs, the JVM calls that bootstrap method, which generates the code and returns a call site. The JVM links the instruction to it, and every later execution goes straight to the linked code. Each `Runnable` in `main` is linked before `timed` starts its clock, so the 8.6 ms of the first `label` call is `StringConcatFactory` building its code: with `-Xlog:class+load`, that call alone loaded 15 generated `LambdaForm$MH` classes."
+    },
+    {
+      "type": "para",
+      "text": "javac can still emit the old form. With `-XDstringConcat=inline` (an internal javac option) or `--release 8`, `label` compiles to a `StringBuilder` chain:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "       0: new           #7                  // class java/lang/StringBuilder\n       3: dup\n       4: invokespecial #9                  // Method java/lang/StringBuilder.\"<init>\":()V\n       7: aload_0\n       8: invokevirtual #10                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n      11: ldc           #14                 // String :\n      13: invokevirtual #10                 // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;\n      16: iload_1\n      17: invokevirtual #16                 // Method java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;\n      20: invokevirtual #19                 // Method java/lang/StringBuilder.toString:()Ljava/lang/String;\n      23: areturn"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "call 1: label    31 us, fixed()   734 us\ncall 2: label     5 us, fixed()     0 us\ncall 3: label     3 us, fixed()     0 us"
+    },
+    {
+      "type": "para",
+      "text": "The first concatenation is now cheap. The first `fixed()` call still pays for its own bootstrap, which spins one hidden class. Over five runs of each on one busy machine, the two first calls together took 8.9–15.7 ms with `invokedynamic` and 0.5–2.1 ms with `inline`. From the second call on, both were in microseconds."
+    },
+    {
+      "type": "para",
+      "text": "The cost is paid once per call site, at startup: a service with thousands of distinct concatenations and lambdas spends part of its start in bootstraps. The code that concatenates belongs to the JDK that runs the class (see the Design Note); a class compiled for Java 8 keeps its `StringBuilder` chain on every JDK. The lambda body `lambda$fixed$0` is a synthetic method (unit 10.3.1), and the linked target is a `MethodHandle` (unit 10.3.3)."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "How Bytecode Works"
+      "level": 2,
+      "text": "A switch on Strings Is a hashCode lookupswitch Followed by equals"
     },
     {
       "type": "para",
-      "text": "Java bytecode operates on a **stack-based architecture**. Instead of using registers (like x86 CPU instructions), the JVM uses an operand stack to perform operations:"
+      "text": "`\"Aa\"` and `\"BB\"` have the same `hashCode()`, 2112, and so does `\"C#\"`. Which case does each reach?"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Push** values onto the operand stack",
-        "**Invoke** operations that pop operands, compute results, and push results back",
-        "**Store** results into local variables"
+      "type": "code",
+      "lang": "java",
+      "text": "public class Routes {\n    static int route(String region) {\n        switch (region) {\n            case \"Aa\": return 1;\n            case \"BB\": return 2;\n            case \"eu\": return 3;\n            default:   return 0;\n        }\n    }\n\n    public static void main(String[] args) {\n        System.out.println(\"\\\"Aa\\\".hashCode() = \" + \"Aa\".hashCode() + \", \\\"BB\\\".hashCode() = \" + \"BB\".hashCode());\n        for (String r : new String[] {\"Aa\", \"BB\", \"eu\", \"C#\"}) {\n            System.out.println(r + \" -> \" + route(new String(r)) + \" (hash \" + r.hashCode() + \")\");\n        }\n        try {\n            route(null);\n        } catch (NullPointerException e) {\n            System.out.println(\"route(null): \" + e);\n        }\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "\"Aa\".hashCode() = 2112, \"BB\".hashCode() = 2112\nAa -> 1 (hash 2112)\nBB -> 2 (hash 2112)\neu -> 3 (hash 3248)\nC# -> 0 (hash 2112)\nroute(null): java.lang.NullPointerException: Cannot invoke \"String.hashCode()\" because \"<local1>\" is null"
+    },
+    {
+      "type": "para",
+      "text": "Every string reached the right case. The bytecode is two switches:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "       0: aload_0\n       1: astore_1\n       2: iconst_m1\n       3: istore_2\n       4: aload_1\n       5: invokevirtual #7                  // Method java/lang/String.hashCode:()I\n       8: lookupswitch  { // 2\n                  2112: 36\n                  3248: 64\n               default: 75\n          }\n      36: aload_1\n      37: ldc           #13                 // String BB\n      39: invokevirtual #15                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z\n      42: ifeq          50\n      45: iconst_1\n      46: istore_2\n      47: goto          75\n      50: aload_1\n      51: ldc           #19                 // String Aa\n      53: invokevirtual #15                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z\n      56: ifeq          75\n      59: iconst_0\n      60: istore_2\n      61: goto          75\n      64: aload_1\n      65: ldc           #21                 // String eu\n      67: invokevirtual #15                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z\n      70: ifeq          75\n      73: iconst_2\n      74: istore_2\n      75: iload_2\n      76: tableswitch   { // 0 to 2"
+    },
+    {
+      "type": "para",
+      "text": "The JVM can only switch on an `int`. javac switches on the hash first, with a `lookupswitch` because the hashes are sparse. Each hash leads to an `equals` for every label with that hash: 2112 tries `\"BB\"`, then `\"Aa\"`. A match stores the case's position in the source (0 for `\"Aa\"`, 1 for `\"BB\"`, 2 for `\"eu\"`; local 2 starts at −1), and a `tableswitch` on that dense index jumps to the case body. The hash only narrows the search and `equals` decides, which is why `\"C#\"` falls to `default`. The `NullPointerException` comes from the `hashCode()` call on javac's copy of the selector, `<local1>`. The program passes `new String(r)` so that no selector is the same object as a label: `equals`, not identity, decides."
+    },
+    {
+      "type": "para",
+      "text": "A hand-written dispatch keyed by `hashCode()` alone sends `\"BB\"` to `\"Aa\"`'s handler. If you bucket by hash, compare with `equals` inside the bucket, as javac does."
+    },
+    {
+      "type": "quote",
+      "blocks": [
+        {
+          "type": "para",
+          "text": "**`case null` compiles differently.** A Java 21 `switch` on a `String` with a `case null` label compiles to `invokedynamic` `SwitchBootstraps.typeSwitch` followed by a `tableswitch`, with no `hashCode()` call in the method, and `route(null)` returns the `case null` value."
+        }
       ]
     },
     {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "finally Is Copied Onto Every Exit, and a return There Replaces the athrow"
+    },
+    {
       "type": "para",
-      "text": "Each method in a class file has its own:"
+      "text": "There is no `finally` instruction. Unit 3.1.3 showed how `finally` behaves; javac builds it from copies and an exception table:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class Finally {\n    static int calls;\n\n    static int parse(String s) {\n        try {\n            return Integer.parseInt(s);\n        } finally {\n            calls++;\n        }\n    }\n\n    @SuppressWarnings(\"finally\")\n    static int parseOrSwallow(String s) {\n        try {\n            return Integer.parseInt(s);\n        } finally {\n            calls++;\n            return -1;\n        }\n    }\n\n    public static void main(String[] args) {\n        System.out.println(\"parseOrSwallow(\\\"12\\\") = \" + parseOrSwallow(\"12\"));\n        System.out.println(\"parseOrSwallow(\\\"x\\\") = \" + parseOrSwallow(\"x\"));\n        try {\n            parse(\"x\");\n        } catch (NumberFormatException e) {\n            System.out.println(\"parse(\\\"x\\\") threw \" + e);\n        }\n        System.out.println(\"calls = \" + calls);\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "parseOrSwallow(\"12\") = -1\nparseOrSwallow(\"x\") = -1\nparse(\"x\") threw java.lang.NumberFormatException: For input string: \"x\"\ncalls = 3"
+    },
+    {
+      "type": "para",
+      "text": "`parseOrSwallow` is listed from offset 13; its first lines are the same as `parse`'s."
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "  static int parse(java.lang.String);\n    Code:\n       0: aload_0\n       1: invokestatic  #7                  // Method java/lang/Integer.parseInt:(Ljava/lang/String;)I\n       4: istore_1\n       5: getstatic     #13                 // Field calls:I\n       8: iconst_1\n       9: iadd\n      10: putstatic     #13                 // Field calls:I\n      13: iload_1\n      14: ireturn\n      15: astore_2\n      16: getstatic     #13                 // Field calls:I\n      19: iconst_1\n      20: iadd\n      21: putstatic     #13                 // Field calls:I\n      24: aload_2\n      25: athrow\n    Exception table:\n       from    to  target type\n           0     5    15   any\n\n  static int parseOrSwallow(java.lang.String);\n      13: iconst_m1\n      14: ireturn\n      15: astore_2\n      16: getstatic     #13                 // Field calls:I\n      19: iconst_1\n      20: iadd\n      21: putstatic     #13                 // Field calls:I\n      24: iconst_m1\n      25: ireturn\n    Exception table:\n       from    to  target type\n           0     5    15   any"
+    },
+    {
+      "type": "para",
+      "text": "`calls++` appears twice in `parse`. The normal path (0–14) saves the result in local 1, runs its copy of the `finally` code, and returns the saved value. The exception table sends any throwable raised between offsets 0 and 5 to offset 15, a handler of type `any`: it saves the exception in local 2, runs the second copy, and rethrows it with `athrow`. The range stops at 5, so an exception thrown by a copy of the `finally` code isn't caught by the same handler and doesn't run it twice."
+    },
+    {
+      "type": "para",
+      "text": "In `parseOrSwallow` the handler ends with `iconst_m1, ireturn`. The exception sits in local 2 and no instruction reads it again. That is how a `return` in `finally` swallows an exception: javac copied the `return` onto the exception path, and a path that returns has no `athrow`."
+    },
+    {
+      "type": "para",
+      "text": "Copying also multiplies code. Counting the `audit` calls in `javap -c` for these two methods:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public class Copies {\n    static void audit(String what) { }\n\n    static int status(int code) {\n        try {\n            if (code < 0) return -1;\n            if (code == 0) return 0;\n            if (code < 100) return 1;\n            return 2;\n        } finally {\n            audit(\"status \" + code);\n        }\n    }\n\n    static int nested(int code) {\n        try {\n            try {\n                if (code < 0) return -1;\n                return 1;\n            } finally {\n                audit(\"inner \" + code);\n            }\n        } finally {\n            audit(\"outer \" + code);\n        }\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "status: audit calls 5, last offset       77: athrow\nnested: audit calls 6, last offset       71: athrow"
+    },
+    {
+      "type": "para",
+      "text": "`status` has five copies: one per `return` and one in the `any` handler. In `nested`, each `finally` is copied onto the two `return`s and into its own handler. A long `finally` in a method with many exits makes the method several times longer, and that counts against HotSpot's inlining limits (`MaxInlineSize` 35 bytes, `FreqInlineSize` 325 on this JDK; unit 10.5.3). Move a long cleanup into a method of its own, and each copy becomes one call."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Bytecode instructions**: The actual operations to execute",
-        "**Operand stack**: A LIFO stack for intermediate computation values",
-        "**Local variable array**: Indexed storage for method parameters and local variables",
-        "**Constant pool reference**: Access to the class's constant pool for symbolic references"
+        "**Bytecode runs on an operand stack.** `i++` pushes the old value before `iinc` changes the local, so `i = i++` stores the old value back, and a counter written that way never moves.",
+        "**`invokedynamic` defers the code to its first execution.** The bootstrap method (`StringConcatFactory`, `LambdaMetafactory`) runs once per call site, costing milliseconds at startup, and the JDK that runs the class, not the compiler, decides the concatenation code.",
+        "**A `switch` on a `String` switches on `hashCode()`, then confirms with `equals`.** Colliding strings still reach their own case, and a `null` selector throws from `hashCode()` unless there is a `case null`.",
+        "**`finally` is copied onto every exit, and a `return` in it replaces the rethrow.** The exception is stored in a local that nothing reads again, and the copies grow the method."
       ]
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Common Bytecode Instructions"
+      "level": 2,
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**Instructions on this page (JVMS chapter 6):**"
     },
     {
       "type": "table",
       "headers": [
-        "Category",
-        "Instructions",
-        "Purpose"
+        "Instruction",
+        "Effect"
       ],
       "rows": [
         [
-          "Load/Store",
-          "`iload`, `aload`, `istore`, `astore`",
-          "Move values between local variables and stack"
+          "`iload_n`, `aload_n`",
+          "push local `n` (an `int`, a reference)"
         ],
         [
-          "Arithmetic",
-          "`iadd`, `isub`, `imul`, `idiv`",
-          "Integer arithmetic on stack values"
+          "`istore_n`, `astore_n`",
+          "pop the top into local `n`"
         ],
         [
-          "Type Conversion",
-          "`i2l`, `i2f`, `l2d`",
-          "Convert between primitive types"
+          "`iinc n, d`",
+          "add `d` to local `n`; the operand stack is unchanged"
         ],
         [
-          "Object Creation",
-          "`new`, `newarray`, `anewarray`",
-          "Create objects and arrays"
+          "`iconst_m1` … `iconst_5`",
+          "push the constant −1 … 5"
         ],
         [
-          "Field Access",
-          "`getfield`, `putfield`, `getstatic`, `putstatic`",
-          "Read/write object and class fields"
+          "`iadd`, `isub`",
+          "pop two `int`s, push the result; `isub` subtracts the top from the one below"
         ],
         [
-          "Method Invocation",
-          "`invokevirtual`, `invokestatic`, `invokeinterface`, `invokespecial`, `invokedynamic`",
-          "Call methods"
+          "`invokedynamic`",
+          "call the bootstrap method on first execution, then the linked call site"
         ],
         [
-          "Stack Manipulation",
-          "`dup`, `pop`, `swap`",
-          "Manipulate the operand stack"
+          "`lookupswitch` / `tableswitch`",
+          "jump on an `int` key: sparse keys matched / a dense range indexed"
         ],
         [
-          "Control Flow",
-          "`ifeq`, `goto`, `tableswitch`, `lookupswitch`",
-          "Branching and looping"
+          "`athrow`",
+          "throw the reference on top of the stack"
         ],
         [
-          "Return",
-          "`ireturn`, `areturn`, `return`",
-          "Return values from methods"
+          "`ireturn`, `areturn`",
+          "return an `int`, a reference"
         ]
       ]
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "The Class File Format"
-    },
-    {
       "type": "para",
-      "text": "A `.class` file has a well-defined binary structure:"
+      "text": "**What javac 21 emits:**"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Magic number**: `0xCAFEBABE` (identifies the file as a Java class file)",
-        "**Version information**: Major and minor version numbers",
-        "**Constant pool**: Table of symbolic references, literals, and constants",
-        "**Access flags**: Class modifiers (public, final, abstract, etc.)",
-        "**Class and superclass references**: Pointers into the constant pool",
-        "**Interfaces**: Implemented interfaces",
-        "**Fields**: Field declarations with attributes",
-        "**Methods**: Method declarations with bytecode",
-        "**Attributes**: Additional metadata (source file, annotations, etc.)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Key Points to Remember"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "Java bytecode is **stack-based**, not register-based. All operations use an operand stack.",
-        "The `javap -c` command is the standard tool for disassembling class files to view bytecode.",
-        "Each **opcode** is **one byte** (hence \"bytecode\"), giving a maximum of 256 opcodes; an instruction may be followed by operand bytes (for example `bipush 42` is two bytes, `invokevirtual #7` is three).",
-        "The **constant pool** is a critical part of the class file, holding all symbolic references.",
-        "**invokedynamic** (added in Java 7) is used for lambda expressions and is key to dynamic language support.",
-        "Bytecode is **verified** before execution to ensure type safety and structural correctness.",
-        "Method dispatch: `invokevirtual` (virtual dispatch; also private methods since Java 11), `invokeinterface` (interface dispatch), `invokespecial` (constructors and `super` calls), `invokestatic` (static methods).",
-        "The JVM specification guarantees the semantics of bytecode, but not the implementation details."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**invokedynamic improvements**: Used extensively for lambda expressions, string concatenation (`StringConcatFactory` since Java 9), pattern matching, and record patterns.",
-        "**Constant Dynamic (JEP 309)**: `condy` entries in the constant pool allow lazily computed constants, reducing class loading overhead.",
-        "**Sealed classes enforcement**: The JVM enforces sealed class hierarchies at class-loading time: the sealed class's `PermittedSubclasses` attribute is checked when a subclass is loaded, and a class that is not listed fails with `IncompatibleClassChangeError`.",
-        "**Pattern matching switch**: Generates complex bytecode using `tableswitch`/`lookupswitch` with type checks and guards.",
-        "**String templates (preview in Java 21 and 22)**: Were withdrawn in JDK 23 and are not part of Java; do not rely on them."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Source",
+        "Bytecode"
+      ],
+      "rows": [
         [
-          "**Assuming source code structure matches bytecode**: The compiler may reorder, inline, or transform code.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Source code\nString result = \"Hello\" + name + \"!\";\n\n// In Java 9+, this uses invokedynamic with StringConcatFactory,\n// NOT StringBuilder as in older Java versions"
-          },
-          "**Solution**: Use `javap -c` to inspect actual bytecode when performance or behavior matters."
+          "`x + \":\" + y` (`--release` 9 or later)",
+          "`invokedynamic` `makeConcatWithConstants`, recipe as a static argument"
         ],
         [
-          "**Ignoring bytecode verification errors**: Invalid bytecode causes `VerifyError` at class loading time.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// If bytecode is manipulated to have type mismatches:\n// java.lang.VerifyError: Bad type on operand stack"
-          },
-          "**Solution**: When using bytecode manipulation libraries (ASM, ByteBuddy), always run verification passes."
+          "the same with `--release 8` or `-XDstringConcat=inline`",
+          "`new StringBuilder`, `append` per operand, `toString`"
         ],
         [
-          "**Misunderstanding method dispatch**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// invokevirtual: runtime polymorphism (most instance methods)\nobj.method();\n\n// invokespecial: no virtual dispatch (constructors, super calls)\nsuper.method();\n\n// private instance methods: invokevirtual since Java 11 (invokespecial before);\n// the JVM still binds a private method directly, without dispatch\nprivateHelper();\n\n// invokestatic: no dispatch needed\nClassName.staticMethod();\n\n// invokeinterface: similar to invokevirtual but for interface references\nlist.add(element);"
-          },
-          "**Solution**: Understand which invoke instruction is used for each method call type."
+          "a lambda",
+          "private synthetic `lambda$m$n` plus `invokedynamic` `LambdaMetafactory.metafactory`"
         ],
         [
-          "**Boxing overhead in bytecode**: Autoboxing creates invisible method calls in bytecode.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Integer x = 5; // Bytecode: invokestatic Integer.valueOf(int)\nint y = x;     // Bytecode: invokevirtual Integer.intValue()"
-          },
-          "**Solution**: Be aware that autoboxing adds method calls; use primitives in performance-critical paths."
+          "`switch` on a `String`",
+          "`hashCode`, `lookupswitch`, `equals` per label in the bucket, `tableswitch` on an index"
+        ],
+        [
+          "the same with `case null`",
+          "`invokedynamic` `SwitchBootstraps.typeSwitch`, `tableswitch`"
+        ],
+        [
+          "`try`-`finally`",
+          "the `finally` code copied onto each exit, plus an `any` handler ending in `athrow`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Use `javap -c -v` for deep inspection**: The `-v` flag shows the constant pool, stack map frames, and detailed metadata alongside bytecode.",
-        "**Understand the operand stack**: Knowing how values flow through the stack helps debug complex expressions and understand performance characteristics.",
-        "**Leverage invokedynamic**: When creating frameworks or libraries, `invokedynamic` provides flexible, high-performance method dispatch (used internally by lambda expressions).",
-        "**Monitor bytecode size**: HotSpot does not JIT-compile methods larger than 8,000 bytes of bytecode at all (they stay interpreted), and it only inlines small methods (35 bytes at ordinary call sites, 325 bytes at hot ones, by default). Keep methods focused.",
-        "**Use bytecode manipulation carefully**: Libraries like ASM, ByteBuddy, and Javassist are powerful but produce bytecode that bypasses compiler checks."
+        "A service starts in 4 s and you suspect bootstraps. How would you count the `invokedynamic` call sites linked during startup, and what would you change if they turned out to matter?",
+        "Run `javap -c` on a `for` loop over an `int[]` and an enhanced `for` over the same array. Predict the difference first.",
+        "A code generator emits a method with 300 `return` statements inside one `try`-`finally`. Estimate the bytecode size, and decide where the cleanup should go instead."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Maximum method size**: A single method can have at most 65,535 bytes of bytecode. Methods exceeding this limit cause a compilation error. This can happen with very large generated switch statements or auto-generated code.",
-        "**Maximum constant pool size**: Limited to 65,535 entries. Classes with extremely large numbers of constants (e.g., generated code) may hit this limit.",
-        "**Stack depth limits**: Each method has a declared maximum stack depth. Bytecode that would exceed this depth fails verification.",
-        "**Wide instructions**: Local variable indices beyond 255 require the `wide` prefix instruction, which uses two bytes for the index.",
-        "**Bridge methods**: The compiler generates synthetic bridge methods for generic type erasure and covariant return types. These are visible in bytecode but not in source."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Bytecode Names a Bootstrap Instead of the Code"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Ability to read and understand basic bytecode output from `javap`",
-        "Understanding the difference between the five `invoke*` instructions",
-        "Knowledge of how lambda expressions are compiled (invokedynamic vs. anonymous inner classes)",
-        "How string concatenation evolved from `StringBuilder` to `StringConcatFactory`",
-        "Understanding stack-based vs. register-based execution",
-        "Bytecode verification and its role in JVM security"
-      ]
+      "text": "Before Java 9, javac decided how `+` concatenated, and every class it compiled carried that decision until it was recompiled. A better strategy in a new JDK reached no existing library. With `invokedynamic`, javac records only what is concatenated and leaves the how to a method in the running JDK, so a JDK upgrade changes the concatenation code of every class at once. Lambdas got the same freedom: their classes are spun at run time instead of shipped in the jar."
     },
     {
       "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"How does the JVM implement method overriding at the bytecode level?\"",
-        "\"What bytecode instruction does a lambda expression generate?\"",
-        "\"Why does Java have both `invokevirtual` and `invokeinterface`?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Explain the difference between the five invoke instructions in JVM bytecode.**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: The JVM has five method invocation instructions, each for a different dispatch mechanism:\n\n1. invokevirtual:\n   - Used for virtual (instance) method calls on class types\n   - Performs runtime dispatch based on the actual object type\n   - Used for most non-private, non-static, non-constructor instance methods\n   - Example: obj.toString() where obj is a class reference\n\n2. invokeinterface:\n   - Similar to invokevirtual but for interface references\n   - Slightly slower because interface method tables differ from class vtables\n   - Example: list.add(element) where list is a List interface reference\n\n3. invokespecial:\n   - Used for calls that don't need virtual dispatch:\n     a. Constructors (<init> methods)\n     b. super.method() calls\n     c. Private methods, but only in class files compiled for Java 10 or earlier: since\n        Java 11 (nest-based access control, JEP 181) javac calls private methods with\n        invokevirtual (private interface methods with invokeinterface)\n   - No virtual dispatch: the target method is chosen from the symbolic reference\n\n4. invokestatic:\n   - Used for static method calls\n   - No object reference needed; resolved by class name\n   - Example: Math.max(a, b)\n\n5. invokedynamic:\n   - Introduced in Java 7 for dynamic language support\n   - Used extensively since Java 8 for lambda expressions\n   - Delegates method linking to a bootstrap method at first call\n   - The bootstrap method returns a CallSite that caches the target method\n   - Enables flexible, high-performance dynamic dispatch"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Each invoke instruction demonstrated\npublic class InvokeInstructions {\n    private void privateMethod() { }      // invokevirtual (Java 11+)\n    public void virtualMethod() { }       // invokevirtual\n    public static void staticMethod() { } // invokestatic\n\n    public void demonstrate() {\n        // invokespecial - constructor\n        Object obj = new Object();\n\n        // invokevirtual - instance method on class type\n        obj.toString();\n\n        // invokestatic\n        Math.max(1, 2);\n\n        // invokevirtual - private method (Java 11+; invokespecial before Java 11)\n        privateMethod();\n\n        // invokeinterface - method on interface reference\n        java.util.List<String> list = new java.util.ArrayList<>();\n        list.add(\"hello\");\n\n        // invokedynamic - lambda expression\n        Runnable r = () -> System.out.println(\"lambda\");\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does the JVM implement lambda expressions at the bytecode level?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: Lambda expressions use invokedynamic, which is a fundamentally different approach from\nanonymous inner classes:\n\n1. At compile time:\n   - The lambda body is compiled into a private static (or instance) method in the\n     enclosing class, called a \"desugared\" lambda method.\n   - An invokedynamic instruction is emitted at the lambda creation site.\n   - The bootstrap method is java.lang.invoke.LambdaMetafactory.metafactory().\n\n2. At first execution:\n   - The invokedynamic instruction triggers the bootstrap method.\n   - LambdaMetafactory generates a class at runtime that implements the functional\n     interface and delegates to the desugared lambda method.\n   - A CallSite is created and cached, so subsequent calls skip the bootstrap.\n\n3. On subsequent executions:\n   - The cached CallSite is used directly -- no class generation overhead.\n   - For non-capturing lambdas (no variables from enclosing scope), a singleton\n     instance can be reused.\n\nAdvantages over anonymous inner classes:\n- No separate .class file generated at compile time\n- Deferred class generation allows JVM to optimize\n- Non-capturing lambdas can be singletons (zero allocation)\n- The JIT compiler can inline lambda bodies more effectively"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Lambda vs anonymous inner class in bytecode\npublic class LambdaVsAnonymous {\n    // Anonymous inner class: generates LambdaVsAnonymous$1.class\n    Runnable anonymous = new Runnable() {\n        @Override\n        public void run() {\n            System.out.println(\"anonymous\");\n        }\n    };\n\n    // Lambda: uses invokedynamic, no extra class file at compile time\n    Runnable lambda = () -> System.out.println(\"lambda\");\n\n    // View bytecode with: javap -c -p LambdaVsAnonymous.class\n    // The lambda body becomes a private static method:\n    // private static void lambda$new$0();\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is bytecode verification and why is it important?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Bytecode verification is a crucial security and correctness mechanism in the JVM.\nIt runs during the linking phase of class loading, before any bytecode is executed.\n\nThe verifier checks:\n1. Structural validity:\n   - Magic number is correct (0xCAFEBABE)\n   - Class file format is valid\n   - Constant pool entries are consistent\n\n2. Type safety:\n   - Every instruction operates on the correct types\n   - Method calls have correct argument types\n   - Return types match method signatures\n   - No stack underflows or overflows\n\n3. Control flow:\n   - All code paths return the correct type\n   - No jumps to invalid locations\n   - Exception handlers cover valid ranges\n\n4. Access control:\n   - Private/protected access is respected\n   - Final classes are not subclassed\n   - Final methods are not overridden\n\nWhy it matters:\n- Prevents malicious bytecode from compromising JVM security\n- Catches errors early (at load time vs. runtime)\n- Enables the JIT compiler to make optimizations that assume type safety\n- Protects against corrupted class files\n\nIf verification fails, the JVM throws VerifyError and refuses to load the class.\nSince Java 6, StackMapTable attributes help speed up verification by providing\ntype information at branch targets (split verifier)."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating what the verifier catches\npublic class BytecodeVerification {\n    // The verifier ensures type safety at every instruction.\n    // For example, it prevents treating an integer as an object reference.\n\n    public static void demonstrateVerification() {\n        // This source code always passes verification because javac produces valid bytecode.\n        // Verification errors occur with hand-crafted or manipulated bytecode.\n\n        // Example of what verification prevents (conceptual):\n        // If bytecode tried to: aload 0 (load object ref), iadd (integer add)\n        // Verifier would reject: \"Bad type on operand stack\"\n\n        // The verifier also ensures definite assignment:\n        int x;\n        // System.out.println(x); // javac prevents this, but if bytecode were crafted\n                                   // to use x before assignment, verifier would catch it\n        x = 5;\n        System.out.println(x); // Valid: x is definitely assigned\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How does string concatenation work at the bytecode level across Java versions?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: String concatenation has evolved significantly across Java versions:\n\nJava 1-4 (StringBuffer approach):\n- Compiler translated \"a\" + b + \"c\" into\n  new StringBuffer().append(\"a\").append(b).append(\"c\").toString()\n- StringBuffer is synchronized, so every append paid for locking\n\nJava 5-8 (StringBuilder approach):\n- Compiler translated \"a\" + b + \"c\" into:\n  new StringBuilder().append(\"a\").append(b).append(\"c\").toString()\n- Better but still had issues:\n  - StringBuilder allocation on every concatenation\n  - Difficult for JIT to optimize across method boundaries\n  - Pre-sizing the StringBuilder was not optimal\n\nJava 9+ (invokedynamic + StringConcatFactory):\n- Uses invokedynamic with java.lang.invoke.StringConcatFactory as bootstrap\n- The strategy is chosen by the JDK library when the call site is first linked, not by javac:\n  - JDK 9 shipped several strategies selectable with -Djava.lang.invoke.stringConcat\n    (e.g. BC_SB, MH_INLINE_SIZED_EXACT)\n  - Later JDKs, including 21, removed the alternatives and always use the method-handle\n    strategy that pre-computes the exact size and allocates once\n- Benefits:\n  - No StringBuilder allocation in most cases\n  - Exact sizing means no wasted memory\n  - JIT can optimize more aggressively\n  - Strategy can change across JVM versions without recompilation\n\nThe key insight is that invokedynamic defers the concatenation strategy decision\nto link time in the running JDK, so a JDK upgrade can improve it without recompiling."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// String concatenation evolution\npublic class StringConcatBytecode {\n    // Java 5-8 bytecode (conceptual):\n    // new StringBuilder()\n    // .append(\"Hello \")\n    // .append(name)\n    // .append(\"!\")\n    // .toString()\n\n    // Java 9+ bytecode (conceptual):\n    // invokedynamic makeConcatWithConstants(\"Hello \\u0001!\")\n    // where \\u0001 is a placeholder for the 'name' argument\n\n    public static String greet(String name) {\n        return \"Hello \" + name + \"!\";\n        // Use javap -c to see the actual bytecode:\n        // Java 9+: invokedynamic #X:makeConcatWithConstants\n    }\n\n    public static void main(String[] args) {\n        System.out.println(greet(\"World\"));\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the operand stack and how does it work during bytecode execution?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: The operand stack is a LIFO (Last-In, First-Out) stack used by the JVM to perform\ncomputations within each method. Every stack frame (one per method call) has its own\noperand stack.\n\nHow it works:\n1. Values are pushed onto the stack by load instructions (iload, aload, ldc, etc.)\n2. Operations pop their operands from the stack, compute a result, and push the result\n3. Store instructions pop values and save them to local variables\n4. Return instructions pop the return value from the stack\n\nExample: Computing \"int c = a + b\" where a=5, b=3\n\nStack operations (assuming a is local var 1, b is local var 2, c is local var 3):\n1. iload_1        // Push a (5) onto stack         Stack: [5]\n2. iload_2        // Push b (3) onto stack         Stack: [5, 3]\n3. iadd           // Pop 5 and 3, push 8           Stack: [8]\n4. istore_3       // Pop 8, store in local var 3   Stack: []\n\nKey characteristics:\n- Maximum stack depth is declared in the method's Code attribute\n- The verifier ensures stack depth never exceeds the declared maximum\n- Long and double values occupy two stack slots\n- The stack is empty at the start of each method\n- Each method invocation gets a fresh operand stack in its frame"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Demonstrating operand stack operations\npublic class OperandStackDemo {\n    // Method: static int add(int a, int b) { return a + b; }\n    // Bytecode (static method, so 'a' is local 0 and 'b' is local 1;\n    // an instance method would have 'this' in local 0):\n    //   0: iload_0      // push parameter 'a'\n    //   1: iload_1      // push parameter 'b'\n    //   2: iadd         // pop both, push sum\n    //   3: ireturn      // pop sum, return it\n\n    public static int add(int a, int b) {\n        return a + b;\n    }\n\n    // More complex: static int compute(int x) { return x * x + 2 * x + 1; }\n    // Bytecode:\n    //   0: iload_0      // push x            Stack: [x]\n    //   1: iload_0      // push x            Stack: [x, x]\n    //   2: imul         // pop both, push x*x Stack: [x*x]\n    //   3: iconst_2     // push 2            Stack: [x*x, 2]\n    //   4: iload_0      // push x            Stack: [x*x, 2, x]\n    //   5: imul         // pop 2 and x       Stack: [x*x, 2*x]\n    //   6: iadd         // pop both          Stack: [x*x+2*x]\n    //   7: iconst_1     // push 1            Stack: [x*x+2*x, 1]\n    //   8: iadd         // pop both          Stack: [x*x+2*x+1]\n    //   9: ireturn      // return result\n\n    public static int compute(int x) {\n        return x * x + 2 * x + 1;\n    }\n\n    public static void main(String[] args) {\n        System.out.println(add(5, 3));     // 8\n        System.out.println(compute(3));     // 16\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: What are bridge methods and why does the compiler generate them?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Bridge methods are synthetic methods generated by the Java compiler to handle two\nsituations caused by type erasure and covariant return types:\n\n1. Generic Type Erasure:\n   When a class extends a generic class with a concrete type, the compiler generates\n   bridge methods to maintain polymorphism after erasure.\n\n   Example: class StringList implements Comparable<StringList>\n   - At source level: int compareTo(StringList other)\n   - After erasure, Comparable has: int compareTo(Object other)\n   - Bridge method generated: int compareTo(Object o) { return compareTo((StringList)o); }\n\n2. Covariant Return Types:\n   When a subclass overrides a method with a more specific return type.\n\n   Example: Object clone() overridden as MyClass clone()\n   - Bridge: Object clone() { return (Object) this.clone(); } // calls MyClass clone()\n\nBridge methods have the ACC_BRIDGE and ACC_SYNTHETIC flags in bytecode.\nThey are visible via reflection (Method.isBridge() returns true) but not in source.\n\nThis is important because:\n- It enables generic collections to work with polymorphism\n- It explains unexpected methods in reflection results\n- It's a common source of confusion in method introspection"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Bridge method demonstration\npublic class BridgeMethodDemo {\n    // Generic interface\n    interface Transformer<T> {\n        T transform(T input);\n    }\n\n    // Concrete implementation\n    static class StringTransformer implements Transformer<String> {\n        @Override\n        public String transform(String input) {\n            return input.toUpperCase();\n        }\n        // Compiler generates bridge method:\n        // public Object transform(Object input) {\n        //     return transform((String) input);\n        // }\n    }\n\n    public static void main(String[] args) throws Exception {\n        // Viewing bridge methods via reflection\n        for (var method : StringTransformer.class.getDeclaredMethods()) {\n            System.out.printf(\"Method: %s, Bridge: %b, Synthetic: %b%n\",\n                method, method.isBridge(), method.isSynthetic());\n        }\n        // Output (the order of getDeclaredMethods() is not specified):\n        // Method: public java.lang.String BridgeMethodDemo$StringTransformer.transform(java.lang.String), Bridge: false, Synthetic: false\n        // Method: public java.lang.Object BridgeMethodDemo$StringTransformer.transform(java.lang.Object), Bridge: true, Synthetic: true\n    }\n}"
+      "text": "The cost is the one measured above: work javac used to do once at build time now happens, by default, at every start, once per call site. `javap -c` no longer shows everything a method does either. For a concatenation or a lambda, the code that runs exists only after the first call."
     },
     {
       "type": "heading",
@@ -401,17 +390,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 13,
-    "code": 12,
-    "tables": 1,
-    "lists": 11,
+    "headings": 10,
+    "paras": 28,
+    "code": 17,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 0,
-    "html": 0,
+    "quotes": 1,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "d22ce2aa812d6689cdeadc4f8fd292160855e4471564e660e56928b107d4fb10"
+  "content_sha256": "75e1a3f3903d4565b7589e5206bd0e8d6594148810e62d2ce6777a4155268cb7"
 }

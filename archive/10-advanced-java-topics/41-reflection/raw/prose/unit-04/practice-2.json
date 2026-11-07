@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Scan a class once, read its properties many times",
+  "title": "Take the pricing rules out of the allocation profile",
   "blocks": [
     {
       "type": "heading",
@@ -19,56 +19,19 @@
     },
     {
       "type": "para",
-      "text": "Two classic reflection slowdowns: **looking members up in a loop**, and **calling `setAccessible(true)` on every call**. Frameworks avoid both by scanning a class **once**, preparing its members (made accessible then) and caching them per class, so each later read is just `field.get(bean)`."
+      "text": "The checkout service prices every order line through rules named in configuration: a rule is any object with a public `int apply(int cents)`, registered at startup with `add(name, rule)`. Since the rules were added, the allocation profile of a busy checkout node shows `java.lang.Integer` as its top allocated type, with the stacks ending in the rule table, and young-generation GCs have doubled."
     },
     {
       "type": "para",
-      "text": "Write `PropertyReader`. Its constructor takes a `scanner` that returns a class's fields (normally `Class::getDeclaredFields`); the tests watch it."
+      "text": "Finish the `TODO` in `src/main/java/practice/RuleTable.java`: `prepare(rule)` turns one rule object into the `IntUnaryOperator` that `apply(name, cents)` calls for it."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`read(bean, property)` returns the value of the field named `property` of `bean`'s class (any access level).",
-        "The first read of a class asks the scanner for its fields **once**, makes **each of them accessible once, right then**, and caches them by name. Later reads of that class, on any bean, use the cache.",
-        "The cache is **per class**: two classes with a field of the same name each read their own.",
-        "An unknown property is an `IllegalArgumentException`."
-      ]
+      "type": "para",
+      "text": "When you're done, every name applies its own rule object, an object without `int apply(int)` is refused when it is added, and applying a rule allocates nothing. About ten lines in total."
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "scanner calls for `Person`",
-        "result"
-      ],
-      "rows": [
-        [
-          "`read(ann, \"name\")`",
-          "1",
-          "`\"Ann\"`"
-        ],
-        [
-          "then `read(ann, \"age\")`, `read(bob, \"name\")`",
-          "still 1",
-          "`41`, `\"Bob\"`"
-        ],
-        [
-          "`read(rex, \"name\")`, `rex` a `Pet`",
-          "1 for `Pet`",
-          "`\"Rex\"`"
-        ],
-        [
-          "`read(mug, \"label\")`, `read(pen, \"label\")` for `Shop.Item` and `Store.Item`",
-          "1 each",
-          "`\"mug\"`, `\"pen\"`"
-        ],
-        [
-          "`read(ann, \"salary\")`",
-          "",
-          "`IllegalArgumentException`"
-        ]
-      ]
+      "type": "para",
+      "text": "The tests measure allocation with the thread's allocation counter, over amounts well outside the `Integer` cache."
     },
     {
       "type": "heading",
@@ -83,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.Function;\n\npublic final class PropertyReader {\n\n    private final Function<Class<?>, Field[]> scanner;\n    private final Map<Class<?>, Map<String, Field>> cache = new ConcurrentHashMap<>();\n\n    public PropertyReader(Function<Class<?>, Field[]> scanner) {\n        this.scanner = scanner;\n    }\n\n    /** The value of the named field of bean, from a per-class cache filled on first use. */\n    public Object read(Object bean, String property) {\n        Field field = fieldsOf(bean.getClass()).get(property);\n        if (field == null) {\n            throw new IllegalArgumentException(\"no property \" + property + \" on \" + bean.getClass().getName());\n        }\n        try {\n            return field.get(bean);\n        } catch (IllegalAccessException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n\n    private Map<String, Field> fieldsOf(Class<?> type) {\n        return cache.computeIfAbsent(type, this::scan);\n    }\n\n    private Map<String, Field> scan(Class<?> type) {\n        Map<String, Field> fields = new HashMap<>();\n        for (Field field : scanner.apply(type)) {\n            field.setAccessible(true);\n            fields.put(field.getName(), field);\n        }\n        return Map.copyOf(fields);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.lang.invoke.MethodHandle;\nimport java.lang.invoke.MethodHandles;\nimport java.lang.invoke.MethodType;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.IntUnaryOperator;\n\n/**\n * Pricing rules named in configuration. A rule is any object with a public method\n * {@code int apply(int cents)}; the table calls it for every line of every order.\n */\npublic class RuleTable {\n\n    private final Map<String, IntUnaryOperator> rules = new ConcurrentHashMap<>();\n\n    /** Registers a rule under a name. Runs at startup, once per configured rule. */\n    public void add(String name, Object rule) {\n        rules.put(name, prepare(rule));\n    }\n\n    /** Applies the named rule to an amount in cents. Runs millions of times a minute. */\n    public int apply(String name, int cents) {\n        IntUnaryOperator rule = rules.get(name);\n        if (rule == null) throw new IllegalArgumentException(\"no rule named \" + name);\n        return rule.applyAsInt(cents);\n    }\n\n    /** Turns one rule object into the function apply() calls for it. */\n    IntUnaryOperator prepare(Object rule) {\n        MethodHandle handle;\n        try {\n            handle = MethodHandles.lookup()\n                    .findVirtual(rule.getClass(), \"apply\", MethodType.methodType(int.class, int.class))\n                    .bindTo(rule);\n        } catch (ReflectiveOperationException e) {\n            throw new IllegalArgumentException(rule.getClass().getName() + \" has no int apply(int)\", e);\n        }\n        return cents -> {\n            try {\n                return (int) handle.invokeExact(cents);\n            } catch (RuntimeException | Error e) {\n                throw e;\n            } catch (Throwable t) {\n                throw new IllegalStateException(t);\n            }\n        };\n    }\n}\n"
         }
       ]
     },
@@ -95,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.util.function.Function;\n\npublic final class PropertyReader {\n\n    public PropertyReader(Function<Class<?>, Field[]> scanner) {\n    }\n\n    /** The value of the named field of bean, from a per-class cache filled on first use. */\n    public Object read(Object bean, String property) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.IntUnaryOperator;\n\n/**\n * Pricing rules named in configuration. A rule is any object with a public method\n * {@code int apply(int cents)}; the table calls it for every line of every order.\n */\npublic class RuleTable {\n\n    private final Map<String, IntUnaryOperator> rules = new ConcurrentHashMap<>();\n\n    /** Registers a rule under a name. Runs at startup, once per configured rule. */\n    public void add(String name, Object rule) {\n        rules.put(name, prepare(rule));\n    }\n\n    /** Applies the named rule to an amount in cents. Runs millions of times a minute. */\n    public int apply(String name, int cents) {\n        IntUnaryOperator rule = rules.get(name);\n        if (rule == null) throw new IllegalArgumentException(\"no rule named \" + name);\n        return rule.applyAsInt(cents);\n    }\n\n    /** Turns one rule object into the function apply() calls for it. */\n    IntUnaryOperator prepare(Object rule) {\n        // TODO: Return a function that calls the rule's int apply(int cents). It runs for every\n        //       order line, and the service's allocation profile must not show it. A rule object\n        //       that has no such method is an IllegalArgumentException, here.\n        throw new IllegalStateException(\"TODO: prepare\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -103,10 +66,10 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -114,11 +77,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6dba331326af43c676b231e492683336d885b723a0e190185d308637d59bb44c",
-  "starting_code": "package practice;\n\nimport java.lang.reflect.Field;\nimport java.util.function.Function;\n\npublic final class PropertyReader {\n\n    public PropertyReader(Function<Class<?>, Field[]> scanner) {\n    }\n\n    /** The value of the named field of bean, from a per-class cache filled on first use. */\n    public Object read(Object bean, String property) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "772525d37a3431c33328bdf7a8c738af1e0b0712e8cdff1412cb6f0c24a861a3",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.function.IntUnaryOperator;\n\n/**\n * Pricing rules named in configuration. A rule is any object with a public method\n * {@code int apply(int cents)}; the table calls it for every line of every order.\n */\npublic class RuleTable {\n\n    private final Map<String, IntUnaryOperator> rules = new ConcurrentHashMap<>();\n\n    /** Registers a rule under a name. Runs at startup, once per configured rule. */\n    public void add(String name, Object rule) {\n        rules.put(name, prepare(rule));\n    }\n\n    /** Applies the named rule to an amount in cents. Runs millions of times a minute. */\n    public int apply(String name, int cents) {\n        IntUnaryOperator rule = rules.get(name);\n        if (rule == null) throw new IllegalArgumentException(\"no rule named \" + name);\n        return rule.applyAsInt(cents);\n    }\n\n    /** Turns one rule object into the function apply() calls for it. */\n    IntUnaryOperator prepare(Object rule) {\n        // TODO: Return a function that calls the rule's int apply(int cents). It runs for every\n        //       order line, and the service's allocation profile must not show it. A rule object\n        //       that has no such method is an IllegalArgumentException, here.\n        throw new IllegalStateException(\"TODO: prepare\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/main/java/practice/PropertyReader.java",
-    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/test/java/practice/PropertyReaderTest.java",
+    "main_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/main/java/practice/RuleTable.java",
+    "test_path": "practice/10-advanced-java-topics/41-reflection/prose/unit-04/practice-2/src/test/java/practice/RuleTableTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -139,24 +102,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PropertyReaderTest#readsPropertiesByName",
+        "id": "practice.RuleTableTest#appliesEachRuleByName",
         "kind": "main",
-        "says": "read(person, \"name\") is \"Ann\" and read(person, \"age\") is 41, and an unknown property is IllegalArgumentException."
+        "says": "each name applies the rule object registered under it"
       },
       {
-        "id": "practice.PropertyReaderTest#aClassIsScannedOnce",
-        "kind": "edge",
-        "says": "Three reads of two Person beans ask the scanner for Person's fields once."
+        "id": "practice.RuleTableTest#anObjectWithoutTheRuleMethodIsRefusedWhenAdded",
+        "kind": "main",
+        "says": "an object without an int apply(int) is refused with IllegalArgumentException when it is added"
       },
       {
-        "id": "practice.PropertyReaderTest#twoClassesAreCachedApart",
+        "id": "practice.RuleTableTest#twoRulesOfOneClassKeepTheirOwnSettings",
         "kind": "edge",
-        "says": "Person and Pet both have a name field, and Shop.Item and Store.Item share a simple name: each bean reads its own class's field, in any order."
+        "says": "two rule objects of the same class each apply their own settings"
       },
       {
-        "id": "practice.PropertyReaderTest#fieldsAreMadeAccessibleAtScanTime",
+        "id": "practice.RuleTableTest#applyingARuleAllocatesNothing",
         "kind": "edge",
-        "says": "After reading only name, every Field the scanner gave for Person is already accessible."
+        "says": "applying a rule to amounts outside the Integer cache allocates no objects"
       }
     ],
     "report": {
@@ -165,11 +128,10 @@
     },
     "origin": {
       "path": "41-reflection/README_10.3.4.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Method Handle Obeys the Same Rule, and invokeExact Never Boxes"
     },
     "concepts": [
-      "Frameworks scan a class once, prepare its members and cache the metadata per class for every later use.",
-      "setAccessible(true) is called once when a member is prepared, never on every call."
+      "Method.invoke boxes each int argument and result outside the Integer cache, and escape analysis removes only the argument array; a handle bound to its receiver and called with invokeExact allocates nothing."
     ]
   }
 }

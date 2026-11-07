@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Deprecate the old API and point to its replacement",
+  "title": "Make bad rate-limit configuration fail at load",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,22 @@
     },
     {
       "type": "para",
-      "text": "The page's `LegacyApi` keeps two old methods working while it steers callers to their replacements. `@Deprecated` says how urgent the move is: `since` names the version, and `forRemoval = true` warns that the method **will be removed**, while plain `@Deprecated` only discourages it. `@Deprecated` has RUNTIME retention, so the tests read it back through reflection."
+      "text": "The API gateway reads its rate limits from a YAML file: for each route, a list of requests allowed per minute, one per customer tier. Last week someone wrote a limit as `\"20\"`, in quotes. The gateway started without a complaint, and the first request to that route killed the request scheduler with a `ClassCastException` in code that has no cast. On another night, a hot-reload job edited the parsed tree after it was loaded, and the running limits changed under the scheduler."
     },
     {
       "type": "para",
-      "text": "Write `LegacyApi`:"
+      "text": "`RateLimits` already loads the file. Finish the `TODO` in `src/main/java/practice/RateLimits.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`oldMethod()` returns `\"old result\"`. It is deprecated since `\"2.0\"` and **for removal**.",
-        "`newMethod()` returns `\"new result\"`. It is its replacement.",
-        "`legacyCalculation(a, b)` returns `a + b` and wraps on overflow, as it always has. It is deprecated since `\"1.5\"` but **not for removal**.",
-        "`modernCalculation(a, b)` returns `a + b` but **refuses overflow** with `ArithmeticException`."
+        "`integers(route, node)`: turn one route's parsed node into the list of limits the rest of the gateway reads."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "result"
-      ],
-      "rows": [
-        [
-          "`oldMethod()`",
-          "`\"old result\"`"
-        ],
-        [
-          "`legacyCalculation(Integer.MAX_VALUE, 1)`",
-          "`-2147483648`"
-        ],
-        [
-          "`modernCalculation(2, 3)`",
-          "`5`"
-        ],
-        [
-          "`modernCalculation(Integer.MAX_VALUE, 1)`",
-          "`ArithmeticException`"
-        ],
-        [
-          "`@Deprecated` on `oldMethod`",
-          "`since = \"2.0\"`, `forRemoval = true`"
-        ],
-        [
-          "`@Deprecated` on `legacyCalculation`",
-          "`since = \"1.5\"`, `forRemoval = false`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, bad configuration stops the load itself, with an `IllegalArgumentException` whose message names the route, and the limits a `RateLimits` holds can't change after `load` returns. The method needs no `@SuppressWarnings`. About ten lines in total."
     },
     {
       "type": "heading",
@@ -81,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\npublic class LegacyApi {\n\n    /**\n     * @deprecated Use {@link #newMethod()} instead.\n     */\n    @Deprecated(since = \"2.0\", forRemoval = true)\n    public String oldMethod() {\n        return \"old result\";\n    }\n\n    /** The replacement for oldMethod(). */\n    public String newMethod() {\n        return \"new result\";\n    }\n\n    /**\n     * @deprecated Use {@link #modernCalculation(int, int)}, which refuses overflow.\n     */\n    @Deprecated(since = \"1.5\")\n    public int legacyCalculation(int a, int b) {\n        return a + b;\n    }\n\n    /** The replacement sum: refuses overflow. */\n    public int modernCalculation(int a, int b) {\n        return Math.addExact(a, b);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Per-route rate limits, loaded from the tree a JSON or YAML parser produces. */\npublic final class RateLimits {\n    private final Map<String, List<Integer>> limits;\n\n    private RateLimits(Map<String, List<Integer>> limits) {\n        this.limits = limits;\n    }\n\n    /**\n     * Loads the limits. {@code raw} maps a route to its node as the parser produced it: a list of\n     * requests allowed per minute, one per customer tier (free, paid, ...).\n     */\n    public static RateLimits load(Map<String, Object> raw) {\n        Map<String, List<Integer>> limits = new LinkedHashMap<>();\n        for (Map.Entry<String, Object> route : raw.entrySet()) {\n            limits.put(route.getKey(), integers(route.getKey(), route.getValue()));\n        }\n        return new RateLimits(limits);\n    }\n\n    /**\n     * Turns one route's parsed node into the list of limits the rest of the service reads.\n     * Bad configuration must stop the load, with an IllegalArgumentException that names the route.\n     */\n    static List<Integer> integers(String route, Object node) {\n        if (!(node instanceof List<?> list)) {\n            throw new IllegalArgumentException(route + \": expected a list of limits, got \" + node);\n        }\n        List<Integer> out = new ArrayList<>(list.size());\n        for (Object element : list) {\n            if (!(element instanceof Integer limit)) {\n                throw new IllegalArgumentException(route + \": not a whole number: \" + element);\n            }\n            out.add(limit);\n        }\n        return List.copyOf(out);\n    }\n\n    /** Requests per minute for this route and tier (0 is the free tier). */\n    public int perMinute(String route, int tier) {\n        return limits.get(route).get(tier);\n    }\n\n    /** The sum of the route's limits over every tier, for the capacity report. */\n    public int capacity(String route) {\n        int sum = 0;\n        for (int limit : limits.get(route)) sum += limit;\n        return sum;\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic class LegacyApi {\n\n    /** The old way: deprecated since 2.0 and for removal. */\n    public String oldMethod() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The replacement for oldMethod(). */\n    public String newMethod() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The old sum, wrapping on overflow: deprecated since 1.5, not for removal. */\n    public int legacyCalculation(int a, int b) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The replacement sum: refuses overflow. */\n    public int modernCalculation(int a, int b) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Per-route rate limits, loaded from the tree a JSON or YAML parser produces. */\npublic final class RateLimits {\n    private final Map<String, List<Integer>> limits;\n\n    private RateLimits(Map<String, List<Integer>> limits) {\n        this.limits = limits;\n    }\n\n    /**\n     * Loads the limits. {@code raw} maps a route to its node as the parser produced it: a list of\n     * requests allowed per minute, one per customer tier (free, paid, ...).\n     */\n    public static RateLimits load(Map<String, Object> raw) {\n        Map<String, List<Integer>> limits = new LinkedHashMap<>();\n        for (Map.Entry<String, Object> route : raw.entrySet()) {\n            limits.put(route.getKey(), integers(route.getKey(), route.getValue()));\n        }\n        return new RateLimits(limits);\n    }\n\n    /**\n     * Turns one route's parsed node into the list of limits the rest of the service reads.\n     * Bad configuration must stop the load, with an IllegalArgumentException that names the route.\n     */\n    static List<Integer> integers(String route, Object node) {\n        throw new IllegalStateException(\"TODO: turn the parsed node into the route's list of limits\");\n    }\n\n    /** Requests per minute for this route and tier (0 is the free tier). */\n    public int perMinute(String route, int tier) {\n        return limits.get(route).get(tier);\n    }\n\n    /** The sum of the route's limits over every tier, for the capacity report. */\n    public int capacity(String route) {\n        int sum = 0;\n        for (int limit : limits.get(route)) sum += limit;\n        return sum;\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,9 +69,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -112,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "6da9a7c712c5de3fe260f5823c0a77fd5838752ca0afaa58aab10edcaf41dc5d",
-  "starting_code": "package practice;\n\npublic class LegacyApi {\n\n    /** The old way: deprecated since 2.0 and for removal. */\n    public String oldMethod() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The replacement for oldMethod(). */\n    public String newMethod() {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The old sum, wrapping on overflow: deprecated since 1.5, not for removal. */\n    public int legacyCalculation(int a, int b) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n\n    /** The replacement sum: refuses overflow. */\n    public int modernCalculation(int a, int b) {\n        throw new UnsupportedOperationException(\"TODO\");\n    }\n}\n",
+  "content_sha256": "f6f881070abc82d087e06fd4b184accf1fe8f0ab5ea27b79f787e8b48afb0783",
+  "starting_code": "package practice;\n\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\n/** Per-route rate limits, loaded from the tree a JSON or YAML parser produces. */\npublic final class RateLimits {\n    private final Map<String, List<Integer>> limits;\n\n    private RateLimits(Map<String, List<Integer>> limits) {\n        this.limits = limits;\n    }\n\n    /**\n     * Loads the limits. {@code raw} maps a route to its node as the parser produced it: a list of\n     * requests allowed per minute, one per customer tier (free, paid, ...).\n     */\n    public static RateLimits load(Map<String, Object> raw) {\n        Map<String, List<Integer>> limits = new LinkedHashMap<>();\n        for (Map.Entry<String, Object> route : raw.entrySet()) {\n            limits.put(route.getKey(), integers(route.getKey(), route.getValue()));\n        }\n        return new RateLimits(limits);\n    }\n\n    /**\n     * Turns one route's parsed node into the list of limits the rest of the service reads.\n     * Bad configuration must stop the load, with an IllegalArgumentException that names the route.\n     */\n    static List<Integer> integers(String route, Object node) {\n        throw new IllegalStateException(\"TODO: turn the parsed node into the route's list of limits\");\n    }\n\n    /** Requests per minute for this route and tier (0 is the free tier). */\n    public int perMinute(String route, int tier) {\n        return limits.get(route).get(tier);\n    }\n\n    /** The sum of the route's limits over every tier, for the capacity report. */\n    public int capacity(String route) {\n        int sum = 0;\n        for (int limit : limits.get(route)) sum += limit;\n        return sum;\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/main/java/practice/LegacyApi.java",
-    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/test/java/practice/LegacyApiTest.java",
+    "main_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/main/java/practice/RateLimits.java",
+    "test_path": "practice/10-advanced-java-topics/42-annotations/prose/unit-01/practice-1/src/test/java/practice/RateLimitsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,24 +105,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LegacyApiTest#oldAndNewMethodsBothWork",
+        "id": "practice.RateLimitsTest#loadsWellFormedLimits",
         "kind": "main",
-        "says": "oldMethod() and newMethod() return their results, and both calculations add their arguments, the legacy one wrapping on overflow."
+        "says": "well-formed limits load, and each route and tier reads its own value"
       },
       {
-        "id": "practice.LegacyApiTest#oldMethodIsDeprecatedForRemoval",
-        "kind": "edge",
-        "says": "Reflection finds @Deprecated on oldMethod() with since 2.0 and forRemoval true."
+        "id": "practice.RateLimitsTest#refusesARouteWhoseNodeIsNotAList",
+        "kind": "main",
+        "says": "a route whose node isn't a list is refused at load, and the message names the route"
       },
       {
-        "id": "practice.LegacyApiTest#legacyCalculationIsDeprecatedButStays",
+        "id": "practice.RateLimitsTest#refusesAQuotedLimitWhenTheConfigLoads",
         "kind": "edge",
-        "says": "Reflection finds @Deprecated on legacyCalculation() with since 1.5 and forRemoval false."
+        "says": "a list that holds a string is refused at load, not at the first read of the limit"
       },
       {
-        "id": "practice.LegacyApiTest#modernCalculationRefusesOverflow",
+        "id": "practice.RateLimitsTest#refusesABadLimitAfterGoodOnes",
         "kind": "edge",
-        "says": "modernCalculation(Integer.MAX_VALUE, 1) throws ArithmeticException instead of wrapping."
+        "says": "every element is checked, so a bad limit after good ones is refused too"
+      },
+      {
+        "id": "practice.RateLimitsTest#laterChangesToTheParsedTreeDoNotReachTheLimits",
+        "kind": "edge",
+        "says": "a change to the parsed list after load reaches neither the limits nor their checks"
       }
     ],
     "report": {
@@ -163,11 +136,10 @@
     },
     "origin": {
       "path": "42-annotations/README_10.4.1.md",
-      "section": "Interview Q&A Section"
+      "section": "@SuppressWarnings Covers Its Whole Declaration, Including Warnings Added Later"
     },
     "concepts": [
-      "A deprecated element points to a replacement that is itself not deprecated.",
-      "@Deprecated(since, forRemoval) records when an element was deprecated and whether it will be removed; forRemoval = true gives the stronger warning."
+      "A cast to a parameterized type checks only the class, so code that converts untyped input checks each element and needs no suppression; otherwise the ClassCastException comes later, at a read with no cast."
     ]
   }
 }
