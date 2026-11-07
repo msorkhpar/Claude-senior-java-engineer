@@ -1,20 +1,12 @@
-Java 11's `String.lines()` returns a `Stream<String>` of lines, splitting on
-`\n`, `\r\n` **and** `\r`, which `split("\n")` does not. The page's edge cases:
-`lines()` on an empty string has **no** lines, and a trailing line terminator
-does **not** add an empty last line. `String.repeat(n)` builds padding without
-a loop (`"x".repeat(0)` is `""`).
+Branch offices upload a plain-text file of shipment statuses, one per line, and
+`StatusUpload.statuses(...)` turns it into a list. An unknown status rejects the whole upload, so
+a typo is caught before anything is booked.
 
-Write `Listing.number(String text)`. It returns each line of `text` as
-`"<n>: <line>"`, numbering from 1. Blank lines in the middle are kept and
-numbered. When there are ten or more lines, **right-align** the numbers:
-pad each number on the left with spaces to the width of the largest one.
+The parser was written and tested on Linux. Since the offices started uploading, support keeps
+forwarding rejections that quote a status that looks right: `unknown status 'SHIPPED'`. Other
+uploads are rejected at a line that looks empty in the office's editor. The office in Osaka,
+whose files come from a Japanese spreadsheet export, has never had an upload accepted.
 
-| text | answer |
-|---|---|
-| `"a\nb"` | `["1: a", "2: b"]` |
-| `"a\n\nb"` | `["1: a", "2: ", "3: b"]` |
-| `"a\r\nb\rc\n"` | `["1: a", "2: b", "3: c"]` |
-| `"a\n\n"` | `["1: a", "2: "]` |
-| `""` | `[]` |
-| ten lines `"l1\n...\nl10"` | `[" 1: l1", " 2: l2", ..., "10: l10"]` |
-| a hundred lines | `["  1: l1", ..., " 10: l10", ..., "100: l100"]` |
+Finish the two `TODO`s in `src/main/java/practice/StatusUpload.java`: `lines(...)` and
+`carriesNoStatus(...)`. Any upload that holds only known statuses and lines without a status
+must be accepted, whichever system wrote it. About two lines in total.

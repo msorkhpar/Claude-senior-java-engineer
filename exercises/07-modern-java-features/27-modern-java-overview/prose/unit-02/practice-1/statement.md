@@ -1,18 +1,12 @@
-Java 11 added `isBlank()`, `strip()`, `stripLeading()` and `stripTrailing()` to
-`String`. The page's key distinction: `trim()` treats only characters up to
-`U+0020` as whitespace, while `strip()` uses `Character.isWhitespace`, so it
-also removes Unicode spaces such as EN QUAD (`U+2000`) and EM SPACE (`U+2003`).
-`isBlank()` is the modern form of `trim().isEmpty()`, with the same Unicode
-awareness.
+The sign-up service was moved from Java 8 to Java 21, and its rules class was tidied on the way:
+the reserved user names became an unmodifiable set built once at startup. Since the release,
+three tickets are open:
 
-Write `Fields.clean(List<String> raw)`. It returns the values of `raw`, in
-order, with **all surrounding whitespace removed, Unicode spaces included**,
-and leaves out every value that is **blank**: empty, or made only of
-whitespace of any kind.
+- a mobile client that leaves out the username field gets a 500 instead of the form's
+  "username is required" message;
+- the nightly audit export sometimes lists a domain that was blocked after the export started;
+- monitoring raises "status page changed" after restarts in which no limit changed.
 
-| raw | answer |
-|---|---|
-| `[" a ", "b\t", "   ", "\t\n"]` | `["a", "b"]` |
-| `[" Hello "]` | `["Hello"]` |
-| `["  ", "x"]` | `["x"]` |
-| `[]` | `[]` |
+Finish the three `TODO`s in `src/main/java/practice/SignupRules.java`: `isReserved(...)`,
+`blockedDomains()` and `limitsReport(...)`. Each method's comment says what its caller needs.
+About five lines in total.

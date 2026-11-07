@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Store an enum by name, not by ordinal",
+  "title": "Store ticket states so the next release reads them right",
   "blocks": [
     {
       "type": "heading",
@@ -19,48 +19,15 @@
     },
     {
       "type": "para",
-      "text": "The page warns that `ordinal()` is a fragile thing to persist: add or reorder a constant and every stored number points at a different constant. Persist the `name()` instead. It also recommends a `safeValueOf` that wraps `Enum.valueOf` in an `Optional`, because `valueOf` throws `IllegalArgumentException` for an unknown name and `NullPointerException` for `null`."
+      "text": "The support desk keeps each ticket's state in a text column of the tickets table. The next release adds two states, `TRIAGED` and `WAITING`, and the table already holds a few hundred thousand rows written by the current one (`PreviousState` in the starter). Nobody wants to migrate them."
     },
     {
       "type": "para",
-      "text": "The starter has two releases of one enum: `StatusV1 { ACTIVE, INACTIVE }` and the later `StatusV2 { PENDING, ACTIVE, INACTIVE }`, which added `PENDING` in front. Write:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`static String store(Enum<?> constant)`: the text to persist for `constant`.",
-        "`static <E extends Enum<E>> Optional<E> load(Class<E> type, String stored)`: the constant of `type` that `stored` names, or an empty `Optional` when `stored` is `null` or names no constant. The match is exact: case and spaces count."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`load(StatusV1.class, store(StatusV1.INACTIVE))`",
-          "`Optional[INACTIVE]`"
-        ],
-        [
-          "`load(StatusV2.class, store(StatusV1.ACTIVE))`",
-          "`Optional[ACTIVE]` (not `PENDING`)"
-        ],
-        [
-          "`load(StatusV2.class, \"DELETED\")`",
-          "`Optional.empty`"
-        ],
-        [
-          "`load(StatusV1.class, null)`",
-          "`Optional.empty`"
-        ]
-      ]
+      "text": "Finish `write` and `read` in `src/main/java/practice/TicketStore.java`. `write` turns a state of either release into the column's text; `read` turns that text back into a `State` of the new release."
     },
     {
       "type": "para",
-      "text": "The stored text comes back from a database or a file, so it is a fresh `String` object, never the constant's own name object."
+      "text": "When you're done, every row the previous release wrote loads as the state it was saved as, and every state of the new release, `WAITING` included, survives a save and a load. About two lines in total."
     },
     {
       "type": "heading",
@@ -75,7 +42,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\n\npublic final class EnumStore {\n\n    private EnumStore() {\n    }\n\n    /** The first release. */\n    public enum StatusV1 { ACTIVE, INACTIVE }\n\n    /** A later release that added PENDING in front. */\n    public enum StatusV2 { PENDING, ACTIVE, INACTIVE }\n\n    /** The text to persist for {@code constant}. */\n    public static String store(Enum<?> constant) {\n        return constant.name();\n    }\n\n    /** The constant of {@code type} that {@code stored} names, or empty when it is null or names none. */\n    public static <E extends Enum<E>> Optional<E> load(Class<E> type, String stored) {\n        if (stored == null) {\n            return Optional.empty();\n        }\n        try {\n            return Optional.of(Enum.valueOf(type, stored));\n        } catch (IllegalArgumentException unknown) {\n            return Optional.empty();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Keeps each support ticket's state in a text column of the tickets table. Rows written by the\n * previous release stay in the table, so this release must read them too.\n */\npublic class TicketStore {\n\n    /** The states as the previous release declared them. Its rows are still in the table. */\n    public enum PreviousState { OPEN, ASSIGNED, RESOLVED, CLOSED }\n\n    /** The states of this release: TRIAGED and WAITING are new. */\n    public enum State {\n        OPEN,\n        TRIAGED,\n        ASSIGNED,\n        WAITING {\n            @Override\n            public String toString() { return \"waiting for customer\"; }\n        },\n        RESOLVED,\n        CLOSED\n    }\n\n    /** The table: ticket id to the text in its state column. */\n    private final Map<Long, String> stateColumn = new HashMap<>();\n\n    /** Saves a ticket's state; the previous release's states arrive through here too. */\n    public void save(long ticketId, Enum<?> state) {\n        stateColumn.put(ticketId, write(state));\n    }\n\n    /** Loads a ticket's state as this release knows it. */\n    public State load(long ticketId) {\n        return read(stateColumn.get(ticketId));\n    }\n\n    /** The text that goes into the state column for a state of either release. */\n    static String write(Enum<?> state) {\n        return state.name();\n    }\n\n    /** The state of this release that a column's text stands for. */\n    static State read(String column) {\n        return State.valueOf(column);\n    }\n}\n"
         }
       ]
     },
@@ -87,7 +54,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\n\npublic final class EnumStore {\n\n    private EnumStore() {\n    }\n\n    /** The first release. */\n    public enum StatusV1 { ACTIVE, INACTIVE }\n\n    /** A later release that added PENDING in front. */\n    public enum StatusV2 { PENDING, ACTIVE, INACTIVE }\n\n    /** The text to persist for {@code constant}. */\n    public static String store(Enum<?> constant) {\n        throw new UnsupportedOperationException(\"write store\");\n    }\n\n    /** The constant of {@code type} that {@code stored} names, or empty when it is null or names none. */\n    public static <E extends Enum<E>> Optional<E> load(Class<E> type, String stored) {\n        throw new UnsupportedOperationException(\"write load\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Keeps each support ticket's state in a text column of the tickets table. Rows written by the\n * previous release stay in the table, so this release must read them too.\n */\npublic class TicketStore {\n\n    /** The states as the previous release declared them. Its rows are still in the table. */\n    public enum PreviousState { OPEN, ASSIGNED, RESOLVED, CLOSED }\n\n    /** The states of this release: TRIAGED and WAITING are new. */\n    public enum State {\n        OPEN,\n        TRIAGED,\n        ASSIGNED,\n        WAITING {\n            @Override\n            public String toString() { return \"waiting for customer\"; }\n        },\n        RESOLVED,\n        CLOSED\n    }\n\n    /** The table: ticket id to the text in its state column. */\n    private final Map<Long, String> stateColumn = new HashMap<>();\n\n    /** Saves a ticket's state; the previous release's states arrive through here too. */\n    public void save(long ticketId, Enum<?> state) {\n        stateColumn.put(ticketId, write(state));\n    }\n\n    /** Loads a ticket's state as this release knows it. */\n    public State load(long ticketId) {\n        return read(stateColumn.get(ticketId));\n    }\n\n    /** The text that goes into the state column for a state of either release. */\n    static String write(Enum<?> state) {\n        // TODO: Choose the text that stands for this state in the column. A row is read back\n        //       by later releases of the service, not only by the one that wrote it.\n        throw new IllegalStateException(\"TODO: write\");\n    }\n\n    /** The state of this release that a column's text stands for. */\n    static State read(String column) {\n        // TODO: Turn the column's text back into the state it stands for, in this release.\n        throw new IllegalStateException(\"TODO: read\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,8 +64,8 @@
     "headings": 3,
     "paras": 3,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -106,11 +73,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "a98df293d166df2cbcc4864ec1f162a150fb7f9013bae725e6e2b8f904ff5376",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\n\npublic final class EnumStore {\n\n    private EnumStore() {\n    }\n\n    /** The first release. */\n    public enum StatusV1 { ACTIVE, INACTIVE }\n\n    /** A later release that added PENDING in front. */\n    public enum StatusV2 { PENDING, ACTIVE, INACTIVE }\n\n    /** The text to persist for {@code constant}. */\n    public static String store(Enum<?> constant) {\n        throw new UnsupportedOperationException(\"write store\");\n    }\n\n    /** The constant of {@code type} that {@code stored} names, or empty when it is null or names none. */\n    public static <E extends Enum<E>> Optional<E> load(Class<E> type, String stored) {\n        throw new UnsupportedOperationException(\"write load\");\n    }\n}\n",
+  "content_sha256": "8210c5253e453f0d7b866300c63ec12a17b8187c7fd34bd957f6e8bcc2fa529f",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n/**\n * Keeps each support ticket's state in a text column of the tickets table. Rows written by the\n * previous release stay in the table, so this release must read them too.\n */\npublic class TicketStore {\n\n    /** The states as the previous release declared them. Its rows are still in the table. */\n    public enum PreviousState { OPEN, ASSIGNED, RESOLVED, CLOSED }\n\n    /** The states of this release: TRIAGED and WAITING are new. */\n    public enum State {\n        OPEN,\n        TRIAGED,\n        ASSIGNED,\n        WAITING {\n            @Override\n            public String toString() { return \"waiting for customer\"; }\n        },\n        RESOLVED,\n        CLOSED\n    }\n\n    /** The table: ticket id to the text in its state column. */\n    private final Map<Long, String> stateColumn = new HashMap<>();\n\n    /** Saves a ticket's state; the previous release's states arrive through here too. */\n    public void save(long ticketId, Enum<?> state) {\n        stateColumn.put(ticketId, write(state));\n    }\n\n    /** Loads a ticket's state as this release knows it. */\n    public State load(long ticketId) {\n        return read(stateColumn.get(ticketId));\n    }\n\n    /** The text that goes into the state column for a state of either release. */\n    static String write(Enum<?> state) {\n        // TODO: Choose the text that stands for this state in the column. A row is read back\n        //       by later releases of the service, not only by the one that wrote it.\n        throw new IllegalStateException(\"TODO: write\");\n    }\n\n    /** The state of this release that a column's text stands for. */\n    static State read(String column) {\n        // TODO: Turn the column's text back into the state it stands for, in this release.\n        throw new IllegalStateException(\"TODO: read\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-2/src/main/java/practice/EnumStore.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-2/src/test/java/practice/EnumStoreTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-2/src/main/java/practice/TicketStore.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-01/practice-2/src/test/java/practice/TicketStoreTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -131,29 +98,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.EnumStoreTest#roundTripsAConstant",
+        "id": "practice.TicketStoreTest#aStateThisReleaseSavedLoadsBack",
         "kind": "main",
-        "says": "What store() writes for a constant, load() reads back as the same constant."
+        "says": "a state saved by this release loads back as the same state"
       },
       {
-        "id": "practice.EnumStoreTest#survivesAnAddedConstant",
-        "kind": "edge",
-        "says": "A value stored by the old enum loads as the same-named constant of a newer enum that added a constant in front."
+        "id": "practice.TicketStoreTest#savingAgainReplacesTheState",
+        "kind": "main",
+        "says": "saving a ticket again replaces the state the store loads"
       },
       {
-        "id": "practice.EnumStoreTest#readsTextBuiltAtRuntime",
+        "id": "practice.TicketStoreTest#rowsThePreviousReleaseWroteKeepTheirMeaning",
         "kind": "edge",
-        "says": "A stored text that was built at run time, not written as a literal, still finds its constant."
+        "says": "a row the previous release wrote loads as the same state in this release, which declares new constants before it"
       },
       {
-        "id": "practice.EnumStoreTest#unknownTextIsEmpty",
+        "id": "practice.TicketStoreTest#aStateWithItsOwnDisplayTextLoadsBack",
         "kind": "edge",
-        "says": "A stored text that names no constant exactly (another case, extra spaces, an unknown name) loads as an empty Optional instead of throwing."
-      },
-      {
-        "id": "practice.EnumStoreTest#nullIsEmpty",
-        "kind": "edge",
-        "says": "A null stored text loads as an empty Optional instead of throwing."
+        "says": "a state whose toString() is display text still loads back as itself"
       }
     ],
     "report": {
@@ -162,11 +124,10 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "An Ordinal Is a Position, and Inserting a Constant Moves It"
     },
     "concepts": [
-      "An enum is persisted by name() or a stable code, because stored ordinals point at different constants once constants are added or reordered.",
-      "Enum.valueOf throws for an unknown name and for null, so a safe lookup wraps it and returns an Optional."
+      "A stored ordinal points at another constant once a constant is inserted, removed or reordered, so what leaves the JVM is the name (not a display toString) or a code of your own."
     ]
   }
 }

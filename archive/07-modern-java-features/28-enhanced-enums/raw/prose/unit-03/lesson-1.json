@@ -18,249 +18,343 @@
       "text": "7.2.3. Parameterized Enum Constants"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "Finance finds two weeks of Apple Pay payments booked with no fee. The payment methods are an enum, and the fees live in a `switch` in the fee calculator:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "enum PaymentMethod { CARD, SEPA, PAYPAL, APPLE_PAY }\n\nclass FeeCalculator {\n    static long fee(PaymentMethod method, long amountCents) {\n        return switch (method) {\n            case CARD -> 30 + amountCents * 290 / 10_000;\n            case SEPA -> 35;\n            case PAYPAL -> 49 + amountCents * 349 / 10_000;\n            default -> 0;\n        };\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "CARD fee on 120.00: 378\nSEPA fee on 120.00: 35\nPAYPAL fee on 120.00: 467\nAPPLE_PAY fee on 120.00: 0"
     },
     {
       "type": "para",
-      "text": "Parameterized enum constants are enums whose constants carry constructor parameters — fields, behaviors, or strategies that vary per constant. This is one of Java's most powerful enum features: each constant is a fully initialized object with its own state and potentially its own method implementations via constant-specific method bodies."
+      "text": "Whoever added `APPLE_PAY` updated the checkout and the API mapping, and the compiler had nothing to say about the `switch`: `default` covers every constant, including the ones nobody has written a case for yet."
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Think of a vending machine with different product slots. Each slot (enum constant) has its own product name, price, and quantity (constructor parameters). Some slots might even have custom dispensing behavior (abstract method overrides) — the beverage slot pours while the snack slot drops. The machine itself (enum type) provides the common interface, but each slot carries its own configuration."
-    },
-    {
-      "type": "para",
-      "text": "Key patterns for parameterized enum constants:"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Simple fields**: Constants with constructor-supplied immutable state (e.g., `Planet` with mass and radius)",
-        "**Abstract method per constant**: Each constant overrides an abstract method with its own logic (e.g., `MathOperation`)",
-        "**Strategy via functional interface**: Constants hold a `Function`, `UnaryOperator`, or `BiFunction` as a field (e.g., `TextTransform`)",
-        "**Multiple parameters with categories**: Rich constants with several fields and lookup maps (e.g., `HttpStatus`)",
-        "**Interface-implementing enums**: Constants that implement interfaces with per-constant behavior"
-      ]
+      "text": "\"Parameterized\" here means constructor arguments and per-constant code, not type parameters. An enum can't be generic (`enum Key<T>` fails with `error: enums cannot be generic`); unit 7.2.2 covers that and the alternatives."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A Constant's Data Goes Through the Constructor, So a New Constant Can't Leave It Out"
+    },
+    {
+      "type": "para",
+      "text": "Every constant is an object, built once by the enum's constructor when the enum class initialises. The arguments in parentheses after the constant's name are passed to it:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "enum PaymentMethod {\n    CARD(\"CRD\", 30, 290),\n    SEPA(\"SEP\", 35, 0),\n    PAYPAL(\"PPL\", 49, 349),\n    APPLE_PAY;\n\n    private final String code;\n    private final long fixedCents;\n    private final int basisPoints;\n\n    PaymentMethod(String code, long fixedCents, int basisPoints) {\n        this.code = code;\n        this.fixedCents = fixedCents;\n        this.basisPoints = basisPoints;\n    }\n\n    long fee(long amountCents) {\n        return fixedCents + amountCents * basisPoints / 10_000;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "PaymentMethod.java:5: error: constructor PaymentMethod in enum PaymentMethod cannot be applied to given types;\n    APPLE_PAY;\n    ^\n  required: String,long,int\n  found:    no arguments"
+    },
+    {
+      "type": "para",
+      "text": "The zero fee is now a build failure: a constant can't exist without its fee. A `switch` without `default` would catch it too (`the switch expression does not cover all possible input values`), but only in that one `switch`. The next one written with `default`, or an `if` chain, is unchecked again."
+    },
+    {
+      "type": "para",
+      "text": "The constructor is private whether you write `private` or not: `public` is refused, and so is `new PaymentMethod(...)` anywhere, so the constants listed are the only instances there will ever be."
+    },
+    {
+      "type": "para",
+      "text": "Keep the fields `final`. Each constant is one object shared by every caller in the JVM, so a field written during one request is what the next request reads; unit 2.5.3 shows a tracking number overwritten that way. Per-request data belongs in an object made for the request and passed to the constant's method."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "An Abstract Method Makes Every Constant Write Its Own Rule"
+    },
+    {
+      "type": "para",
+      "text": "Then the invoice method arrives: 1.5 % of the amount, capped at 5.00. That is no longer \"fixed plus percent\", and another field won't express it. The enum declares the method `abstract`, and each constant supplies its own body:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "enum PaymentMethod {\n    CARD(\"CRD\", 30, 290) {\n        long fee(long amountCents) { return fixedCents + percentOf(amountCents); }\n    },\n    SEPA(\"SEP\", 35, 0) {\n        long fee(long amountCents) { return fixedCents; }\n    },\n    INVOICE(\"INV\", 0, 150) {\n        long fee(long amountCents) { return Math.min(percentOf(amountCents), 500); }   // capped at 5.00\n    };\n\n    final String code;\n    final long fixedCents;\n    final int basisPoints;\n\n    PaymentMethod(String code, long fixedCents, int basisPoints) {\n        this.code = code;\n        this.fixedCents = fixedCents;\n        this.basisPoints = basisPoints;\n    }\n\n    abstract long fee(long amountCents);\n\n    long percentOf(long amountCents) {\n        return amountCents * basisPoints / 10_000;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "CARD     fee on  120.00: 378\nSEPA     fee on  120.00: 35\nINVOICE  fee on  120.00: 180\nCARD     fee on  900.00: 2640\nSEPA     fee on  900.00: 35\nINVOICE  fee on  900.00: 500"
+    },
+    {
+      "type": "para",
+      "text": "A constant added without a body doesn't compile: `PaymentMethod is abstract; cannot be instantiated`. A method with a default body that some constants override gives that up: the new constant inherits the default without a word: the `APPLE_PAY` bug again, inside the enum."
+    },
+    {
+      "type": "para",
+      "text": "The fields are package-private on purpose. Make them `private`, and the bodies stop compiling. Here are the SEPA body above and a CARD body rewritten to use `this.fixedCents`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Priv.java:3: error: non-static variable fixedCents cannot be referenced from a static context\n        long fee(long amountCents) { return fixedCents; }\n                                            ^\nPriv.java:6: error: fixedCents has private access in PaymentMethod\n        long fee(long amountCents) { return this.fixedCents + amountCents * 290 / 10_000; }\n                                                ^"
+    },
+    {
+      "type": "para",
+      "text": "Why a static-context error for an instance field? Each body is an anonymous subclass of the enum (unit 7.2.1), and a subclass doesn't inherit private members. So `fixedCents` resolves to the enum's own field, and the body is declared where the constants are, in the enum's static initialisation, with no enum instance to read the field from. Use package access or a non-private accessor."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Lambda Argument Fits a Formula; a Body Fits a Rule That Needs the Constant"
+    },
+    {
+      "type": "para",
+      "text": "When every body is a one-line formula, the rule can be an ordinary constructor argument:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.function.LongUnaryOperator;\n\nenum PaymentMethod {\n    CARD(\"CRD\", percentPlusFixed(290, 30)),\n    PAYPAL(\"PPL\", percentPlusFixed(349, 49)),\n    SEPA(\"SEP\", amount -> 35),\n    INVOICE(\"INV\", amount -> Math.min(amount * 150 / 10_000, 500));\n\n    private final String code;\n    private final LongUnaryOperator feeRule;\n\n    PaymentMethod(String code, LongUnaryOperator feeRule) {\n        this.code = code;\n        this.feeRule = feeRule;\n    }\n\n    long fee(long amountCents) {\n        return feeRule.applyAsLong(amountCents);\n    }\n\n    static LongUnaryOperator percentPlusFixed(int basisPoints, long fixedCents) {\n        return amount -> fixedCents + amount * basisPoints / 10_000;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "CARD     fee on 900.00: 2640, class PaymentMethod\nPAYPAL   fee on 900.00: 3190, class PaymentMethod\nSEPA     fee on 900.00: 35, class PaymentMethod\nINVOICE  fee on 900.00: 500, class PaymentMethod"
+    },
+    {
+      "type": "para",
+      "text": "The fees match, and `getClass()` is `PaymentMethod` for every constant, so there are no subclasses. Because the rule is a value, a factory such as `percentPlusFixed` builds it, and CARD and PAYPAL share its shape."
+    },
+    {
+      "type": "para",
+      "text": "The lambda can't see the constant it configures. The arguments are evaluated before the constant exists, in a static context:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Bad.java:4: error: non-static variable code cannot be referenced from a static context\n    CARD(\"CRD\", amount -> amount * 290 / 10_000 + code.length());\n                                                  ^"
+    },
+    {
+      "type": "para",
+      "text": "A body runs on the constant, so it can use `this`, its fields and the enum's other methods. Pick the lambda when the rule is a formula over the method's arguments, and a body when the rule needs the constant's own state or overrides more than one method."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Callers Take an Interface the Enum Implements, So a Rule From Elsewhere Fits Too"
+    },
+    {
+      "type": "para",
+      "text": "Sales signs a merchant at 0.20 plus 1.8 % on cards. A constant per contract would mean a release per contract, since an enum's constants are fixed when it compiles. An enum can implement an interface, and code that only needs the fee takes the interface:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "interface FeeRule {\n    long fee(long amountCents);\n}\n\n/** A merchant's negotiated card rate, read from its contract at run time. */\nrecord NegotiatedRate(String merchant, long fixedCents, int basisPoints) implements FeeRule {\n    @Override\n    public long fee(long amountCents) {\n        return fixedCents + amountCents * basisPoints / 10_000;\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The first section's `PaymentMethod` now reads `enum PaymentMethod implements FeeRule`, and its `fee` becomes `public`, since an interface method is public and an override can't narrow it. The payout takes the interface:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static long payout(long amountCents, FeeRule rule) {\n    return amountCents - rule.fee(amountCents);\n}\n\nSystem.out.println(\"CARD:        \" + payout(90_000, PaymentMethod.CARD));\nSystem.out.println(\"Acme's rate: \" + payout(90_000, new NegotiatedRate(\"Acme\", 20, 180)));\nSystem.out.println(\"test rule:   \" + payout(90_000, amount -> 0));"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "CARD:        87360\nAcme's rate: 88360\ntest rule:   90000"
+    },
+    {
+      "type": "para",
+      "text": "The enum still holds the standard rules, with `values()` and `EnumMap`."
+    },
+    {
+      "type": "para",
+      "text": "The price is paid where code holds a `FeeRule`: anyone can implement it, so a `switch` over it can't list every case and needs a catch-all (`default`, or `case FeeRule f`). A `switch` on `PaymentMethod` itself stays exhaustive. When you want both, unit 2.5.3 shows a sealed interface whose permitted subtypes can include an enum."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Look a Constant Up by Its Code Through a Map Built After the Constants, and Let It Refuse Duplicates"
+    },
+    {
+      "type": "para",
+      "text": "Payment requests arrive with `\"method\": \"PPL\"`. `valueOf` matches constant names, not your codes: `PaymentMethod.valueOf(\"PPL\")` throws `IllegalArgumentException: No enum constant PaymentMethod.PPL`. Build an index from the code field, once:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Arrays;\nimport java.util.Map;\nimport java.util.Optional;\nimport java.util.function.Function;\nimport java.util.stream.Collectors;\n\nenum PaymentMethod {\n    CARD(\"CRD\"), SEPA(\"SEP\"), PAYPAL(\"PPL\");\n\n    private static final Map<String, PaymentMethod> BY_CODE = Arrays.stream(values())\n            .collect(Collectors.toUnmodifiableMap(m -> m.code, Function.identity()));\n\n    private final String code;\n\n    PaymentMethod(String code) { this.code = code; }\n\n    static Optional<PaymentMethod> fromCode(String code) {\n        return Optional.ofNullable(BY_CODE.get(code));\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "fromCode(\"PPL\"): Optional[PAYPAL]\nfromCode(\"APL\"): Optional.empty"
+    },
+    {
+      "type": "para",
+      "text": "Static fields are initialised in source order, and the constants come first. So `BY_CODE` is built after every constant exists, and `values()` lists them all, in declaration order."
+    },
+    {
+      "type": "para",
+      "text": "Registering each constant from its constructor is too early: `BY_CODE` is still `null` while the constructors run. javac refuses a direct reference, and a call through a static method compiles and fails at class initialisation (unit 7.2.1 shows both). A map in a nested holder class can be filled from the constructor, because the holder initialises on first use. It then needs its own duplicate check."
+    },
+    {
+      "type": "para",
+      "text": "`Optional` leaves an unknown code to the caller. Mapping it to a catch-all constant books a payment nobody recognised as an ordinary one."
+    },
+    {
+      "type": "para",
+      "text": "The collector also checks the codes. Add a `CARD_PRESENT(\"CRD\")` after the other constants and forget to change the code:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "java.lang.ExceptionInInitializerError\n  caused by java.lang.IllegalStateException: Duplicate key CRD (attempted merging values CARD and CARD_PRESENT)"
+    },
+    {
+      "type": "para",
+      "text": "The service fails on its first use of the enum, in a test or at startup; every later use gets `NoClassDefFoundError: Could not initialize class`, which is often the only line in the logs. A `HashMap` filled with `put` would keep the last constant for `\"CRD\"` and send every card payment to `CARD_PRESENT`."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "Enum constructors are implicitly `private` — they cannot be `public` or `protected`.",
-        "Constructor parameters create per-constant immutable state — fields should be `final`.",
-        "Constant-specific method bodies (anonymous class bodies) allow each constant to override abstract or non-abstract methods.",
-        "Each constant with a body creates an anonymous subclass of the enum — this has implications for `getClass()` and serialization.",
-        "Static fields and static initializer blocks in enums run after all constants are created.",
-        "`EnumSet` and `EnumMap` are optimized for enums and should always be preferred over `HashSet`/`HashMap` for enum keys.",
-        "The `values()` method creates a new array each time — cache it if called frequently.",
-        "Enum constants are created in declaration order; `ordinal()` reflects this order."
+        "**A constant's data goes through the constructor**, so a new constant without it doesn't compile, where a `switch` with `default` gives it a silent zero. Keep the fields final: a constant is shared by every caller.",
+        "**An abstract method makes every constant write its own rule**: a constant without a body doesn't compile, where a default method lets it inherit silently. A body can't see the enum's private fields; give them package access or use an accessor.",
+        "**A lambda argument fits a formula**, can come from a factory and adds no subclass, but it can't see the constant, which a body can.",
+        "**Callers take an interface the enum implements**, so negotiated rules and test stubs fit, at the cost of the exhaustive `switch`.",
+        "**Look up by code through a map built after the constants.** `valueOf` knows only names, and the map is still `null` while constructors run. A collector refuses duplicate codes at startup, where `put` keeps the last one."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Pattern matching for switch**: Parameterized enums integrate beautifully with Java 21 switch expressions for dispatching based on both enum type and parameter values.",
-        "**Record patterns**: You can combine enums with records (e.g., `enum + record` pairs) for algebraic data type patterns.",
-        "**Sealed interfaces**: Enums can implement sealed interfaces, and Java 21 switch expressions provide exhaustive coverage.",
-        "**Text blocks**: Multi-line enum descriptions or templates are cleaner with text blocks.",
-        "**Sequenced collections**: Enum utility methods returning lists benefit from `SequencedCollection` methods."
+      "type": "para",
+      "text": "**What javac refuses in an enum (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Code",
+        "Error"
+      ],
+      "rows": [
+        [
+          "`enum Key<T> { ... }`",
+          "`enums cannot be generic`"
+        ],
+        [
+          "a constant without the constructor's arguments",
+          "`constructor X in enum X cannot be applied to given types`"
+        ],
+        [
+          "a `public` constructor",
+          "`modifier public not allowed here`"
+        ],
+        [
+          "`new X(...)`",
+          "`enum classes may not be instantiated`"
+        ],
+        [
+          "a constant without a body when a method is abstract",
+          "`X is abstract; cannot be instantiated`"
+        ],
+        [
+          "a body reading a `private` field by name",
+          "`non-static variable f cannot be referenced from a static context`"
+        ],
+        [
+          "a lambda argument reading the constant's field",
+          "the same"
+        ],
+        [
+          "a constructor reading the enum's own non-constant static field",
+          "`illegal reference to static field from initializer`"
+        ]
       ]
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "type": "para",
+      "text": "**Finding a constant:**"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "By",
+        "Use",
+        "Unknown input"
+      ],
+      "rows": [
         [
-          "**Mutable state in enum constants**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: mutable fields break thread safety and predictability\npublic enum Counter {\n    INSTANCE;\n    private int count = 0; // Mutable!\n    public void increment() { count++; }\n}\n\n// RIGHT: keep enum state immutable, use external structures for mutable state\npublic enum Counter {\n    INSTANCE;\n    private final AtomicInteger count = new AtomicInteger(0);\n    public void increment() { count.incrementAndGet(); }\n}"
-          }
+          "name",
+          "`X.valueOf(name)`",
+          "`IllegalArgumentException`"
         ],
         [
-          "**Forgetting that constant-specific bodies create anonymous subclasses**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public enum Op {\n    ADD { @Override public int apply(int a, int b) { return a + b; } },\n    SUB { @Override public int apply(int a, int b) { return a - b; } };\n    public abstract int apply(int a, int b);\n}\n// Op.ADD.getClass() != Op.class — it's an anonymous subclass!\n// Op.ADD.getClass().isEnum() is FALSE: the anonymous body class is not declared as an enum\n// But Op.ADD.getDeclaringClass() == Op.class — use this for the actual enum type"
-          }
+          "a field",
+          "a static map built from `values()`",
+          "what the lookup returns, e.g. `Optional.empty()`"
         ],
         [
-          "**Using `values()` in hot loops**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG: allocates a new array every call\nfor (int i = 0; i < 1_000_000; i++) {\n    for (Planet p : Planet.values()) { /* ... */ }\n}\n\n// RIGHT: cache the values array\nprivate static final Planet[] PLANETS = Planet.values();\nfor (int i = 0; i < 1_000_000; i++) {\n    for (Planet p : PLANETS) { /* ... */ }\n}"
-          }
-        ],
-        [
-          "**Static map initialization ordering**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public enum Color {\n    RED, GREEN, BLUE;\n\n    // FINE: static fields are initialized AFTER all constants exist,\n    // so building a lookup map from values() here works\n    private static final Map<String, Color> MAP =\n        Arrays.stream(values()).collect(Collectors.toUnmodifiableMap(Color::name, c -> c));\n\n    // WRONG: using a static field from the constructor. Referring to MAP directly\n    // there is a compile error (\"illegal reference to static field from initializer\");\n    // reaching it indirectly (e.g., through a static method) throws\n    // NullPointerException, because MAP is still null while the constants are created.\n    // Color() { register(this); }  static void register(Color c) { MAP.put(c.name(), c); }\n}"
-          }
-        ],
-        [
-          "**Division by zero in arithmetic enum constants**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// Must handle edge cases per-constant\npublic enum MathOp {\n    DIVIDE {\n        @Override\n        public double apply(double a, double b) {\n            if (b == 0) throw new ArithmeticException(\"Division by zero\");\n            return a / b;\n        }\n    };\n    public abstract double apply(double a, double b);\n}"
-          }
+          "position",
+          "`values()[i]` (a new array on every call)",
+          "`ArrayIndexOutOfBoundsException`"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
-      "ordered": false,
+      "ordered": true,
       "items": [
-        "**Make constructor parameters final**: Ensures immutability and thread safety.",
-        "**Use `Optional` for nullable constructor parameters**: Better than null checks scattered throughout.",
-        "**Prefer functional interface fields over abstract methods** when behavior is a simple transformation — it's more concise.",
-        "**Use abstract methods when constants need complex, multi-line implementations** — constant-specific bodies are clearer.",
-        "**Create static lookup maps in a static initializer** for fast `fromCode()`/`fromName()` methods.",
-        "**Implement `toString()`** to return a meaningful representation instead of the constant name.",
-        "**Use EnumSet for flag combinations** — it's backed by a bit vector and extremely efficient.",
-        "**Document each constant's behavior** when it overrides abstract methods — the reader shouldn't need to read the body to understand the contract."
+        "Your enum has 40 constants and three of them need a different fee shape. An abstract method with 40 bodies, a default with 3 overrides, or a lambda argument? What does each cost when the 41st constant is added?",
+        "The fee rules move to a database so finance can change them without a release. What stays in the enum, and what does `PaymentMethod` become?",
+        "Two services share the `PaymentMethod` enum through a library, and one deploys a new constant first. What does the other do when it reads `\"APL\"`, and where would you decide that?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
+      "text": "Design Note: Data on the Constant"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Null constructor argument**: Enum constructors can accept null, but this defeats immutability — validate in the constructor.",
-        "**Empty enum**: Legal but unusual — an enum with no constants (`enum Empty {}`) compiles fine.",
-        "**Single-constant enum**: Common pattern for singletons — `enum Singleton { INSTANCE; }`.",
-        "**Enum with no methods or fields**: Acts as a simple set of named constants — the simplest enum usage.",
-        "**Serialization**: Enum constants are serialized by name only. Fields, even transient ones, are not written; deserialization returns the existing constant via `Enum.valueOf`. Custom `readObject`/`writeObject` are ignored.",
-        "**Enum constants with identical parameters**: Legal — two constants can have the same field values but are still distinct by identity."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**\"When would you use abstract methods vs. functional interface fields in enums?\"** — Abstract methods for complex, multi-statement logic; functional fields for simple transformations that can be expressed as lambdas.",
-        "**\"How is the Planet enum a better alternative to constants?\"** — Type safety, namespacing, ability to add behavior, serialization support, and `values()`/`valueOf()` for free.",
-        "**\"What's the Strategy pattern relationship?\"** — Parameterized enums are a natural implementation of the Strategy pattern when the set of strategies is fixed and known at compile time.",
-        "**\"Explain enum serialization behavior.\"** — Only the name is serialized; deserialization uses `valueOf()`. Custom serialization methods are ignored."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q1: How do you implement the Strategy pattern using parameterized enum constants?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "The Strategy pattern encapsulates a family of algorithms behind a common interface.\nParameterized enums implement this naturally:\n\n1. Each enum constant represents a strategy.\n2. The strategy behavior is either an abstract method overridden per constant\n   or a functional interface field supplied via the constructor.\n3. Client code selects a strategy by choosing an enum constant.\n4. New strategies require adding a constant — compile-time safety ensures all\n   switch/if-else chains are updated.\n\nAdvantages over interface-based Strategy:\n- Fixed set of strategies — no accidental runtime additions\n- Built-in valueOf() for configuration-driven selection\n- Singleton semantics — no multiple instances\n- EnumSet/EnumMap for efficient strategy collections\n- Natural serialization"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum TextTransform {\n    UPPER_CASE(\"Upper Case\", String::toUpperCase),\n    LOWER_CASE(\"Lower Case\", String::toLowerCase),\n    TRIM(\"Trim\", String::trim),\n    REVERSE(\"Reverse\", s -> new StringBuilder(s).reverse().toString()),\n    CAPITALIZE(\"Capitalize\", s -> s.isEmpty() ? s :\n        Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase());\n\n    private final String displayName;\n    private final UnaryOperator<String> transformer;\n\n    TextTransform(String displayName, UnaryOperator<String> transformer) {\n        this.displayName = displayName;\n        this.transformer = transformer;\n    }\n\n    public String apply(String input) {\n        return transformer.apply(Objects.requireNonNull(input));\n    }\n\n    // Chain strategies\n    public static String applyAll(String input, TextTransform... transforms) {\n        String result = input;\n        for (TextTransform t : transforms) result = t.apply(result);\n        return result;\n    }\n}\n\n// Usage\nString result = TextTransform.applyAll(\"  hello WORLD  \",\n    TextTransform.TRIM, TextTransform.CAPITALIZE);\n// \"Hello world\""
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q2: Explain the Planet enum pattern and its advantages over plain constants."
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "The Planet enum demonstrates parameterized constants with computed behavior.\nEach constant carries mass and radius, and derives surfaceGravity() and\nsurfaceWeight() from these parameters.\n\nAdvantages over static final constants:\n1. Type safety — you can't pass a random double where a Planet is expected\n2. Behavior encapsulation — calculations live with the data\n3. Iteration — Planet.values() gives all planets without maintaining a separate list\n4. Lookup — Planet.valueOf(\"EARTH\") for configuration-driven access\n5. Switch support — exhaustive switch with compiler checking\n6. Immutability — enum fields are naturally final\n7. Serialization — built-in, reliable name-based serialization\n8. Namespace — no pollution of the enclosing class's namespace"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum Planet {\n    MERCURY(3.303e+23, 2.4397e6),\n    VENUS(4.869e+24, 6.0518e6),\n    EARTH(5.976e+24, 6.37814e6);\n    // ... other planets\n\n    private final double mass;    // kg\n    private final double radius;  // meters\n    static final double G = 6.67300E-11;\n\n    Planet(double mass, double radius) {\n        this.mass = mass;\n        this.radius = radius;\n    }\n\n    public double surfaceGravity() {\n        return G * mass / (radius * radius);\n    }\n\n    public double surfaceWeight(double otherMass) {\n        return otherMass * surfaceGravity();\n    }\n\n    // Compare with plain constants — unsafe, no behavior\n    // static final double EARTH_MASS = 5.976e+24;\n    // static final double EARTH_RADIUS = 6.37814e6;\n    // You'd need separate utility methods, no type safety, easy to mix up\n}\n\n// Usage\ndouble earthWeight = 75.0;\nfor (Planet p : Planet.values()) {\n    System.out.printf(\"Weight on %s: %.2f N%n\", p, p.surfaceWeight(earthWeight));\n}"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q3: How do constant-specific method bodies work?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Each enum constant can have its own anonymous class body that overrides methods\ndeclared in the enum type. This is called a \"constant-specific method body.\"\n\nHow it works:\n1. The enum declares an abstract method (or a regular method to override).\n2. Each constant provides its own implementation in its body { }.\n3. At compile time, each constant with a body becomes an anonymous subclass.\n4. The JVM dispatches calls to the correct implementation via virtual method dispatch.\n\nKey implications:\n- getClass() returns the anonymous subclass, not the enum class itself\n- getDeclaringClass() always returns the actual enum class\n- Each anonymous subclass is its own .class file (Enum$1.class, Enum$2.class, etc.)\n- Constants WITHOUT bodies share the enum's class directly"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum MathOperation {\n    ADD(\"+\") {\n        @Override public double apply(double a, double b) { return a + b; }\n    },\n    SUBTRACT(\"-\") {\n        @Override public double apply(double a, double b) { return a - b; }\n    },\n    MULTIPLY(\"*\") {\n        @Override public double apply(double a, double b) { return a * b; }\n    },\n    DIVIDE(\"/\") {\n        @Override public double apply(double a, double b) {\n            if (b == 0) throw new ArithmeticException(\"Division by zero\");\n            return a / b;\n        }\n    };\n\n    private final String symbol;\n\n    MathOperation(String symbol) { this.symbol = symbol; }\n\n    public abstract double apply(double a, double b);\n\n    public String format(double a, double b) {\n        return \"%.2f %s %.2f = %.2f\".formatted(a, symbol, b, apply(a, b));\n    }\n}\n\n// Class hierarchy insight\nSystem.out.println(MathOperation.ADD.getClass().getName());\n// \"MathOperation$1\" — anonymous subclass\n\nSystem.out.println(MathOperation.ADD.getDeclaringClass().getName());\n// \"MathOperation\" — the actual enum type"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q4: How do you create fast lookup methods for parameterized enums?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "When you need to find an enum constant by a parameter value (e.g., code, symbol, name),\ncreate a static Map for O(1) lookup instead of iterating values() each time.\n\nBest practices:\n1. Use an unmodifiable map for thread safety\n2. Initialize in a static block (runs after all constants are created)\n3. Return Optional to handle missing values gracefully\n4. Consider using a switch expression for small enums (JIT-optimized)\n5. Cache values() if you must iterate frequently"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum HttpStatus {\n    OK(200, \"OK\"),\n    NOT_FOUND(404, \"Not Found\"),\n    INTERNAL_ERROR(500, \"Internal Server Error\");\n\n    private final int code;\n    private final String reason;\n\n    // Static lookup map — initialized ONCE\n    private static final Map<Integer, HttpStatus> CODE_MAP =\n        Arrays.stream(values())\n            .collect(Collectors.toUnmodifiableMap(HttpStatus::code, s -> s));\n\n    HttpStatus(int code, String reason) {\n        this.code = code;\n        this.reason = reason;\n    }\n\n    public int code() { return code; }\n    public String reason() { return reason; }\n\n    // O(1) lookup by code\n    public static Optional<HttpStatus> fromCode(int code) {\n        return Optional.ofNullable(CODE_MAP.get(code));\n    }\n\n    // With default fallback\n    public static HttpStatus fromCodeOrDefault(int code, HttpStatus defaultStatus) {\n        return CODE_MAP.getOrDefault(code, defaultStatus);\n    }\n}\n\n// Usage\nHttpStatus status = HttpStatus.fromCode(404).orElseThrow();\nassert status == HttpStatus.NOT_FOUND;"
-    },
-    {
-      "type": "heading",
-      "level": 3,
-      "text": "Q5: How does enum serialization handle parameterized constants?"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "Enum serialization in Java is special and different from regular object serialization:\n\n1. Only the enum constant's name() is serialized — not its fields or state.\n2. Deserialization calls Enum.valueOf(Class, String) to resolve the constant.\n3. Custom writeObject(), readObject(), writeReplace(), and readResolve() are IGNORED.\n4. This ensures identity preservation: deserialized constant == original constant.\n5. If the enum definition changes (fields added/removed), deserialization still works\n   as long as the constant name still exists.\n6. If a constant is removed, deserialization throws InvalidObjectException.\n\nThis makes enums inherently serialization-safe, but it also means:\n- You cannot serialize mutable state carried by enum constants\n- transient fields have no effect (nothing is serialized anyway)\n- serialVersionUID is ignored for enums"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public enum Currency {\n    USD(\"US Dollar\", \"$\", 2),\n    EUR(\"Euro\", \"€\", 2),\n    JPY(\"Japanese Yen\", \"¥\", 0);\n\n    private final String name;\n    private final String symbol;\n    private final int decimalPlaces;\n\n    Currency(String name, String symbol, int decimalPlaces) {\n        this.name = name;\n        this.symbol = symbol;\n        this.decimalPlaces = decimalPlaces;\n    }\n\n    // These fields are NOT serialized — only \"USD\", \"EUR\", \"JPY\" are written\n}\n\n// Serialization round-trip\nByteArrayOutputStream baos = new ByteArrayOutputStream();\ntry (ObjectOutputStream oos = new ObjectOutputStream(baos)) {\n    oos.writeObject(Currency.USD);\n}\ntry (ObjectInputStream ois = new ObjectInputStream(\n        new ByteArrayInputStream(baos.toByteArray()))) {\n    Currency deserialized = (Currency) ois.readObject();\n    assert deserialized == Currency.USD; // Same identity — not just equals!\n}"
+      "type": "para",
+      "text": "An enum with fields turns a list of names into a table the compiler checks: every row has every column, and there are no rows except the ones written. That is what fixed the zero fee. The table is closed, though. A value that appears at run time (a contract, a tenant, a rule from a database) can't be a constant, and adding one is a release of every service that shares the enum. Put on the constant what changes only when the code changes, and let an interface carry the rest."
     },
     {
       "type": "heading",
@@ -280,17 +374,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 15,
-    "paras": 3,
-    "code": 10,
-    "tables": 0,
-    "lists": 8,
+    "headings": 11,
+    "paras": 28,
+    "code": 16,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "0f60697817494c5978c72835523f96a701fac56351d2dd70d58c33eb6dcec388"
+  "content_sha256": "7dacfbf24138cc6a95fc51573051f83145469304cd6ba6219af3152c669f12c9"
 }

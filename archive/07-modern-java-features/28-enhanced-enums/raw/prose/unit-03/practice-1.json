@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Planets that carry their own physics",
+  "title": "Cap each parking visit on its own",
   "blocks": [
     {
       "type": "heading",
@@ -19,50 +19,22 @@
     },
     {
       "type": "para",
-      "text": "The page's `Planet` enum is its model of parameterized constants: each constant is built with its own mass (kg) and radius (m), and derives the rest from them. Behavior lives with the data, and `values()` lists every planet for free."
+      "text": "The garage's barrier app charges a parked car in parts. Each time it settles a stretch of parked time, it calls `charge(visit, minutes)` on the car's tariff and books what comes back. A tariff has a price per started hour and a cap: however long a car stays, its visit never pays more than the cap in total."
     },
     {
       "type": "para",
-      "text": "The constants, their fields and `G = 6.67300E-11` are given. Write:"
+      "text": "`Garage` already holds the three tariffs with their prices and caps. Finish the `TODO` in `src/main/java/practice/Garage.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`double surfaceGravity()`: `G * mass / (radius * radius)`.",
-        "`double surfaceWeight(double otherMass)`: `otherMass * surfaceGravity()`.",
-        "`static Planet strongest(Collection<Planet> among)`: the planet with the highest surface gravity among `among` (throw `NoSuchElementException` when it is empty).",
-        "`static List<Planet> withGravityBetween(double min, double max)`: every planet whose surface gravity is between `min` and `max`, both bounds included, in declaration order."
+        "`Tariff.charge(visit, minutes)`: what this part of the visit costs, every started hour at the tariff's price, cut down to what is left of the visit's cap."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`EARTH.surfaceGravity()`",
-          "about `9.80`"
-        ],
-        [
-          "`EARTH.surfaceWeight(75)`",
-          "about `735.2`"
-        ],
-        [
-          "`strongest(List.of(URANUS, SATURN, NEPTUNE))`",
-          "`NEPTUNE`"
-        ],
-        [
-          "`withGravityBetween(9, 12)`",
-          "`[EARTH, SATURN, NEPTUNE]`"
-        ],
-        [
-          "`withGravityBetween(8, 12)`",
-          "`[VENUS, EARTH, SATURN, URANUS, NEPTUNE]`"
-        ]
-      ]
+      "type": "para",
+      "text": "You may add to `Visit` whatever a visit needs. When you're done, every visit pays its started hours until it reaches its tariff's cap and nothing after that, whether it is the only car in the garage, follows a car that already hit the cap, or is parked at the same time as other cars on the same tariff. About six lines in total."
     },
     {
       "type": "heading",
@@ -77,7 +49,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Comparator;\nimport java.util.List;\n\npublic enum Planet {\n    MERCURY(3.303e+23, 2.4397e6),\n    VENUS(4.869e+24, 6.0518e6),\n    EARTH(5.976e+24, 6.37814e6),\n    MARS(6.421e+23, 3.3972e6),\n    JUPITER(1.9e+27, 7.1492e7),\n    SATURN(5.688e+26, 6.0268e7),\n    URANUS(8.686e+25, 2.5559e7),\n    NEPTUNE(1.024e+26, 2.4746e7);\n\n    static final double G = 6.67300E-11;\n\n    private final double mass;    // kilograms\n    private final double radius;  // meters\n\n    Planet(double mass, double radius) {\n        this.mass = mass;\n        this.radius = radius;\n    }\n\n    public double mass() {\n        return mass;\n    }\n\n    public double radius() {\n        return radius;\n    }\n\n    public double surfaceGravity() {\n        return G * mass / (radius * radius);\n    }\n\n    public double surfaceWeight(double otherMass) {\n        return otherMass * surfaceGravity();\n    }\n\n    /** The planet with the highest surface gravity among {@code among}. */\n    public static Planet strongest(Collection<Planet> among) {\n        return among.stream().max(Comparator.comparingDouble(Planet::surfaceGravity)).orElseThrow();\n    }\n\n    /** Every planet whose surface gravity is within [min, max], in declaration order. */\n    public static List<Planet> withGravityBetween(double min, double max) {\n        return Arrays.stream(values())\n                .filter(p -> p.surfaceGravity() >= min && p.surfaceGravity() <= max)\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\n/**\n * The garage's tariffs. While a car is parked, the barrier app charges its visit in parts: each\n * time it settles a stretch of parked time it calls {@code tariff.charge(visit, minutes)} and books\n * the amount returned. A visit never pays more than its tariff's cap in total.\n */\npublic class Garage {\n\n    /** One car's stay, from the moment it enters until it leaves. */\n    public static final class Visit {\n        private final String plate;\n        private long chargedCents;\n\n        public Visit(String plate) {\n            this.plate = plate;\n        }\n\n        public String plate() {\n            return plate;\n        }\n    }\n\n    public enum Tariff {\n        STANDARD(250, 1_800),\n        RESIDENT(90, 600),\n        EVENT(600, 2_400);\n\n        private final long centsPerStartedHour;\n        private final long capCents;\n\n        Tariff(long centsPerStartedHour, long capCents) {\n            this.centsPerStartedHour = centsPerStartedHour;\n            this.capCents = capCents;\n        }\n\n        public long capCents() {\n            return capCents;\n        }\n\n        /**\n         * Charges {@code minutes} more of parked time to {@code visit} and returns what this part\n         * costs: every started hour of the part at this tariff's rate, but no more than what is\n         * left of the visit's cap.\n         */\n        public long charge(Visit visit, int minutes) {\n            long startedHours = (minutes + 59) / 60;\n            long amount = Math.min(startedHours * centsPerStartedHour, capCents - visit.chargedCents);\n            visit.chargedCents += amount;\n            return amount;\n        }\n    }\n}\n"
         }
       ]
     },
@@ -89,7 +61,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Comparator;\nimport java.util.List;\n\npublic enum Planet {\n    MERCURY(3.303e+23, 2.4397e6),\n    VENUS(4.869e+24, 6.0518e6),\n    EARTH(5.976e+24, 6.37814e6),\n    MARS(6.421e+23, 3.3972e6),\n    JUPITER(1.9e+27, 7.1492e7),\n    SATURN(5.688e+26, 6.0268e7),\n    URANUS(8.686e+25, 2.5559e7),\n    NEPTUNE(1.024e+26, 2.4746e7);\n\n    static final double G = 6.67300E-11;\n\n    private final double mass;    // kilograms\n    private final double radius;  // meters\n\n    Planet(double mass, double radius) {\n        this.mass = mass;\n        this.radius = radius;\n    }\n\n    public double mass() {\n        return mass;\n    }\n\n    public double radius() {\n        return radius;\n    }\n\n    public double surfaceGravity() {\n        throw new UnsupportedOperationException(\"write surfaceGravity\");\n    }\n\n    public double surfaceWeight(double otherMass) {\n        throw new UnsupportedOperationException(\"write surfaceWeight\");\n    }\n\n    /** The planet with the highest surface gravity among {@code among}. */\n    public static Planet strongest(Collection<Planet> among) {\n        throw new UnsupportedOperationException(\"write strongest\");\n    }\n\n    /** Every planet whose surface gravity is within [min, max], in declaration order. */\n    public static List<Planet> withGravityBetween(double min, double max) {\n        throw new UnsupportedOperationException(\"write withGravityBetween\");\n    }\n}\n"
+      "text": "package practice;\n\n/**\n * The garage's tariffs. While a car is parked, the barrier app charges its visit in parts: each\n * time it settles a stretch of parked time it calls {@code tariff.charge(visit, minutes)} and books\n * the amount returned. A visit never pays more than its tariff's cap in total.\n */\npublic class Garage {\n\n    /** One car's stay, from the moment it enters until it leaves. */\n    public static final class Visit {\n        private final String plate;\n\n        public Visit(String plate) {\n            this.plate = plate;\n        }\n\n        public String plate() {\n            return plate;\n        }\n    }\n\n    public enum Tariff {\n        STANDARD(250, 1_800),\n        RESIDENT(90, 600),\n        EVENT(600, 2_400);\n\n        private final long centsPerStartedHour;\n        private final long capCents;\n\n        Tariff(long centsPerStartedHour, long capCents) {\n            this.centsPerStartedHour = centsPerStartedHour;\n            this.capCents = capCents;\n        }\n\n        public long capCents() {\n            return capCents;\n        }\n\n        /**\n         * Charges {@code minutes} more of parked time to {@code visit} and returns what this part\n         * costs: every started hour of the part at this tariff's rate, but no more than what is\n         * left of the visit's cap.\n         */\n        public long charge(Visit visit, int minutes) {\n            // TODO: Price this part of the visit and keep the visit's total within the cap. The\n            //       garage has hundreds of cars in at once under the same tariff, and each one's\n            //       cap is its own.\n            throw new IllegalStateException(\"TODO: charge\");\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -97,9 +69,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -108,11 +80,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "35dd4ad53d9ee72d2ca8bc446577a7985fdeb50c4a8e51e13b2e1e6384bba02a",
-  "starting_code": "package practice;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Comparator;\nimport java.util.List;\n\npublic enum Planet {\n    MERCURY(3.303e+23, 2.4397e6),\n    VENUS(4.869e+24, 6.0518e6),\n    EARTH(5.976e+24, 6.37814e6),\n    MARS(6.421e+23, 3.3972e6),\n    JUPITER(1.9e+27, 7.1492e7),\n    SATURN(5.688e+26, 6.0268e7),\n    URANUS(8.686e+25, 2.5559e7),\n    NEPTUNE(1.024e+26, 2.4746e7);\n\n    static final double G = 6.67300E-11;\n\n    private final double mass;    // kilograms\n    private final double radius;  // meters\n\n    Planet(double mass, double radius) {\n        this.mass = mass;\n        this.radius = radius;\n    }\n\n    public double mass() {\n        return mass;\n    }\n\n    public double radius() {\n        return radius;\n    }\n\n    public double surfaceGravity() {\n        throw new UnsupportedOperationException(\"write surfaceGravity\");\n    }\n\n    public double surfaceWeight(double otherMass) {\n        throw new UnsupportedOperationException(\"write surfaceWeight\");\n    }\n\n    /** The planet with the highest surface gravity among {@code among}. */\n    public static Planet strongest(Collection<Planet> among) {\n        throw new UnsupportedOperationException(\"write strongest\");\n    }\n\n    /** Every planet whose surface gravity is within [min, max], in declaration order. */\n    public static List<Planet> withGravityBetween(double min, double max) {\n        throw new UnsupportedOperationException(\"write withGravityBetween\");\n    }\n}\n",
+  "content_sha256": "aeb97983d6d2457ea498e39b7166ea1b03a2c03b759395342576946fc8725ce9",
+  "starting_code": "package practice;\n\n/**\n * The garage's tariffs. While a car is parked, the barrier app charges its visit in parts: each\n * time it settles a stretch of parked time it calls {@code tariff.charge(visit, minutes)} and books\n * the amount returned. A visit never pays more than its tariff's cap in total.\n */\npublic class Garage {\n\n    /** One car's stay, from the moment it enters until it leaves. */\n    public static final class Visit {\n        private final String plate;\n\n        public Visit(String plate) {\n            this.plate = plate;\n        }\n\n        public String plate() {\n            return plate;\n        }\n    }\n\n    public enum Tariff {\n        STANDARD(250, 1_800),\n        RESIDENT(90, 600),\n        EVENT(600, 2_400);\n\n        private final long centsPerStartedHour;\n        private final long capCents;\n\n        Tariff(long centsPerStartedHour, long capCents) {\n            this.centsPerStartedHour = centsPerStartedHour;\n            this.capCents = capCents;\n        }\n\n        public long capCents() {\n            return capCents;\n        }\n\n        /**\n         * Charges {@code minutes} more of parked time to {@code visit} and returns what this part\n         * costs: every started hour of the part at this tariff's rate, but no more than what is\n         * left of the visit's cap.\n         */\n        public long charge(Visit visit, int minutes) {\n            // TODO: Price this part of the visit and keep the visit's total within the cap. The\n            //       garage has hundreds of cars in at once under the same tariff, and each one's\n            //       cap is its own.\n            throw new IllegalStateException(\"TODO: charge\");\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-03/practice-1/src/main/java/practice/Planet.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-03/practice-1/src/test/java/practice/PlanetTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-03/practice-1/src/main/java/practice/Garage.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-03/practice-1/src/test/java/practice/GarageTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -133,29 +105,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PlanetTest#computesGravityAndWeight",
+        "id": "practice.GarageTest#chargesEveryStartedHourOfEachPart",
         "kind": "main",
-        "says": "Each planet computes its surface gravity and a surface weight from its own mass and radius, and the queries over planets use them."
+        "says": "each part of a visit costs its started hours at the tariff's price"
       },
       {
-        "id": "practice.PlanetTest#strongestIsByGravityNotSize",
-        "kind": "edge",
-        "says": "strongest() compares surface gravity: among Uranus, Saturn and Neptune it is Neptune, though Saturn is heavier and larger."
+        "id": "practice.GarageTest#stopsChargingAVisitAtItsCap",
+        "kind": "main",
+        "says": "a visit's parts add up to the cap at most, and a part after the cap costs nothing"
       },
       {
-        "id": "practice.PlanetTest#boundsAreInclusive",
+        "id": "practice.GarageTest#aVisitThatStartsAfterAnotherReachedItsCapPaysInFull",
         "kind": "edge",
-        "says": "withGravityBetween() includes a planet whose gravity equals a bound."
+        "says": "a visit after another one reached the cap on the same tariff pays its own started hours in full"
       },
       {
-        "id": "practice.PlanetTest#resultKeepsDeclarationOrder",
+        "id": "practice.GarageTest#visitsThatOverlapAreCappedSeparately",
         "kind": "edge",
-        "says": "withGravityBetween() lists planets in declaration order, not sorted by gravity."
-      },
-      {
-        "id": "practice.PlanetTest#strongestOfNothingThrows",
-        "kind": "edge",
-        "says": "strongest() of an empty collection throws NoSuchElementException, not null or another exception."
+        "says": "two visits charged alternately on the same tariff each keep their own total toward the cap"
       }
     ],
     "report": {
@@ -164,10 +131,10 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.3.md",
-      "section": "Q2: Explain the Planet enum pattern and its advantages over plain constants."
+      "section": "A Constant's Data Goes Through the Constructor, So a New Constant Can't Leave It Out"
     },
     "concepts": [
-      "Constructor parameters give each constant its own immutable state, and methods on the enum derive behavior from that state."
+      "A constant is one object shared by every caller, so per-use data such as a running total belongs in an object passed to the constant, not in a field on it."
     ]
   }
 }

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Clean form fields with strip and isBlank",
+  "title": "Close the sign-up tickets left by the Java 21 move",
   "blocks": [
     {
       "type": "heading",
@@ -19,36 +19,20 @@
     },
     {
       "type": "para",
-      "text": "Java 11 added `isBlank()`, `strip()`, `stripLeading()` and `stripTrailing()` to `String`. The page's key distinction: `trim()` treats only characters up to `U+0020` as whitespace, while `strip()` uses `Character.isWhitespace`, so it also removes Unicode spaces such as EN QUAD (`U+2000`) and EM SPACE (`U+2003`). `isBlank()` is the modern form of `trim().isEmpty()`, with the same Unicode awareness."
+      "text": "The sign-up service was moved from Java 8 to Java 21, and its rules class was tidied on the way: the reserved user names became an unmodifiable set built once at startup. Since the release, three tickets are open:"
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "items": [
+        "a mobile client that leaves out the username field gets a 500 instead of the form's \"username is required\" message;",
+        "the nightly audit export sometimes lists a domain that was blocked after the export started;",
+        "monitoring raises \"status page changed\" after restarts in which no limit changed."
+      ]
     },
     {
       "type": "para",
-      "text": "Write `Fields.clean(List<String> raw)`. It returns the values of `raw`, in order, with **all surrounding whitespace removed, Unicode spaces included**, and leaves out every value that is **blank**: empty, or made only of whitespace of any kind."
-    },
-    {
-      "type": "table",
-      "headers": [
-        "raw",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`[\" a \", \"b\\t\", \"   \", \"\\t\\n\"]`",
-          "`[\"a\", \"b\"]`"
-        ],
-        [
-          "`[\" Hello \"]`",
-          "`[\"Hello\"]`"
-        ],
-        [
-          "`[\"  \", \"x\"]`",
-          "`[\"x\"]`"
-        ],
-        [
-          "`[]`",
-          "`[]`"
-        ]
-      ]
+      "text": "Finish the three `TODO`s in `src/main/java/practice/SignupRules.java`: `isReserved(...)`, `blockedDomains()` and `limitsReport(...)`. Each method's comment says what its caller needs. About five lines in total."
     },
     {
       "type": "heading",
@@ -63,7 +47,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\n\npublic final class Fields {\n\n    private Fields() {\n    }\n\n    /** The values with surrounding whitespace removed, blank values left out. */\n    public static List<String> clean(List<String> raw) {\n        return raw.stream()\n                .filter(value -> !value.isBlank())\n                .map(String::strip)\n                .toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\nimport java.util.TreeMap;\nimport java.util.stream.Collectors;\n\n/**\n * The rules the sign-up endpoint checks before it creates an account. Domains are blocked while\n * the service runs; the audit export and the status page read the rules from other threads.\n */\npublic class SignupRules {\n\n    private final Set<String> reserved;\n    private final List<String> blockedDomains = new ArrayList<>();\n\n    /** @param reserved user names no customer may register, built once at startup */\n    public SignupRules(Set<String> reserved) {\n        this.reserved = Set.copyOf(reserved);\n    }\n\n    public synchronized void block(String domain) {\n        blockedDomains.add(domain);\n    }\n\n    public synchronized boolean isBlocked(String domain) {\n        return blockedDomains.contains(domain);\n    }\n\n    /**\n     * True when no customer may register {@code username}. The sign-up form may arrive without\n     * the field, and then {@code username} is null.\n     */\n    boolean isReserved(String username) {\n        return username != null && reserved.contains(username);\n    }\n\n    /**\n     * The blocked domains for the nightly audit export. The export takes its time writing them\n     * out while new blocks keep arriving, and it must write the list as it was when it asked.\n     */\n    synchronized List<String> blockedDomains() {\n        return List.copyOf(blockedDomains);\n    }\n\n    /**\n     * The limits as one \"name=value\" line per limit, joined with \"\\n\", for the status page.\n     * Monitoring compares the page after every restart with the one before it.\n     */\n    static String limitsReport(Map<String, Integer> limits) {\n        return new TreeMap<>(limits).entrySet().stream()\n                .map(limit -> limit.getKey() + \"=\" + limit.getValue())\n                .collect(Collectors.joining(\"\\n\"));\n    }\n}\n"
         }
       ]
     },
@@ -75,7 +59,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\n\npublic final class Fields {\n\n    private Fields() {\n    }\n\n    /** The values with surrounding whitespace removed, blank values left out. */\n    public static List<String> clean(List<String> raw) {\n        throw new UnsupportedOperationException(\"write clean\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the sign-up endpoint checks before it creates an account. Domains are blocked while\n * the service runs; the audit export and the status page read the rules from other threads.\n */\npublic class SignupRules {\n\n    private final Set<String> reserved;\n    private final List<String> blockedDomains = new ArrayList<>();\n\n    /** @param reserved user names no customer may register, built once at startup */\n    public SignupRules(Set<String> reserved) {\n        this.reserved = Set.copyOf(reserved);\n    }\n\n    public synchronized void block(String domain) {\n        blockedDomains.add(domain);\n    }\n\n    public synchronized boolean isBlocked(String domain) {\n        return blockedDomains.contains(domain);\n    }\n\n    /**\n     * True when no customer may register {@code username}. The sign-up form may arrive without\n     * the field, and then {@code username} is null.\n     */\n    boolean isReserved(String username) {\n        // TODO: Answer from the reserved names given at startup. A request without the field\n        //       is not a reserved name; it is rejected later, by the form validation.\n        throw new IllegalStateException(\"TODO: isReserved\");\n    }\n\n    /**\n     * The blocked domains for the nightly audit export. The export takes its time writing them\n     * out while new blocks keep arriving, and it must write the list as it was when it asked.\n     */\n    synchronized List<String> blockedDomains() {\n        // TODO: Hand the export the blocked domains, in the order they were blocked. Blocks made\n        //       after this call must not show up in what the export writes, and the export must\n        //       not be able to change the rules through what it gets.\n        throw new IllegalStateException(\"TODO: blockedDomains\");\n    }\n\n    /**\n     * The limits as one \"name=value\" line per limit, joined with \"\\n\", for the status page.\n     * Monitoring compares the page after every restart with the one before it.\n     */\n    static String limitsReport(Map<String, Integer> limits) {\n        // TODO: One \"name=value\" line per limit, ordered by name, so that the same limits give\n        //       the same page after every restart.\n        throw new IllegalStateException(\"TODO: limitsReport\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -85,8 +69,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 0,
+    "tables": 0,
+    "lists": 1,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -94,11 +78,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "5427165b7dd4a72a4691d9eb3688d1efea295746ddc6623b49699eb810ddc28b",
-  "starting_code": "package practice;\n\nimport java.util.List;\n\npublic final class Fields {\n\n    private Fields() {\n    }\n\n    /** The values with surrounding whitespace removed, blank values left out. */\n    public static List<String> clean(List<String> raw) {\n        throw new UnsupportedOperationException(\"write clean\");\n    }\n}\n",
+  "content_sha256": "7170702ca8c24e220f950497a1231ed3aedcfeff77235703a190b750f6d66e3b",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.Set;\n\n/**\n * The rules the sign-up endpoint checks before it creates an account. Domains are blocked while\n * the service runs; the audit export and the status page read the rules from other threads.\n */\npublic class SignupRules {\n\n    private final Set<String> reserved;\n    private final List<String> blockedDomains = new ArrayList<>();\n\n    /** @param reserved user names no customer may register, built once at startup */\n    public SignupRules(Set<String> reserved) {\n        this.reserved = Set.copyOf(reserved);\n    }\n\n    public synchronized void block(String domain) {\n        blockedDomains.add(domain);\n    }\n\n    public synchronized boolean isBlocked(String domain) {\n        return blockedDomains.contains(domain);\n    }\n\n    /**\n     * True when no customer may register {@code username}. The sign-up form may arrive without\n     * the field, and then {@code username} is null.\n     */\n    boolean isReserved(String username) {\n        // TODO: Answer from the reserved names given at startup. A request without the field\n        //       is not a reserved name; it is rejected later, by the form validation.\n        throw new IllegalStateException(\"TODO: isReserved\");\n    }\n\n    /**\n     * The blocked domains for the nightly audit export. The export takes its time writing them\n     * out while new blocks keep arriving, and it must write the list as it was when it asked.\n     */\n    synchronized List<String> blockedDomains() {\n        // TODO: Hand the export the blocked domains, in the order they were blocked. Blocks made\n        //       after this call must not show up in what the export writes, and the export must\n        //       not be able to change the rules through what it gets.\n        throw new IllegalStateException(\"TODO: blockedDomains\");\n    }\n\n    /**\n     * The limits as one \"name=value\" line per limit, joined with \"\\n\", for the status page.\n     * Monitoring compares the page after every restart with the one before it.\n     */\n    static String limitsReport(Map<String, Integer> limits) {\n        // TODO: One \"name=value\" line per limit, ordered by name, so that the same limits give\n        //       the same page after every restart.\n        throw new IllegalStateException(\"TODO: limitsReport\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/main/java/practice/Fields.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/test/java/practice/FieldsTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/main/java/practice/SignupRules.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-1/src/test/java/practice/SignupRulesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -119,19 +103,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.FieldsTest#stripsAndDropsBlankValues",
+        "id": "practice.SignupRulesTest#reservedNamesAreRefusedAndOthersAccepted",
         "kind": "main",
-        "says": "Each value comes back without surrounding whitespace, and blank values are dropped."
+        "says": "a reserved user name is refused and any other name is accepted"
       },
       {
-        "id": "practice.FieldsTest#unicodeSpacesAreStripped",
-        "kind": "edge",
-        "says": "Unicode spaces such as EN QUAD (U+2000) around a value are removed too."
+        "id": "practice.SignupRulesTest#theExportGetsTheBlockedDomainsInOrder",
+        "kind": "main",
+        "says": "the export gets every blocked domain, in the order they were blocked"
       },
       {
-        "id": "practice.FieldsTest#unicodeOnlyValuesAreBlank",
+        "id": "practice.SignupRulesTest#theReportHasOneLinePerLimit",
+        "kind": "main",
+        "says": "the status report has one name=value line for each limit"
+      },
+      {
+        "id": "practice.SignupRulesTest#aRequestWithoutAUsernameIsNotReserved",
         "kind": "edge",
-        "says": "A value made only of Unicode spaces such as EM SPACE (U+2003) counts as blank and is dropped."
+        "says": "a sign-up without a username is not reserved, and the check does not throw"
+      },
+      {
+        "id": "practice.SignupRulesTest#blocksMadeWhileTheExportRunsDoNotChangeWhatItWrites",
+        "kind": "edge",
+        "says": "a domain blocked after the export asked does not appear in what the export got"
+      },
+      {
+        "id": "practice.SignupRulesTest#theReportListsTheLimitsByName",
+        "kind": "edge",
+        "says": "the report lists the limits ordered by name, whatever order the map iterates in"
       }
     ],
     "report": {
@@ -140,11 +139,12 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.2.md",
-      "section": "Interview Q&A Section"
+      "section": "List.of and Map.of Build Unmodifiable Collections That Reject null, Even in a Lookup"
     },
     "concepts": [
-      "isBlank() is true for an empty string or one made only of whitespace, Unicode whitespace included.",
-      "strip() removes Unicode whitespace such as U+2000, which trim() leaves because it only knows characters up to U+0020."
+      "List.copyOf takes a snapshot; Collections.unmodifiableList is a view that shows later changes to the list behind it.",
+      "Collections from Set.of, List.of and Map.of throw NullPointerException on contains(null) or get(null), where HashSet answers false.",
+      "Map.of and Set.of iteration order is unspecified and changes between JVM starts."
     ]
   }
 }

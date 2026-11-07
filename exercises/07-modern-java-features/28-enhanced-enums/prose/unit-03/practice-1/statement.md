@@ -1,22 +1,15 @@
-The page's `Planet` enum is its model of parameterized constants: each constant
-is built with its own mass (kg) and radius (m), and derives the rest from them.
-Behavior lives with the data, and `values()` lists every planet for free.
+The garage's barrier app charges a parked car in parts. Each time it settles a stretch of parked
+time, it calls `charge(visit, minutes)` on the car's tariff and books what comes back. A tariff
+has a price per started hour and a cap: however long a car stays, its visit never pays more than
+the cap in total.
 
-The constants, their fields and `G = 6.67300E-11` are given. Write:
+`Garage` already holds the three tariffs with their prices and caps. Finish the `TODO` in
+`src/main/java/practice/Garage.java`:
 
-- `double surfaceGravity()`: `G * mass / (radius * radius)`.
-- `double surfaceWeight(double otherMass)`: `otherMass * surfaceGravity()`.
-- `static Planet strongest(Collection<Planet> among)`: the planet with the
-  highest surface gravity among `among` (throw `NoSuchElementException` when
-  it is empty).
-- `static List<Planet> withGravityBetween(double min, double max)`: every
-  planet whose surface gravity is between `min` and `max`, both bounds
-  included, in declaration order.
+- `Tariff.charge(visit, minutes)`: what this part of the visit costs, every started hour at the
+  tariff's price, cut down to what is left of the visit's cap.
 
-| call | answer |
-|---|---|
-| `EARTH.surfaceGravity()` | about `9.80` |
-| `EARTH.surfaceWeight(75)` | about `735.2` |
-| `strongest(List.of(URANUS, SATURN, NEPTUNE))` | `NEPTUNE` |
-| `withGravityBetween(9, 12)` | `[EARTH, SATURN, NEPTUNE]` |
-| `withGravityBetween(8, 12)` | `[VENUS, EARTH, SATURN, URANUS, NEPTUNE]` |
+You may add to `Visit` whatever a visit needs. When you're done, every visit pays its started
+hours until it reaches its tariff's cap and nothing after that, whether it is the only car in the
+garage, follows a car that already hit the cap, or is parked at the same time as other cars on
+the same tariff. About six lines in total.

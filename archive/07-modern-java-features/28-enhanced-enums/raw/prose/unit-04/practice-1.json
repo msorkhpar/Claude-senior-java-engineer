@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Converters with a generic method per constant",
+  "title": "Bind the order-search query parameters to the types callers ask for",
   "blocks": [
     {
       "type": "heading",
@@ -19,54 +19,23 @@
     },
     {
       "type": "para",
-      "text": "`enum DataConverter<T>` is illegal, but a method of an enum may declare its own type parameter: `<T> T convert(Object input, Class<T> targetType)`. The type is chosen at each call, so one constant serves `Integer`, `Long` and `Double` callers alike. The page's pitfall is `return (T) obj;`: erasure makes that cast do nothing, so a wrong type surfaces later, elsewhere. Casting with the `Class<T>` token fails at once."
+      "text": "The order-search endpoint reads its query string into a map, and every handler gets its parameters through `QueryParam`, as in `QueryParam.PAGE.get(query, Integer.class)`. The binding layer that fills a handler's arguments is generic code that passes the result on as an `Object`. Last week a handler declared its `limit` argument as a `String`. The request passed the binding layer, and the error turned up two services away, in a report job that read the stored value back."
     },
     {
       "type": "para",
-      "text": "Fill in each constant's `convert`, and write `safeConvert`:"
+      "text": "Parsing already works. Finish the two `TODO`s in `src/main/java/practice/QueryParam.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`STRING_TO_NUMBER`: parse `String.valueOf(input)` as the target type, one of `Integer`, `Long`, `Double` or `Float`. Any other target throws `UnsupportedOperationException`.",
-        "`TO_STRING`: `String.valueOf(input)`; a target other than `String` throws `UnsupportedOperationException`.",
-        "`IDENTITY`: `input` itself, checked with `targetType`: a value of another type throws `ClassCastException` inside `convert`.",
-        "`<T> Optional<T> safeConvert(Object input, Class<T> targetType)`: the conversion, or an empty `Optional` if the conversion fails for any reason."
+        "`get(...)`: hand the parsed value back as the type the caller asked for;",
+        "`boxed(...)`: the class whose instances a caller asking for `type` can be given."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`STRING_TO_NUMBER.convert(\"42\", Integer.class)`",
-          "`42`"
-        ],
-        [
-          "`STRING_TO_NUMBER.convert(\"10000000000\", Long.class)`",
-          "`10000000000L`"
-        ],
-        [
-          "`TO_STRING.convert(42, String.class)`",
-          "`\"42\"`"
-        ],
-        [
-          "`IDENTITY.convert(\"hello\", Integer.class)`",
-          "throws `ClassCastException`"
-        ],
-        [
-          "`STRING_TO_NUMBER.convert(\"1\", Boolean.class)`",
-          "throws `UnsupportedOperationException`"
-        ],
-        [
-          "`STRING_TO_NUMBER.safeConvert(\"abc\", Integer.class)`",
-          "`Optional.empty`"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, a caller that asks for a type the parameter doesn't hold gets a `ClassCastException` from `get` itself, while callers that ask for `int`, `boolean`, or a wider type such as `Number` get their value. About four lines in total."
     },
     {
       "type": "heading",
@@ -81,7 +50,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Optional;\n\npublic enum DataConverter {\n    STRING_TO_NUMBER {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            String text = String.valueOf(input);\n            Object result;\n            if (targetType == Integer.class) {\n                result = Integer.parseInt(text);\n            } else if (targetType == Long.class) {\n                result = Long.parseLong(text);\n            } else if (targetType == Double.class) {\n                result = Double.parseDouble(text);\n            } else if (targetType == Float.class) {\n                result = Float.parseFloat(text);\n            } else {\n                throw new UnsupportedOperationException(\"Cannot convert to \" + targetType.getSimpleName());\n            }\n            return targetType.cast(result);\n        }\n    },\n    TO_STRING {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            if (targetType != String.class) {\n                throw new UnsupportedOperationException(\"TO_STRING only converts to String\");\n            }\n            return targetType.cast(String.valueOf(input));\n        }\n    },\n    IDENTITY {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> T convert(Object input, Class<T> targetType) {\n            return targetType.cast(input);\n        }\n    };\n\n    /** Converts {@code input} to {@code targetType}. */\n    public abstract <T> T convert(Object input, Class<T> targetType);\n\n    /** The conversion, or empty when it fails for any reason. */\n    public <T> Optional<T> safeConvert(Object input, Class<T> targetType) {\n        try {\n            return Optional.ofNullable(convert(input, targetType));\n        } catch (RuntimeException e) {\n            return Optional.empty();\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.Map;\nimport java.util.function.Function;\n\n/**\n * The query parameters the order-search endpoint accepts. Each one knows the type of its value\n * and how to parse it from the raw query string.\n */\npublic enum QueryParam {\n    PAGE(\"page\", Integer.class, Integer::valueOf),\n    LIMIT(\"limit\", Integer.class, Integer::valueOf),\n    SINCE(\"since\", LocalDate.class, LocalDate::parse),\n    CUSTOMER(\"customer\", String.class, raw -> raw),\n    EXPRESS(\"express\", Boolean.class, Boolean::valueOf);\n\n    private final String name;\n    private final Class<?> valueType;\n    private final Function<String, ?> parser;\n\n    QueryParam(String name, Class<?> valueType, Function<String, ?> parser) {\n        this.name = name;\n        this.valueType = valueType;\n        this.parser = parser;\n    }\n\n    /** One line for the endpoint's help page, such as {@code page (Integer)}. */\n    public String describe() {\n        return name + \" (\" + valueType.getSimpleName() + \")\";\n    }\n\n    /**\n     * This parameter's value in {@code query}, as the type the caller asks for; {@code null} when\n     * the query doesn't have it.\n     */\n    public <T> T get(Map<String, String> query, Class<T> type) {\n        String raw = query.get(name);\n        if (raw == null) return null;\n        Object value = parser.apply(raw);\n        return boxed(type).cast(value);\n    }\n\n    /** The class whose instances a caller asking for {@code type} can be given. */\n    @SuppressWarnings(\"unchecked\")\n    static <T> Class<T> boxed(Class<T> type) {\n        if (type == int.class) return (Class<T>) Integer.class;\n        if (type == boolean.class) return (Class<T>) Boolean.class;\n        return type;\n    }\n}\n"
         }
       ]
     },
@@ -93,7 +62,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.Optional;\n\npublic enum DataConverter {\n    STRING_TO_NUMBER {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            throw new IllegalStateException(\"write convert\");\n        }\n    },\n    TO_STRING {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            throw new IllegalStateException(\"write convert\");\n        }\n    },\n    IDENTITY {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> T convert(Object input, Class<T> targetType) {\n            throw new IllegalStateException(\"write convert\");\n        }\n    };\n\n    /** Converts {@code input} to {@code targetType}. */\n    public abstract <T> T convert(Object input, Class<T> targetType);\n\n    /** The conversion, or empty when it fails for any reason. */\n    public <T> Optional<T> safeConvert(Object input, Class<T> targetType) {\n        throw new IllegalStateException(\"write safeConvert\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.Map;\nimport java.util.function.Function;\n\n/**\n * The query parameters the order-search endpoint accepts. Each one knows the type of its value\n * and how to parse it from the raw query string.\n */\npublic enum QueryParam {\n    PAGE(\"page\", Integer.class, Integer::valueOf),\n    LIMIT(\"limit\", Integer.class, Integer::valueOf),\n    SINCE(\"since\", LocalDate.class, LocalDate::parse),\n    CUSTOMER(\"customer\", String.class, raw -> raw),\n    EXPRESS(\"express\", Boolean.class, Boolean::valueOf);\n\n    private final String name;\n    private final Class<?> valueType;\n    private final Function<String, ?> parser;\n\n    QueryParam(String name, Class<?> valueType, Function<String, ?> parser) {\n        this.name = name;\n        this.valueType = valueType;\n        this.parser = parser;\n    }\n\n    /** One line for the endpoint's help page, such as {@code page (Integer)}. */\n    public String describe() {\n        return name + \" (\" + valueType.getSimpleName() + \")\";\n    }\n\n    /**\n     * This parameter's value in {@code query}, as the type the caller asks for; {@code null} when\n     * the query doesn't have it.\n     */\n    public <T> T get(Map<String, String> query, Class<T> type) {\n        String raw = query.get(name);\n        if (raw == null) return null;\n        Object value = parser.apply(raw);\n        // TODO: Hand the value back as the type the caller asked for. A caller that asks for a\n        //       type this parameter's value doesn't have must find out here, in this call, and\n        //       not somewhere later in its own code.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n\n    /** The class whose instances a caller asking for {@code type} can be given. */\n    static <T> Class<T> boxed(Class<T> type) {\n        // TODO: Callers write `int page = PAGE.get(query, int.class)` as often as they ask for\n        //       Integer.class. Answer the class whose instances such a caller can be given.\n        throw new IllegalStateException(\"TODO: boxed\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -101,9 +70,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 3,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -112,11 +81,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "fe6f5ce205a0302ccb5af60efc6b2437d704ebfd2712fe1bc54de24716bcf495",
-  "starting_code": "package practice;\n\nimport java.util.Optional;\n\npublic enum DataConverter {\n    STRING_TO_NUMBER {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            throw new IllegalStateException(\"write convert\");\n        }\n    },\n    TO_STRING {\n        @Override\n        public <T> T convert(Object input, Class<T> targetType) {\n            throw new IllegalStateException(\"write convert\");\n        }\n    },\n    IDENTITY {\n        @Override\n        @SuppressWarnings(\"unchecked\")\n        public <T> T convert(Object input, Class<T> targetType) {\n            throw new IllegalStateException(\"write convert\");\n        }\n    };\n\n    /** Converts {@code input} to {@code targetType}. */\n    public abstract <T> T convert(Object input, Class<T> targetType);\n\n    /** The conversion, or empty when it fails for any reason. */\n    public <T> Optional<T> safeConvert(Object input, Class<T> targetType) {\n        throw new IllegalStateException(\"write safeConvert\");\n    }\n}\n",
+  "content_sha256": "7825c9f798ec310261b324b8c929d3fb1498b45cae9a83e0b3b7b8ecc9d32602",
+  "starting_code": "package practice;\n\nimport java.time.LocalDate;\nimport java.util.Map;\nimport java.util.function.Function;\n\n/**\n * The query parameters the order-search endpoint accepts. Each one knows the type of its value\n * and how to parse it from the raw query string.\n */\npublic enum QueryParam {\n    PAGE(\"page\", Integer.class, Integer::valueOf),\n    LIMIT(\"limit\", Integer.class, Integer::valueOf),\n    SINCE(\"since\", LocalDate.class, LocalDate::parse),\n    CUSTOMER(\"customer\", String.class, raw -> raw),\n    EXPRESS(\"express\", Boolean.class, Boolean::valueOf);\n\n    private final String name;\n    private final Class<?> valueType;\n    private final Function<String, ?> parser;\n\n    QueryParam(String name, Class<?> valueType, Function<String, ?> parser) {\n        this.name = name;\n        this.valueType = valueType;\n        this.parser = parser;\n    }\n\n    /** One line for the endpoint's help page, such as {@code page (Integer)}. */\n    public String describe() {\n        return name + \" (\" + valueType.getSimpleName() + \")\";\n    }\n\n    /**\n     * This parameter's value in {@code query}, as the type the caller asks for; {@code null} when\n     * the query doesn't have it.\n     */\n    public <T> T get(Map<String, String> query, Class<T> type) {\n        String raw = query.get(name);\n        if (raw == null) return null;\n        Object value = parser.apply(raw);\n        // TODO: Hand the value back as the type the caller asked for. A caller that asks for a\n        //       type this parameter's value doesn't have must find out here, in this call, and\n        //       not somewhere later in its own code.\n        throw new IllegalStateException(\"TODO: get\");\n    }\n\n    /** The class whose instances a caller asking for {@code type} can be given. */\n    static <T> Class<T> boxed(Class<T> type) {\n        // TODO: Callers write `int page = PAGE.get(query, int.class)` as often as they ask for\n        //       Integer.class. Answer the class whose instances such a caller can be given.\n        throw new IllegalStateException(\"TODO: boxed\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-1/src/main/java/practice/DataConverter.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-1/src/test/java/practice/DataConverterTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-1/src/main/java/practice/QueryParam.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-04/practice-1/src/test/java/practice/QueryParamTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -137,29 +106,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.DataConverterTest#convertsToTheRequestedType",
+        "id": "practice.QueryParamTest#eachParameterComesBackAsTheTypeItHolds",
         "kind": "main",
-        "says": "Each constant converts its input to the type the caller asks for, resolved at the call site."
+        "says": "each parameter comes back as the type its value has, and a parameter the query lacks comes back as null"
       },
       {
-        "id": "practice.DataConverterTest#identityFailsInsideConvert",
+        "id": "practice.QueryParamTest#askingForATypeTheParameterDoesNotHoldFailsInsideGet",
         "kind": "edge",
-        "says": "IDENTITY.convert(\"hello\", Integer.class) throws ClassCastException inside convert(), even when the caller ignores the result."
+        "says": "a request for a type the parameter's value doesn't have fails with ClassCastException inside get, even when the caller's own code checks nothing"
       },
       {
-        "id": "practice.DataConverterTest#aLongBeyondTheIntRange",
+        "id": "practice.QueryParamTest#callersMayAskForAPrimitiveType",
         "kind": "edge",
-        "says": "STRING_TO_NUMBER converts \"10000000000\" to a Long, parsing it as a long."
+        "says": "a caller may ask for int or boolean and gets the value"
       },
       {
-        "id": "practice.DataConverterTest#anUnsupportedTargetIsRefused",
+        "id": "practice.QueryParamTest#callersMayAskForAWiderTypeThanTheValuesOwn",
         "kind": "edge",
-        "says": "A target the constant does not support is refused with UnsupportedOperationException, instead of returning null: Boolean for STRING_TO_NUMBER, anything but String (even Object) for TO_STRING."
-      },
-      {
-        "id": "practice.DataConverterTest#safeConvertGivesEmptyOnAnyFailure",
-        "kind": "edge",
-        "says": "safeConvert() gives an empty Optional for every kind of failure: text that does not parse, an unsupported target, or a value of the wrong type."
+        "says": "a caller may ask for a supertype of the value's type, such as Number for an Integer"
       }
     ],
     "report": {
@@ -168,12 +132,11 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.4.md",
-      "section": "Q1: Why can't Java enums have type parameters, and how do generic methods work around this?"
+      "section": "A `Class<T>` Token Makes the Cast Real, Inside the Method"
     },
     "concepts": [
-      "A Class<T> parameter lets a generic enum method cast with Class.cast, which fails at once, instead of an unchecked (T) cast that fails later.",
-      "An enum cannot be generic, but its methods, abstract ones included, can declare their own type parameters and be overridden per constant.",
-      "A safe conversion method returns Optional<T> instead of throwing."
+      "Casting with a Class<T> token makes a wrong request fail inside the method, and accepts any supertype of the value's class.",
+      "A primitive token such as int.class accepts no object, so it must be mapped to its wrapper; a token can't name a parameterized type."
     ]
   }
 }

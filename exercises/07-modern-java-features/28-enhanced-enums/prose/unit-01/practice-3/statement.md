@@ -1,27 +1,11 @@
-`valueOf` finds a constant by its name only. To find one by another key,
-such as a code, the page builds a static unmodifiable `Map` once, so a lookup
-is O(1) instead of a scan of `values()`, and returns an `Optional`. It also
-warns that the key extractor must give unique keys: `toUnmodifiableMap`
-throws on a duplicate.
+This practice continues the ticket store: the starter is the previous practice's solution, with
+two new methods for the agents' ticket list, `stateLabel` and `countIn`.
 
-Write the generic helper once, for any enum:
+The list now meets rows its release can't read. During a rolling deploy, servers running the
+release after this one already write `ESCALATED` while this release still serves the list, and
+tickets imported from the old help-desk tool have no state at all. Today one such row makes the
+whole list fail.
 
-```java
-static <E extends Enum<E>, K> Function<K, Optional<E>> indexBy(Class<E> type, Function<E, K> key)
-```
-
-`indexBy` builds the index from `type`'s constants **once**, reading each
-constant's key a single time, and returns a lookup function that only consults
-that index (it never scans the constants or calls `key` again). The lookup gives the constant whose key **equals** the one asked for,
-or an empty `Optional`. If two constants have equal keys, `indexBy` itself
-throws `IllegalStateException`.
-
-The starter has `Dial` (country dialing codes: `US` 1, `UK` 44, `DE` 49,
-`IE` 353, `FI` 358) and `SharedDial` (`US` 1, `CA` 1, `UK` 44).
-
-| call | answer |
-|---|---|
-| `indexBy(Dial.class, Dial::code).apply(44)` | `Optional[UK]` |
-| `indexBy(Dial.class, Dial::code).apply(358)` | `Optional[FI]` |
-| `indexBy(Dial.class, Dial::code).apply(7)` | `Optional.empty` |
-| `indexBy(SharedDial.class, SharedDial::code)` | throws `IllegalStateException` |
+Finish `tryRead` in `src/main/java/practice/TicketStore.java`, which both methods call for every
+row. When you're done, a row this release can't read shows as `unknown` and is left out of the
+counts, and every other row, `WAITING` included, reads as before. About six lines in total.

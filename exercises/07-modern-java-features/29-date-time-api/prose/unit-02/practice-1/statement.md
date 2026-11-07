@@ -1,22 +1,16 @@
-Every `java.time` class is **immutable**: `plusDays`, `with(...)` and the rest
-never change the object they are called on, they return a new one. The API is
-also **null-hostile**: it throws `NullPointerException` for a null argument
-instead of accepting it. Write your own value class the same way.
+The billing service runs in a data centre in Frankfurt and bills customers from Los Angeles to
+Auckland. Customers have started writing in: a payment made at nine in the evening in California
+shows up on an invoice dated the next day, a Tokyo customer's daily statement lists payments from
+two different days, and the "today's statement" page shows tomorrow for customers in Brazil
+around midnight.
 
-Write `Invoice`, an immutable invoice:
+Finish the three `TODO` methods in `src/main/java/practice/Billing.java`:
 
-- `Invoice(LocalDate issued, int termDays)` creates it. A `null` issue date
-  is refused right here with a `NullPointerException`.
-- `LocalDate issued()` and `int termDays()` return what it was created with.
-- `LocalDate dueDate()` is `issued` plus `termDays` days; if that day is a
-  Saturday or a Sunday, the due date is the **following Monday**.
-- `Invoice extendedBy(int days)` returns an invoice with the same issue date
-  and a term `days` longer. The invoice it is called on does not change.
+- `invoiceDate(...)`: the date printed on an invoice for a payment;
+- `startOf(...)`: the moment a customer's day begins, which `statement(...)` uses for both ends
+  of the day;
+- `today(...)`: the customer's current date.
 
-| invoice | `dueDate()` |
-|---|---|
-| `new Invoice(LocalDate.of(2024, 3, 1), 14)` | `2024-03-15` (a Friday) |
-| the same, `.extendedBy(4)` | `2024-03-19` |
-| `new Invoice(LocalDate.of(2024, 3, 1), 15)` | `2024-03-18` (the 16th is a Saturday) |
-
-`TemporalAdjusters` has an adjuster for "the next Monday".
+When you're done, every date a customer sees is a date in their own calendar, wherever the
+service runs, and `today(...)` answers from the `Clock` that `Billing` was built with. About three
+lines in total.

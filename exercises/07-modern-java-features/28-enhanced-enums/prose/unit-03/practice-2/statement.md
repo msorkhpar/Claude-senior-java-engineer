@@ -1,31 +1,13 @@
-In the page's `MathOperation`, the enum declares `abstract double apply(double
-a, double b)` and every constant supplies its own body. Two consequences the
-page points out:
+At checkout, the customer is shown the way of paying that costs the merchant least. Merchants
+choose what they offer: some switch off the wallet or the bank transfer, and some have signed a
+rate of their own that sales loads from the contract. Support has two tickets: a merchant without
+bank transfers whose customers are told to pay by bank transfer, and a merchant whose negotiated
+card rate is never offered even though it is the cheapest.
 
-- Each constant must handle its own edge cases. `DIVIDE` **and** `MODULUS`
-  throw `ArithmeticException("Division by zero")` for a zero divisor (plain
-  `double` arithmetic would quietly give `Infinity` or `NaN`).
-- A constant with a body is an instance of an anonymous subclass, so its
-  `getClass()` is not the enum. `getDeclaringClass()` is.
+Finish the `TODO` in `src/main/java/practice/Checkout.java`:
 
-Complete `MathOperation`:
+- `cheapest(offered, amountCents)`: the rule with the lowest fee for that amount, out of the rules
+  this merchant offers.
 
-- Fill in each constant's `apply` body: `ADD` `+`, `SUBTRACT` `-`, `MULTIPLY`
-  `*`, `DIVIDE` `/`, `MODULUS` `%`.
-- `static Optional<MathOperation> fromSymbol(String symbol)`: the constant whose
-  symbol equals `symbol`, or empty.
-- `static String qualifiedName(Enum<?> constant)`: the simple name of the
-  constant's enum type, a dot, and the constant's name, such as
-  `"MathOperation.ADD"` or `"Precedence.HIGH"`.
-
-| call | answer |
-|---|---|
-| `DIVIDE.apply(7, 2)` | `3.5` |
-| `MODULUS.apply(7, 3)` | `1.0` |
-| `MODULUS.apply(7, 0)` | throws `ArithmeticException` |
-| `fromSymbol("*")` | `Optional[MULTIPLY]` |
-| `qualifiedName(Precedence.HIGH)` | `"Precedence.HIGH"` |
-| `qualifiedName(ADD)` | `"MathOperation.ADD"` |
-
-A symbol usually arrives from parsed input, so it is not the same `String`
-object as the constant's symbol.
+When you're done, checkout picks among exactly what the merchant offers, standard method or
+negotiated rate. About five lines in total.

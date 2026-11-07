@@ -1,19 +1,18 @@
-Java 11 added `Files.writeString()` and `Files.readString()`, which the page
-says simplify small-file I/O dramatically: no readers, writers or loops.
-`writeString` takes `OpenOption`s such as `StandardOpenOption.CREATE` and
-`StandardOpenOption.APPEND`; without options it creates the file or
-**replaces** its content.
+The checkout prices a basket by asking a partner's quote service for each item's price:
+`GET {base}/quotes/{symbol}` answers `200` with the price as a plain decimal, such as `318.40`.
+`QuoteClient` runs on the checkout's request threads and shares the service's one `HttpClient`,
+which is built with a two-second connect timeout.
 
-Write the class `Notes`, which keeps one note per line in a small text file:
+Two incidents last month:
 
-- `append(Path file, String note)` adds `note` and a `"\n"` at the **end** of
-  the file, creating the file when it does not exist. Notes already in the file
-  stay.
-- `read(Path file)` returns the notes in order. A file that does **not exist**
-  holds no notes: return an empty list.
+- the partner's servers kept accepting connections during an overload but stopped answering;
+  within minutes every checkout thread was waiting on a quote, and the shop stopped responding;
+- during the partner's maintenance window, and for every product the partner doesn't list,
+  checkouts failed with a `NumberFormatException` from deep in the pricing code, which the
+  checkout's error handling doesn't expect.
 
-| calls, on a file that does not exist yet | answer |
-|---|---|
-| `read(file)` | `[]` |
-| `append(file, "buy milk")`, then `read(file)` | `["buy milk"]` |
-| then `append(file, "call Bob")`, then `read(file)` | `["buy milk", "call Bob"]` |
+Finish the two `TODO`s in `src/main/java/practice/QuoteClient.java`: `request(...)` and
+`priceIn(...)`. A lookup must end within the budget the client was given, with a price or with an
+`IOException`, and only a real quote may become a price. About six lines in total.
+
+The tests run the partner as a small HTTP server on 127.0.0.1; nothing leaves the machine.

@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A notes file with readString and writeString",
+  "title": "Keep a stalled quote service from taking the checkout down",
   "blocks": [
     {
       "type": "heading",
@@ -19,40 +19,27 @@
     },
     {
       "type": "para",
-      "text": "Java 11 added `Files.writeString()` and `Files.readString()`, which the page says simplify small-file I/O dramatically: no readers, writers or loops. `writeString` takes `OpenOption`s such as `StandardOpenOption.CREATE` and `StandardOpenOption.APPEND`; without options it creates the file or **replaces** its content."
+      "text": "The checkout prices a basket by asking a partner's quote service for each item's price: `GET {base}/quotes/{symbol}` answers `200` with the price as a plain decimal, such as `318.40`. `QuoteClient` runs on the checkout's request threads and shares the service's one `HttpClient`, which is built with a two-second connect timeout."
     },
     {
       "type": "para",
-      "text": "Write the class `Notes`, which keeps one note per line in a small text file:"
+      "text": "Two incidents last month:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`append(Path file, String note)` adds `note` and a `\"\\n\"` at the **end** of the file, creating the file when it does not exist. Notes already in the file stay.",
-        "`read(Path file)` returns the notes in order. A file that does **not exist** holds no notes: return an empty list."
+        "the partner's servers kept accepting connections during an overload but stopped answering; within minutes every checkout thread was waiting on a quote, and the shop stopped responding;",
+        "during the partner's maintenance window, and for every product the partner doesn't list, checkouts failed with a `NumberFormatException` from deep in the pricing code, which the checkout's error handling doesn't expect."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls, on a file that does not exist yet",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`read(file)`",
-          "`[]`"
-        ],
-        [
-          "`append(file, \"buy milk\")`, then `read(file)`",
-          "`[\"buy milk\"]`"
-        ],
-        [
-          "then `append(file, \"call Bob\")`, then `read(file)`",
-          "`[\"buy milk\", \"call Bob\"]`"
-        ]
-      ]
+      "type": "para",
+      "text": "Finish the two `TODO`s in `src/main/java/practice/QuoteClient.java`: `request(...)` and `priceIn(...)`. A lookup must end within the budget the client was given, with a price or with an `IOException`, and only a real quote may become a price. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run the partner as a small HTTP server on 127.0.0.1; nothing leaves the machine."
     },
     {
       "type": "heading",
@@ -67,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport java.nio.file.StandardOpenOption;\nimport java.util.List;\n\npublic final class Notes {\n\n    private Notes() {\n    }\n\n    /** Adds the note as a new last line, creating the file when needed. */\n    public static void append(Path file, String note) throws IOException {\n        Files.writeString(file, note + \"\\n\", StandardOpenOption.CREATE, StandardOpenOption.APPEND);\n    }\n\n    /** The notes in order; none when the file does not exist. */\n    public static List<String> read(Path file) throws IOException {\n        if (!Files.exists(file)) {\n            return List.of();\n        }\n        return Files.readString(file).lines().toList();\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.net.URI;\nimport java.net.http.HttpClient;\nimport java.net.http.HttpRequest;\nimport java.net.http.HttpResponse;\nimport java.time.Duration;\n\n/**\n * Looks up prices at a partner's quote service: GET {base}/quotes/{symbol} answers 200 with the\n * price as a plain decimal. The checkout calls it on its request threads, so a lookup must end\n * within its time budget, with a price or with an IOException.\n */\npublic class QuoteClient {\n\n    private final HttpClient http;\n    private final URI base;\n    private final Duration budget;\n\n    /**\n     * @param http   the service's one shared client\n     * @param base   the partner's base address, such as http://127.0.0.1:8080\n     * @param budget how long one lookup may take in total\n     */\n    public QuoteClient(HttpClient http, URI base, Duration budget) {\n        this.http = http;\n        this.base = base;\n        this.budget = budget;\n    }\n\n    /** The current price of {@code symbol}; IOException when the partner gave no price. */\n    public BigDecimal price(String symbol) throws IOException, InterruptedException {\n        HttpResponse<String> response = http.send(request(symbol), HttpResponse.BodyHandlers.ofString());\n        return priceIn(response);\n    }\n\n    /** The request for one symbol. */\n    HttpRequest request(String symbol) {\n        return HttpRequest.newBuilder(base.resolve(\"/quotes/\" + symbol))\n                .timeout(budget)\n                .GET()\n                .build();\n    }\n\n    /** The price a response carries. */\n    BigDecimal priceIn(HttpResponse<String> response) throws IOException {\n        if (response.statusCode() != 200) {\n            throw new IOException(\"no quote: HTTP \" + response.statusCode());\n        }\n        return new BigDecimal(response.body().strip());\n    }\n}\n"
         }
       ]
     },
@@ -79,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.List;\n\npublic final class Notes {\n\n    private Notes() {\n    }\n\n    /** Adds the note as a new last line, creating the file when needed. */\n    public static void append(Path file, String note) throws IOException {\n        throw new UnsupportedOperationException(\"write append\");\n    }\n\n    /** The notes in order; none when the file does not exist. */\n    public static List<String> read(Path file) throws IOException {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.net.URI;\nimport java.net.http.HttpClient;\nimport java.net.http.HttpRequest;\nimport java.net.http.HttpResponse;\nimport java.time.Duration;\n\n/**\n * Looks up prices at a partner's quote service: GET {base}/quotes/{symbol} answers 200 with the\n * price as a plain decimal. The checkout calls it on its request threads, so a lookup must end\n * within its time budget, with a price or with an IOException.\n */\npublic class QuoteClient {\n\n    private final HttpClient http;\n    private final URI base;\n    private final Duration budget;\n\n    /**\n     * @param http   the service's one shared client\n     * @param base   the partner's base address, such as http://127.0.0.1:8080\n     * @param budget how long one lookup may take in total\n     */\n    public QuoteClient(HttpClient http, URI base, Duration budget) {\n        this.http = http;\n        this.base = base;\n        this.budget = budget;\n    }\n\n    /** The current price of {@code symbol}; IOException when the partner gave no price. */\n    public BigDecimal price(String symbol) throws IOException, InterruptedException {\n        HttpResponse<String> response = http.send(request(symbol), HttpResponse.BodyHandlers.ofString());\n        return priceIn(response);\n    }\n\n    /** The request for one symbol. */\n    HttpRequest request(String symbol) {\n        // TODO: A GET of {base}/quotes/{symbol}. The partner sometimes accepts the connection and\n        //       then doesn't answer for minutes; the lookup must give up within its budget.\n        throw new IllegalStateException(\"TODO: request\");\n    }\n\n    /** The price a response carries. */\n    BigDecimal priceIn(HttpResponse<String> response) throws IOException {\n        // TODO: Read the price from the body. Only a 200 carries a price; any other answer means\n        //       there is no price, and the checkout must get an IOException, never a number.\n        throw new IllegalStateException(\"TODO: priceIn\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -87,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -98,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "e62a4d82749d6ea1cc249e416bae16a6db78ac98bb14b2c115e96241b933f520",
-  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.nio.file.Path;\nimport java.util.List;\n\npublic final class Notes {\n\n    private Notes() {\n    }\n\n    /** Adds the note as a new last line, creating the file when needed. */\n    public static void append(Path file, String note) throws IOException {\n        throw new UnsupportedOperationException(\"write append\");\n    }\n\n    /** The notes in order; none when the file does not exist. */\n    public static List<String> read(Path file) throws IOException {\n        throw new UnsupportedOperationException(\"write read\");\n    }\n}\n",
+  "content_sha256": "c2ea7022805b1bf67696c6c6af65d3e693ec7924303bfe468201a63cac9461a3",
+  "starting_code": "package practice;\n\nimport java.io.IOException;\nimport java.math.BigDecimal;\nimport java.net.URI;\nimport java.net.http.HttpClient;\nimport java.net.http.HttpRequest;\nimport java.net.http.HttpResponse;\nimport java.time.Duration;\n\n/**\n * Looks up prices at a partner's quote service: GET {base}/quotes/{symbol} answers 200 with the\n * price as a plain decimal. The checkout calls it on its request threads, so a lookup must end\n * within its time budget, with a price or with an IOException.\n */\npublic class QuoteClient {\n\n    private final HttpClient http;\n    private final URI base;\n    private final Duration budget;\n\n    /**\n     * @param http   the service's one shared client\n     * @param base   the partner's base address, such as http://127.0.0.1:8080\n     * @param budget how long one lookup may take in total\n     */\n    public QuoteClient(HttpClient http, URI base, Duration budget) {\n        this.http = http;\n        this.base = base;\n        this.budget = budget;\n    }\n\n    /** The current price of {@code symbol}; IOException when the partner gave no price. */\n    public BigDecimal price(String symbol) throws IOException, InterruptedException {\n        HttpResponse<String> response = http.send(request(symbol), HttpResponse.BodyHandlers.ofString());\n        return priceIn(response);\n    }\n\n    /** The request for one symbol. */\n    HttpRequest request(String symbol) {\n        // TODO: A GET of {base}/quotes/{symbol}. The partner sometimes accepts the connection and\n        //       then doesn't answer for minutes; the lookup must give up within its budget.\n        throw new IllegalStateException(\"TODO: request\");\n    }\n\n    /** The price a response carries. */\n    BigDecimal priceIn(HttpResponse<String> response) throws IOException {\n        // TODO: Read the price from the body. Only a 200 carries a price; any other answer means\n        //       there is no price, and the checkout must get an IOException, never a number.\n        throw new IllegalStateException(\"TODO: priceIn\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-3/src/main/java/practice/Notes.java",
-    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-3/src/test/java/practice/NotesTest.java",
+    "main_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-3/src/main/java/practice/QuoteClient.java",
+    "test_path": "practice/07-modern-java-features/27-modern-java-overview/prose/unit-02/practice-3/src/test/java/practice/QuoteClientTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -123,19 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.NotesTest#writesAndReadsANote",
+        "id": "practice.QuoteClientTest#returnsThePriceThePartnerQuotes",
         "kind": "main",
-        "says": "A note appended to a new file is read back as the file's only note."
+        "says": "a 200 answer gives the quoted price, fetched with a GET of /quotes/{symbol}"
       },
       {
-        "id": "practice.NotesTest#appendKeepsEarlierNotes",
+        "id": "practice.QuoteClientTest#aPartnerThatStopsAnsweringEndsTheLookupWithinItsBudget",
         "kind": "edge",
-        "says": "A second note is added after the first one instead of replacing it."
+        "says": "when the partner accepts the connection and never answers, the lookup ends with an IOException within its budget"
       },
       {
-        "id": "practice.NotesTest#missingFileReadsAsNoNotes",
+        "id": "practice.QuoteClientTest#aServerErrorIsNoPrice",
         "kind": "edge",
-        "says": "Reading a file that does not exist gives an empty list, not an exception."
+        "says": "a 503 answer ends the lookup with an IOException, not with its body read as a price"
+      },
+      {
+        "id": "practice.QuoteClientTest#anUnknownSymbolIsNoPrice",
+        "kind": "edge",
+        "says": "a 404 answer ends the lookup with an IOException too: only a 200 carries a price"
       }
     ],
     "report": {
@@ -144,10 +136,11 @@
     },
     "origin": {
       "path": "27-modern-java-overview/README_7.1.2.md",
-      "section": "Key Points to Remember"
+      "section": "HttpClient's Connect Timeout Bounds Only the Connection, and an Error Status Is a Response"
     },
     "concepts": [
-      "Files.writeString and Files.readString read and write a small file in one call, with open options such as APPEND."
+      "HttpClient's connectTimeout bounds only the connection; without HttpRequest.timeout a stalled server makes send() wait forever.",
+      "send() throws only when no response came; a 4xx or 5xx is a normal response whose status the caller must check."
     ]
   }
 }

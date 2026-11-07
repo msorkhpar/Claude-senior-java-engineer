@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Typed settings as a sealed interface of records",
+  "title": "Keep sessions intact when attributes stop being an enum",
   "blocks": [
     {
       "type": "heading",
@@ -19,57 +19,28 @@
     },
     {
       "type": "para",
-      "text": "`enum Setting<T>` does not compile, so an enum cannot say that `MAX_RETRIES` holds an `Integer` while `APP_NAME` holds a `String`. The page's preferred workaround is a sealed generic interface whose permitted records play the constants: `MaxRetries implements AppSetting<Integer>`, `AppName implements AppSetting<String>`, and so on. Each \"constant\" then carries its own type argument, and a switch over the sealed interface is exhaustive."
+      "text": "The shop's web sessions live in a session store: after each request the store serializes the `Session`, and the next request, possibly on another node after a rolling restart, reads it back. The session's attributes used to be an enum. They are now `Session.Attribute<T>`, so that `session.get(USER_ID)` returns a `Long` and `session.get(LOCALE)` a `Locale` without a cast."
     },
     {
       "type": "para",
-      "text": "The starter declares `AppSetting<T>` (with `key()`, `defaultValue()` and `valueType()`) and its four records. Write:"
+      "text": "Since that change shipped, every deploy logs users out and empties their carts, and two older modules that compare attributes with `==` and look them up with `valueOf` misbehave."
+    },
+    {
+      "type": "para",
+      "text": "Finish the three `TODO`s in `src/main/java/practice/Session.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`static List<AppSetting<?>> values()`: one instance of each record, in the order `MaxRetries`, `AppName`, `DebugMode`, `TimeoutMs` (the sealed interface's stand-in for `Enum.values()`).",
-        "`static Optional<AppSetting<?>> byKey(String key)`: the setting whose `key()` equals `key`, or empty.",
-        "`static <T> T parse(AppSetting<T> setting, String raw)`: the setting's value read from `raw` (surrounding spaces ignored), in the setting's own type, so `Integer retries = parse(new MaxRetries(), \"5\")` needs no cast. A `null` `raw` gives the setting's `defaultValue()`. `DebugMode` accepts exactly `true` or `false`; any other text throws `IllegalArgumentException`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "call",
-        "answer"
-      ],
-      "rows": [
-        [
-          "`parse(new MaxRetries(), \"5\")`",
-          "`5` (an `Integer`)"
-        ],
-        [
-          "`parse(new AppName(), \" Shop \")`",
-          "`\"Shop\"`"
-        ],
-        [
-          "`parse(new TimeoutMs(), \"10000000000\")`",
-          "`10000000000L`"
-        ],
-        [
-          "`parse(new DebugMode(), \"yes\")`",
-          "throws `IllegalArgumentException`"
-        ],
-        [
-          "`parse(new AppName(), null)`",
-          "`\"DefaultApp\"`"
-        ],
-        [
-          "`byKey(\"timeout.ms\")`",
-          "`Optional[TimeoutMs[]]`"
-        ]
+        "`values()`: every attribute, in declaration order;",
+        "`valueOf(String)`: the attribute with a given name;",
+        "`readResolve()`: what a deserialized attribute becomes."
       ]
     },
     {
       "type": "para",
-      "text": "Keys arrive from configuration files, so the key passed to `byKey` is not the same `String` object as the one a record returns."
+      "text": "When you're done, a session read back after a restart holds everything it held before, an attribute read back from a stream is the declared attribute itself, `valueOf` treats an unknown name the way the old enum's did, and no caller can change which attributes exist through the list `values()` hands out. About eight lines in total."
     },
     {
       "type": "heading",
@@ -84,7 +55,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Settings {\n\n    private Settings() {\n    }\n\n    /** A setting whose value has the type T. */\n    public sealed interface AppSetting<T> permits MaxRetries, AppName, DebugMode, TimeoutMs {\n        String key();\n\n        T defaultValue();\n\n        Class<T> valueType();\n    }\n\n    public record MaxRetries() implements AppSetting<Integer> {\n        public String key() {\n            return \"max.retries\";\n        }\n\n        public Integer defaultValue() {\n            return 3;\n        }\n\n        public Class<Integer> valueType() {\n            return Integer.class;\n        }\n    }\n\n    public record AppName() implements AppSetting<String> {\n        public String key() {\n            return \"app.name\";\n        }\n\n        public String defaultValue() {\n            return \"DefaultApp\";\n        }\n\n        public Class<String> valueType() {\n            return String.class;\n        }\n    }\n\n    public record DebugMode() implements AppSetting<Boolean> {\n        public String key() {\n            return \"debug.mode\";\n        }\n\n        public Boolean defaultValue() {\n            return false;\n        }\n\n        public Class<Boolean> valueType() {\n            return Boolean.class;\n        }\n    }\n\n    public record TimeoutMs() implements AppSetting<Long> {\n        public String key() {\n            return \"timeout.ms\";\n        }\n\n        public Long defaultValue() {\n            return 5000L;\n        }\n\n        public Class<Long> valueType() {\n            return Long.class;\n        }\n    }\n\n    /** One instance of each setting, in declaration order. */\n    public static List<AppSetting<?>> values() {\n        return List.of(new MaxRetries(), new AppName(), new DebugMode(), new TimeoutMs());\n    }\n\n    /** The setting whose key equals {@code key}, or empty. */\n    public static Optional<AppSetting<?>> byKey(String key) {\n        return values().stream().filter(s -> s.key().equals(key)).findFirst();\n    }\n\n    /** The value of {@code setting} read from {@code raw}; null gives the default. */\n    public static <T> T parse(AppSetting<T> setting, String raw) {\n        if (raw == null) {\n            return setting.defaultValue();\n        }\n        String text = raw.strip();\n        AppSetting<?> any = setting;\n        Object value = switch (any) {\n            case MaxRetries m -> Integer.valueOf(text);\n            case AppName n -> text;\n            case DebugMode d -> switch (text) {\n                case \"true\" -> Boolean.TRUE;\n                case \"false\" -> Boolean.FALSE;\n                default -> throw new IllegalArgumentException(\"Not a boolean: \" + text);\n            };\n            case TimeoutMs t -> Long.valueOf(text);\n        };\n        return setting.valueType().cast(value);\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.ByteArrayOutputStream;\nimport java.io.IOException;\nimport java.io.InvalidObjectException;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectOutputStream;\nimport java.io.ObjectStreamException;\nimport java.io.Serial;\nimport java.io.Serializable;\nimport java.io.UncheckedIOException;\nimport java.time.Instant;\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Locale;\nimport java.util.Map;\n\n/**\n * A user's web session. The session store serializes it after every request and reads it back on\n * the next one, possibly on another node after a restart.\n */\npublic final class Session implements Serializable {\n\n    /**\n     * The attributes a session can hold. This used to be an enum; it is a class now so that each\n     * attribute carries the type of its value.\n     */\n    public static final class Attribute<T> implements Serializable {\n        private static final List<Attribute<?>> ALL = new ArrayList<>();\n\n        public static final Attribute<Long> USER_ID = new Attribute<>(\"userId\", Long.class);\n        public static final Attribute<String> CART_ID = new Attribute<>(\"cartId\", String.class);\n        public static final Attribute<Locale> LOCALE = new Attribute<>(\"locale\", Locale.class);\n        public static final Attribute<Instant> LAST_SEEN = new Attribute<>(\"lastSeen\", Instant.class);\n\n        private final String name;\n        private final Class<T> type;\n\n        private Attribute(String name, Class<T> type) {\n            this.name = name;\n            this.type = type;\n            ALL.add(this);\n        }\n\n        public String name() { return name; }\n        public Class<T> type() { return type; }\n        @Override public String toString() { return name; }\n\n        /** Every attribute, in the order they are declared above. */\n        public static List<Attribute<?>> values() {\n            return List.copyOf(ALL);\n        }\n\n        /** The attribute with this name. */\n        public static Attribute<?> valueOf(String name) {\n            for (Attribute<?> attribute : ALL) {\n                if (attribute.name.equals(name)) return attribute;\n            }\n            throw new IllegalArgumentException(\"no attribute named \" + name);\n        }\n\n        /** Decides what a deserialized attribute becomes. */\n        @Serial\n        private Object readResolve() throws ObjectStreamException {\n            try {\n                return valueOf(name);\n            } catch (IllegalArgumentException e) {\n                throw new InvalidObjectException(e.getMessage());\n            }\n        }\n    }\n\n    private final Map<Attribute<?>, Object> values = new HashMap<>();\n\n    public <T> void put(Attribute<T> attribute, T value) {\n        values.put(attribute, value);\n    }\n\n    public <T> T get(Attribute<T> attribute) {\n        return attribute.type().cast(values.get(attribute));\n    }\n\n    /** What the session store writes. */\n    public byte[] save() {\n        ByteArrayOutputStream bytes = new ByteArrayOutputStream();\n        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {\n            out.writeObject(this);\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        }\n        return bytes.toByteArray();\n    }\n\n    /** What the session store reads back. */\n    public static Session restore(byte[] saved) {\n        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(saved))) {\n            return (Session) in.readObject();\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        } catch (ClassNotFoundException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n}\n"
         }
       ]
     },
@@ -96,7 +67,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Settings {\n\n    private Settings() {\n    }\n\n    /** A setting whose value has the type T. */\n    public sealed interface AppSetting<T> permits MaxRetries, AppName, DebugMode, TimeoutMs {\n        String key();\n\n        T defaultValue();\n\n        Class<T> valueType();\n    }\n\n    public record MaxRetries() implements AppSetting<Integer> {\n        public String key() {\n            return \"max.retries\";\n        }\n\n        public Integer defaultValue() {\n            return 3;\n        }\n\n        public Class<Integer> valueType() {\n            return Integer.class;\n        }\n    }\n\n    public record AppName() implements AppSetting<String> {\n        public String key() {\n            return \"app.name\";\n        }\n\n        public String defaultValue() {\n            return \"DefaultApp\";\n        }\n\n        public Class<String> valueType() {\n            return String.class;\n        }\n    }\n\n    public record DebugMode() implements AppSetting<Boolean> {\n        public String key() {\n            return \"debug.mode\";\n        }\n\n        public Boolean defaultValue() {\n            return false;\n        }\n\n        public Class<Boolean> valueType() {\n            return Boolean.class;\n        }\n    }\n\n    public record TimeoutMs() implements AppSetting<Long> {\n        public String key() {\n            return \"timeout.ms\";\n        }\n\n        public Long defaultValue() {\n            return 5000L;\n        }\n\n        public Class<Long> valueType() {\n            return Long.class;\n        }\n    }\n\n    /** One instance of each setting, in declaration order. */\n    public static List<AppSetting<?>> values() {\n        throw new UnsupportedOperationException(\"write values\");\n    }\n\n    /** The setting whose key equals {@code key}, or empty. */\n    public static Optional<AppSetting<?>> byKey(String key) {\n        throw new UnsupportedOperationException(\"write byKey\");\n    }\n\n    /** The value of {@code setting} read from {@code raw}; null gives the default. */\n    public static <T> T parse(AppSetting<T> setting, String raw) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.ByteArrayOutputStream;\nimport java.io.IOException;\nimport java.io.InvalidObjectException;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectOutputStream;\nimport java.io.ObjectStreamException;\nimport java.io.Serial;\nimport java.io.Serializable;\nimport java.io.UncheckedIOException;\nimport java.time.Instant;\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Locale;\nimport java.util.Map;\n\n/**\n * A user's web session. The session store serializes it after every request and reads it back on\n * the next one, possibly on another node after a restart.\n */\npublic final class Session implements Serializable {\n\n    /**\n     * The attributes a session can hold. This used to be an enum; it is a class now so that each\n     * attribute carries the type of its value.\n     */\n    public static final class Attribute<T> implements Serializable {\n        private static final List<Attribute<?>> ALL = new ArrayList<>();\n\n        public static final Attribute<Long> USER_ID = new Attribute<>(\"userId\", Long.class);\n        public static final Attribute<String> CART_ID = new Attribute<>(\"cartId\", String.class);\n        public static final Attribute<Locale> LOCALE = new Attribute<>(\"locale\", Locale.class);\n        public static final Attribute<Instant> LAST_SEEN = new Attribute<>(\"lastSeen\", Instant.class);\n\n        private final String name;\n        private final Class<T> type;\n\n        private Attribute(String name, Class<T> type) {\n            this.name = name;\n            this.type = type;\n            ALL.add(this);\n        }\n\n        public String name() { return name; }\n        public Class<T> type() { return type; }\n        @Override public String toString() { return name; }\n\n        /** Every attribute, in the order they are declared above. */\n        public static List<Attribute<?>> values() {\n            // TODO: Callers iterate this list, and some of them pass it on to code we don't own.\n            //       Return the attributes in declaration order, without letting any caller change\n            //       which attributes exist.\n            throw new IllegalStateException(\"TODO: values\");\n        }\n\n        /** The attribute with this name. */\n        public static Attribute<?> valueOf(String name) {\n            // TODO: Find the attribute by its name. Code written against the old enum calls this\n            //       with names read from requests, and expects what Enum.valueOf did with a name\n            //       that doesn't exist.\n            throw new IllegalStateException(\"TODO: valueOf\");\n        }\n\n        /** Decides what a deserialized attribute becomes. */\n        @Serial\n        private Object readResolve() throws ObjectStreamException {\n            // TODO: The stream has just built a new Attribute from the saved fields. Return what a\n            //       restored session should hold in its place; a saved name that no longer exists\n            //       is an InvalidObjectException.\n            throw new IllegalStateException(\"TODO: readResolve\");\n        }\n    }\n\n    private final Map<Attribute<?>, Object> values = new HashMap<>();\n\n    public <T> void put(Attribute<T> attribute, T value) {\n        values.put(attribute, value);\n    }\n\n    public <T> T get(Attribute<T> attribute) {\n        return attribute.type().cast(values.get(attribute));\n    }\n\n    /** What the session store writes. */\n    public byte[] save() {\n        ByteArrayOutputStream bytes = new ByteArrayOutputStream();\n        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {\n            out.writeObject(this);\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        }\n        return bytes.toByteArray();\n    }\n\n    /** What the session store reads back. */\n    public static Session restore(byte[] saved) {\n        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(saved))) {\n            return (Session) in.readObject();\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        } catch (ClassNotFoundException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n}\n"
     }
   ],
   "video": null,
@@ -104,9 +75,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 3,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -115,11 +86,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "c269ef6151558d6e7aa1d47f962f87dd008c8511ccd0133a02995e02ef42fa04",
-  "starting_code": "package practice;\n\nimport java.util.List;\nimport java.util.Optional;\n\npublic final class Settings {\n\n    private Settings() {\n    }\n\n    /** A setting whose value has the type T. */\n    public sealed interface AppSetting<T> permits MaxRetries, AppName, DebugMode, TimeoutMs {\n        String key();\n\n        T defaultValue();\n\n        Class<T> valueType();\n    }\n\n    public record MaxRetries() implements AppSetting<Integer> {\n        public String key() {\n            return \"max.retries\";\n        }\n\n        public Integer defaultValue() {\n            return 3;\n        }\n\n        public Class<Integer> valueType() {\n            return Integer.class;\n        }\n    }\n\n    public record AppName() implements AppSetting<String> {\n        public String key() {\n            return \"app.name\";\n        }\n\n        public String defaultValue() {\n            return \"DefaultApp\";\n        }\n\n        public Class<String> valueType() {\n            return String.class;\n        }\n    }\n\n    public record DebugMode() implements AppSetting<Boolean> {\n        public String key() {\n            return \"debug.mode\";\n        }\n\n        public Boolean defaultValue() {\n            return false;\n        }\n\n        public Class<Boolean> valueType() {\n            return Boolean.class;\n        }\n    }\n\n    public record TimeoutMs() implements AppSetting<Long> {\n        public String key() {\n            return \"timeout.ms\";\n        }\n\n        public Long defaultValue() {\n            return 5000L;\n        }\n\n        public Class<Long> valueType() {\n            return Long.class;\n        }\n    }\n\n    /** One instance of each setting, in declaration order. */\n    public static List<AppSetting<?>> values() {\n        throw new UnsupportedOperationException(\"write values\");\n    }\n\n    /** The setting whose key equals {@code key}, or empty. */\n    public static Optional<AppSetting<?>> byKey(String key) {\n        throw new UnsupportedOperationException(\"write byKey\");\n    }\n\n    /** The value of {@code setting} read from {@code raw}; null gives the default. */\n    public static <T> T parse(AppSetting<T> setting, String raw) {\n        throw new UnsupportedOperationException(\"write parse\");\n    }\n}\n",
+  "content_sha256": "774b96772ab812c4be6bfc5d1012aea1979dfb00ec3963ef3f0087b2b46a00ed",
+  "starting_code": "package practice;\n\nimport java.io.ByteArrayInputStream;\nimport java.io.ByteArrayOutputStream;\nimport java.io.IOException;\nimport java.io.InvalidObjectException;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectOutputStream;\nimport java.io.ObjectStreamException;\nimport java.io.Serial;\nimport java.io.Serializable;\nimport java.io.UncheckedIOException;\nimport java.time.Instant;\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Locale;\nimport java.util.Map;\n\n/**\n * A user's web session. The session store serializes it after every request and reads it back on\n * the next one, possibly on another node after a restart.\n */\npublic final class Session implements Serializable {\n\n    /**\n     * The attributes a session can hold. This used to be an enum; it is a class now so that each\n     * attribute carries the type of its value.\n     */\n    public static final class Attribute<T> implements Serializable {\n        private static final List<Attribute<?>> ALL = new ArrayList<>();\n\n        public static final Attribute<Long> USER_ID = new Attribute<>(\"userId\", Long.class);\n        public static final Attribute<String> CART_ID = new Attribute<>(\"cartId\", String.class);\n        public static final Attribute<Locale> LOCALE = new Attribute<>(\"locale\", Locale.class);\n        public static final Attribute<Instant> LAST_SEEN = new Attribute<>(\"lastSeen\", Instant.class);\n\n        private final String name;\n        private final Class<T> type;\n\n        private Attribute(String name, Class<T> type) {\n            this.name = name;\n            this.type = type;\n            ALL.add(this);\n        }\n\n        public String name() { return name; }\n        public Class<T> type() { return type; }\n        @Override public String toString() { return name; }\n\n        /** Every attribute, in the order they are declared above. */\n        public static List<Attribute<?>> values() {\n            // TODO: Callers iterate this list, and some of them pass it on to code we don't own.\n            //       Return the attributes in declaration order, without letting any caller change\n            //       which attributes exist.\n            throw new IllegalStateException(\"TODO: values\");\n        }\n\n        /** The attribute with this name. */\n        public static Attribute<?> valueOf(String name) {\n            // TODO: Find the attribute by its name. Code written against the old enum calls this\n            //       with names read from requests, and expects what Enum.valueOf did with a name\n            //       that doesn't exist.\n            throw new IllegalStateException(\"TODO: valueOf\");\n        }\n\n        /** Decides what a deserialized attribute becomes. */\n        @Serial\n        private Object readResolve() throws ObjectStreamException {\n            // TODO: The stream has just built a new Attribute from the saved fields. Return what a\n            //       restored session should hold in its place; a saved name that no longer exists\n            //       is an InvalidObjectException.\n            throw new IllegalStateException(\"TODO: readResolve\");\n        }\n    }\n\n    private final Map<Attribute<?>, Object> values = new HashMap<>();\n\n    public <T> void put(Attribute<T> attribute, T value) {\n        values.put(attribute, value);\n    }\n\n    public <T> T get(Attribute<T> attribute) {\n        return attribute.type().cast(values.get(attribute));\n    }\n\n    /** What the session store writes. */\n    public byte[] save() {\n        ByteArrayOutputStream bytes = new ByteArrayOutputStream();\n        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {\n            out.writeObject(this);\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        }\n        return bytes.toByteArray();\n    }\n\n    /** What the session store reads back. */\n    public static Session restore(byte[] saved) {\n        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(saved))) {\n            return (Session) in.readObject();\n        } catch (IOException e) {\n            throw new UncheckedIOException(e);\n        } catch (ClassNotFoundException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/src/main/java/practice/Settings.java",
-    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/src/test/java/practice/SettingsTest.java",
+    "main_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/src/main/java/practice/Session.java",
+    "test_path": "practice/07-modern-java-features/28-enhanced-enums/prose/unit-02/practice-1/src/test/java/practice/SessionTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -140,29 +111,34 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SettingsTest#parsesEachSettingToItsOwnType",
+        "id": "practice.SessionTest#valuesListsEveryAttributeInDeclarationOrder",
         "kind": "main",
-        "says": "parse() turns text into each setting's own type, and byKey() finds a setting by its key."
+        "says": "values() lists every attribute once, in the order they are declared"
       },
       {
-        "id": "practice.SettingsTest#timeoutTakesALong",
-        "kind": "edge",
-        "says": "A timeout above the int range parses, because TimeoutMs is a Long setting."
+        "id": "practice.SessionTest#valueOfFindsEachAttributeByName",
+        "kind": "main",
+        "says": "valueOf(name) returns the declared attribute with that name"
       },
       {
-        "id": "practice.SettingsTest#debugAcceptsOnlyTrueOrFalse",
+        "id": "practice.SessionTest#anUnknownNameIsRefusedAsTheEnumRefusedIt",
         "kind": "edge",
-        "says": "DebugMode refuses any text other than exactly true or false (other case, empty, blank) with IllegalArgumentException, instead of reading it as false or as the default."
+        "says": "valueOf with a name no attribute has throws IllegalArgumentException, as the enum's valueOf did, rather than returning null"
       },
       {
-        "id": "practice.SettingsTest#missingTextGivesTheDefault",
+        "id": "practice.SessionTest#aSessionRestoredAfterARestartStillHoldsItsValues",
         "kind": "edge",
-        "says": "A null text gives the setting's default value."
+        "says": "a session written by the store and read back answers every attribute with the value it held"
       },
       {
-        "id": "practice.SettingsTest#findsAKeyBuiltAtRuntime",
+        "id": "practice.SessionTest#aRestoredAttributeIsTheDeclaredAttributeItself",
         "kind": "edge",
-        "says": "byKey() finds a setting by a key built at run time, not written as the same literal."
+        "says": "a deserialized attribute is the declared constant itself, so == comparisons keep working"
+      },
+      {
+        "id": "practice.SessionTest#aCallerCannotChangeWhichAttributesExist",
+        "kind": "edge",
+        "says": "changing the list values() returned does not change the set of attributes"
       }
     ],
     "report": {
@@ -171,11 +147,11 @@
     },
     "origin": {
       "path": "28-enhanced-enums/README_7.2.2.md",
-      "section": "Interview Q&A Section"
+      "section": "The Class Must Rebuild values(), valueOf() and Serialization Itself"
     },
     "concepts": [
-      "A sealed generic interface whose permitted records play the constants gives each constant its own type argument, so values come back typed without casts.",
-      "A static values() method on the sealed interface stands in for Enum.values()."
+      "The class writes values() and valueOf() itself: values() hands out a copy so callers can't change the registry, and valueOf throws IllegalArgumentException for an unknown name as Enum.valueOf does.",
+      "Deserializing a constant of such a class creates a copy that is neither == nor equal to it, so map lookups miss; readResolve that returns the declared constant by name fixes both, while equals by name fixes only the lookup."
     ]
   }
 }
