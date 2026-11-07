@@ -18,305 +18,328 @@
       "text": "8.5.1. Definition and Purpose of Fail-Fast and Fail-Safe Iterators"
     },
     {
+      "type": "para",
+      "text": "At 02:00 the renewal-reminder job stops with a `NullPointerException`. The one reminder it sent before stopping quoted Jane Doe a price of minus 560 dollars. The stack trace names the reminder job's methods and `main`. Both customers came in at 14:05 from a partner's CSV file, and nothing in the trace says so."
+    },
+    {
+      "type": "para",
+      "text": "Unit 6.5.3 showed fail-fast in an `ArrayList` iterator, which usually throws at the next step after the list changes under it. More generally, a component handed something it can't work with throws at once, while the caller and the bad value are both on the stack. Fail-safe is the opposite choice: carry on with a substitute. Units 8.5.2 and 8.5.3 return to iterators, the weakly consistent kind and how to choose one. Every output is from Java 21."
+    },
+    {
       "type": "heading",
       "level": 2,
-      "text": "Concept Explanation"
+      "text": "A Null Stored Now Fails Later, in a Trace That Doesn't Name Who Stored It"
     },
     {
       "type": "para",
-      "text": "When you iterate over a Java collection and something changes it mid-traversal, the iterator must decide how to respond. Java provides two distinct strategies for this situation: **fail-fast** and **fail-safe** (more precisely called **weakly consistent**)."
+      "text": "The customer is a plain record, and the importer copies whatever the file holds:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public record Customer(String name, String email, int discountPercent) {}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static Customer importRow(Map<String, String> row) {          // Importer, 14:05\n    return new Customer(row.get(\"name\"), row.get(\"email\"), Integer.parseInt(row.get(\"discount\")));\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "static String mailbox(Customer c) {                            // Reminders, 02:00\n    return c.email().strip().toLowerCase(Locale.ROOT);\n}\n\nstatic long price(long cents, Customer c) {\n    return cents * (100 - c.discountPercent()) / 100;\n}"
     },
     {
       "type": "para",
-      "text": "**Real-world analogy**: Imagine you are reading a printed guest list at a party (fail-fast). If someone rewrites the list while you are reading, you immediately stop and say \"this list has changed -- I refuse to continue reading stale information.\" Now imagine you instead photocopied the guest list before reading it (fail-safe/snapshot). No matter what changes happen to the original list, your photocopy is unaffected and you can finish reading it without interruption -- but you might miss late additions."
+      "text": "The partner's file had a row for Jane Doe with discount `1500` (the partner meant 15.00 % and sent basis points), and a row for John Roe with no email column. The program imports both rows, then runs the job, where `sendAll` loops over the customers and `send` prints one reminder:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "imported 2 customers\nto jane@example.com: your plan renews at -56000 cents\nException in thread \"main\" java.lang.NullPointerException: Cannot invoke \"String.strip()\" because the return value of \"Customer.email()\" is null\n\tat Reminders.mailbox(Reminders.java:15)\n\tat Reminders.send(Reminders.java:11)\n\tat Reminders.sendAll(Reminders.java:7)\n\tat Main.main(Main.java:13)"
+    },
+    {
+      "type": "para",
+      "text": "Before reading on: which line would you fix?"
+    },
+    {
+      "type": "para",
+      "text": "Java 21's message names the null exactly, the return value of `Customer.email()`. It can't name where the null came from. A stack trace holds the frames that are on the stack when the exception is created, and the constructor that stored the null returned twelve hours earlier. To find it you search for every place that builds a `Customer`, and to find the row you need the partner's file, which by now may have been replaced by the next one. The loop has no catch, so the first bad customer also ends the run for every customer after it."
+    },
+    {
+      "type": "para",
+      "text": "A discount of 1500 is a valid `int` and the arithmetic is valid, so for Jane's row nothing threw, and the reminder went out with a negative price. No later null check would have seen it: the value is present and wrong."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Check in the Constructor Puts the Caller in the Trace"
+    },
+    {
+      "type": "para",
+      "text": "Every `Customer` is made by its constructor, so a check there runs while the code holding the bad value is still on the stack:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Objects;\n\n/** A customer as the import stores it. */\npublic record Customer(String name, String email, int discountPercent) {\n    public Customer {\n        Objects.requireNonNull(name, \"name\");\n        Objects.requireNonNull(email, \"email\");\n        if (email.isBlank())\n            throw new IllegalArgumentException(\"email is blank\");\n        if (discountPercent < 0 || discountPercent > 100)\n            throw new IllegalArgumentException(\"discountPercent \" + discountPercent + \" is not in 0..100\");\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "The same importer, run once with John's row and once with Jane's:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Exception in thread \"main\" java.lang.NullPointerException: email\n\tat java.base/java.util.Objects.requireNonNull(Objects.java:259)\n\tat Customer.<init>(Customer.java:7)\n\tat Importer.importRow(Importer.java:6)\n\tat Main.main(Main.java:10)"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Exception in thread \"main\" java.lang.IllegalArgumentException: discountPercent 1500 is not in 0..100\n\tat Customer.<init>(Customer.java:11)\n\tat Importer.importRow(Importer.java:6)\n\tat Main.main(Main.java:10)"
+    },
+    {
+      "type": "para",
+      "text": "The frame under the constructor is now the importer, at 14:05, with the row in a local variable. The importer can catch the exception per row, report \"row 2: email\" to the partner while the file is still at hand, and store nothing the 02:00 job can trip on. A `Customer` with a discount of 1500 can no longer exist, so neither can the negative price."
+    },
+    {
+      "type": "para",
+      "text": "`requireNonNull` accepts `\"\"` and `\" \"`, which is what a file that has the column but leaves the cell empty gives you. A row whose email cell holds a space stops the same import with `IllegalArgumentException: email is blank`."
+    },
+    {
+      "type": "para",
+      "text": "A check in the constructor holds only while the object can't change afterwards. `String` and `int` fields can't, but a `List` argument is still held by the caller, and `Collections.unmodifiableList` is a read-only view of the caller's list, not a copy:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "List<String> tags = new ArrayList<>(List.of(\"vip\"));\nList<String> view = Collections.unmodifiableList(tags);\nList<String> copy = List.copyOf(tags);\ntags.add(null);                                     // the caller, after the constructor returned\nSystem.out.println(\"view: \" + view + \", copy: \" + copy);"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "view: [vip, null], copy: [vip]"
+    },
+    {
+      "type": "para",
+      "text": "`List.copyOf` returns an unmodifiable list that doesn't follow the caller's, and it throws `NullPointerException` if the list holds a null, so one call checks the elements and keeps them checked. A record with a `List<String> tags` component stores `List.copyOf(tags)`."
     },
     {
       "type": "heading",
       "level": 3,
-      "text": "Fail-Fast Iterators"
+      "text": "An Assertion Checks Nothing Unless the JVM Runs with -ea"
     },
     {
       "type": "para",
-      "text": "Fail-fast iterators detect structural modifications (additions, removals, or resizing) to the collection after the iterator was created. When detected, they immediately throw `ConcurrentModificationException` rather than risk returning incorrect or inconsistent data."
+      "text": "The range check written as an assertion:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "record Customer(String name, String email, int discountPercent) {\n    Customer {\n        assert discountPercent >= 0 && discountPercent <= 100 : \"discountPercent \" + discountPercent;\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "$ java Asserts\nCustomer[name=Jane Doe, email=jane@example.com, discountPercent=1500]\n$ java -ea Asserts\nException in thread \"main\" java.lang.AssertionError: discountPercent 1500\n\tat Asserts$Customer.<init>(Asserts.java:4)\n\tat Asserts.main(Asserts.java:9)"
     },
     {
       "type": "para",
-      "text": "How they work internally:"
+      "text": "Maven's Surefire plugin enables assertions for tests by default, so this check fails the right test and is absent from a production JVM started without `-ea`. A value that comes from outside the class gets an `if` and an exception."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Fail-fast collections maintain an integer field called `modCount` that is incremented on every structural modification: `ArrayList` and `LinkedList` inherit it from `AbstractList`, while `HashMap` and `TreeMap` declare their own.",
-        "When an iterator is created, it snapshots `modCount` into a local `expectedModCount`.",
-        "On every call to `next()`, `remove()`, or similar iterator operations, the iterator checks whether `modCount == expectedModCount`. If not, it throws `ConcurrentModificationException`."
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Collections with fail-fast iterators include:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`ArrayList`, `LinkedList`",
-        "`HashMap`, `LinkedHashMap`, `TreeMap`",
-        "`HashSet`, `LinkedHashSet`, `TreeSet`",
-        "`ArrayDeque`"
-      ]
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "Fail-Safe (Weakly Consistent) Iterators"
+      "level": 2,
+      "text": "A Default Belongs Where Refusing to Start Costs More Than the Default"
     },
     {
       "type": "para",
-      "text": "Fail-safe iterators do not throw `ConcurrentModificationException`. They either work on a **snapshot** of the data (e.g., `CopyOnWriteArrayList`) or provide **weakly consistent** traversal guarantees (e.g., `ConcurrentHashMap`)."
+      "text": "Fail-fast applied to configuration says a service with a setting missing should not start. The payment client reads three settings at startup. `gateway.url` has no safe value; `http.timeout.ms` and `retries` do, and `retries` is new in this release. Two loaders, where `required(file, key)` throws when the key is absent:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** Every key must be present: no defaults. */\nstatic Settings strict(Properties file) {\n    return new Settings(required(file, \"gateway.url\"),\n            Integer.parseInt(required(file, \"http.timeout.ms\")),\n            Integer.parseInt(required(file, \"retries\")));\n}\n\n/** A default for every optional key, and nothing else checked. */\nstatic Settings lenient(Properties file) {\n    return new Settings(required(file, \"gateway.url\"),\n            Integer.parseInt(file.getProperty(\"http.timeout.ms\", \"5000\")),\n            Integer.parseInt(file.getProperty(\"retries\", \"2\")));\n}"
     },
     {
       "type": "para",
-      "text": "Collections with fail-safe iterators include:"
+      "text": "Both read the config file written for the last release, which has no `retries` line:"
+    },
+    {
+      "type": "code",
+      "lang": "properties",
+      "text": "gateway.url=https://pay.example.com\nhttp.timeout.ms=2000"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "strict  last release: refused to start: java.lang.IllegalArgumentException: missing setting retries\nlenient last release: Settings[gatewayUrl=https://pay.example.com, timeoutMs=2000, retries=2]"
+    },
+    {
+      "type": "para",
+      "text": "With the strict loader, the upgrade is also a config migration: every environment's file must gain the new line before the new version starts, and each instance whose file was missed stays down. Running with two retries, a value nobody had to choose, costs less than an instance that doesn't come up."
+    },
+    {
+      "type": "para",
+      "text": "`gateway.url` stays required in both loaders. Any URL the code could fall back to would send payments somewhere they shouldn't go, so a missing one must stop the start."
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "A Default Also Hides a Misspelt Key, Unless Unknown Keys Stop the Start"
+    },
+    {
+      "type": "para",
+      "text": "During an incident the gateway answers slowly, and the on-call engineer edits the file so callers give up after 800 ms instead of 2 s, then restarts:"
+    },
+    {
+      "type": "code",
+      "lang": "properties",
+      "text": "gateway.url=https://pay.example.com\nhttp.timout.ms=800"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "lenient incident:     Settings[gatewayUrl=https://pay.example.com, timeoutMs=5000, retries=2]"
+    },
+    {
+      "type": "para",
+      "text": "Spot the problem before reading on."
+    },
+    {
+      "type": "para",
+      "text": "`timout` is missing an `e`. `getProperty(\"http.timeout.ms\", \"5000\")` finds no such key and returns the default, so the service restarts cleanly and now waits up to 5 s per attempt, longer than before the edit. Request threads pile up behind the gateway while the engineer believes the fix is live."
+    },
+    {
+      "type": "para",
+      "text": "This loader keeps its defaults and refuses every key it doesn't know:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Map;\nimport java.util.Properties;\nimport java.util.Set;\nimport java.util.TreeSet;\n\n/** The payment client's settings, read once when the service starts. */\npublic record Settings(String gatewayUrl, int timeoutMs, int retries) {\n    static final Map<String, String> DEFAULTS = Map.of(\"http.timeout.ms\", \"5000\", \"retries\", \"2\");\n    static final String REQUIRED = \"gateway.url\";\n\n    static Settings load(Properties file) {\n        Set<String> unknown = new TreeSet<>(file.stringPropertyNames());\n        unknown.removeAll(DEFAULTS.keySet());\n        unknown.remove(REQUIRED);\n        if (!unknown.isEmpty())\n            throw new IllegalArgumentException(\"unknown settings \" + unknown);\n        String url = file.getProperty(REQUIRED);\n        if (url == null)\n            throw new IllegalArgumentException(\"missing setting \" + REQUIRED);\n        return new Settings(url,\n                Integer.parseInt(file.getProperty(\"http.timeout.ms\", DEFAULTS.get(\"http.timeout.ms\"))),\n                Integer.parseInt(file.getProperty(\"retries\", DEFAULTS.get(\"retries\"))));\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "load    last release: Settings[gatewayUrl=https://pay.example.com, timeoutMs=2000, retries=2]\nload    incident:     refused to start: java.lang.IllegalArgumentException: unknown settings [http.timout.ms]"
+    },
+    {
+      "type": "para",
+      "text": "The last release's file still loads with the default, and the typo stops the restart with the key's name in the message. In a rolling restart that halts on a failed start, the first instance fails and the others keep serving. Logging a warning and carrying on would still run with 5,000 ms."
+    },
+    {
+      "type": "para",
+      "text": "A value that doesn't parse is already a failure: `http.timeout.ms=800ms` stops `lenient` and `load` with `NumberFormatException: For input string: \"800ms\"`. A loader that catches it and uses the default would turn that failure back into the silent 5 s."
+    },
+    {
+      "type": "para",
+      "text": "The rule has a cost too. Once a release refuses unknown keys, rolling back to it with a newer release's file fails: a loader that never heard of a key the newer file sets refuses to start. Old versions must either know the keys newer ones may write or tolerate them."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`CopyOnWriteArrayList`, `CopyOnWriteArraySet` (snapshot-based)",
-        "`ConcurrentHashMap`, `ConcurrentSkipListMap`, `ConcurrentSkipListSet` (weakly consistent)",
-        "`ConcurrentLinkedQueue`, `ConcurrentLinkedDeque` (weakly consistent)"
+        "**A null stored now fails later, in a trace that doesn't name who stored it.** Java 21's message names the null, not the code that stored it, and an out-of-range value doesn't fail at all.",
+        "**A check in the constructor puts the caller in the trace.** Check null, blank and range with an `if`, not `assert`, and copy what the caller could still change.",
+        "**A default belongs where refusing to start costs more than the default.** A new optional key gets one; a key with no safe value stays required.",
+        "**A default also hides a misspelt key.** Refusing unknown keys keeps the default for absent keys and turns a typo into a failed start."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "Reference"
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Fail-fast is a **best-effort** mechanism; it is not guaranteed under concurrent (multi-threaded) access -- do not rely on `ConcurrentModificationException` for correctness.",
-        "The `modCount` check happens on iterator operations like `next()` and `remove()`, not on the collection-level write.",
-        "`Iterator.remove()` is the **only** safe way to remove elements during fail-fast iteration.",
-        "`Collections.synchronizedList()` and similar wrappers still use fail-fast iterators; synchronization does not change the iteration contract.",
-        "Fail-safe iterators may or may not reflect modifications made after their creation, depending on the implementation.",
-        "`CopyOnWriteArrayList` iterators do not support `remove()` -- they throw `UnsupportedOperationException`.",
-        "The Java specification uses the term \"weakly consistent\" rather than \"fail-safe\" for concurrent collection iterators."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Relevant Java 21 Features"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**Sequenced Collections (JEP 431)**: Java 21 introduced `SequencedCollection`, `SequencedSet`, and `SequencedMap`. Their iterators follow the same fail-fast or fail-safe contract as the underlying implementation.",
-        "**Virtual Threads (JEP 444)**: With virtual threads enabling massive concurrency, fail-safe iterators become even more important to avoid `ConcurrentModificationException` in highly concurrent applications.",
-        "**Pattern Matching for switch**: Can be used to dispatch on collection types when choosing iteration strategies.",
-        "**`List.copyOf()`, `Set.copyOf()`, `Map.copyOf()` (Java 10+)**: Create unmodifiable snapshots that complement fail-fast collections for safe sharing across threads."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
+      "type": "table",
+      "headers": [
+        "Call (Java 21)",
+        "With a bad value"
+      ],
+      "rows": [
         [
-          "**Modifying a collection inside a for-each loop**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// WRONG -- usually throws ConcurrentModificationException (and if \"remove-me\" is the\n// second-to-last element, the loop just ends early and silently skips the last one)\nfor (String item : list) {\n    if (item.equals(\"remove-me\")) {\n        list.remove(item);\n    }\n}\n\n// FIX -- use Iterator.remove()\nIterator<String> it = list.iterator();\nwhile (it.hasNext()) {\n    if (it.next().equals(\"remove-me\")) {\n        it.remove();\n    }\n}\n\n// BETTER FIX (Java 8+) -- use removeIf\nlist.removeIf(item -> item.equals(\"remove-me\"));"
-          }
+          "`Objects.requireNonNull(x, \"email\")`",
+          "`NullPointerException: email`; lets `\"\"` and `\" \"` through"
         ],
         [
-          "**Assuming Collections.synchronizedList makes iteration safe**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "List<String> syncList = Collections.synchronizedList(new ArrayList<>());\n// WRONG -- still throws ConcurrentModificationException\nfor (String item : syncList) {\n    syncList.remove(item);\n}\n\n// FIX -- synchronize externally during iteration\nsynchronized (syncList) {\n    Iterator<String> it = syncList.iterator();\n    while (it.hasNext()) {\n        if (it.next().equals(\"target\")) {\n            it.remove();\n        }\n    }\n}"
-          }
+          "`Objects.requireNonNull(x, () -> \"email of row \" + row)`",
+          "builds the message only when `x` is null"
         ],
         [
-          "**Calling Iterator.remove() without calling next() first**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Iterator<String> it = list.iterator();\nit.remove(); // Throws IllegalStateException\n\n// FIX\nIterator<String> it2 = list.iterator();\nit2.next();\nit2.remove(); // OK"
-          }
+          "`Objects.requireNonNullElse(x, fallback)`",
+          "returns `fallback` for a null `x` (a fail-safe default); throws if `fallback` is null too"
         ],
         [
-          "**Expecting CopyOnWriteArrayList iterator to support remove()**",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "CopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\"));\nIterator<String> it = cowList.iterator();\nit.next();\nit.remove(); // Throws UnsupportedOperationException!\n\n// FIX -- use the list's own remove method or removeIf\ncowList.removeIf(s -> s.equals(\"a\"));"
-          }
+          "`Objects.checkIndex(1500, 101)`",
+          "`IndexOutOfBoundsException: Index 1500 out of bounds for length 101`"
+        ],
+        [
+          "`List.copyOf(list)`",
+          "an unmodifiable list that doesn't follow the argument; `NullPointerException` on a null element"
+        ],
+        [
+          "`Collections.unmodifiableList(list)`",
+          "a read-only view; the caller's later changes show through it"
+        ],
+        [
+          "`assert cond : msg`",
+          "nothing, unless the JVM runs with `-ea`; then `AssertionError`"
+        ],
+        [
+          "`Properties.getProperty(key, fallback)`",
+          "`fallback` when the key is absent, misspelt keys included; `\"\"` when it is present and empty"
+        ],
+        [
+          "`Integer.parseInt(\"800ms\")`",
+          "`NumberFormatException: For input string: \"800ms\"`"
+        ],
+        [
+          "`Properties.load` of the line `workers=16 per node`",
+          "stores the whole value `\"16 per node\"`, which `Integer.parseInt` refuses the same way"
         ]
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        "**Prefer `removeIf()`** over manual `Iterator.remove()` loops -- it is more concise, less error-prone, and some collections optimize it internally.",
-        "**Use streams for filtering** instead of modifying collections in place when possible.",
-        "**Choose the right collection type** upfront based on your read/write ratio and concurrency needs.",
-        "**Create defensive copies** before iterating if you cannot control concurrent modification.",
-        "**Use `List.copyOf()` or `Collections.unmodifiableList()`** when sharing collections across boundaries."
+        "The partner sends 40,000 rows a night, and a dozen have no email. Do you refuse the file, refuse the rows, or store them flagged? What must the reminder job know in each case?",
+        "Settings come from environment variables instead of a file. How do you catch a misspelt variable name when the environment holds hundreds of names your service doesn't own?",
+        "Two services share one config file, each knowing half its keys. What becomes of refusing unknown keys, and what would you change?",
+        "Find a `requireNonNullElse` or `getOrDefault` in code you know. Is it a fail-safe default, or does it hide a bug?"
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Empty collections**: Iterating over an empty collection never triggers fail-fast because there are no `next()` calls.",
-        "**Single element removal**: Removing the last element during `next()` after reaching the end -- still triggers `ConcurrentModificationException` if done outside the iterator.",
-        "**Null elements**: Both fail-fast and fail-safe iterators handle null elements, but `ConcurrentHashMap` does not allow null keys or values.",
-        "**Iterator created but never used**: Creating an iterator and then modifying the collection is fine if you never call `next()` on the stale iterator.",
-        "**Nested iteration**: Iterating the same collection with two iterators simultaneously is safe as long as neither modifies the collection."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why the Check Goes Where the Object Is Made"
     },
     {
       "type": "para",
-      "text": "Interviewers frequently test whether candidates understand:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "The internal mechanism (`modCount`) behind fail-fast behavior",
-        "That fail-fast is \"best-effort\" and not a correctness guarantee",
-        "The difference between \"snapshot\" (CopyOnWriteArrayList) and \"weakly consistent\" (ConcurrentHashMap) fail-safe approaches",
-        "That `Collections.synchronizedList` does NOT change the fail-fast contract",
-        "How to safely remove elements during iteration (Iterator.remove, removeIf, streams)"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Tricky interview scenarios:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"Will this code throw an exception?\" with a for-each loop that modifies the collection",
-        "\"Is ConcurrentModificationException a checked or unchecked exception?\" (It is unchecked -- extends RuntimeException)",
-        "\"Can fail-fast behavior occur in a single-threaded application?\" (Yes -- it is about structural modification during iteration, not about multi-threading)"
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: What is the difference between a fail-fast and a fail-safe iterator in Java?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: Fail-fast iterators immediately throw ConcurrentModificationException when they detect that\nthe underlying collection has been structurally modified since the iterator was created (outside\nof the iterator's own remove method). They use an internal modCount mechanism for detection.\n\nFail-safe iterators (more accurately called \"weakly consistent\" iterators) do not throw\nConcurrentModificationException. They either work on a snapshot of the collection data\n(CopyOnWriteArrayList) or provide weakly consistent traversal that may or may not reflect\nconcurrent modifications (ConcurrentHashMap).\n\nKey differences:\n1. Fail-fast throws ConcurrentModificationException; fail-safe does not.\n2. Fail-fast operates on the original collection; fail-safe operates on a copy or consistent view.\n3. Fail-fast collections include ArrayList, HashMap, HashSet; fail-safe includes ConcurrentHashMap,\n   CopyOnWriteArrayList, ConcurrentSkipListMap.\n4. Fail-fast is useful for detecting bugs early; fail-safe is useful for concurrent access."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Fail-fast example\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nfor (String s : list) {\n    list.remove(s); // Throws ConcurrentModificationException\n}\n\n// Fail-safe example\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\", \"c\"));\nfor (String s : cowList) {\n    cowList.remove(s); // No exception -- iterates over snapshot\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How does the modCount mechanism work internally in fail-fast iterators?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: The modCount (modification count) mechanism works as follows:\n\n1. Every fail-fast collection maintains a transient int field called modCount, initialized\n   to 0 (AbstractList declares a protected one for ArrayList/LinkedList; HashMap and TreeMap\n   declare their own -- AbstractMap has none).\n2. Every structural modification (add, remove, clear, sort on list) increments modCount.\n3. When an iterator is created, it copies the current modCount into a local field called\n   expectedModCount.\n4. Before every iterator operation (next(), remove(), forEachRemaining()), the iterator calls\n   checkForComodification(), which compares modCount with expectedModCount.\n5. If they differ, ConcurrentModificationException is thrown.\n6. Iterator.remove() is special: after removing the element, it updates expectedModCount to\n   match the new modCount, which is why it does not trigger the exception.\n\nThis mechanism is \"best effort\" because:\n- The check is not atomic or synchronized.\n- In a multi-threaded environment, the modCount read may not reflect the latest write due to\n  memory visibility issues (modCount is not volatile).\n- It is designed for detecting programming errors, not for thread-safe iteration."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Simplified view of how ArrayList iterator works internally:\nprivate class Itr implements Iterator<E> {\n    int expectedModCount = modCount; // snapshot at creation\n\n    public E next() {\n        checkForComodification(); // compare modCount == expectedModCount\n        // ... return next element\n    }\n\n    public void remove() {\n        checkForComodification();\n        // ... remove element from underlying list\n        expectedModCount = modCount; // re-sync after iterator's own modification\n    }\n\n    final void checkForComodification() {\n        if (modCount != expectedModCount)\n            throw new ConcurrentModificationException();\n    }\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: Can ConcurrentModificationException occur in a single-threaded application?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: Yes, absolutely. ConcurrentModificationException is NOT about multi-threading. The name\n\"concurrent\" refers to concurrent modification of the collection during iteration, which can\nhappen in a single thread.\n\nThe most common single-threaded scenario is modifying a collection inside a for-each loop:\n- Adding elements to a list while iterating over it\n- Removing elements from a map while iterating its entrySet\n- Clearing a set while iterating over it\n\nIn fact, most ConcurrentModificationException occurrences in practice happen in single-threaded\ncode. The exception is a bug-detection mechanism that catches a common programming mistake:\nmodifying a collection while iterating over it without using the iterator's own modification\nmethods."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Single-threaded ConcurrentModificationException example\npublic void singleThreadedExample() {\n    Map<String, Integer> map = new HashMap<>();\n    map.put(\"a\", 1);\n    map.put(\"b\", 2);\n    map.put(\"c\", 3);\n\n    // This throws ConcurrentModificationException -- single thread!\n    for (Map.Entry<String, Integer> entry : map.entrySet()) {\n        if (entry.getValue() < 3) {\n            map.remove(entry.getKey()); // Modifies map during iteration\n        }\n    }\n\n    // Safe alternative using removeIf\n    map.entrySet().removeIf(entry -> entry.getValue() < 3);\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: What is the difference between Iterator.remove() and Collection.remove() during iteration?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Iterator.remove() and Collection.remove() behave very differently during iteration:\n\nIterator.remove():\n- Removes the last element returned by next() from the underlying collection\n- Updates the iterator's internal expectedModCount to match the new modCount\n- Is the ONLY safe way to remove elements during fail-fast iteration\n- Must be called exactly once after each next() call\n- Throws IllegalStateException if called without a preceding next() or if called twice\n\nCollection.remove():\n- Removes the specified element from the collection directly\n- Increments modCount but does NOT update any iterator's expectedModCount\n- Causes ConcurrentModificationException on the next iterator operation\n- Can be called anytime, independent of iteration\n\nThe key insight is that Iterator.remove() \"knows\" about the iteration and keeps the iterator\nin a consistent state, while Collection.remove() is unaware of any active iterators."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Iterator.remove() -- safe during iteration\nList<String> list = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nIterator<String> it = list.iterator();\nwhile (it.hasNext()) {\n    String item = it.next();\n    if (item.equals(\"b\")) {\n        it.remove(); // Safe -- iterator stays consistent\n    }\n}\n// list is now [\"a\", \"c\"]\n\n// Collection.remove() -- unsafe during iteration\nList<String> list2 = new ArrayList<>(List.of(\"a\", \"b\", \"c\"));\nfor (String item : list2) {\n    if (item.equals(\"a\")) {\n        list2.remove(item); // Throws ConcurrentModificationException\n    }\n}\n// Trap: removing \"b\" (the second-to-last element) instead throws nothing -- hasNext()\n// sees cursor == size and the loop silently ends, skipping \"c\". Never rely on the exception."
-    },
-    {
-      "type": "para",
-      "text": "**Q5: Is ConcurrentModificationException a checked or unchecked exception? Why?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: ConcurrentModificationException is an UNCHECKED exception. It extends RuntimeException.\n\nIt is unchecked for several important design reasons:\n\n1. It signals a programming bug, not a recoverable condition. If your code triggers this\n   exception, it means you have a logic error that should be fixed in the code, not caught\n   and handled at runtime.\n\n2. Forcing every iteration loop to catch this exception would make code extremely verbose\n   and would mask the underlying bug rather than encouraging developers to fix it.\n\n3. It is \"best effort\" -- the JVM does not guarantee it will always be thrown when concurrent\n   modification occurs (especially in multi-threaded scenarios). Making it checked would give\n   a false sense of safety.\n\n4. It follows the Java convention that programming errors (like ArrayIndexOutOfBoundsException,\n   NullPointerException, ClassCastException) are unchecked exceptions.\n\nThe hierarchy is:\n  Object -> Throwable -> Exception -> RuntimeException -> ConcurrentModificationException"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// ConcurrentModificationException is unchecked -- no 'throws' declaration needed\npublic void processItems(List<String> items) {\n    // No need for try-catch -- this is a bug to be fixed, not caught\n    for (String item : items) {\n        if (item.isEmpty()) {\n            items.remove(item); // BUG: will throw ConcurrentModificationException\n        }\n    }\n}\n\n// Correct approach: fix the bug, don't catch the exception\npublic void processItemsCorrectly(List<String> items) {\n    items.removeIf(String::isEmpty); // No exception, correct behavior\n}"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: Why does Java use the term \"weakly consistent\" instead of \"fail-safe\" for concurrent collection iterators?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: Java's official documentation (the java.util.concurrent package summary and the\ncollection Javadocs; the JLS does not cover this) deliberately uses \"weakly consistent\"\nrather than \"fail-safe\" for concurrent collection iterators because:\n\n1. \"Fail-safe\" implies a strong guarantee that the iterator will always return correct and\n   complete data. This is NOT what concurrent collection iterators guarantee.\n\n2. \"Weakly consistent\" accurately describes the actual behavior:\n   - The iterator is guaranteed to traverse elements as they existed at or since the creation\n     of the iterator.\n   - It will not throw ConcurrentModificationException.\n   - It MAY or MAY NOT reflect modifications made to the collection after the iterator was\n     created.\n   - It will never return the same element twice.\n\n3. Different concurrent collections provide different levels of consistency:\n   - CopyOnWriteArrayList: true snapshot (sees exactly the state at iterator creation time)\n   - ConcurrentHashMap: weakly consistent (may see some but not all concurrent modifications)\n   - ConcurrentSkipListMap: weakly consistent with sorted order guarantees\n\nThe term \"fail-safe\" is widely used in the Java community but is technically imprecise.\nIn interviews, mentioning this distinction shows deep understanding."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// CopyOnWriteArrayList: true snapshot semantics\nCopyOnWriteArrayList<String> cowList = new CopyOnWriteArrayList<>(List.of(\"a\", \"b\"));\nIterator<String> it = cowList.iterator();\ncowList.add(\"c\"); // Add after iterator creation\n// Iterator will NOT see \"c\" -- true snapshot\n\n// ConcurrentHashMap: weakly consistent semantics\nConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>(Map.of(\"a\", 1, \"b\", 2));\nfor (Map.Entry<String, Integer> entry : map.entrySet()) {\n    map.put(\"c\", 3); // May or may not be visible to the current iteration\n}"
+      "text": "A check could sit in each method that uses a field, or once in the constructor. In the methods, every new method has to remember it, and the failure still comes late. In the constructor, the type itself carries the guarantee: every `Customer` that exists has an email and a discount between 0 and 100, and the code that uses one checks nothing. The cost is that every way of building one pays the check, including a test that wants a half-filled object. Data that was accepted under older rules, such as an old row with no email, can't be loaded at all until someone decides what it means, and the constructor forces that decision at import time rather than at 02:00."
     },
     {
       "type": "heading",
@@ -338,17 +361,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 12,
-    "paras": 15,
-    "code": 12,
-    "tables": 0,
-    "lists": 11,
+    "headings": 11,
+    "paras": 27,
+    "code": 18,
+    "tables": 1,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 3,
     "disclosures": 0
   },
-  "content_sha256": "db584ab7dfa8d2fbd4264fe98a58ea92a0d4d9f1a8b8cb6a633684e3c186a070"
+  "content_sha256": "af7b67ee19ea0dae14f8ede70b4d589c5ccd60f9fd2eb2f9a67492b8a663bde2"
 }

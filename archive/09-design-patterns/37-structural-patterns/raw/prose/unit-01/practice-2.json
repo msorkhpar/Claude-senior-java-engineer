@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 2,
   "ingested": "2026-09-24",
-  "title": "Adapt a cents-based legacy processor to a dollars-based gateway",
+  "title": "Read a partner's stock feed in the charset it declares",
   "blocks": [
     {
       "type": "heading",
@@ -19,67 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page's Q1 adapts a legacy payment processor that charges **whole cents** to a modern gateway that takes a `double` amount in dollars. The adapter only translates: it converts the arguments, calls the legacy method and converts the answer back."
+      "text": "Partners send the stock service a nightly feed, one `name;quantity` record per line, over a connection that delivers the bytes in whatever pieces the network produces. Each partner declares the charset of its feed in its contract: most use UTF-8, two older ones Latin-1. A record with a broken name must not reach the stock tables: last month a partner switched to Latin-1 without saying so, and a week of town names was stored with `�` in them before anyone noticed."
     },
     {
       "type": "para",
-      "text": "Given (do not change them): `ModernPaymentGateway`, `PaymentResult` and `LegacyPaymentProcessor`, whose `charge(card, amountInCents)` returns a status code, `0` meaning success. Write `PaymentAdapter implements ModernPaymentGateway`:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`new PaymentAdapter(legacy)` keeps the processor; **`null` is refused at once** with `NullPointerException`.",
-        "`processPayment(card, amount)` charges the same card with the amount in cents, **rounded to the nearest cent** (the page warns that `(int) (19.99 * 100)` is `1998`).",
-        "It returns `new PaymentResult(success, statusCode)`, where **only status `0` is a success**."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "legacy returns",
-        "call",
-        "charged",
-        "result"
-      ],
-      "rows": [
-        [
-          "`0`",
-          "`processPayment(\"4111\", 12.50)`",
-          "`(\"4111\", 1250)`",
-          "`PaymentResult[success=true, statusCode=0]`"
-        ],
-        [
-          "`0`",
-          "`processPayment(\"4111\", 19.99)`",
-          "`(\"4111\", 1999)`",
-          "`PaymentResult[success=true, statusCode=0]`"
-        ],
-        [
-          "`0`",
-          "`processPayment(\"4111\", 10.004)`",
-          "`(\"4111\", 1000)`",
-          "`PaymentResult[success=true, statusCode=0]`"
-        ],
-        [
-          "`51`",
-          "`processPayment(\"4111\", 5.00)`",
-          "`(\"4111\", 500)`",
-          "`PaymentResult[success=false, statusCode=51]`"
-        ],
-        [
-          "`-1`",
-          "`processPayment(\"4111\", 1.00)`",
-          "`(\"4111\", 100)`",
-          "`PaymentResult[success=false, statusCode=-1]`"
-        ],
-        [
-          "-",
-          "`new PaymentAdapter(null)`",
-          "-",
-          "`NullPointerException`"
-        ]
-      ]
+      "text": "Finish `forEachLine` in `src/main/java/practice/FeedLines.java`. It hands each line of the feed to the consumer, in order, decoded in the charset passed in, and returns how many lines there were. Bytes that aren't valid in that charset end the read with an `IOException`. Leave the stream open: the caller closes it. About five lines in total."
     },
     {
       "type": "heading",
@@ -94,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\n\npublic final class Payments {\n\n    private Payments() {\n    }\n\n    /** The interface the new code expects. */\n    public interface ModernPaymentGateway {\n        PaymentResult processPayment(String cardNumber, double amount);\n    }\n\n    public record PaymentResult(boolean success, int statusCode) {\n    }\n\n    /** The existing processor: it charges whole cents and returns a status code (0 = success). */\n    public static class LegacyPaymentProcessor {\n        public int charge(String card, int amountInCents) {\n            return 0;\n        }\n    }\n\n    public static final class PaymentAdapter implements ModernPaymentGateway {\n\n        private final LegacyPaymentProcessor legacy;\n\n        public PaymentAdapter(LegacyPaymentProcessor legacy) {\n            this.legacy = Objects.requireNonNull(legacy, \"legacy processor must not be null\");\n        }\n\n        @Override\n        public PaymentResult processPayment(String cardNumber, double amount) {\n            int cents = (int) Math.round(amount * 100);\n            int status = legacy.charge(cardNumber, cents);\n            return new PaymentResult(status == 0, status);\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.io.InputStreamReader;\nimport java.nio.charset.Charset;\nimport java.util.function.Consumer;\n\n/** Reads a partner's stock feed: one record per line, in the charset the partner declared. */\npublic final class FeedLines {\n\n    private FeedLines() {\n    }\n\n    /**\n     * Hands each line of {@code feed} to {@code line}, in order, and returns how many there were.\n     * The caller owns the stream and closes it.\n     */\n    public static int forEachLine(InputStream feed, Charset charset, Consumer<String> line) throws IOException {\n        BufferedReader reader = new BufferedReader(new InputStreamReader(feed, charset.newDecoder()));\n        int count = 0;\n        for (String s; (s = reader.readLine()) != null; count++) {\n            line.accept(s);\n        }\n        return count;\n    }\n}\n"
         }
       ]
     },
@@ -106,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\npublic final class Payments {\n\n    private Payments() {\n    }\n\n    /** The interface the new code expects. */\n    public interface ModernPaymentGateway {\n        PaymentResult processPayment(String cardNumber, double amount);\n    }\n\n    public record PaymentResult(boolean success, int statusCode) {\n    }\n\n    /** The existing processor: it charges whole cents and returns a status code (0 = success). */\n    public static class LegacyPaymentProcessor {\n        public int charge(String card, int amountInCents) {\n            return 0;\n        }\n    }\n\n    public static final class PaymentAdapter implements ModernPaymentGateway {\n\n        public PaymentAdapter(LegacyPaymentProcessor legacy) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        @Override\n        public PaymentResult processPayment(String cardNumber, double amount) {\n            throw new UnsupportedOperationException(\"write processPayment\");\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.io.InputStreamReader;\nimport java.nio.charset.Charset;\nimport java.util.function.Consumer;\n\n/** Reads a partner's stock feed: one record per line, in the charset the partner declared. */\npublic final class FeedLines {\n\n    private FeedLines() {\n    }\n\n    /**\n     * Hands each line of {@code feed} to {@code line}, in order, and returns how many there were.\n     * The caller owns the stream and closes it.\n     */\n    public static int forEachLine(InputStream feed, Charset charset, Consumer<String> line) throws IOException {\n        // TODO: turn the feed's bytes into lines of text. A feed whose bytes aren't valid in the\n        //       declared charset must end the read with an IOException, before its bad line is handed on.\n        throw new IllegalStateException(\"TODO: forEachLine\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -116,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -125,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "23ab99ccf0b27eb251937ee4d920ebc02dcb2686aa3f5e36a457491b67a9ba90",
-  "starting_code": "package practice;\n\npublic final class Payments {\n\n    private Payments() {\n    }\n\n    /** The interface the new code expects. */\n    public interface ModernPaymentGateway {\n        PaymentResult processPayment(String cardNumber, double amount);\n    }\n\n    public record PaymentResult(boolean success, int statusCode) {\n    }\n\n    /** The existing processor: it charges whole cents and returns a status code (0 = success). */\n    public static class LegacyPaymentProcessor {\n        public int charge(String card, int amountInCents) {\n            return 0;\n        }\n    }\n\n    public static final class PaymentAdapter implements ModernPaymentGateway {\n\n        public PaymentAdapter(LegacyPaymentProcessor legacy) {\n            throw new UnsupportedOperationException(\"write the constructor\");\n        }\n\n        @Override\n        public PaymentResult processPayment(String cardNumber, double amount) {\n            throw new UnsupportedOperationException(\"write processPayment\");\n        }\n    }\n}\n",
+  "content_sha256": "89b587287381763281fa745b8e256b426a984f88f13c8f6ed71a666de3a965df",
+  "starting_code": "package practice;\n\nimport java.io.BufferedReader;\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.io.InputStreamReader;\nimport java.nio.charset.Charset;\nimport java.util.function.Consumer;\n\n/** Reads a partner's stock feed: one record per line, in the charset the partner declared. */\npublic final class FeedLines {\n\n    private FeedLines() {\n    }\n\n    /**\n     * Hands each line of {@code feed} to {@code line}, in order, and returns how many there were.\n     * The caller owns the stream and closes it.\n     */\n    public static int forEachLine(InputStream feed, Charset charset, Consumer<String> line) throws IOException {\n        // TODO: turn the feed's bytes into lines of text. A feed whose bytes aren't valid in the\n        //       declared charset must end the read with an IOException, before its bad line is handed on.\n        throw new IllegalStateException(\"TODO: forEachLine\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-2/src/main/java/practice/Payments.java",
-    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-2/src/test/java/practice/PaymentsTest.java",
+    "main_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-2/src/main/java/practice/FeedLines.java",
+    "test_path": "practice/09-design-patterns/37-structural-patterns/prose/unit-01/practice-2/src/test/java/practice/FeedLinesTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -150,24 +94,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.PaymentsTest#chargesTheLegacyProcessorInCents",
+        "id": "practice.FeedLinesTest#handsOnEachLineInOrderAndCountsThem",
         "kind": "main",
-        "says": "processPayment(card, 12.50) charges the legacy processor 1250 cents on the same card and reports success for status 0."
+        "says": "each line of an ASCII feed is handed on in order, and the count is returned"
       },
       {
-        "id": "practice.PaymentsTest#amountsAreRoundedToTheNearestCent",
-        "kind": "edge",
-        "says": "19.99, 0.29, 10.004 and 1234567.89 are charged as 1999, 29, 1000 and 123456789 cents: rounded to the nearest cent, neither truncated nor rounded up."
+        "id": "practice.FeedLinesTest#readsAUtf8FeedThatArrivesInOnePiece",
+        "kind": "main",
+        "says": "a UTF-8 feed with accented names that arrives in one read is handed on intact"
       },
       {
-        "id": "practice.PaymentsTest#aNonZeroStatusIsAFailure",
+        "id": "practice.FeedLinesTest#decodesWithTheCharsetThePartnerDeclared",
         "kind": "edge",
-        "says": "Legacy statuses 51 and -1 give failed PaymentResults that carry those status codes."
+        "says": "a Latin-1 feed is decoded with Latin-1, the charset passed in, whatever the machine's default"
       },
       {
-        "id": "practice.PaymentsTest#aNullProcessorIsRefusedAtOnce",
+        "id": "practice.FeedLinesTest#aCharacterSplitAcrossReadsArrivesWhole",
         "kind": "edge",
-        "says": "new PaymentAdapter(null) throws NullPointerException immediately, not on the first payment."
+        "says": "a multi-byte character whose bytes arrive in two different reads is decoded whole"
+      },
+      {
+        "id": "practice.FeedLinesTest#bytesNotValidInTheDeclaredCharsetEndTheRead",
+        "kind": "edge",
+        "says": "bytes that are malformed in the declared charset end the read with a CharacterCodingException before any line is handed on"
       }
     ],
     "report": {
@@ -176,10 +125,12 @@
     },
     "origin": {
       "path": "37-structural-patterns/README_9.2.1.md",
-      "section": "Interview Q&A Section"
+      "section": "InputStreamReader Adapts Bytes to Chars Through a Charset, and the One-Argument Constructor Takes the JVM's Default"
     },
     "concepts": [
-      "An adapter converts arguments and results between the two interfaces, such as dollars to rounded cents and a status code to a result object."
+      "InputStreamReader built with a Charset replaces malformed input with U+FFFD; built with a decoder from newDecoder() it throws MalformedInputException.",
+      "InputStreamReader without a charset decodes with the JVM's default charset, which a start option can change, so the same bytes read correctly on one machine and garbled, without an error, on another.",
+      "InputStreamReader keeps the bytes of an unfinished character until the next read completes it; decoding each read on its own turns a split multi-byte character into replacement characters."
     ]
   }
 }

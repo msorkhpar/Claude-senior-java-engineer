@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Layer eviction and a lock around a plain cache",
+  "title": "Let the seat store change maps without its callers noticing",
   "blocks": [
     {
       "type": "heading",
@@ -19,27 +19,24 @@
     },
     {
       "type": "para",
-      "text": "The page builds a cache from layers, each knowing one thing:"
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "Cache<String, Integer> safeBounded = new ThreadSafeCache<>(\n    new BoundedCache<>(new SimpleCache<>(), 100)\n);\n// Thread safety is clear: ThreadSafeCache provides it, others don't."
+      "text": "The ticketing service keeps seat holds in `SeatHolds`. The box office shares one store between its request threads, so it gets a `ConcurrentHashMap`; the overnight re-seating tool runs on one thread over a `TreeMap`; the tests use a `HashMap`. The callers never see which: they get a store from `shared()`, `sorted()` or `plain()` and call its methods."
     },
     {
       "type": "para",
-      "text": "`SimpleCache` stores and is **not** thread-safe; composing it with more parts does not change that. `Cache` and `SimpleCache` are given. Write the other two layers in `Caches`:"
+      "text": "Last month a bug reached production that every test had passed: code that worked over the `HashMap` failed in the box office. Make sure that can't happen again. Finish the three `TODO` methods in `src/main/java/practice/SeatHolds.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`BoundedCache(delegate, maxSize)` adds least-recently-used eviction over any cache. It does not need to be thread-safe on its own: `ThreadSafeCache` provides that when it wraps it. With `maxSize` 2, putting `a`, `b`, `c` evicts `a`;",
-        "reading a key with `get` makes it the most recently used: put `a`, `b`, read `a`, put `c`, and `b` is evicted. Reading a key that is not there changes nothing;",
-        "a removed key is gone from the eviction order too: put `a`, `b`, remove `a`, then put `c`, `d`, `e`, and the cache holds exactly `d` and `e`;",
-        "writing a key that is already there evicts nothing and also makes it the most recently used: put `a`, `b`, put `a` again, put `c`, and `b` is evicted;",
-        "`ThreadSafeCache(delegate)` is **the one synchronizing layer**: every call it forwards holds one lock, so while one call is inside the wrapped cache, any other call (`get`, `put`, `remove`, `size` or `containsKey`) waits."
+        "`hold(seat, guest)`: the guest now holds the seat;",
+        "`holder(seat)`: who holds the seat, if anyone;",
+        "`holds()`: every hold at this moment."
       ]
+    },
+    {
+      "type": "para",
+      "text": "When you're done, a caller that works with one of the three stores works the same way with the other two, including when it passes `null` and when it changes the store while walking the list it got from `holds()`. `release` is already written. About four lines in total."
     },
     {
       "type": "heading",
@@ -54,7 +51,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\n/** A cache built by composition: storage, eviction and thread safety are separate layers. */\npublic final class Caches {\n\n    private Caches() {\n    }\n\n    public interface Cache<K, V> {\n        V get(K key);\n\n        void put(K key, V value);\n\n        V remove(K key);\n\n        int size();\n\n        boolean containsKey(K key);\n    }\n\n    /** Storage only: no synchronization, no eviction. */\n    public static final class SimpleCache<K, V> implements Cache<K, V> {\n        private final Map<K, V> store = new HashMap<>();\n\n        @Override public V get(K key) { return store.get(key); }\n        @Override public void put(K key, V value) { store.put(key, value); }\n        @Override public V remove(K key) { return store.remove(key); }\n        @Override public int size() { return store.size(); }\n        @Override public boolean containsKey(K key) { return store.containsKey(key); }\n    }\n\n    /** The one synchronizing layer: every call on the delegate holds one lock. */\n    public static final class ThreadSafeCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final Object lock = new Object();\n\n        public ThreadSafeCache(Cache<K, V> delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override public V get(K key) { synchronized (lock) { return delegate.get(key); } }\n        @Override public void put(K key, V value) { synchronized (lock) { delegate.put(key, value); } }\n        @Override public V remove(K key) { synchronized (lock) { return delegate.remove(key); } }\n        @Override public int size() { synchronized (lock) { return delegate.size(); } }\n        @Override public boolean containsKey(K key) { synchronized (lock) { return delegate.containsKey(key); } }\n    }\n\n    /** Least-recently-used eviction over any cache; no synchronization of its own. */\n    public static final class BoundedCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final int maxSize;\n        private final Deque<K> accessOrder = new ArrayDeque<>();\n\n        public BoundedCache(Cache<K, V> delegate, int maxSize) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.maxSize = maxSize;\n        }\n\n        @Override\n        public V get(K key) {\n            V value = delegate.get(key);\n            if (value != null) {\n                accessOrder.remove(key);\n                accessOrder.addLast(key);\n            }\n            return value;\n        }\n\n        @Override\n        public void put(K key, V value) {\n            if (delegate.containsKey(key)) {\n                accessOrder.remove(key);\n            } else if (delegate.size() >= maxSize) {\n                K oldest = accessOrder.pollFirst();\n                if (oldest != null) {\n                    delegate.remove(oldest);\n                }\n            }\n            delegate.put(key, value);\n            accessOrder.addLast(key);\n        }\n\n        @Override\n        public V remove(K key) {\n            accessOrder.remove(key);\n            return delegate.remove(key);\n        }\n\n        @Override public int size() { return delegate.size(); }\n        @Override public boolean containsKey(K key) { return delegate.containsKey(key); }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Which guest holds which seat. The box office shares one store between its request threads;\n * the overnight re-seating tool and the unit tests each run on one thread. The callers only\n * ever see this class, so the map behind it is chosen by the factory method alone.\n */\npublic final class SeatHolds {\n    private final Map<String, String> holds;\n\n    private SeatHolds(Map<String, String> holds) {\n        this.holds = holds;\n    }\n\n    /** For the box office: shared by many threads. */\n    public static SeatHolds shared() {\n        return new SeatHolds(new ConcurrentHashMap<>());\n    }\n\n    /** For the re-seating tool: one thread, seats kept sorted. */\n    public static SeatHolds sorted() {\n        return new SeatHolds(new TreeMap<>());\n    }\n\n    /** For tests and other single-threaded use. */\n    public static SeatHolds plain() {\n        return new SeatHolds(new HashMap<>());\n    }\n\n    /** Frees the seat; true if someone held it. */\n    public boolean release(String seat) {\n        return holds.remove(Objects.requireNonNull(seat, \"seat\")) != null;\n    }\n\n    /** Records that the guest holds the seat, replacing any earlier holder. */\n    public void hold(String seat, String guest) {\n        holds.put(Objects.requireNonNull(seat, \"seat\"), Objects.requireNonNull(guest, \"guest\"));\n    }\n\n    /** The guest holding the seat, or empty if it is free. */\n    public Optional<String> holder(String seat) {\n        return Optional.ofNullable(holds.get(Objects.requireNonNull(seat, \"seat\")));\n    }\n\n    /** Every hold as it is now; what happens to the store afterwards doesn't show in it. */\n    public Map<String, String> holds() {\n        return Map.copyOf(holds);\n    }\n}\n"
         }
       ]
     },
@@ -66,7 +63,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\n/** A cache built by composition: storage, eviction and thread safety are separate layers. */\npublic final class Caches {\n\n    private Caches() {\n    }\n\n    public interface Cache<K, V> {\n        V get(K key);\n\n        void put(K key, V value);\n\n        V remove(K key);\n\n        int size();\n\n        boolean containsKey(K key);\n    }\n\n    /** Storage only: no synchronization, no eviction. */\n    public static final class SimpleCache<K, V> implements Cache<K, V> {\n        private final Map<K, V> store = new HashMap<>();\n\n        @Override public V get(K key) { return store.get(key); }\n        @Override public void put(K key, V value) { store.put(key, value); }\n        @Override public V remove(K key) { return store.remove(key); }\n        @Override public int size() { return store.size(); }\n        @Override public boolean containsKey(K key) { return store.containsKey(key); }\n    }\n\n    /** The one synchronizing layer: every call on the delegate holds one lock. */\n    public static final class ThreadSafeCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final Object lock = new Object();\n\n        public ThreadSafeCache(Cache<K, V> delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n\n    /** Least-recently-used eviction over any cache; no synchronization of its own. */\n    public static final class BoundedCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final int maxSize;\n        private final Deque<K> accessOrder = new ArrayDeque<>();\n\n        public BoundedCache(Cache<K, V> delegate, int maxSize) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.maxSize = maxSize;\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Which guest holds which seat. The box office shares one store between its request threads;\n * the overnight re-seating tool and the unit tests each run on one thread. The callers only\n * ever see this class, so the map behind it is chosen by the factory method alone.\n */\npublic final class SeatHolds {\n    private final Map<String, String> holds;\n\n    private SeatHolds(Map<String, String> holds) {\n        this.holds = holds;\n    }\n\n    /** For the box office: shared by many threads. */\n    public static SeatHolds shared() {\n        return new SeatHolds(new ConcurrentHashMap<>());\n    }\n\n    /** For the re-seating tool: one thread, seats kept sorted. */\n    public static SeatHolds sorted() {\n        return new SeatHolds(new TreeMap<>());\n    }\n\n    /** For tests and other single-threaded use. */\n    public static SeatHolds plain() {\n        return new SeatHolds(new HashMap<>());\n    }\n\n    /** Frees the seat; true if someone held it. */\n    public boolean release(String seat) {\n        return holds.remove(Objects.requireNonNull(seat, \"seat\")) != null;\n    }\n\n    /**\n     * Records that the guest holds the seat, replacing any earlier holder.\n     * TODO: callers must see the same behaviour whichever map is behind the store.\n     */\n    public void hold(String seat, String guest) {\n        throw new IllegalStateException(\"TODO: hold\");\n    }\n\n    /**\n     * The guest holding the seat, or empty if it is free.\n     * TODO: callers must see the same behaviour whichever map is behind the store.\n     */\n    public Optional<String> holder(String seat) {\n        throw new IllegalStateException(\"TODO: holder\");\n    }\n\n    /**\n     * Every hold as it is now; what happens to the store afterwards doesn't show in it.\n     * TODO\n     */\n    public Map<String, String> holds() {\n        throw new IllegalStateException(\"TODO: holds\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -74,8 +71,8 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
-    "code": 2,
+    "paras": 3,
+    "code": 1,
     "tables": 0,
     "lists": 1,
     "images": 0,
@@ -85,11 +82,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "0b9de64dd9e7e4c711120d894d40d9f16935253344d61f6e666cdb39557a7128",
-  "starting_code": "package practice;\n\nimport java.util.ArrayDeque;\nimport java.util.Deque;\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\n\n/** A cache built by composition: storage, eviction and thread safety are separate layers. */\npublic final class Caches {\n\n    private Caches() {\n    }\n\n    public interface Cache<K, V> {\n        V get(K key);\n\n        void put(K key, V value);\n\n        V remove(K key);\n\n        int size();\n\n        boolean containsKey(K key);\n    }\n\n    /** Storage only: no synchronization, no eviction. */\n    public static final class SimpleCache<K, V> implements Cache<K, V> {\n        private final Map<K, V> store = new HashMap<>();\n\n        @Override public V get(K key) { return store.get(key); }\n        @Override public void put(K key, V value) { store.put(key, value); }\n        @Override public V remove(K key) { return store.remove(key); }\n        @Override public int size() { return store.size(); }\n        @Override public boolean containsKey(K key) { return store.containsKey(key); }\n    }\n\n    /** The one synchronizing layer: every call on the delegate holds one lock. */\n    public static final class ThreadSafeCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final Object lock = new Object();\n\n        public ThreadSafeCache(Cache<K, V> delegate) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n\n    /** Least-recently-used eviction over any cache; no synchronization of its own. */\n    public static final class BoundedCache<K, V> implements Cache<K, V> {\n        private final Cache<K, V> delegate;\n        private final int maxSize;\n        private final Deque<K> accessOrder = new ArrayDeque<>();\n\n        public BoundedCache(Cache<K, V> delegate, int maxSize) {\n            this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n            this.maxSize = maxSize;\n        }\n\n        @Override public V get(K key) { throw new UnsupportedOperationException(\"write get\"); }\n        @Override public void put(K key, V value) { throw new UnsupportedOperationException(\"write put\"); }\n        @Override public V remove(K key) { throw new UnsupportedOperationException(\"write remove\"); }\n        @Override public int size() { throw new UnsupportedOperationException(\"write size\"); }\n        @Override public boolean containsKey(K key) { throw new UnsupportedOperationException(\"write containsKey\"); }\n    }\n}\n",
+  "content_sha256": "82a9fe480af03c229505c0fd543343aee6ffbe1404a0fc3933582f31cc187c03",
+  "starting_code": "package practice;\n\nimport java.util.HashMap;\nimport java.util.Map;\nimport java.util.Objects;\nimport java.util.Optional;\nimport java.util.TreeMap;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Which guest holds which seat. The box office shares one store between its request threads;\n * the overnight re-seating tool and the unit tests each run on one thread. The callers only\n * ever see this class, so the map behind it is chosen by the factory method alone.\n */\npublic final class SeatHolds {\n    private final Map<String, String> holds;\n\n    private SeatHolds(Map<String, String> holds) {\n        this.holds = holds;\n    }\n\n    /** For the box office: shared by many threads. */\n    public static SeatHolds shared() {\n        return new SeatHolds(new ConcurrentHashMap<>());\n    }\n\n    /** For the re-seating tool: one thread, seats kept sorted. */\n    public static SeatHolds sorted() {\n        return new SeatHolds(new TreeMap<>());\n    }\n\n    /** For tests and other single-threaded use. */\n    public static SeatHolds plain() {\n        return new SeatHolds(new HashMap<>());\n    }\n\n    /** Frees the seat; true if someone held it. */\n    public boolean release(String seat) {\n        return holds.remove(Objects.requireNonNull(seat, \"seat\")) != null;\n    }\n\n    /**\n     * Records that the guest holds the seat, replacing any earlier holder.\n     * TODO: callers must see the same behaviour whichever map is behind the store.\n     */\n    public void hold(String seat, String guest) {\n        throw new IllegalStateException(\"TODO: hold\");\n    }\n\n    /**\n     * The guest holding the seat, or empty if it is free.\n     * TODO: callers must see the same behaviour whichever map is behind the store.\n     */\n    public Optional<String> holder(String seat) {\n        throw new IllegalStateException(\"TODO: holder\");\n    }\n\n    /**\n     * Every hold as it is now; what happens to the store afterwards doesn't show in it.\n     * TODO\n     */\n    public Map<String, String> holds() {\n        throw new IllegalStateException(\"TODO: holds\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/src/main/java/practice/Caches.java",
-    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/src/test/java/practice/CachesTest.java",
+    "main_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/src/main/java/practice/SeatHolds.java",
+    "test_path": "practice/08-principles/34-composition-inheritance/prose/unit-03/practice-1/src/test/java/practice/SeatHoldsTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -110,29 +107,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CachesTest#aBoundedCacheEvictsTheOldestKey",
+        "id": "practice.SeatHoldsTest#holdsAndReleasesSeatsTheSameWayOverEveryMap",
         "kind": "main",
-        "says": "A bounded cache of 2 evicts a when c is added, and the thread-safe wrapper forwards every call."
+        "says": "holding, replacing, looking up, releasing and listing seats give the same results over a HashMap, a TreeMap and a ConcurrentHashMap"
       },
       {
-        "id": "practice.CachesTest#readingAKeyKeepsItFresh",
+        "id": "practice.SeatHoldsTest#aHoldWithoutAGuestIsRefusedOverEveryMap",
         "kind": "edge",
-        "says": "After get(a), adding c to the full cache evicts b, not a."
+        "says": "a hold with no guest throws NullPointerException over every map, including one that would store a null, and changes nothing"
       },
       {
-        "id": "practice.CachesTest#writingAKeyAgainKeepsItFresh",
+        "id": "practice.SeatHoldsTest#askingWhoHoldsNoSeatIsRefusedOverEveryMap",
         "kind": "edge",
-        "says": "Writing a again evicts nothing, and then adding c evicts b, not a."
+        "says": "asking who holds a null seat throws NullPointerException over every map, including one that would answer it"
       },
       {
-        "id": "practice.CachesTest#aRemovedKeyLeavesTheEvictionOrder",
+        "id": "practice.SeatHoldsTest#aListOfHoldsStaysAsItWasWhileTheStoreChanges",
         "kind": "edge",
-        "says": "With room for 2: put a and b, remove a, put c, d and e, and the cache holds exactly d and e."
-      },
-      {
-        "id": "practice.CachesTest#theThreadSafeWrapperLetsOneCallInAtATime",
-        "kind": "edge",
-        "says": "While a put is inside the wrapped cache, a get, remove, size or containsKey through ThreadSafeCache waits and never runs alongside it."
+        "says": "the list of holds is a copy: walking it while the store changes neither throws nor shows the changes, over every map"
       }
     ],
     "report": {
@@ -141,12 +133,12 @@
     },
     "origin": {
       "path": "34-composition-inheritance/README_8.4.3.md",
-      "section": "Interview Q&A Section"
+      "section": "The Swap Is Free Only for What the Wrapper Promises: HashMap Accepted null, ConcurrentHashMap Throws"
     },
     "concepts": [
-      "Eviction is another decorator, BoundedCache, layered over any cache without synchronization of its own.",
-      "Composing parts that are not thread-safe does not make the whole thread-safe; an explicit synchronizing wrapper does.",
-      "Synchronization lives in one wrapper, ThreadSafeCache, around a cache that has none, so where the lock is can be read off one class."
+      "Callers that use only a wrapper's methods keep working, unchanged and uncompiled, when the map it keeps privately changes from HashMap to ConcurrentHashMap, and the shared-map races end.",
+      "Map implementations differ on null, so a wrapper keeps its callers independent of the map only if it decides about null itself, failing the same way over every backing.",
+      "A wrapper that returns its live map or a view hands callers the backing's own iterator behaviour; returning a copy keeps it the same over every backing."
     ]
   }
 }

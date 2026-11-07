@@ -1,20 +1,18 @@
-The Holder idiom (Bill Pugh) **keeps the instance in a private static nested
-class**. The JVM initializes that nested class **only when `getInstance()` first
-reads it**, and class initialization is thread-safe, so the instance is lazy
-without any lock. Using the outer class for anything else creates nothing.
+The integration host runs partner plugins, and every plugin's calls to the partner API must come
+out of one budget, `PluginHost.Quota.INSTANCE`. Each plugin gets a class loader of its own, and
+that loader is meant to look in the plugin's jar first, so a plugin runs with the library versions
+it bundles. Plugins are compiled against the host API (the nested types of `PluginHost`), and
+their build copies that API into the jar.
 
-Write `ServiceRegistry` that way:
+The partner reports that the host goes over its budget whenever more than one plugin is
+installed. Finish the two `TODO`s in `src/main/java/practice/PluginHost.java`, in the plugin
+loader:
 
-- `getInstance()` returns the one registry.
-- `created()` (given) counts how many times the constructor has run.
-- `describe()` (given) is another static method; calling it must **not**
-  create the instance.
-- The private constructor **refuses to run a second time** with an
-  `IllegalStateException`, because reflection can call a private constructor.
+- `loadClass(name, resolve)`: which loader defines each class a plugin asks for;
+- `sharedWithHost(name)`: which classes a plugin must get from the host, whatever its jar holds.
 
-| calls, in order | `created()` after it |
-|---|---|
-| `describe()` | `0` |
-| `getInstance()` | `1` |
-| `getInstance()` again | `1`, same object |
-| the constructor through reflection | `IllegalStateException` |
+When you're done, every plugin draws on the host's one quota, and two plugins never share the
+static state of their own classes. About twelve lines in total.
+
+The tests build each plugin from a directory that holds both the plugin classes and the host's
+classes, as a plugin jar does.

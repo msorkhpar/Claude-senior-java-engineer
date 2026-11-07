@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 3,
   "ingested": "2026-09-24",
-  "title": "A singleton that survives reflection, serialization and cloning",
+  "title": "Give each shop its own metrics, built where the shop starts",
   "blocks": [
     {
       "type": "heading",
@@ -19,46 +19,11 @@
     },
     {
       "type": "para",
-      "text": "The page lists the ways a class-based Singleton breaks: **reflection** calls the private constructor, **deserialization** makes a new object, and **cloning** copies it when a superclass exposes `clone()`. Its `SecureSingleton` guards all three, and notes a trap: static initializers run **in textual order**, so a guard flag must be declared (and initialized) **before** the instance."
+      "text": "The shop's checkout and refund services used to count into `Metrics.getInstance()`. Now the hosting platform runs one shop per tenant, several in one JVM, and each tenant's dashboard showed every tenant's orders. The team has removed the static accessor: `Checkout` and `Refunds` take a `Metrics` in their constructors, and `Shop.start()` is where the platform builds a shop when a tenant's shop starts."
     },
     {
       "type": "para",
-      "text": "`Base` (given) implements `Cloneable` and has a public `clone()`. Write `Settings extends Base implements Serializable` so that:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "`getInstance()` returns the one `Settings`; `name()` returns `\"settings\"`.",
-        "Serializing it and reading it back gives **the same instance**.",
-        "A second construction through reflection throws `IllegalStateException`.",
-        "`clone()` throws `CloneNotSupportedException`."
-      ]
-    },
-    {
-      "type": "table",
-      "headers": [
-        "action",
-        "result"
-      ],
-      "rows": [
-        [
-          "`getInstance()` twice",
-          "the same object"
-        ],
-        [
-          "write then read with object streams",
-          "the same object"
-        ],
-        [
-          "private constructor via reflection",
-          "`IllegalStateException` (inside `InvocationTargetException`)"
-        ],
-        [
-          "`clone()`",
-          "`CloneNotSupportedException`"
-        ]
-      ]
+      "text": "Finish the three `TODO`s in `src/main/java/practice/Shop.java`: the two constructors and `start()`. When you're done, each running shop's dashboard (`Running.metrics()`) shows exactly what that shop's own checkout and refunds counted. About five lines in total."
     },
     {
       "type": "heading",
@@ -73,7 +38,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.io.Serial;\nimport java.io.Serializable;\n\npublic final class SecureSingletons {\n\n    private SecureSingletons() {\n    }\n\n    /** A superclass that makes its objects cloneable, as a framework base class might. */\n    public static class Base implements Cloneable {\n        @Override\n        public Base clone() throws CloneNotSupportedException {\n            return (Base) super.clone();\n        }\n    }\n\n    public static final class Settings extends Base implements Serializable {\n\n        @Serial\n        private static final long serialVersionUID = 1L;\n\n        private static boolean instantiated = false;\n        private static final Settings INSTANCE = new Settings();\n\n        private Settings() {\n            if (instantiated) {\n                throw new IllegalStateException(\"Use getInstance()\");\n            }\n            instantiated = true;\n        }\n\n        /** Returns the one Settings. */\n        public static Settings getInstance() {\n            return INSTANCE;\n        }\n\n        public String name() {\n            return \"settings\";\n        }\n\n        @Serial\n        private Object readResolve() {\n            return INSTANCE;\n        }\n\n        @Override\n        public Base clone() throws CloneNotSupportedException {\n            throw new CloneNotSupportedException(\"Settings is a singleton\");\n        }\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * A shop's services and the code that builds them. The hosting platform runs several shops in\n * one JVM, one per tenant, and every shop's dashboard reads that shop's own counts.\n */\npublic final class Shop {\n\n    private Shop() {}\n\n    /** Counts events by name. */\n    public static final class Metrics {\n        private final Map<String, AtomicInteger> counts = new ConcurrentHashMap<>();\n\n        public void count(String event) {\n            counts.computeIfAbsent(event, e -> new AtomicInteger()).incrementAndGet();\n        }\n\n        public int get(String event) {\n            AtomicInteger n = counts.get(event);\n            return n == null ? 0 : n.get();\n        }\n    }\n\n    public static final class Checkout {\n        private final Metrics metrics;\n\n        public Checkout(Metrics metrics) {\n            this.metrics = metrics;\n        }\n\n        public void order(String id) {\n            metrics.count(\"orders\");\n        }\n    }\n\n    public static final class Refunds {\n        private final Metrics metrics;\n\n        public Refunds(Metrics metrics) {\n            this.metrics = metrics;\n        }\n\n        public void refund(String id) {\n            metrics.count(\"refunds\");\n        }\n    }\n\n    /** One running shop, as its dashboard and its services see it. */\n    public record Running(Metrics metrics, Checkout checkout, Refunds refunds) {}\n\n    /** Builds one shop: what the platform calls when a tenant's shop starts. */\n    public static Running start() {\n        Metrics metrics = new Metrics();\n        return new Running(metrics, new Checkout(metrics), new Refunds(metrics));\n    }\n}\n"
         }
       ]
     },
@@ -85,7 +50,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.io.Serializable;\n\npublic final class SecureSingletons {\n\n    private SecureSingletons() {\n    }\n\n    /** A superclass that makes its objects cloneable, as a framework base class might. */\n    public static class Base implements Cloneable {\n        @Override\n        public Base clone() throws CloneNotSupportedException {\n            return (Base) super.clone();\n        }\n    }\n\n    public static final class Settings extends Base implements Serializable {\n\n        private static final long serialVersionUID = 1L;\n\n        private Settings() {\n        }\n\n        /** Returns the one Settings. */\n        public static Settings getInstance() {\n            throw new UnsupportedOperationException(\"write getInstance\");\n        }\n\n        public String name() {\n            return \"settings\";\n        }\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * A shop's services and the code that builds them. The hosting platform runs several shops in\n * one JVM, one per tenant, and every shop's dashboard reads that shop's own counts.\n */\npublic final class Shop {\n\n    private Shop() {}\n\n    /** Counts events by name. */\n    public static final class Metrics {\n        private final Map<String, AtomicInteger> counts = new ConcurrentHashMap<>();\n\n        public void count(String event) {\n            counts.computeIfAbsent(event, e -> new AtomicInteger()).incrementAndGet();\n        }\n\n        public int get(String event) {\n            AtomicInteger n = counts.get(event);\n            return n == null ? 0 : n.get();\n        }\n    }\n\n    public static final class Checkout {\n        private final Metrics metrics;\n\n        public Checkout(Metrics metrics) {\n            // TODO: Count into the metrics of the shop this Checkout belongs to.\n            throw new IllegalStateException(\"TODO: Checkout\");\n        }\n\n        public void order(String id) {\n            metrics.count(\"orders\");\n        }\n    }\n\n    public static final class Refunds {\n        private final Metrics metrics;\n\n        public Refunds(Metrics metrics) {\n            // TODO: Count into the metrics of the shop these Refunds belong to.\n            throw new IllegalStateException(\"TODO: Refunds\");\n        }\n\n        public void refund(String id) {\n            metrics.count(\"refunds\");\n        }\n    }\n\n    /** One running shop, as its dashboard and its services see it. */\n    public record Running(Metrics metrics, Checkout checkout, Refunds refunds) {}\n\n    /** Builds one shop: what the platform calls when a tenant's shop starts. */\n    public static Running start() {\n        // TODO: Build one shop's metrics and services, wired so that its dashboard shows what\n        //       its own services counted.\n        throw new IllegalStateException(\"TODO: start\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -95,8 +60,8 @@
     "headings": 3,
     "paras": 2,
     "code": 1,
-    "tables": 1,
-    "lists": 1,
+    "tables": 0,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
@@ -104,11 +69,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "dee9e1d66d63852cfe95965977f9e22e14a57b6d67ed601c0251d63aa4eb878a",
-  "starting_code": "package practice;\n\nimport java.io.Serializable;\n\npublic final class SecureSingletons {\n\n    private SecureSingletons() {\n    }\n\n    /** A superclass that makes its objects cloneable, as a framework base class might. */\n    public static class Base implements Cloneable {\n        @Override\n        public Base clone() throws CloneNotSupportedException {\n            return (Base) super.clone();\n        }\n    }\n\n    public static final class Settings extends Base implements Serializable {\n\n        private static final long serialVersionUID = 1L;\n\n        private Settings() {\n        }\n\n        /** Returns the one Settings. */\n        public static Settings getInstance() {\n            throw new UnsupportedOperationException(\"write getInstance\");\n        }\n\n        public String name() {\n            return \"settings\";\n        }\n    }\n}\n",
+  "content_sha256": "93bb9fe8ed0e3e372162a19d714b754526bd747b7e85258870d272a6c8a9dedf",
+  "starting_code": "package practice;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * A shop's services and the code that builds them. The hosting platform runs several shops in\n * one JVM, one per tenant, and every shop's dashboard reads that shop's own counts.\n */\npublic final class Shop {\n\n    private Shop() {}\n\n    /** Counts events by name. */\n    public static final class Metrics {\n        private final Map<String, AtomicInteger> counts = new ConcurrentHashMap<>();\n\n        public void count(String event) {\n            counts.computeIfAbsent(event, e -> new AtomicInteger()).incrementAndGet();\n        }\n\n        public int get(String event) {\n            AtomicInteger n = counts.get(event);\n            return n == null ? 0 : n.get();\n        }\n    }\n\n    public static final class Checkout {\n        private final Metrics metrics;\n\n        public Checkout(Metrics metrics) {\n            // TODO: Count into the metrics of the shop this Checkout belongs to.\n            throw new IllegalStateException(\"TODO: Checkout\");\n        }\n\n        public void order(String id) {\n            metrics.count(\"orders\");\n        }\n    }\n\n    public static final class Refunds {\n        private final Metrics metrics;\n\n        public Refunds(Metrics metrics) {\n            // TODO: Count into the metrics of the shop these Refunds belong to.\n            throw new IllegalStateException(\"TODO: Refunds\");\n        }\n\n        public void refund(String id) {\n            metrics.count(\"refunds\");\n        }\n    }\n\n    /** One running shop, as its dashboard and its services see it. */\n    public record Running(Metrics metrics, Checkout checkout, Refunds refunds) {}\n\n    /** Builds one shop: what the platform calls when a tenant's shop starts. */\n    public static Running start() {\n        // TODO: Build one shop's metrics and services, wired so that its dashboard shows what\n        //       its own services counted.\n        throw new IllegalStateException(\"TODO: start\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-3/src/main/java/practice/SecureSingletons.java",
-    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-3/src/test/java/practice/SecureSingletonsTest.java",
+    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-3/src/main/java/practice/Shop.java",
+    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-3/src/test/java/practice/ShopTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -129,24 +94,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.SecureSingletonsTest#getInstanceReturnsOneSettings",
+        "id": "practice.ShopTest#aShopsDashboardCountsItsOrders",
         "kind": "main",
-        "says": "Settings.getInstance() returns the same object every time, and its name is settings."
+        "says": "orders taken by a started shop's checkout show on that shop's metrics"
       },
       {
-        "id": "practice.SecureSingletonsTest#deserializingGivesBackTheInstance",
-        "kind": "edge",
-        "says": "Serializing the instance and reading it back returns the very same instance."
+        "id": "practice.ShopTest#aServiceCountsIntoTheMetricsItIsGiven",
+        "kind": "main",
+        "says": "a Checkout or Refunds built with a Metrics counts into that Metrics"
       },
       {
-        "id": "practice.SecureSingletonsTest#reflectionCannotMakeASecond",
+        "id": "practice.ShopTest#refundsShowOnTheSameDashboardAsOrders",
         "kind": "edge",
-        "says": "Calling the private constructor through reflection fails with IllegalStateException."
+        "says": "the services of one shop share one Metrics, the one its dashboard reads"
       },
       {
-        "id": "practice.SecureSingletonsTest#cloningIsRefused",
+        "id": "practice.ShopTest#twoShopsInOneJvmCountSeparately",
         "kind": "edge",
-        "says": "clone(), inherited as public from Base, throws CloneNotSupportedException."
+        "says": "two shops started in one JVM each count only their own events"
       }
     ],
     "report": {
@@ -155,12 +120,10 @@
     },
     "origin": {
       "path": "36-creational-patterns/README_9.1.1.md",
-      "section": "Common Pitfalls and How to Avoid Them"
+      "section": "A Static Singleton Carries One Test's State Into the Next"
     },
     "concepts": [
-      "A Singleton that inherits a public clone() overrides it to throw CloneNotSupportedException.",
-      "Deserializing a Singleton creates a new object unless readResolve returns the existing instance.",
-      "Static initializers run in textual order, so a guard flag declared after the instance is reset by its own initializer and disables the guard."
+      "Building the one instance in main and passing it through constructors keeps one instance in production and lets each test build its own."
     ]
   }
 }

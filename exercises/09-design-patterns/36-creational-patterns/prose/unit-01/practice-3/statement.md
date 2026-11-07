@@ -1,20 +1,9 @@
-The page lists the ways a class-based Singleton breaks: **reflection** calls
-the private constructor, **deserialization** makes a new object, and **cloning**
-copies it when a superclass exposes `clone()`. Its `SecureSingleton` guards all
-three, and notes a trap: static initializers run **in textual order**, so a
-guard flag must be declared (and initialized) **before** the instance.
+The shop's checkout and refund services used to count into `Metrics.getInstance()`. Now the
+hosting platform runs one shop per tenant, several in one JVM, and each tenant's dashboard showed
+every tenant's orders. The team has removed the static accessor: `Checkout` and `Refunds` take a
+`Metrics` in their constructors, and `Shop.start()` is where the platform builds a shop when a
+tenant's shop starts.
 
-`Base` (given) implements `Cloneable` and has a public `clone()`. Write
-`Settings extends Base implements Serializable` so that:
-
-- `getInstance()` returns the one `Settings`; `name()` returns `"settings"`.
-- Serializing it and reading it back gives **the same instance**.
-- A second construction through reflection throws `IllegalStateException`.
-- `clone()` throws `CloneNotSupportedException`.
-
-| action | result |
-|---|---|
-| `getInstance()` twice | the same object |
-| write then read with object streams | the same object |
-| private constructor via reflection | `IllegalStateException` (inside `InvocationTargetException`) |
-| `clone()` | `CloneNotSupportedException` |
+Finish the three `TODO`s in `src/main/java/practice/Shop.java`: the two constructors and
+`start()`. When you're done, each running shop's dashboard (`Running.metrics()`) shows exactly
+what that shop's own checkout and refunds counted. About five lines in total.

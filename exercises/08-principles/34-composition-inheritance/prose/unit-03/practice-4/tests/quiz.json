@@ -7,66 +7,146 @@
   "variant": "prose",
   "unit": 3,
   "ordinal": 4,
-  "title": "One lock layer, and real test doubles",
+  "title": "Check yourself: what composition buys concurrent code",
   "exercise": {
     "provenance": "generated",
     "trust": "advisory",
     "kind": "quiz",
     "questions": [
       {
-        "id": "q-one-layer",
-        "stem": "Per this page, how many layers of a composed cache should apply synchronization?",
+        "id": "q-subclass-swap",
+        "stem": "`TariffTable extends HashMap<String, Integer>`. A billing job, compiled against it, copies the table with `clone()` every night. A developer changes `extends HashMap` to `extends ConcurrentHashMap`, recompiles `TariffTable` alone and deploys it. What happens at the next nightly run?",
         "options": [
           {
             "id": "a",
-            "text": "One layer only, so calls are safe and no two locks are ever nested",
-            "correct": true,
-            "says": "The page says exactly one layer should be responsible for thread safety: more nest or duplicate locks, none leaves races."
+            "text": "The job copies the table as before, since ConcurrentHashMap inherits a public clone() method from its AbstractMap superclass.",
+            "correct": false,
+            "says": "AbstractMap's clone() is protected, which is what the error names."
           },
           {
             "id": "b",
-            "text": "Two layers only, so a second lock backs up the first one on each call",
-            "correct": false,
-            "says": "The page says that if multiple layers add synchronization, you get redundant locking or nested locking."
+            "text": "The job fails with an error when it reaches the copy, since clone() is not public on the new superclass.",
+            "correct": true,
+            "says": "HashMap makes clone() public; ConcurrentHashMap inherits AbstractMap's protected one, so the old class file fails with IllegalAccessError at the call."
           },
           {
             "id": "c",
-            "text": "Three layers only, so storage, eviction and access each hold a lock",
+            "text": "The job copies the table as before, since the JVM resolves clone() against the superclass the job was compiled with.",
             "correct": false,
-            "says": "The page says that if multiple layers add synchronization, you get redundant locking or nested locking; only ThreadSafeCache synchronizes."
+            "says": "The call is resolved at run time against the classes now present, and the superclass there is ConcurrentHashMap."
+          },
+          {
+            "id": "d",
+            "text": "The job fails with an error when it loads TariffTable, since a class file records the superclass of every type it uses.",
+            "correct": false,
+            "says": "The failure comes at the call to clone(), not when the class loads; a caller's class file names the method it calls."
           }
         ],
         "origin": {
           "path": "34-composition-inheritance/README_8.4.3.md",
-          "section": "Interview Q&A Section"
+          "section": "Callers That Know Only the Wrapper Run Unchanged When Its HashMap Becomes a ConcurrentHashMap"
         }
       },
       {
-        "id": "q-doubles",
-        "stem": "Per this page, why prefer an in-memory test double such as `InMemoryNotificationSender` to a mock in a concurrent test?",
+        "id": "q-null-swap",
+        "stem": "`ShelfIndex` wraps a map from item code to shelf. The unit tests build it over a `HashMap`; production builds it over a `ConcurrentHashMap`. The receiving desk calls `place(code, null)` for an item that has arrived but has no shelf yet, and `place` passes both straight to `put`. The tests pass. What happens in production?",
         "options": [
           {
             "id": "a",
-            "text": "A mock does not simulate timing, so it can hide races that working code would expose",
-            "correct": true,
-            "says": "The page says mocks do not simulate timing and can hide concurrency bugs, so real in-memory doubles are used."
+            "text": "The call throws NullPointerException at the receiving desk's line, since place is the first method to read the null it was given.",
+            "correct": false,
+            "says": "place passes the null straight to put; nothing rejects it until the map does, so the trace starts inside ConcurrentHashMap."
           },
           {
             "id": "b",
-            "text": "A mock cannot be passed to a constructor, so it cannot stand in for a composed part",
+            "text": "The item is stored with no shelf, since ConcurrentHashMap, like HashMap, accepts null as the value of a key.",
             "correct": false,
-            "says": "The page says test doubles, mocks included, can be injected through constructors."
+            "says": "The Map javadoc lets implementations prohibit null keys and values; HashMap accepts them and ConcurrentHashMap doesn't."
           },
           {
             "id": "c",
-            "text": "A mock records no calls from other threads, so the test cannot check what was sent",
+            "text": "The call throws NullPointerException from inside ConcurrentHashMap, since that map refuses null as a key or as a value.",
+            "correct": true,
+            "says": "ConcurrentHashMap rejects null keys and values; the trace starts in ConcurrentHashMap.putVal."
+          },
+          {
+            "id": "d",
+            "text": "The item is left out of the index, since ConcurrentHashMap skips a put whose value is null and returns quietly.",
             "correct": false,
-            "says": "The page says Mockito can verify a composed component was called the expected number of times, even concurrently."
+            "says": "ConcurrentHashMap throws on a null value; it doesn't treat it as anything."
           }
         ],
         "origin": {
           "path": "34-composition-inheritance/README_8.4.3.md",
-          "section": "Common Pitfalls and How to Avoid Them"
+          "section": "The Swap Is Free Only for What the Wrapper Promises: HashMap Accepted null, ConcurrentHashMap Throws"
+        }
+      },
+      {
+        "id": "q-decorator-state",
+        "stem": "A `CachingQuotes` decorator wraps a quote service that is safe to share between threads. It adds `private long hits;` and runs `hits++` for every answer it serves from its own cache. Twelve threads call it during a load test, and after all of them have finished the hit count is below the number of cached answers they logged. Why?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The decorator's field is written by concurrent calls without a barrier, so each thread keeps its own copy and the final read sees one thread's hits.",
+            "correct": false,
+            "says": "The page's long counters ended at about three quarters of the calls, far more than one thread's share; the loss comes from increments that overwrote each other."
+          },
+          {
+            "id": "b",
+            "text": "The wrapped service is safe to share, so the decorator is safe too, and the threads must have logged some cached answers twice.",
+            "correct": false,
+            "says": "The decorator is a new object with its own state; the page's long counters lost a quarter of the calls over a correct store."
+          },
+          {
+            "id": "c",
+            "text": "The wrapped service is safe to share, so its lock also covers the decorator, and the count drops when cache entries are evicted.",
+            "correct": false,
+            "says": "The thread-safety of what a decorator wraps doesn't extend to the decorator's own fields; the page's long counters lost a quarter of the calls over a correct store."
+          },
+          {
+            "id": "d",
+            "text": "The decorator's field is written by concurrent calls with no atomic step, so two calls can store the same new value and one hit is lost.",
+            "correct": true,
+            "says": "A decorator's own fields aren't covered by the thread-safety of what it wraps; ++ reads, adds and writes, and two threads that read the same value write the same result."
+          }
+        ],
+        "origin": {
+          "path": "34-composition-inheritance/README_8.4.3.md",
+          "section": "One Metrics Decorator Serves Every Implementation, and Its Own Counters Must Be Thread-Safe"
+        }
+      },
+      {
+        "id": "q-backing-reference",
+        "stem": "An order service builds `Map<Long, Order> open = new HashMap<>()`, passes `open` to a cleanup task, then hands `Collections.synchronizedMap(open)` to its request threads. Request threads add orders while the cleanup task removes closed ones. What does the wrapper guarantee?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Request threads are kept apart from each other but not from the cleanup task, since only calls through the wrapper take its lock.",
+            "correct": true,
+            "says": "The wrapper's lock excludes its own callers from each other; the cleanup task's calls on the HashMap take no lock."
+          },
+          {
+            "id": "b",
+            "text": "Request threads are kept apart from each other and from the cleanup task, since the wrapper's lock is the HashMap object both of them call.",
+            "correct": false,
+            "says": "Only calls through the wrapper take its lock; the page's expiry job holding the HashMap ran beside the locked puts and size() came out wrong."
+          },
+          {
+            "id": "c",
+            "text": "The cleanup task is kept apart from request threads only while one of them walks the map, since the wrapper locks walks, not single calls.",
+            "correct": false,
+            "says": "The wrapper runs each call under its lock; it is a walk, many calls, that the caller must lock."
+          },
+          {
+            "id": "d",
+            "text": "The cleanup task is kept apart from request threads only after the wrap, since wrapping turns the HashMap itself into a synchronized map.",
+            "correct": false,
+            "says": "The backing map is unchanged by the wrap; the javadoc requires all access to go through the returned map."
+          }
+        ],
+        "origin": {
+          "path": "34-composition-inheritance/README_8.4.3.md",
+          "section": "A Synchronizing Decorator Protects Only the Calls That Go Through It"
         }
       }
     ]

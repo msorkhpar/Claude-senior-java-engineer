@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "Count only the structural changes",
+  "title": "Mail each waiting notification exactly once",
   "blocks": [
     {
       "type": "heading",
@@ -19,31 +19,19 @@
     },
     {
       "type": "para",
-      "text": "A fail-fast iterator trips when the collection's `modCount` has moved since the iterator was created. The page draws the line that decides what moves it:"
-    },
-    {
-      "type": "quote",
-      "blocks": [
-        {
-          "type": "para",
-          "text": "Only structural changes (add, remove, clear, resize) increment `modCount`. Changing a value in a `Map` via `put()` for an existing key or calling `set()` on a `ListIterator` are NOT structural modifications and do NOT trigger the exception."
-        }
-      ]
+      "text": "The notification service collects what happens to each user during the day (a paid invoice, a failed build, a new comment) and a digest job mails each user what is waiting for them, in one message, every few minutes. Request threads keep adding notifications while the job runs. Support has two kinds of ticket: users who never got a notification the admin page showed as waiting, and users who got the same build failure in two digests in a row."
     },
     {
       "type": "para",
-      "text": "`CountedList<E>` wraps an `ArrayList` and keeps its own `modCount`, and its fail-fast `iterator()` is written. Write its four writes, `add`, `remove(int)`, `set(int, E)` and `clear()`, each doing what the `ArrayList` method of that name does, so that:"
+      "text": "`DigestOutbox` already collects notifications. Write `sendDigests(...)` in `src/main/java/practice/DigestOutbox.java`: mail every user who has something waiting, one message each, and return how many users it mailed."
     },
     {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "**each structural change moves `modCount` by one**: `add`, `remove` and `clear`;",
-        "**`set` is not structural**: it replaces a value in place and leaves `modCount` as it was, so a traversal may `set` every element it visits without an exception;",
-        "after an `add`, a `remove` or a `clear` in the middle of a traversal, the iterator's next `next()` throws `ConcurrentModificationException`;",
-        "`remove(int)` and `set(int, E)` work by position, as `ArrayList`'s do, even when the list holds equal elements elsewhere; a `remove` whose index is out of range throws `IndexOutOfBoundsException` and changes nothing, `modCount` included;",
-        "`clear()` always counts as one structural change, even on an empty list, as `ArrayList`'s does."
-      ]
+      "type": "para",
+      "text": "When you're done, every notification reaches its user exactly once, in the run that was going on when it arrived or in the next one, whatever arrives during a run. About six lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests run the job on one thread and add notifications from inside the mailer, which is where a request thread's add lands in production."
     },
     {
       "type": "heading",
@@ -58,7 +46,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.NoSuchElementException;\n\n/** A list that counts its structural changes; its iterator is fail-fast on that count. */\npublic class CountedList<E> implements Iterable<E> {\n\n    private final List<E> items = new ArrayList<>();\n    private int modCount;\n\n    public int modCount() {\n        return modCount;\n    }\n\n    public int size() {\n        return items.size();\n    }\n\n    public E get(int index) {\n        return items.get(index);\n    }\n\n    public void add(E item) {\n        items.add(item);\n        modCount++;\n    }\n\n    public E remove(int index) {\n        E removed = items.remove(index);\n        modCount++;\n        return removed;\n    }\n\n    public E set(int index, E item) {\n        return items.set(index, item);\n    }\n\n    public void clear() {\n        items.clear();\n        modCount++;\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        return new Iterator<>() {\n            private int cursor;\n            private final int expectedModCount = modCount;\n\n            @Override\n            public boolean hasNext() {\n                return cursor < items.size();\n            }\n\n            @Override\n            public E next() {\n                if (modCount != expectedModCount) {\n                    throw new ConcurrentModificationException();\n                }\n                if (cursor >= items.size()) {\n                    throw new NoSuchElementException();\n                }\n                return items.get(cursor++);\n            }\n        };\n    }\n}\n"
+          "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Holds the notifications waiting for each user. Request threads add to it at any time; a digest\n * job runs every few minutes and mails each user what is waiting for them, in one message.\n */\npublic class DigestOutbox {\n\n    /** Sends one digest message to a user. */\n    public interface Mailer {\n        void send(String user, List<String> notifications);\n    }\n\n    private final ConcurrentHashMap<String, List<String>> waiting = new ConcurrentHashMap<>();\n\n    /** Called by request threads, possibly while a digest run is in progress. */\n    public void add(String user, String notification) {\n        waiting.merge(user, List.of(notification), (earlier, more) -> {\n            List<String> all = new ArrayList<>(earlier);\n            all.addAll(more);\n            return List.copyOf(all);\n        });\n    }\n\n    /** What is waiting right now, for the admin page. */\n    public Map<String, List<String>> waiting() {\n        return Map.copyOf(waiting);\n    }\n\n    /**\n     * Mails every user who has notifications waiting, one message each, and returns how many\n     * users it mailed. Runs while request threads keep adding.\n     */\n    public int sendDigests(Mailer mailer) {\n        int mailed = 0;\n        for (String user : waiting.keySet()) {\n            List<String> notifications = waiting.remove(user);\n            if (notifications != null) {\n                mailer.send(user, notifications);\n                mailed++;\n            }\n        }\n        return mailed;\n    }\n}\n"
         }
       ]
     },
@@ -70,7 +58,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.NoSuchElementException;\n\n/** A list that counts its structural changes; its iterator is fail-fast on that count. */\npublic class CountedList<E> implements Iterable<E> {\n\n    private final List<E> items = new ArrayList<>();\n    private int modCount;\n\n    public int modCount() {\n        return modCount;\n    }\n\n    public int size() {\n        return items.size();\n    }\n\n    public E get(int index) {\n        return items.get(index);\n    }\n\n    public void add(E item) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    public E remove(int index) {\n        throw new UnsupportedOperationException(\"write remove\");\n    }\n\n    public E set(int index, E item) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    public void clear() {\n        throw new UnsupportedOperationException(\"write clear\");\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        return new Iterator<>() {\n            private int cursor;\n            private final int expectedModCount = modCount;\n\n            @Override\n            public boolean hasNext() {\n                return cursor < items.size();\n            }\n\n            @Override\n            public E next() {\n                if (modCount != expectedModCount) {\n                    throw new ConcurrentModificationException();\n                }\n                if (cursor >= items.size()) {\n                    throw new NoSuchElementException();\n                }\n                return items.get(cursor++);\n            }\n        };\n    }\n}\n"
+      "text": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Holds the notifications waiting for each user. Request threads add to it at any time; a digest\n * job runs every few minutes and mails each user what is waiting for them, in one message.\n */\npublic class DigestOutbox {\n\n    /** Sends one digest message to a user. */\n    public interface Mailer {\n        void send(String user, List<String> notifications);\n    }\n\n    private final ConcurrentHashMap<String, List<String>> waiting = new ConcurrentHashMap<>();\n\n    /** Called by request threads, possibly while a digest run is in progress. */\n    public void add(String user, String notification) {\n        waiting.merge(user, List.of(notification), (earlier, more) -> {\n            List<String> all = new ArrayList<>(earlier);\n            all.addAll(more);\n            return List.copyOf(all);\n        });\n    }\n\n    /** What is waiting right now, for the admin page. */\n    public Map<String, List<String>> waiting() {\n        return Map.copyOf(waiting);\n    }\n\n    /**\n     * Mails every user who has notifications waiting, one message each, and returns how many\n     * users it mailed. Runs while request threads keep adding.\n     */\n    public int sendDigests(Mailer mailer) {\n        // TODO: Mail each user what is waiting for them, in one message. Request threads keep\n        //       adding while this runs: a notification must reach its user exactly once, in\n        //       this run or the next.\n        throw new IllegalStateException(\"TODO: sendDigests\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -78,22 +66,22 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
     "tables": 0,
-    "lists": 1,
+    "lists": 0,
     "images": 0,
     "videos": 0,
     "rules": 0,
-    "quotes": 1,
+    "quotes": 0,
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "589283bb023db93ac1fc0992e1d50fd6e64e581378f256a33dafc461358e1faf",
-  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.ConcurrentModificationException;\nimport java.util.Iterator;\nimport java.util.List;\nimport java.util.NoSuchElementException;\n\n/** A list that counts its structural changes; its iterator is fail-fast on that count. */\npublic class CountedList<E> implements Iterable<E> {\n\n    private final List<E> items = new ArrayList<>();\n    private int modCount;\n\n    public int modCount() {\n        return modCount;\n    }\n\n    public int size() {\n        return items.size();\n    }\n\n    public E get(int index) {\n        return items.get(index);\n    }\n\n    public void add(E item) {\n        throw new UnsupportedOperationException(\"write add\");\n    }\n\n    public E remove(int index) {\n        throw new UnsupportedOperationException(\"write remove\");\n    }\n\n    public E set(int index, E item) {\n        throw new UnsupportedOperationException(\"write set\");\n    }\n\n    public void clear() {\n        throw new UnsupportedOperationException(\"write clear\");\n    }\n\n    @Override\n    public Iterator<E> iterator() {\n        return new Iterator<>() {\n            private int cursor;\n            private final int expectedModCount = modCount;\n\n            @Override\n            public boolean hasNext() {\n                return cursor < items.size();\n            }\n\n            @Override\n            public E next() {\n                if (modCount != expectedModCount) {\n                    throw new ConcurrentModificationException();\n                }\n                if (cursor >= items.size()) {\n                    throw new NoSuchElementException();\n                }\n                return items.get(cursor++);\n            }\n        };\n    }\n}\n",
+  "content_sha256": "80059a2e6e7c3fac7de95ea685f99370ae41b9ed8d2b687e2bdf49ce3f17559f",
+  "starting_code": "package practice;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n/**\n * Holds the notifications waiting for each user. Request threads add to it at any time; a digest\n * job runs every few minutes and mails each user what is waiting for them, in one message.\n */\npublic class DigestOutbox {\n\n    /** Sends one digest message to a user. */\n    public interface Mailer {\n        void send(String user, List<String> notifications);\n    }\n\n    private final ConcurrentHashMap<String, List<String>> waiting = new ConcurrentHashMap<>();\n\n    /** Called by request threads, possibly while a digest run is in progress. */\n    public void add(String user, String notification) {\n        waiting.merge(user, List.of(notification), (earlier, more) -> {\n            List<String> all = new ArrayList<>(earlier);\n            all.addAll(more);\n            return List.copyOf(all);\n        });\n    }\n\n    /** What is waiting right now, for the admin page. */\n    public Map<String, List<String>> waiting() {\n        return Map.copyOf(waiting);\n    }\n\n    /**\n     * Mails every user who has notifications waiting, one message each, and returns how many\n     * users it mailed. Runs while request threads keep adding.\n     */\n    public int sendDigests(Mailer mailer) {\n        // TODO: Mail each user what is waiting for them, in one message. Request threads keep\n        //       adding while this runs: a notification must reach its user exactly once, in\n        //       this run or the next.\n        throw new IllegalStateException(\"TODO: sendDigests\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-1/src/main/java/practice/CountedList.java",
-    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-1/src/test/java/practice/CountedListTest.java",
+    "main_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-1/src/main/java/practice/DigestOutbox.java",
+    "test_path": "practice/08-principles/35-fail-fast-safe/prose/unit-02/practice-1/src/test/java/practice/DigestOutboxTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -114,29 +102,29 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.CountedListTest#addAndRemoveAreStructural",
+        "id": "practice.DigestOutboxTest#mailsEachUserTheirWaitingNotificationsInOneMessage",
         "kind": "main",
-        "says": "add and remove each move modCount by one, and an add trips a live iterator."
+        "says": "with nothing arriving during the run, each user gets one message with all their waiting notifications, and nothing is left waiting"
       },
       {
-        "id": "practice.CountedListTest#setDuringATraversalIsAllowed",
-        "kind": "edge",
-        "says": "set() on every element during a for-each throws nothing and leaves modCount unchanged."
+        "id": "practice.DigestOutboxTest#aRunWithNothingWaitingMailsNobody",
+        "kind": "main",
+        "says": "a run with nothing waiting sends no message"
       },
       {
-        "id": "practice.CountedListTest#clearIsStructural",
+        "id": "practice.DigestOutboxTest#aNotificationForAUserAlreadyMailedInThisRunStillReachesThem",
         "kind": "edge",
-        "says": "clear() moves modCount, so a traversal's next next() throws ConcurrentModificationException."
+        "says": "a notification added for a user the run has already mailed reaches that user once, by the next run"
       },
       {
-        "id": "practice.CountedListTest#writesWorkByPosition",
+        "id": "practice.DigestOutboxTest#aNotificationArrivingWhileItsUserIsBeingMailedStillReachesThem",
         "kind": "edge",
-        "says": "remove(2) and set(2, c) on [a, b, a] act on position 2, not on the first equal element."
+        "says": "a notification added for a user while that user's message is being sent is not lost"
       },
       {
-        "id": "practice.CountedListTest#aFailedRemoveChangesNothing",
+        "id": "practice.DigestOutboxTest#aUserMailedWhileANewNotificationArrivesDoesNotGetTheEarlierOnesAgain",
         "kind": "edge",
-        "says": "remove(5) on a one-element list throws IndexOutOfBoundsException and leaves modCount as it was."
+        "says": "when a notification arrives during a user's send, the next run mails only the new one, not the ones already sent"
       }
     ],
     "report": {
@@ -145,10 +133,10 @@
     },
     "origin": {
       "path": "35-fail-fast-safe/README_8.5.2.md",
-      "section": "8.5.2.1. Fail-Fast Iterators and ConcurrentModificationException"
+      "section": "A Concurrent Add Is Seen or Missed by Where It Lands, So Walking and Then Clearing Loses Writes"
     },
     "concepts": [
-      "Only structural changes such as add, remove and clear move modCount; set() and put() on an existing key do not, so they do not trip a fail-fast iterator."
+      "Walking a concurrent map or queue and then calling clear() loses what arrived during and after the walk; taking each element out with remove(key) or poll() loses nothing."
     ]
   }
 }

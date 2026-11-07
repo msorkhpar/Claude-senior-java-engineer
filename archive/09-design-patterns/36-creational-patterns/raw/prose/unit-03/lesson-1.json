@@ -18,302 +18,365 @@
       "text": "9.1.3. Builder Pattern"
     },
     {
-      "type": "heading",
-      "level": 2,
-      "text": "Concept Explanation"
+      "type": "para",
+      "text": "A customer is refunded 45.00 EUR for order 7781. The next morning reconciliation finds the shop's account 45.00 richer and the customer's 45.00 poorer. The refund code compiled, its tests passed, and every field of the transfer it created held a valid value. Two arguments were in the wrong order."
     },
     {
       "type": "para",
-      "text": "The Builder pattern is a creational design pattern that lets you construct complex objects step by step. It separates the construction of a complex object from its representation, allowing the same construction process to create different representations."
-    },
-    {
-      "type": "para",
-      "text": "**Real-world analogy**: Think of ordering a custom pizza. You do not say \"give me pizza #47 from the menu.\" Instead, you build your pizza step by step: choose the size, add sauce, pick cheese, add toppings one by one, and finally say \"build it.\" The pizza builder (the person making your order) follows your instructions in any order and produces the final pizza only when you say you are done. Different sequences of steps produce different pizzas."
+      "text": "A builder is for objects like that one: many parts, several of the same type, some optional. Every output below is from Java 21."
     },
     {
       "type": "heading",
-      "level": 3,
-      "text": "The Problem It Solves"
+      "level": 2,
+      "text": "Same-Typed Constructor Arguments Swap Without an Error; a Builder Names Each One"
     },
     {
       "type": "para",
-      "text": "When a class has many optional parameters, constructors become unwieldy:"
+      "text": "The transfer class grew one constructor per optional part, the telescoping style:"
     },
     {
       "type": "code",
       "lang": "java",
-      "text": "// Telescoping constructor anti-pattern\npublic User(String name) { ... }\npublic User(String name, int age) { ... }\npublic User(String name, int age, String email) { ... }\npublic User(String name, int age, String email, String phone, String address, boolean active) { ... }"
+      "text": "/** Money moved between two accounts, with constructors for each optional part. */\npublic final class Transfer {\n    private final String fromAccount;\n    private final String toAccount;\n    private final long cents;\n    private final String currency;\n    private final String memo;\n\n    public Transfer(String fromAccount, String toAccount, long cents) {\n        this(fromAccount, toAccount, cents, \"EUR\");\n    }\n\n    public Transfer(String fromAccount, String toAccount, long cents, String currency) {\n        this(fromAccount, toAccount, cents, currency, \"\");\n    }\n\n    public Transfer(String fromAccount, String toAccount, long cents, String currency, String memo) {\n        this.fromAccount = fromAccount;\n        this.toAccount = toAccount;\n        this.cents = cents;\n        this.currency = currency;\n        this.memo = memo;\n    }\n\n    public String fromAccount() { return fromAccount; }\n    public String toAccount() { return toAccount; }\n    public long cents() { return cents; }\n\n    @Override public String toString() {\n        return \"Transfer[from=\" + fromAccount + \", to=\" + toAccount + \", cents=\" + cents\n                + \", currency=\" + currency + \", memo=\" + memo + \"]\";\n    }\n}"
     },
     {
       "type": "para",
-      "text": "The Builder pattern eliminates this explosion of constructors and provides a fluent, readable API for constructing objects."
+      "text": "Before reading the output, decide which balance goes up:"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Structure"
+      "type": "code",
+      "lang": "java",
+      "text": "Map<String, Long> balances = new TreeMap<>(Map.of(\"ACC-1001 (shop)\", 50_000L, \"ACC-2002 (customer)\", 0L));\nString shop = \"ACC-1001 (shop)\", customer = \"ACC-2002 (customer)\";\n\n// refund order 7781: the shop pays the customer back 45.00 EUR\nTransfer refund = new Transfer(customer, shop, 4_500, \"EUR\", \"refund order 7781\");\n\nbalances.merge(refund.fromAccount(), -refund.cents(), Long::sum);\nbalances.merge(refund.toAccount(), refund.cents(), Long::sum);"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Product** -- the complex object being built.",
-        "**Builder** -- an interface or abstract class defining the construction steps.",
-        "**ConcreteBuilder** -- implements the Builder interface and assembles the Product.",
-        "**Director** (optional) -- defines the order in which to call building steps. Not always needed in the fluent builder variant common in Java."
-      ]
+      "type": "code",
+      "lang": "text",
+      "text": "Transfer[from=ACC-2002 (customer), to=ACC-1001 (shop), cents=4500, currency=EUR, memo=refund order 7781]\n{ACC-1001 (shop)=54500, ACC-2002 (customer)=-4500}"
     },
     {
-      "type": "heading",
-      "level": 3,
-      "text": "Two Styles of Builder in Java"
+      "type": "para",
+      "text": "`customer` and `shop` are both `String`, so the swapped call matches the constructor exactly. The compiler checks types. A test that builds a transfer from its own literals and reads them back passes in either order. Nothing fails until the money is in the wrong account."
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**GoF Builder** (classic): Separates Builder interface from Product. A Director orchestrates the build steps. Used when the same build process should create different representations.",
-        "**Fluent Builder** (Josh Bloch, Effective Java): The Builder is a static inner class of the Product. Returns `this` from each setter for method chaining. This is the most common style in Java."
-      ]
+      "type": "para",
+      "text": "The telescope has a second cost. A memo without a currency would need `Transfer(String, String, long, String memo)`, and that signature is taken:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "clash/Transfer.java:25: error: constructor Transfer(String,String,long,String) is already defined in class Transfer"
+    },
+    {
+      "type": "para",
+      "text": "So a caller who wants a memo passes every value before it, which is how a five-argument call with adjacent `String`s comes about. Here is the same class with a builder: a private constructor that takes the builder, and one method per part."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "/** Money moved between two accounts; built by naming each part. */\npublic final class Transfer {\n    private final String fromAccount;\n    private final String toAccount;\n    private final long cents;\n    private final String currency;\n    private final String memo;\n\n    private Transfer(Builder b) {\n        this.fromAccount = b.fromAccount;\n        this.toAccount = b.toAccount;\n        this.cents = b.cents;\n        this.currency = b.currency;\n        this.memo = b.memo;\n    }\n\n    public static Builder builder() {\n        return new Builder();\n    }\n\n    public String fromAccount() { return fromAccount; }\n    public String toAccount() { return toAccount; }\n    public long cents() { return cents; }\n\n    @Override public String toString() {\n        return \"Transfer[from=\" + fromAccount + \", to=\" + toAccount + \", cents=\" + cents\n                + \", currency=\" + currency + \", memo=\" + memo + \"]\";\n    }\n\n    public static final class Builder {\n        private String fromAccount;\n        private String toAccount;\n        private long cents;\n        private String currency = \"EUR\";\n        private String memo = \"\";\n\n        private Builder() {}\n\n        public Builder from(String account) { this.fromAccount = account; return this; }\n        public Builder to(String account) { this.toAccount = account; return this; }\n        public Builder cents(long cents) { this.cents = cents; return this; }\n        public Builder currency(String currency) { this.currency = currency; return this; }\n        public Builder memo(String memo) { this.memo = memo; return this; }\n\n        public Transfer build() {\n            return new Transfer(this);\n        }\n    }\n}"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Transfer refund = Transfer.builder()\n        .from(shop)\n        .to(customer)\n        .cents(4_500)\n        .memo(\"refund order 7781\")\n        .build();"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Transfer[from=ACC-1001 (shop), to=ACC-2002 (customer), cents=4500, currency=EUR, memo=refund order 7781]\n{ACC-1001 (shop)=45500, ACC-2002 (customer)=4500}"
+    },
+    {
+      "type": "para",
+      "text": "The caller set a memo without passing a currency, which took its default. The builder doesn't make the compiler reject `.from(customer)`; it puts the word `from` next to the value, where a reviewer reads it. Only distinct types, such as a `PayerAccount` and a `PayeeAccount`, turn the swap into a compile error. A record's canonical constructor is positional too (unit 2.4.3 shows the same swap), and a static factory (unit 9.1.2) names one way to create an object, not each part."
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Key Points to Remember"
+      "text": "A Builder Checks the Whole Object in build(), Where Every Part Is Set"
     },
     {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "The Builder pattern is ideal when a class has **4+ optional parameters** or complex construction logic.",
-        "The fluent builder (static inner class) is the most common variant in modern Java.",
-        "Builder produces **immutable objects** by design -- all fields are set during construction and made final.",
-        "The `build()` method is where **validation** should occur -- fail fast before creating an invalid object.",
-        "Builder is different from the Factory pattern: Builder constructs a complex object step by step, while Factory creates objects in one step.",
-        "Java records can reduce Builder boilerplate for simple cases, but Builder is still needed for complex validation and optional parameters.",
-        "`StringBuilder`, `Stream.Builder`, and `Locale.Builder` are JDK examples of the Builder pattern.",
-        "The GoF Builder with a Director is useful when the same construction steps should produce different representations (e.g., building an HTML document vs. a PDF document from the same data)."
-      ]
+      "type": "para",
+      "text": "A transfer to its own account is a mistake, and someone adds the check to the `to()` setter so it fails as early as possible:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public Builder to(String account) {\n    if (account.equals(fromAccount)) {\n        throw new IllegalArgumentException(\"transfer to its own account \" + account);\n    }\n    this.toAccount = account;\n    return this;\n}"
+    },
+    {
+      "type": "para",
+      "text": "Three callers: two orders, and one forgotten part. `attempt` prints the transfer, or the exception."
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "attempt(\"from, then to: \", () -> Transfer.builder().from(\"ACC-1001\").to(\"ACC-1001\").cents(4_500).build());\nattempt(\"to, then from: \", () -> Transfer.builder().to(\"ACC-1001\").from(\"ACC-1001\").cents(4_500).build());\nattempt(\"no to:         \", () -> Transfer.builder().from(\"ACC-1001\").cents(4_500).build());"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "from, then to: java.lang.IllegalArgumentException: transfer to its own account ACC-1001\nto, then from: Transfer[from=ACC-1001, to=ACC-1001, cents=4500, currency=EUR, memo=]\nno to:         Transfer[from=ACC-1001, to=null, cents=4500, currency=EUR, memo=]"
+    },
+    {
+      "type": "para",
+      "text": "When `to()` runs first, `fromAccount` is still `null`, and the check compares against nothing. A setter sees one part. A rule that relates two parts, or requires one, belongs in `build()`, the call that says the caller is done. The same checks, moved there:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "public Transfer build() {\n    if (fromAccount == null || toAccount == null) {\n        throw new IllegalStateException(\"from and to are required\");\n    }\n    if (fromAccount.equals(toAccount)) {\n        throw new IllegalStateException(\"transfer to its own account \" + toAccount);\n    }\n    if (cents <= 0) {\n        throw new IllegalStateException(\"cents must be positive: \" + cents);\n    }\n    return new Transfer(this);\n}"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "from, then to: java.lang.IllegalStateException: transfer to its own account ACC-1001\nto, then from: java.lang.IllegalStateException: transfer to its own account ACC-1001\nno to:         java.lang.IllegalStateException: from and to are required"
+    },
+    {
+      "type": "para",
+      "text": "The product's constructor is private and only `build()` calls it, so no path to a `Transfer` skips the checks. A setter may still reject a value that is wrong on its own, such as a negative amount, at once."
+    },
+    {
+      "type": "para",
+      "text": "For a type with three required parts, a builder is more code than it saves. A record's compact constructor runs its checks on every path to an instance, including a `with` method that calls `new` (unit 2.4.1):"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "import java.util.Objects;\n\n/** A fee charged to one account: three parts, all required. */\npublic record Fee(String account, long cents, String currency) {\n    public Fee {\n        Objects.requireNonNull(account, \"account\");\n        Objects.requireNonNull(currency, \"currency\");\n        if (cents <= 0) throw new IllegalArgumentException(\"cents must be positive: \" + cents);\n    }\n\n    public Fee withCents(long newCents) {\n        return new Fee(account, newCents, currency);\n    }\n}"
+    },
+    {
+      "type": "para",
+      "text": "With `monthly = new Fee(\"ACC-1001\", 990, \"EUR\")`, `monthly.withCents(1_490)`, then `monthly.withCents(0)`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "Fee[account=ACC-1001, cents=1490, currency=EUR]\njava.lang.IllegalArgumentException: cents must be positive: 0"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 1 -->"
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Relevant Java 21 Features"
+      "text": "A Builder Used Again After build() Changes What It Built, Unless the Product Copies"
+    },
+    {
+      "type": "para",
+      "text": "Transfers now carry tags, which reconciliation matches on. The monthly payroll run sets the payer and a batch tag once, then reuses the builder for each employee. The builder collects tags in a list, and `Transfer` gets a `tags()` accessor:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "private final List<String> tags = new ArrayList<>();      // in Transfer.Builder\n\npublic Builder tag(String tag) { this.tags.add(tag); return this; }"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "Transfer.Builder payroll = Transfer.builder().from(\"ACC-1001\").tag(\"payroll-2026-10\");\n\nTransfer first = payroll.to(\"ACC-3017\").cents(310_000).tag(\"E-17\").build();\nSystem.out.println(\"first, when built:     \" + first.tags());\n\nTransfer second = payroll.to(\"ACC-3018\").cents(295_000).tag(\"E-18\").build();\nSystem.out.println(\"first, after second:   \" + first.tags());\nSystem.out.println(\"second:                \" + second.tags());"
+    },
+    {
+      "type": "para",
+      "text": "We ran it three times, each with another version of the line in `Transfer`'s constructor that keeps the tags, labelled in the output:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "this.tags = b.tags;                                   // shared\nthis.tags = Collections.unmodifiableList(b.tags);     // view\nthis.tags = List.copyOf(b.tags);                      // copy"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "shared:\nfirst, when built:     [payroll-2026-10, E-17]\nfirst, after second:   [payroll-2026-10, E-17, E-18]\nsecond:                [payroll-2026-10, E-17, E-18]\nview:\nfirst, when built:     [payroll-2026-10, E-17]\nfirst, after second:   [payroll-2026-10, E-17, E-18]\nsecond:                [payroll-2026-10, E-17, E-18]\ncopy:\nfirst, when built:     [payroll-2026-10, E-17]\nfirst, after second:   [payroll-2026-10, E-17]\nsecond:                [payroll-2026-10, E-17, E-18]"
+    },
+    {
+      "type": "para",
+      "text": "With the first two, the transfer to employee 17, built and perhaps already sent, changed when the builder was used for employee 18, and reconciliation now matches it to both. The builder's list keeps changing while the builder is used, and a product that holds a reference to it changes with it. `Collections.unmodifiableList` stops the product's readers from writing, but it is a view of the same list, so the builder's writes still show through. `List.copyOf` takes an unmodifiable copy of the builder's `ArrayList`. Unit 2.4.2 shows the same leak through a record's list component."
+    },
+    {
+      "type": "para",
+      "text": "The copy fixes the first transfer, and the second still carries `E-17`, because the builder keeps every tag it was given. To use a builder as a template, give it a `copy()` method and build each product from a copy, or create a new builder per product. A builder kept in a static field, a singleton in the sense of unit 9.1.1, is reused by every thread that calls it."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 2 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "HttpRequest.Builder Copies on build(), but a Reused Builder Keeps Adding Headers"
+    },
+    {
+      "type": "para",
+      "text": "`java.net.http.HttpRequest` is created through `HttpRequest.newBuilder()`, and building a request sends nothing, so it runs without a network. A payout client reuses one builder for two payouts, each with its own idempotency key:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "HttpRequest.Builder payouts = HttpRequest.newBuilder()\n        .uri(URI.create(\"https://api.example.com/v1/payouts\"))\n        .timeout(Duration.ofSeconds(5))\n        .header(\"Accept\", \"application/json\");\n\nHttpRequest first = payouts.header(\"Idempotency-Key\", \"po-17\")\n        .POST(BodyPublishers.ofString(\"{\\\"cents\\\":310000}\")).build();\nHttpRequest second = payouts.header(\"Idempotency-Key\", \"po-18\")\n        .POST(BodyPublishers.ofString(\"{\\\"cents\\\":295000}\")).build();"
+    },
+    {
+      "type": "para",
+      "text": "The same two payouts, each built from `copy()` of `template`, a builder set up exactly like `payouts`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "HttpRequest a = template.copy().header(\"Idempotency-Key\", \"po-17\")\n        .POST(BodyPublishers.ofString(\"{\\\"cents\\\":310000}\")).build();\nHttpRequest b = template.copy().header(\"Idempotency-Key\", \"po-18\")\n        .POST(BodyPublishers.ofString(\"{\\\"cents\\\":295000}\")).build();"
+    },
+    {
+      "type": "para",
+      "text": "The keys of each pair, then the method, URI, timeout and body length of request `b`:"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "reused:  first [po-17], second [po-17, po-18]\ncopy():  first [po-17], second [po-18]\nPOST https://api.example.com/v1/payouts PT5S 16 bytes"
+    },
+    {
+      "type": "para",
+      "text": "The first request still has one key after the second was built: `build()` copies the builder's state into an immutable request, the fix of the previous section. The second request has two, because `header()` adds a value, and which one the payout API reads is up to that API. `setHeader()` replaces the value, but it still changes the shared builder. `copy()` returns a new builder with the template's state, and nothing done to the copy reaches the template."
+    },
+    {
+      "type": "para",
+      "text": "The JDK's builder checks a part in its setter when the part alone can be wrong, and leaves only the missing URI to `build()`. Each of these four ran on its own, and only the first calls `build()`:"
+    },
+    {
+      "type": "code",
+      "lang": "java",
+      "text": "() -> HttpRequest.newBuilder().header(\"Accept\", \"application/json\").build(),\n() -> HttpRequest.newBuilder().uri(URI.create(\"ftp://files.example.com/payouts.csv\")),\n() -> HttpRequest.newBuilder().header(\"Content-Length\", \"10\"),\n() -> HttpRequest.newBuilder().timeout(Duration.ZERO)"
+    },
+    {
+      "type": "code",
+      "lang": "text",
+      "text": "java.lang.IllegalStateException: uri is null\njava.lang.IllegalArgumentException: invalid URI scheme ftp\njava.lang.IllegalArgumentException: restricted header name: \"Content-Length\"\njava.lang.IllegalArgumentException: Invalid duration: PT0S"
+    },
+    {
+      "type": "para",
+      "text": "`StringBuilder` is a growing character buffer with nothing to validate, despite the name (unit 1.4.5)."
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 3 -->"
+    },
+    {
+      "type": "html",
+      "text": "<!-- practice 4 -->"
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Summary"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "**Records**: For simple immutable data objects, records eliminate the need for a Builder. But when optional parameters, validation, or step-by-step construction are needed, Builder remains essential.",
-        "**Sealed interfaces**: The Product or Builder hierarchy can be sealed for type safety.",
-        "**Text blocks**: Useful for demonstrating Builders that construct strings (like SQL, HTML, or JSON builders).",
-        "**Pattern matching**: Can be used on products built by different builders when the Product is a sealed type."
+        "**Same-typed constructor arguments swap without an error.** A builder names each part at the call site and lets optional parts take defaults; only distinct types make a swap fail to compile.",
+        "**A builder checks the whole object in `build()`.** A setter that checks one part against another depends on call order, and a missing part gets through as `null`. For a small type, a record's compact constructor does the same job.",
+        "**A builder used again after `build()` changes what it built, unless the product copies.** A read-only view still shows the builder's writes; `List.copyOf` doesn't. Reuse also carries every earlier part into the next product.",
+        "**`HttpRequest.Builder` copies on `build()`, and `header()` adds.** Start each request from `copy()` of a template."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Common Pitfalls and How to Avoid Them"
+      "text": "Reference"
+    },
+    {
+      "type": "para",
+      "text": "**`HttpRequest.Builder` (Java 21):**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Call",
+        "Rejects, and when"
+      ],
+      "rows": [
+        [
+          "`uri(URI)`",
+          "a scheme other than `http` or `https`, or no host, at the call (`IllegalArgumentException`)"
+        ],
+        [
+          "`header`, `setHeader`",
+          "a restricted name such as `Content-Length`, an invalid name or value, at the call (`IllegalArgumentException`)"
+        ],
+        [
+          "`timeout(Duration)`",
+          "zero or negative, at the call (`IllegalArgumentException`)"
+        ],
+        [
+          "`build()`",
+          "a builder with no URI (`IllegalStateException`)"
+        ],
+        [
+          "`copy()`",
+          "nothing; returns a new builder with the same state"
+        ]
+      ]
+    },
+    {
+      "type": "para",
+      "text": "`header(name, value)` adds a value to the name; `setHeader(name, value)` replaces its values."
+    },
+    {
+      "type": "para",
+      "text": "**Keeping a builder's list in the product:**"
+    },
+    {
+      "type": "table",
+      "headers": [
+        "Code",
+        "Builder's later writes show",
+        "Product's readers can write"
+      ],
+      "rows": [
+        [
+          "`this.tags = b.tags`",
+          "yes",
+          "yes"
+        ],
+        [
+          "`Collections.unmodifiableList(b.tags)`",
+          "yes",
+          "no"
+        ],
+        [
+          "`new ArrayList<>(b.tags)`",
+          "no",
+          "yes, if the getter returns it"
+        ],
+        [
+          "`List.copyOf(b.tags)`",
+          "no",
+          "no; it also rejects `null` elements"
+        ]
+      ]
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "text": "Challenges"
     },
     {
       "type": "list",
       "ordered": true,
       "items": [
-        [
-          "**Forgetting to validate in build()**:",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "// BAD: No validation\npublic User build() {\n    return new User(this);\n}"
-          },
-          "**Solution**: Always validate required fields and invariants in `build()`.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "public User build() {\n    if (name == null || name.isBlank()) {\n        throw new IllegalStateException(\"Name is required\");\n    }\n    return new User(this);\n}"
-          }
-        ],
-        [
-          "**Mutable Builder reuse**: Using the same Builder instance to build multiple objects can lead to unintended state sharing.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "Builder builder = new Builder().name(\"Alice\");\nUser user1 = builder.age(25).build();\nUser user2 = builder.age(30).build(); // user2 also has name \"Alice\" -- intended?"
-          },
-          "**Solution**: Document whether the Builder is reusable. Consider resetting state after `build()` or making the Builder single-use."
-        ],
-        "**Builder with too many steps**: If the Builder has 20+ methods, the object is likely too complex. **Solution**: Break the object into smaller objects, each with its own Builder if needed.",
-        "**Not making the Product immutable**: The whole point of Builder is to create a fully initialized, often immutable object. Providing setters on the Product defeats the purpose. **Solution**: Make Product fields `final` and provide no setters.",
-        "**Exposing the Product constructor**: If the Product has a public constructor, clients can bypass the Builder. **Solution**: Make the Product constructor `private` and only accessible from the Builder (which is a static inner class)."
+        "Your `Order` has nine parts, four of them required. Compare a builder that takes the required ones in its constructor with one that checks them in `build()`. Which mistakes does each catch, and when?",
+        "Sketch a builder whose `build()` can only be called after `from()` and `to()`, so the compiler rejects a missing part. What does each added required part cost?",
+        "Find a builder in your codebase that is reused in a loop. Write the test that fails if the second product carries a part of the first."
       ]
     },
     {
       "type": "heading",
       "level": 2,
-      "text": "Best Practices and Optimization Techniques"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Make the Builder a static inner class** of the Product for encapsulation.",
-        "**Return `this`** from every setter method to enable fluent chaining.",
-        "**Use meaningful method names** -- `withAge()`, `addTopping()`, `setName()` or just `age()`, `topping()`, `name()`.",
-        "**Validate in build()** -- check required fields, invariants, and consistency.",
-        "**Make the Product immutable** -- `final` fields, no setters, defensive copies for mutable fields.",
-        "**Consider a required-parameters constructor** on the Builder for mandatory fields.",
-        "**Provide sensible defaults** for optional parameters.",
-        "**Use generics** for type-safe builders in inheritance hierarchies (the \"Curiously Recurring Template Pattern\").",
-        "**Consider Lombok's @Builder** for reducing boilerplate in production code (but understand the manual approach for interviews)."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Edge Cases and Their Handling"
-    },
-    {
-      "type": "list",
-      "ordered": true,
-      "items": [
-        "**Null values**: Decide whether null is allowed for optional fields. Use `Objects.requireNonNull()` for required fields.",
-        "**Empty strings**: Treat `\"\"` and `\"  \"` as missing for String fields. Use `isBlank()` checks.",
-        "**Negative numbers**: Validate numeric constraints (e.g., age >= 0, price > 0) in `build()`.",
-        [
-          "**Collection fields**: Use defensive copies to prevent external modification after building.",
-          {
-            "type": "code",
-            "lang": "java",
-            "text": "this.tags = List.copyOf(builder.tags); // Immutable copy"
-          }
-        ],
-        "**Builder reuse**: Clarify whether calling `build()` resets the builder or leaves it in a reusable state.",
-        "**Thread safety**: Builders are typically not thread-safe. Each thread should have its own Builder instance."
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview-specific Insights"
+      "text": "Design Note: Why Java Has Builders and Not Named Arguments"
     },
     {
       "type": "para",
-      "text": "Interviewers often focus on:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "Why Builder over telescoping constructors or JavaBeans (setters)",
-        "How Builder enforces immutability",
-        "Where validation should occur (in build(), not in setters)",
-        "The difference between GoF Builder and the fluent Builder (Effective Java)",
-        "How Builder relates to the Dependency Inversion Principle",
-        "Real-world examples: StringBuilder, Protobuf builders, OkHttp Request.Builder"
-      ]
-    },
-    {
-      "type": "para",
-      "text": "Common tricky questions:"
-    },
-    {
-      "type": "list",
-      "ordered": false,
-      "items": [
-        "\"What is the difference between Builder and Factory Method?\"",
-        "\"How do you handle required vs. optional parameters in a Builder?\"",
-        "\"Can a Builder be thread-safe? Should it be?\"",
-        "\"How do you implement a Builder in an inheritance hierarchy?\""
-      ]
-    },
-    {
-      "type": "heading",
-      "level": 2,
-      "text": "Interview Q&A Section"
-    },
-    {
-      "type": "para",
-      "text": "**Q1: Why use the Builder pattern instead of telescoping constructors or JavaBeans setters?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A1: There are three common approaches to constructing objects with many parameters. Each has trade-offs:\n\n1. Telescoping Constructors:\n   - Every combination of optional parameters gets its own constructor.\n   - Problem: Unreadable for 4+ parameters. \"What does the 5th argument mean?\" Hard to maintain.\n\n2. JavaBeans (setters):\n   - Create the object with a no-arg constructor, then call setters.\n   - Problem: The object is in an inconsistent state between construction and the last setter call. Cannot be immutable.\n\n3. Builder:\n   - Fluent API for step-by-step construction.\n   - Advantages: Readable (named methods), immutable products, validation in build(), works with any number of\n     optional parameters.\n   - Trade-off: More boilerplate code (mitigated by IDE generation or Lombok).\n\nThe Builder pattern wins when:\n- The class has 4+ parameters (especially optional ones).\n- Immutability is desired.\n- Construction requires validation or complex logic.\n- Readability of construction code matters."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Telescoping constructor (hard to read)\nUser user1 = new User(\"Alice\", 25, \"alice@example.com\", null, null, true);\n\n// JavaBeans (mutable, inconsistent state possible)\nUser user2 = new User();\nuser2.setName(\"Alice\");\nuser2.setAge(25);\n// Object exists but is incomplete here!\nuser2.setEmail(\"alice@example.com\");\n\n// Builder (readable, validated, immutable)\nUser user3 = User.builder()\n    .name(\"Alice\")\n    .age(25)\n    .email(\"alice@example.com\")\n    .active(true)\n    .build();"
-    },
-    {
-      "type": "para",
-      "text": "**Q2: How do you handle required vs. optional parameters in a Builder?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A2: There are several strategies:\n\n1. Constructor parameters on the Builder: Put required parameters in the Builder's constructor. Optional parameters\n   are set via fluent methods.\n\n2. Validation in build(): Accept all parameters via fluent methods but validate required ones when build() is called.\n   Throw IllegalStateException if required fields are missing.\n\n3. Step Builder (type-safe): Use a chain of interfaces where each required parameter returns the next interface.\n   The build() method is only available after all required parameters are set. This provides compile-time safety\n   but is verbose.\n\n4. Annotations: Use @NonNull or @Required annotations on fields and validate at build time.\n\nRecommendation: For most cases, use required parameters in the Builder constructor and validate in build(). Use the\nStep Builder only when compile-time safety is critical."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Strategy 1: Required parameters in Builder constructor\npublic class HttpRequest {\n    private final String url;     // Required\n    private final String method;  // Required\n    private final Map<String, String> headers; // Optional\n    private final String body;    // Optional\n\n    private HttpRequest(Builder builder) {\n        this.url = builder.url;\n        this.method = builder.method;\n        this.headers = Map.copyOf(builder.headers);\n        this.body = builder.body;\n    }\n\n    public static class Builder {\n        private final String url;    // Required -- set in constructor\n        private final String method; // Required -- set in constructor\n        private Map<String, String> headers = new HashMap<>();\n        private String body;\n\n        public Builder(String url, String method) {\n            this.url = Objects.requireNonNull(url, \"URL is required\");\n            this.method = Objects.requireNonNull(method, \"Method is required\");\n        }\n\n        public Builder header(String key, String value) {\n            headers.put(key, value);\n            return this;\n        }\n\n        public Builder body(String body) {\n            this.body = body;\n            return this;\n        }\n\n        public HttpRequest build() {\n            return new HttpRequest(this);\n        }\n    }\n}\n\n// Usage:\nHttpRequest request = new HttpRequest.Builder(\"https://api.example.com\", \"POST\")\n    .header(\"Content-Type\", \"application/json\")\n    .body(\"{\\\"key\\\": \\\"value\\\"}\")\n    .build();"
-    },
-    {
-      "type": "para",
-      "text": "**Q3: What is the difference between the GoF Builder and the Effective Java (fluent) Builder?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A3: The GoF (Gang of Four) Builder and the Effective Java Builder serve different purposes:\n\nGoF Builder:\n- Separates the Builder interface from the Director.\n- The Director defines the ORDER of construction steps.\n- Multiple ConcreteBuilders can produce different representations from the same construction process.\n- Example: A DocumentBuilder with buildTitle(), buildBody(), buildFooter(). An HtmlDocumentBuilder and a\n  PdfDocumentBuilder each produce different output from the same steps.\n\nEffective Java (Fluent) Builder:\n- The Builder is a static inner class of the Product.\n- No Director -- the client controls the order of steps.\n- Focuses on solving the telescoping constructor problem.\n- Returns 'this' for method chaining (fluent API).\n- Typically builds only one type of Product.\n\nIn practice:\n- The fluent Builder is far more common in Java codebases.\n- The GoF Builder is used when you need the same construction process to produce different representations.\n- Modern Java developers usually mean the fluent Builder when they say \"Builder pattern.\""
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// GoF Builder with Director\npublic interface MealBuilder {\n    void buildDrink();\n    void buildMainCourse();\n    void buildDessert();\n    Meal getMeal();\n}\n\npublic class Director {\n    public Meal constructKidsMeal(MealBuilder builder) {\n        builder.buildDrink();\n        builder.buildMainCourse();\n        builder.buildDessert();\n        return builder.getMeal();\n    }\n}\n\npublic class HealthyMealBuilder implements MealBuilder {\n    private final Meal meal = new Meal();\n    @Override public void buildDrink() { meal.setDrink(\"Water\"); }\n    @Override public void buildMainCourse() { meal.setMainCourse(\"Grilled chicken\"); }\n    @Override public void buildDessert() { meal.setDessert(\"Fruit salad\"); }\n    @Override public Meal getMeal() { return meal; }\n}\n\n// Fluent Builder (Effective Java)\nMeal meal = Meal.builder()\n    .drink(\"Water\")\n    .mainCourse(\"Grilled chicken\")\n    .dessert(\"Fruit salad\")\n    .build();"
-    },
-    {
-      "type": "para",
-      "text": "**Q4: How do you implement a Builder for a class hierarchy (inheritance)?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A4: Implementing Builder in an inheritance hierarchy is tricky because the fluent builder's chaining methods return\n'this', but subclass builders need to return their own type, not the parent builder type.\n\nThe solution is the \"Curiously Recurring Generic Pattern\" (also called the \"self-type\" idiom):\n\n1. The base Builder is generic: Builder<T extends Builder<T>>\n2. Each setter returns T (the actual builder subtype) instead of Builder.\n3. A protected abstract method self() returns 'this' cast to T.\n4. Concrete builders extend the base and specify themselves as T.\n\nThis allows subclass builders to add new methods while inheriting parent builder methods, and the fluent chain\nalways returns the correct type."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Base class with generic Builder\npublic abstract class Pizza {\n    private final String size;\n    private final boolean cheese;\n\n    protected Pizza(Builder<?> builder) {\n        this.size = builder.size;\n        this.cheese = builder.cheese;\n    }\n\n    public abstract static class Builder<T extends Builder<T>> {\n        private final String size;\n        private boolean cheese = false;\n\n        public Builder(String size) {\n            this.size = Objects.requireNonNull(size);\n        }\n\n        public T cheese(boolean cheese) {\n            this.cheese = cheese;\n            return self();\n        }\n\n        protected abstract T self();\n        public abstract Pizza build();\n    }\n}\n\n// Subclass with its own Builder\npublic class NyStylePizza extends Pizza {\n    private final boolean thinCrust;\n\n    private NyStylePizza(Builder builder) {\n        super(builder);\n        this.thinCrust = builder.thinCrust;\n    }\n\n    public static class Builder extends Pizza.Builder<Builder> {\n        private boolean thinCrust = true;\n\n        public Builder(String size) { super(size); }\n\n        public Builder thinCrust(boolean thinCrust) {\n            this.thinCrust = thinCrust;\n            return this;\n        }\n\n        @Override protected Builder self() { return this; }\n        @Override public NyStylePizza build() { return new NyStylePizza(this); }\n    }\n}\n\n// Usage -- fluent chain returns the correct type throughout:\nNyStylePizza pizza = new NyStylePizza.Builder(\"Large\")\n    .cheese(true)       // Returns NyStylePizza.Builder (not Pizza.Builder)\n    .thinCrust(false)   // This works because cheese() returned the right type\n    .build();"
-    },
-    {
-      "type": "para",
-      "text": "**Q5: What is the difference between Builder and Factory Method patterns?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A5: Builder and Factory Method solve different problems:\n\nBuilder:\n- Constructs a complex object STEP BY STEP.\n- The client controls the construction process (which steps, in what order).\n- Used when the object has many optional parameters or complex initialization.\n- The product is usually immutable once built.\n- Example: Building a complex HTTP request with optional headers, body, timeouts.\n\nFactory Method:\n- Creates an object in ONE STEP.\n- The subclass decides which type to instantiate.\n- Used when the type of object to create is determined at runtime by subclass.\n- The focus is on WHICH type to create, not HOW to construct it.\n- Example: A document application where each document type creates its own pages.\n\nCan they work together?\nYes. A Builder might use a Factory Method internally to create components. For example, a ComputerBuilder might use\na ComponentFactory to create CPU, RAM, and Storage objects during the build process."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "// Builder: step-by-step construction, many parameters\nComputer computer = Computer.builder()\n    .cpu(\"Intel i9\")\n    .ram(32)\n    .storage(\"1TB SSD\")\n    .gpu(\"RTX 4090\")\n    .build();\n\n// Factory Method: one-step creation, type varies by subclass\npublic abstract class DocumentFactory {\n    public abstract Document createDocument();\n}\nDocument doc = new PdfDocumentFactory().createDocument();"
-    },
-    {
-      "type": "para",
-      "text": "**Q6: How does the Builder pattern help achieve immutability?**"
-    },
-    {
-      "type": "code",
-      "lang": "text",
-      "text": "A6: The Builder pattern is one of the best ways to create immutable objects with many fields:\n\n1. The Product class has only final fields -- no setters.\n2. The private constructor takes a Builder and extracts all values.\n3. Mutable collections are defensively copied (List.copyOf(), Map.copyOf()).\n4. The Builder accumulates state through its fluent methods.\n5. Validation in build() ensures the object is always in a valid state.\n\nOnce build() returns, the Product is fully initialized and immutable. No code can modify it.\n\nWithout Builder, creating an immutable object with 10 fields would require a constructor with 10 parameters --\nunreadable and error-prone. With Builder, each parameter is named and optional parameters have defaults.\n\nThe key insight: mutability exists only during construction (in the Builder), and the final product is completely\nimmutable."
-    },
-    {
-      "type": "code",
-      "lang": "java",
-      "text": "public final class ImmutableConfig {\n    private final String host;\n    private final int port;\n    private final boolean ssl;\n    private final List<String> allowedOrigins;\n    private final Map<String, String> properties;\n\n    private ImmutableConfig(Builder builder) {\n        this.host = builder.host;\n        this.port = builder.port;\n        this.ssl = builder.ssl;\n        this.allowedOrigins = List.copyOf(builder.allowedOrigins);  // Defensive copy\n        this.properties = Map.copyOf(builder.properties);            // Defensive copy\n    }\n\n    // Only getters, no setters\n    public String host() { return host; }\n    public int port() { return port; }\n    public boolean ssl() { return ssl; }\n    public List<String> allowedOrigins() { return allowedOrigins; }\n    public Map<String, String> properties() { return properties; }\n\n    public static Builder builder() {\n        return new Builder();\n    }\n\n    public static class Builder {\n        private String host = \"localhost\";\n        private int port = 8080;\n        private boolean ssl = false;\n        private List<String> allowedOrigins = new ArrayList<>();\n        private Map<String, String> properties = new HashMap<>();\n\n        public Builder host(String host) { this.host = host; return this; }\n        public Builder port(int port) { this.port = port; return this; }\n        public Builder ssl(boolean ssl) { this.ssl = ssl; return this; }\n        public Builder addOrigin(String origin) { this.allowedOrigins.add(origin); return this; }\n        public Builder property(String key, String value) { this.properties.put(key, value); return this; }\n\n        public ImmutableConfig build() {\n            if (port < 0 || port > 65535) throw new IllegalStateException(\"Invalid port: \" + port);\n            return new ImmutableConfig(this);\n        }\n    }\n}"
+      "text": "Languages with named and default arguments let the caller name each argument and leave out the optional ones, which covers most of what builders and telescoping constructors are for. Java has neither, so the builder supplies both, at the price of a second class that mirrors the product's fields and must be kept in step with it: add a field to `Transfer` and forget the builder method, and nothing can set it. The GoF form adds a director that drives one sequence of steps over different builders to produce different representations. It is rare in Java code."
     },
     {
       "type": "heading",
@@ -333,17 +396,17 @@
   "assets": [],
   "attachments": [],
   "counts": {
-    "headings": 13,
-    "paras": 12,
-    "code": 13,
-    "tables": 0,
-    "lists": 10,
+    "headings": 10,
+    "paras": 28,
+    "code": 23,
+    "tables": 2,
+    "lists": 3,
     "images": 0,
     "videos": 0,
     "rules": 0,
     "quotes": 0,
-    "html": 0,
+    "html": 4,
     "disclosures": 0
   },
-  "content_sha256": "f993d34e595b3b62178c1ec37335bb3da692cd5a4a92590d5b658555e407bdc0"
+  "content_sha256": "393ed87cfce95967506aaacd05a473397006a687953d777e3a46945d08c55778"
 }

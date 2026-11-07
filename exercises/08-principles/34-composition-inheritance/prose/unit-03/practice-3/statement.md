@@ -1,26 +1,16 @@
-A pipeline composed of independent stages needs no change to process many items at once:
-each item flows through it on its own virtual thread. The page's example:
+This practice starts from the previous one: `MeteredStock` is written, and it now also has a
+busy gauge, `inFlight()`, the number of calls that have started and not yet ended.
 
-```java
-var pipeline = new ProcessingPipeline<String>()
-    .addStage(String::trim)
-    .addStage(String::toUpperCase)
-    .addStage(s -> s + " [PROCESSED]");
+The checkout threads are moving onto the warehouse's `MapStock`, which was written for one
+thread. Nobody wants to change `MapStock` or the checkout code. Finish, in
+`src/main/java/practice/Stocks.java`:
 
-var executor = new ConcurrentPipelineExecutor<>(pipeline);
-List<String> results = executor.processAll(
-    List.of("  hello  ", "  world  ", "  java  ")
-);
-// Results: ["HELLO [PROCESSED]", "WORLD [PROCESSED]", "JAVA [PROCESSED]"]
-```
+- `SynchronizedStock.level` and `SynchronizedStock.set`, a wrapper that makes any `Stock` safe
+  to share between threads;
+- `shared(base)`, which wraps `base` for the checkout threads and returns the stock they call
+  together with the `MeteredStock` the dashboard reads.
 
-`addStage` is given. Write `execute` and `processAll` in `Pipelines`:
-
-- `execute(input)` runs `input` through every stage in order; a pipeline with no stages
-  returns its input unchanged;
-- a stage that returns `null` **stops the pipeline**: `execute` returns `null` at once and
-  no later stage is called. In `processAll` such an item keeps its place as `null`:
-  a pipeline that stops `"drop"` turns `["a", "drop", "b"]` into `["A", null, "B"]`;
-- `processAll(items)` runs the items at the same time, each through the pipeline on **its
-  own virtual thread** (`Executors.newVirtualThreadPerTaskExecutor()`), and returns the results **in the order
-  of the items**, whichever finishes first. An empty list gives an empty list.
+When you're done, the checkout threads can call the shared stock at the same time without
+corrupting it, a refused update (a negative count) doesn't stop other threads from using it,
+and the dashboard's busy gauge shows how many calls are working in the store right now, not
+how many are waiting their turn. About eight lines in total.

@@ -1,22 +1,12 @@
-The page's `ImmutableConfig` shows how a builder produces an **immutable**
-object: `final` fields, no setters, and **defensive copies** of the builder's
-collections, so the product never changes after `build()`, whatever happens to
-the builder or to the lists callers get back.
+The monthly billing run sets up one `Invoice.Builder` per plan, with the plan's fixed lines, and
+builds each customer's invoice from a copy of it, adding that customer's own lines. Support has
+two complaints: one customer's overage line showed up on the next customer's invoice, and an
+invoice already sent as a PDF read differently when it was opened again in the portal.
 
-Write `ImmutableConfig` with `host()`, `port()`, `ssl()`, `allowedOrigins()`
-and `properties()`, and its `Builder` (`ImmutableConfig.builder()`) with
-`host`, `port`, `ssl`, `addOrigin`, `property` and `build()`:
+Finish the two `TODO`s in `src/main/java/practice/Invoice.java`:
 
-- Defaults: host `localhost`, port `8080`, ssl `false`, no origins, no
-  properties.
-- `build()` refuses a port outside `0..65535` with `IllegalStateException`;
-  `port(...)` itself accepts any number, so a later `port(...)` can fix it.
-- Adding to the builder after `build()` does not change a built config, and
-  the config's own list and map cannot be modified.
+- `keep(...)`: the lines an invoice holds on to when it is built;
+- `Builder.copy()`: a builder with the same customer and lines, filled in further on its own.
 
-| chain | result |
-|---|---|
-| (nothing) | `localhost`, `8080`, `false`, `[]`, `{}` |
-| `.host("api.example.org").ssl(true).addOrigin("https://a.example.org")` | those values, origins `[https://a.example.org]` |
-| `.port(65535)` / `.port(65536)` | accepted / `IllegalStateException` from `build()` |
-| `.port(70000).port(443)` | port `443` |
+An issued invoice must read the same whatever is done afterwards to its builder, to another copy,
+or to the list its `lines()` returns. About five lines in total.

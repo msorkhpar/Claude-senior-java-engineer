@@ -1,20 +1,15 @@
-A fail-fast iterator trips when the collection's `modCount` has moved since the iterator was
-created. The page draws the line that decides what moves it:
+The notification service collects what happens to each user during the day (a paid invoice, a
+failed build, a new comment) and a digest job mails each user what is waiting for them, in one
+message, every few minutes. Request threads keep adding notifications while the job runs. Support
+has two kinds of ticket: users who never got a notification the admin page showed as waiting, and
+users who got the same build failure in two digests in a row.
 
-> Only structural changes (add, remove, clear, resize) increment `modCount`. Changing a value in
-> a `Map` via `put()` for an existing key or calling `set()` on a `ListIterator` are NOT structural
-> modifications and do NOT trigger the exception.
+`DigestOutbox` already collects notifications. Write `sendDigests(...)` in
+`src/main/java/practice/DigestOutbox.java`: mail every user who has something waiting, one message
+each, and return how many users it mailed.
 
-`CountedList<E>` wraps an `ArrayList` and keeps its own `modCount`, and its fail-fast
-`iterator()` is written. Write its four writes, `add`, `remove(int)`, `set(int, E)` and
-`clear()`, each doing what the `ArrayList` method of that name does, so that:
+When you're done, every notification reaches its user exactly once, in the run that was going on
+when it arrived or in the next one, whatever arrives during a run. About six lines in total.
 
-- **each structural change moves `modCount` by one**: `add`, `remove` and `clear`;
-- **`set` is not structural**: it replaces a value in place and leaves `modCount` as it was, so
-  a traversal may `set` every element it visits without an exception;
-- after an `add`, a `remove` or a `clear` in the middle of a traversal, the iterator's next
-  `next()` throws `ConcurrentModificationException`;
-- `remove(int)` and `set(int, E)` work by position, as `ArrayList`'s do, even when the list
-  holds equal elements elsewhere; a `remove` whose index is out of range throws
-  `IndexOutOfBoundsException` and changes nothing, `modCount` included;
-- `clear()` always counts as one structural change, even on an empty list, as `ArrayList`'s does.
+The tests run the job on one thread and add notifications from inside the mailer, which is where
+a request thread's add lands in production.

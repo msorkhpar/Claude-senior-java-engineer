@@ -1,0 +1,154 @@
+{
+  "quiz_api": 1,
+  "address": [
+    "08-principles",
+    "35-fail-fast-safe"
+  ],
+  "variant": "prose",
+  "unit": 2,
+  "ordinal": 3,
+  "title": "Check yourself: weakly consistent iterators",
+  "exercise": {
+    "provenance": "generated",
+    "trust": "advisory",
+    "kind": "quiz",
+    "questions": [
+      {
+        "id": "q-replica-count",
+        "stem": "A warm-up thread walks a ConcurrentHashMap of 50,000 prices and copies each entry to a replica. In a test, the walk waits at its halfway point while the pricing thread puts 200 new product keys, then carries on, and the replica ends up with 97 of the 200. What decides which 97 they are?",
+        "options": [
+          {
+            "id": "a",
+            "text": "The order in which the 200 puts finished against the walk's next steps, so a rerun with the same keys gives a different 97",
+            "correct": false,
+            "says": "the add happens at a fixed point of the walk; what decides is the bin each key hashes to, so the same keys give the same count (473 every run on the page)"
+          },
+          {
+            "id": "b",
+            "text": "The bins the 200 keys hash to against the bins the walk has passed, so a rerun with the same keys gives the same 97",
+            "correct": true,
+            "says": "a ConcurrentHashMap walk goes through the table bin by bin; a key landing in a bin already passed is missed, one landing ahead is seen"
+          },
+          {
+            "id": "c",
+            "text": "The keys the map held before the puts made it resize, since a walk keeps returning from the table it started on",
+            "correct": false,
+            "says": "a weakly consistent walk is not a copy of the table it started on, and new keys landing ahead of the walk are returned"
+          },
+          {
+            "id": "d",
+            "text": "The keys whose put completed before the walk's last step, since a walk returns every put that ends before it does",
+            "correct": false,
+            "says": "only a queue's tail adds behave that way; a key put into a bin the walk has passed is missed even though the put ended long before the walk"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.2.md",
+          "section": "A Concurrent Add Is Seen or Missed by Where It Lands, So Walking and Then Clearing Loses Writes"
+        }
+      },
+      {
+        "id": "q-window-cleanup",
+        "stem": "A rate limiter keeps a ConcurrentHashMap from client id to an immutable Window record, and every request replaces its client's Window with a new record. A cleanup thread walks the entries and, for each whose Window started over a minute ago, calls windows.remove(entry.getKey()). What can this cleanup do while requests arrive?",
+        "options": [
+          {
+            "id": "a",
+            "text": "It can stop with ConcurrentModificationException, since requests replace values in the map the walk is reading",
+            "correct": false,
+            "says": "weakly consistent iterators never throw ConcurrentModificationException"
+          },
+          {
+            "id": "b",
+            "text": "It can stop with IllegalStateException, since remove(key) is called for an entry another thread already replaced",
+            "correct": false,
+            "says": "nothing throws; remove(key) simply removes whatever the key maps to by then"
+          },
+          {
+            "id": "c",
+            "text": "It can remove the Window it checked and none newer, since remove(key) acts on the entry the walk handed out to it",
+            "correct": false,
+            "says": "an entry from a walk is a reading from earlier, and can even have been removed already; remove(key) does not look at it"
+          },
+          {
+            "id": "d",
+            "text": "It can remove a Window a request put a moment ago, since remove(key) acts on the key's mapping at the moment it runs",
+            "correct": true,
+            "says": "between the check and remove(key) a request can put a fresh Window, and remove(key) takes it; remove(key, window) would not"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.2.md",
+          "section": "A Walk Hands Out Entries Read Earlier, So Act on One with remove(key, value)"
+        }
+      },
+      {
+        "id": "q-moved-task",
+        "stem": "A dispatcher keeps Task objects in a ConcurrentLinkedQueue. When no worker can take a task, it calls queue.remove(task) and then queue.add(task) to move that same object to the back. A health check walks the queue and raises an alarm if it meets the same Task object twice, reasoning that the queue never holds it twice. Can the alarm go off with no bug in the dispatcher?",
+        "options": [
+          {
+            "id": "a",
+            "text": "No, since a walk returns a given element once, and the moved task stays one object throughout",
+            "correct": false,
+            "says": "at most once is per element in the queue, not per object; the object added again is a new element"
+          },
+          {
+            "id": "b",
+            "text": "No, since the dispatcher's remove takes the task out before its add, so the queue never holds it twice",
+            "correct": false,
+            "says": "the queue never holds it twice, but the walk can pass the task, and then meet the element the add put at the tail, ahead of the walk"
+          },
+          {
+            "id": "c",
+            "text": "Yes, since a task the dispatcher moves after the walk passed it becomes a new element the walk can reach",
+            "correct": true,
+            "says": "the exactly-once promise covers elements present the whole walk; remove then add makes a new element at the tail, ahead of the walk"
+          },
+          {
+            "id": "d",
+            "text": "Yes, since a walk starts again from the head whenever another thread adds at the tail of the queue",
+            "correct": false,
+            "says": "a queue's iterator goes once from head to tail; the repeat comes from the new element at the tail, not from a restart"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.2.md",
+          "section": "Each Element Comes at Most Once, but an Element Added Again Is a New One"
+        }
+      },
+      {
+        "id": "q-mapping-count",
+        "stem": "An export allocates new Row[map.size()] for a ConcurrentHashMap and fills it in a walk. Under load it sometimes throws ArrayIndexOutOfBoundsException. A colleague proposes (int) map.mappingCount() in place of size(). Does that change fix it?",
+        "options": [
+          {
+            "id": "a",
+            "text": "Yes, since mappingCount() reads the map's counters exactly, and size() is the one that drifts under updates",
+            "correct": false,
+            "says": "the javadoc calls mappingCount() an estimate too; it differs from size() only by returning a long"
+          },
+          {
+            "id": "b",
+            "text": "No, since mappingCount() is also counted before the walk, and the map can still grow until the walk ends",
+            "correct": true,
+            "says": "any count taken before the walk can disagree with what the walk returns; take the length from the walk, with keySet().toArray(new T[0]) or a list"
+          },
+          {
+            "id": "c",
+            "text": "Yes, since mappingCount() is counted as the walk proceeds, so its result matches the keys the walk returns",
+            "correct": false,
+            "says": "mappingCount() returns one number at the moment it is called; it doesn't follow the walk"
+          },
+          {
+            "id": "d",
+            "text": "No, since the walk also returns keys removed before it started, which a count of the map leaves out",
+            "correct": false,
+            "says": "a walk can return a key removed after it read ahead to it, not one removed before it began; the overflow comes from keys added between the count and the walk's end"
+          }
+        ],
+        "origin": {
+          "path": "35-fail-fast-safe/README_8.5.2.md",
+          "section": "size() and a Walk Answer at Different Moments"
+        }
+      }
+    ]
+  }
+}

@@ -1,27 +1,16 @@
-A hierarchy such as `BaseTask -> LoggingTask -> SynchronizedLoggingTask` needs a new class
-for every combination, and each level may add its own synchronization. The page's
-alternative is **decorators**: every concern implements the same `TaskRunner` interface,
-holds the runner it wraps, and adds one thing.
+A reporting service keeps one connection pool per tenant in `TenantPools`, and every request asks
+for its tenant's pool. Opening a pool connects to the tenant's database and takes a while. The
+database team reports that after each deploy some tenants get two or three pools' worth of
+connections, and that once, after an admin reset a tenant's pool by hand, a pool the health check
+had just opened was closed under running reports.
 
-```java
-TaskRunner runner = new SynchronizedTaskRunner(
-    new LoggingTaskRunner(
-        new UpperCaseRunner()
-    )
-);
-```
+Finish the two `TODO`s in `src/main/java/practice/TenantPools.java`:
 
-`UpperCaseRunner` is given. Write the two decorators and the factory in `TaskRunners`:
+- `poolFor(tenant)`: the tenant's pool, opened with the `opener` the store was given when the
+  tenant has none;
+- `discard(tenant, pool)`: forget that pool, unless the tenant's pool is already a different one,
+  and say whether it was discarded.
 
-- `LoggingTaskRunner(delegate, log)` adds `"START: " + input` to `log`, runs the delegate, then
-  adds `"SUCCESS: " + result` and returns the result. If the delegate throws, it adds
-  `"ERROR: " + message` and **rethrows that same exception**: logging must not swallow a
-  failure;
-- `SynchronizedTaskRunner(delegate)` holds a lock around the delegate call, so **one call at a
-  time** runs inside the runner it wraps; a second caller waits until the first returns;
-- `compose(base, log, logging, threadSafe)` applies exactly the decorators asked for: a
-  `LoggingTaskRunner` alone, a `SynchronizedTaskRunner` alone (which writes nothing to
-  `log`), both, or `base` itself when neither is asked for. The page warns that **decorator order matters**:
-  `compose` puts the lock outermost, so logging happens inside the lock and the log lists
-  each call's lines in the order the calls ran. `compose(new UpperCaseRunner(), log, true, true)`
-  turns `"hello"` into `"HELLO"` and logs `START: hello`, `SUCCESS: HELLO`.
+When you're done, every request for a tenant gets the same pool, a tenant's pool is opened once
+however many requests arrive while it opens, and discarding a pool that was already replaced
+leaves the replacement alone. About three lines in total.

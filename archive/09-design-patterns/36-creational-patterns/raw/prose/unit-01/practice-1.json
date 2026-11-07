@@ -10,7 +10,7 @@
   "kind": "practice",
   "ordinal": 1,
   "ingested": "2026-09-24",
-  "title": "A lazy value created once, even when first calls race",
+  "title": "Keep the seat license to one instance per process",
   "blocks": [
     {
       "type": "heading",
@@ -19,45 +19,27 @@
     },
     {
       "type": "para",
-      "text": "A lazy Singleton creates its object on first use. The page's warning is that two threads calling `getInstance()` for the first time at once can each see \"not created yet\" and each build one. **Double-checked locking** fixes it: check without the lock, then take the lock and **check again** before creating, with **the field holding the value declared `volatile`** (a field of type `T`), so no thread sees a half-built object."
+      "text": "The product is sold for 25 concurrent seats, and `SeatLicense` counts them: one instance per process, reached through `getInstance()`. A seat audit found customers using more seats than they paid for, and two `SeatLicense` objects in one process on two occasions. The first appeared at start-up, when the plugin framework instantiated every class of the package through its private constructor before anything had called `getInstance()`. The second appeared after the session store wrote a user's session out and read it back."
     },
     {
       "type": "para",
-      "text": "Write `Lazy<T>`, the same idea for any value:"
+      "text": "Finish the two `TODO`s in `src/main/java/practice/SeatLicense.java`:"
     },
     {
       "type": "list",
       "ordered": false,
       "items": [
-        "`Lazy.of(supplier)` returns a holder and **creates nothing yet**.",
-        "`get()` calls the supplier on the first call and returns that object from every call after it.",
-        "Even when threads race on the first `get()`, **the supplier runs once** and every thread gets the same object."
+        "`checkConstruction()`, which the constructor runs every time, whoever calls it;",
+        "`readResolve()`, for a license that is read back from a session."
       ]
     },
     {
-      "type": "table",
-      "headers": [
-        "calls",
-        "supplier runs",
-        "result"
-      ],
-      "rows": [
-        [
-          "`Lazy.of(s)`",
-          "0",
-          "a holder"
-        ],
-        [
-          "`get()`, `get()`",
-          "1",
-          "the same object twice"
-        ],
-        [
-          "thread A and thread B call `get()` together",
-          "1",
-          "the same object in both"
-        ]
-      ]
+      "type": "para",
+      "text": "When you're done, neither the framework nor the session store can produce a second license, and a session read back counts against the live license, with the seats that are claimed now. About four lines in total."
+    },
+    {
+      "type": "para",
+      "text": "The tests load the class afresh for each test, so each one starts in a process where nothing has used the license yet."
     },
     {
       "type": "heading",
@@ -72,7 +54,7 @@
         {
           "type": "code",
           "lang": "java",
-          "text": "package practice;\n\nimport java.util.Objects;\nimport java.util.function.Supplier;\n\npublic final class Lazy<T> {\n\n    private final Supplier<? extends T> supplier;\n    private volatile T value;\n\n    private Lazy(Supplier<? extends T> supplier) {\n        this.supplier = Objects.requireNonNull(supplier);\n    }\n\n    /** Returns a holder that will call {@code supplier} on the first {@link #get()}. */\n    public static <T> Lazy<T> of(Supplier<? extends T> supplier) {\n        return new Lazy<>(supplier);\n    }\n\n    /** Returns the value, creating it on the first call. */\n    public T get() {\n        T result = value;\n        if (result == null) {\n            synchronized (this) {\n                result = value;\n                if (result == null) {\n                    result = supplier.get();\n                    value = result;\n                }\n            }\n        }\n        return result;\n    }\n}\n"
+          "text": "package practice;\n\nimport java.io.Serial;\nimport java.io.Serializable;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The product is licensed for 25 concurrent seats, and one SeatLicense per process counts them.\n * The license is Serializable because user sessions hold it, and the session store writes\n * sessions out and reads them back.\n */\npublic final class SeatLicense implements Serializable {\n\n    @Serial\n    private static final long serialVersionUID = 1L;\n\n    public static final int SEATS = 25;\n\n    private final AtomicInteger free = new AtomicInteger(SEATS);\n\n    private SeatLicense() {\n        checkConstruction();\n    }\n\n    private static final class Holder {\n        static final SeatLicense INSTANCE = new SeatLicense();\n    }\n\n    public static SeatLicense getInstance() {\n        return Holder.INSTANCE;\n    }\n\n    /** Takes a seat if one is free. */\n    public boolean claim() {\n        while (true) {\n            int now = free.get();\n            if (now == 0) return false;\n            if (free.compareAndSet(now, now - 1)) return true;\n        }\n    }\n\n    public void release() {\n        free.incrementAndGet();\n    }\n\n    public int free() {\n        return free.get();\n    }\n\n    /** Runs every time the constructor runs, whoever calls it. */\n    private static void checkConstruction() {\n        if (Holder.INSTANCE != null) throw new IllegalStateException(\"SeatLicense already exists\");\n    }\n\n    /** What a session that held this license gets back when the store reads it. */\n    @Serial\n    private Object readResolve() {\n        return Holder.INSTANCE;\n    }\n}\n"
         }
       ]
     },
@@ -84,7 +66,7 @@
     {
       "type": "code",
       "lang": "java",
-      "text": "package practice;\n\nimport java.util.function.Supplier;\n\npublic final class Lazy<T> {\n\n    private Lazy(Supplier<? extends T> supplier) {\n    }\n\n    /** Returns a holder that will call {@code supplier} on the first {@link #get()}. */\n    public static <T> Lazy<T> of(Supplier<? extends T> supplier) {\n        throw new UnsupportedOperationException(\"write of\");\n    }\n\n    /** Returns the value, creating it on the first call. */\n    public T get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n"
+      "text": "package practice;\n\nimport java.io.Serial;\nimport java.io.Serializable;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The product is licensed for 25 concurrent seats, and one SeatLicense per process counts them.\n * The license is Serializable because user sessions hold it, and the session store writes\n * sessions out and reads them back.\n */\npublic final class SeatLicense implements Serializable {\n\n    @Serial\n    private static final long serialVersionUID = 1L;\n\n    public static final int SEATS = 25;\n\n    private final AtomicInteger free = new AtomicInteger(SEATS);\n\n    private SeatLicense() {\n        checkConstruction();\n    }\n\n    private static final class Holder {\n        static final SeatLicense INSTANCE = new SeatLicense();\n    }\n\n    public static SeatLicense getInstance() {\n        return Holder.INSTANCE;\n    }\n\n    /** Takes a seat if one is free. */\n    public boolean claim() {\n        while (true) {\n            int now = free.get();\n            if (now == 0) return false;\n            if (free.compareAndSet(now, now - 1)) return true;\n        }\n    }\n\n    public void release() {\n        free.incrementAndGet();\n    }\n\n    public int free() {\n        return free.get();\n    }\n\n    /** Runs every time the constructor runs, whoever calls it. */\n    private static void checkConstruction() {\n        // TODO: getInstance() is not the only code that runs this constructor. Make sure that\n        //       one SeatLicense at most ever comes out of it, whoever calls it and whenever.\n        throw new IllegalStateException(\"TODO: checkConstruction\");\n    }\n\n    /** What a session that held this license gets back when the store reads it. */\n    @Serial\n    private Object readResolve() {\n        // TODO: A session that is read back must keep counting seats against the same license\n        //       as every other session in this process, with the seats claimed as they are now.\n        throw new IllegalStateException(\"TODO: readResolve\");\n    }\n}\n"
     }
   ],
   "video": null,
@@ -92,9 +74,9 @@
   "attachments": [],
   "counts": {
     "headings": 3,
-    "paras": 2,
+    "paras": 4,
     "code": 1,
-    "tables": 1,
+    "tables": 0,
     "lists": 1,
     "images": 0,
     "videos": 0,
@@ -103,11 +85,11 @@
     "html": 0,
     "disclosures": 1
   },
-  "content_sha256": "f8d674821cd35a42606e9722f57faf76d307e4d630a0f73cbce92eb73e5eb9a0",
-  "starting_code": "package practice;\n\nimport java.util.function.Supplier;\n\npublic final class Lazy<T> {\n\n    private Lazy(Supplier<? extends T> supplier) {\n    }\n\n    /** Returns a holder that will call {@code supplier} on the first {@link #get()}. */\n    public static <T> Lazy<T> of(Supplier<? extends T> supplier) {\n        throw new UnsupportedOperationException(\"write of\");\n    }\n\n    /** Returns the value, creating it on the first call. */\n    public T get() {\n        throw new UnsupportedOperationException(\"write get\");\n    }\n}\n",
+  "content_sha256": "1c91acf7d1737f1f3bc724f16d139e7c88b943e1e691097175ce328f5e5341ab",
+  "starting_code": "package practice;\n\nimport java.io.Serial;\nimport java.io.Serializable;\nimport java.util.concurrent.atomic.AtomicInteger;\n\n/**\n * The product is licensed for 25 concurrent seats, and one SeatLicense per process counts them.\n * The license is Serializable because user sessions hold it, and the session store writes\n * sessions out and reads them back.\n */\npublic final class SeatLicense implements Serializable {\n\n    @Serial\n    private static final long serialVersionUID = 1L;\n\n    public static final int SEATS = 25;\n\n    private final AtomicInteger free = new AtomicInteger(SEATS);\n\n    private SeatLicense() {\n        checkConstruction();\n    }\n\n    private static final class Holder {\n        static final SeatLicense INSTANCE = new SeatLicense();\n    }\n\n    public static SeatLicense getInstance() {\n        return Holder.INSTANCE;\n    }\n\n    /** Takes a seat if one is free. */\n    public boolean claim() {\n        while (true) {\n            int now = free.get();\n            if (now == 0) return false;\n            if (free.compareAndSet(now, now - 1)) return true;\n        }\n    }\n\n    public void release() {\n        free.incrementAndGet();\n    }\n\n    public int free() {\n        return free.get();\n    }\n\n    /** Runs every time the constructor runs, whoever calls it. */\n    private static void checkConstruction() {\n        // TODO: getInstance() is not the only code that runs this constructor. Make sure that\n        //       one SeatLicense at most ever comes out of it, whoever calls it and whenever.\n        throw new IllegalStateException(\"TODO: checkConstruction\");\n    }\n\n    /** What a session that held this license gets back when the store reads it. */\n    @Serial\n    private Object readResolve() {\n        // TODO: A session that is read back must keep counting seats against the same license\n        //       as every other session in this process, with the seats claimed as they are now.\n        throw new IllegalStateException(\"TODO: readResolve\");\n    }\n}\n",
   "exercise": {
-    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-1/src/main/java/practice/Lazy.java",
-    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-1/src/test/java/practice/LazyTest.java",
+    "main_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-1/src/main/java/practice/SeatLicense.java",
+    "test_path": "practice/09-design-patterns/36-creational-patterns/prose/unit-01/practice-1/src/test/java/practice/SeatLicenseTest.java",
     "run_command": [
       "mvn",
       "-o",
@@ -128,29 +110,24 @@
     "trust": "advisory",
     "cases": [
       {
-        "id": "practice.LazyTest#createsOnceAndReusesTheValue",
+        "id": "practice.SeatLicenseTest#oneLicenseCountsEverySeat",
         "kind": "main",
-        "says": "get() calls the supplier once and returns that same object from every later call."
+        "says": "getInstance() returns one license that counts all 25 seats, whoever claims them"
       },
       {
-        "id": "practice.LazyTest#createsNothingBeforeTheFirstGet",
+        "id": "practice.SeatLicenseTest#aConstructorCalledReflectivelyBeforeFirstUseIsRefused",
         "kind": "edge",
-        "says": "Lazy.of() does not call the supplier; only the first get() does."
+        "says": "a reflective call to the private constructor is refused even before getInstance() has run, and getInstance() still works afterwards"
       },
       {
-        "id": "practice.LazyTest#racingFirstCallsCreateOneValue",
+        "id": "practice.SeatLicenseTest#aLicenseReadBackFromASessionIsTheLiveOne",
         "kind": "edge",
-        "says": "When a second thread calls get() while the first is still inside the supplier, the supplier still runs once and both threads get the same object."
+        "says": "reading a written license back gives the instance getInstance() returns"
       },
       {
-        "id": "practice.LazyTest#theLockedCheckIsRepeated",
+        "id": "practice.SeatLicenseTest#seatsClaimedAfterTheSessionWasWrittenStayClaimed",
         "kind": "edge",
-        "says": "A thread that waited for the lock finds the value already made and does not call the supplier again."
-      },
-      {
-        "id": "practice.LazyTest#theFieldHoldingTheValueIsVolatile",
-        "kind": "edge",
-        "says": "Lazy keeps the value in a field of type T, and that field is volatile."
+        "says": "reading a license back leaves the live seat count as it is, not as it was when written"
       }
     ],
     "report": {
@@ -159,10 +136,13 @@
     },
     "origin": {
       "path": "36-creational-patterns/README_9.1.1.md",
-      "section": "Edge Cases and Their Handling"
+      "section": "Deserialization Makes a Second Instance Without Running the Constructor"
     },
     "concepts": [
-      "A lazy Singleton creates its instance on first use, and concurrent first calls must still create only one, which double-checked locking does by checking again inside the lock."
+      "Reading a serialized singleton builds a new object without running its constructor, so the constructor guard never sees it, and the copy carries the state it was written with.",
+      "A constructor guard refuses a reflective call only if it reads a field that is already set when the call can happen: the static final instance (or a holder's field), not a lazily set field or a flag.",
+      "readResolve returning the instance makes readObject return the live singleton with its live state; what was written is discarded.",
+      "setAccessible(true) lets any class-path code call a singleton's private constructor and get a second instance with fresh state."
     ]
   }
 }

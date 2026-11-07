@@ -1,381 +1,333 @@
 # 9.2.1. Adapter Pattern
 
-## Concept Explanation
-
-The Adapter Pattern is a structural design pattern that allows objects with incompatible interfaces to work together. It acts as a bridge between two incompatible interfaces by wrapping an existing class with a new interface that clients expect.
-
-**Real-world analogy**: Consider a power adapter for international travel. A US laptop charger has a two-prong plug, but European outlets use a different shape. A travel adapter does not change the electricity or the charger itself — it simply converts the plug shape so the charger can connect to the foreign outlet. Similarly, the Adapter pattern wraps an existing class so it can be used where a different interface is expected, without modifying the original class.
-
-The Gang of Four (GoF) classifies the Adapter pattern under structural patterns because it deals with how classes and objects are composed to form larger structures. The pattern is also known as the "Wrapper" pattern because the adapter wraps the adaptee.
-
-There are two main variants:
-- **Object Adapter** (composition-based): The adapter holds a reference to the adaptee and delegates calls. This is the preferred approach in Java since it avoids tight coupling through inheritance.
-- **Class Adapter** (inheritance-based): The adapter extends the adaptee and implements the target interface. Java's single inheritance limitation restricts this to adapting only one class at a time.
-
-## Key Points to Remember
-
-- The Adapter pattern converts the interface of a class into another interface that clients expect.
-- It lets classes work together that could not otherwise because of incompatible interfaces.
-- Object adapters use composition (delegation), class adapters use inheritance.
-- Object adapters are more flexible because they can adapt any subclass of the adaptee.
-- Class adapters can override adaptee behavior directly since they extend it.
-- The adapter does not add new behavior — it only translates interfaces (unlike the Decorator pattern).
-- The pattern follows the Open/Closed Principle — you can introduce new adapters without changing existing code.
-- In Java, object adapters are strongly preferred due to single inheritance limitations.
-- Two-way adapters can implement both the target and adaptee interfaces, enabling bidirectional adaptation.
-
-## Relevant Java 21 Features
-
-- **Sealed interfaces**: You can use sealed interfaces for the target interface to restrict which adapters are permitted, ensuring compile-time safety.
-- **Records**: Adapter classes that only wrap an adaptee and delegate can sometimes be expressed as records when they are effectively data carriers.
-- **Pattern matching for `instanceof`**: Useful when determining the type of an adaptee at runtime.
-- **Default methods in interfaces**: Interfaces can provide default implementations, reducing adapter boilerplate when only a few methods need translation.
-- **Functional interfaces and lambdas**: For single-method target interfaces, a lambda expression can serve as an inline adapter without creating a dedicated adapter class.
-
-Evolution across Java versions:
-- **Java 8**: Introduced default methods in interfaces and lambdas, which made lightweight adapters trivial.
-- **Java 16+**: Records (a preview feature in Java 14 and 15) provide a concise way to represent data-carrying adapters.
-- **Java 17+**: Sealed classes/interfaces allow controlled adapter hierarchies.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Adapting too many methods**: If the adaptee's interface is vastly different from the target, the adapter becomes bloated. Consider whether a Facade or a redesign would be more appropriate.
-
-2. **Tight coupling through class adapter**: Using inheritance ties the adapter to one specific adaptee class.
-   ```java
-   // Problem: Class adapter can only adapt LegacyAudioPlayer
-   class AudioClassAdapter extends LegacyAudioPlayer implements MediaPlayer { ... }
-   
-   // Solution: Object adapter can adapt any LegacyAudioPlayer subclass
-   class AudioPlayerAdapter implements MediaPlayer {
-       private final LegacyAudioPlayer player; // composition
-   }
-   ```
-
-3. **Confusing Adapter with Decorator**: The Adapter changes an interface; the Decorator adds behavior without changing the interface. Mixing these purposes leads to unclear design.
-
-4. **Null adaptee references**: Forgetting to validate the adaptee passed to the adapter constructor.
-   ```java
-   // Problem: NullPointerException later during delegation
-   class Adapter implements Target {
-       private final Adaptee adaptee;
-       Adapter(Adaptee adaptee) { this.adaptee = adaptee; } // no validation
-   }
-   
-   // Solution: Validate eagerly
-   Adapter(Adaptee adaptee) {
-       this.adaptee = Objects.requireNonNull(adaptee, "Adaptee must not be null");
-   }
-   ```
-
-5. **Breaking the Liskov Substitution Principle**: The adapter should fully satisfy the target interface contract. Throwing UnsupportedOperationException for methods the adaptee cannot support violates LSP.
-
-## Best Practices and Optimization Techniques
-
-1. **Prefer object adapters** over class adapters in Java for flexibility and to avoid inheritance constraints.
-2. **Use composition and delegation** as the primary mechanism.
-3. **Validate constructor arguments** eagerly with `Objects.requireNonNull`.
-4. **Keep adapters thin** — they should only translate interface calls, not contain business logic.
-5. **Consider lambda-based adapters** for simple single-method target interfaces (functional interfaces).
-6. **Document the mapping** between target methods and adaptee methods for maintainability.
-7. **Make adapters immutable** when possible — final fields, no setters.
-8. **Use the adapter to handle data format conversions** between systems (e.g., legacy array-based data to modern records).
-
-## Edge Cases and Their Handling
-
-1. **Null inputs**: Always validate constructor parameters and method arguments with `Objects.requireNonNull`.
-2. **Empty collections**: When adapting data collections, handle empty lists gracefully without throwing exceptions.
-3. **Partial adaptation**: When the adaptee only supports a subset of the target interface, consider using default methods or abstract base classes to provide sensible defaults.
-4. **Thread safety**: If the adaptee is not thread-safe, the adapter should document this or add synchronization.
-5. **Extra data fields**: When adapting data formats, handle cases where the source has more or fewer fields than expected.
-
-## Interview-specific Insights
-
-Interviewers commonly ask about:
-- The difference between class and object adapters and when to use each
-- How the Adapter pattern relates to the Decorator and Facade patterns
-- Real-world examples of the Adapter pattern in the Java SDK (e.g., `Arrays.asList()`, `InputStreamReader`)
-- When NOT to use the Adapter pattern
-- How to handle situations where the adaptee's interface is vastly different from the target
-
-Tricky points:
-- In Java, class adapters are limited by single inheritance — you can only extend one adaptee class
-- `java.util.Arrays.asList()` is often cited as an adapter (it adapts an array to the `List` interface)
-- `InputStreamReader` adapts `InputStream` (byte stream) to `Reader` (character stream)
-
-## Interview Q&A Section
-
-**Q1: What is the Adapter pattern and when would you use it?**
-
-```text
-A1: The Adapter pattern is a structural design pattern that allows two incompatible interfaces
-to work together. It wraps an existing class with a new interface that the client expects.
-
-You would use it when:
-1. You want to use an existing class but its interface doesn't match what you need.
-2. You're integrating a third-party library that has a different interface than your codebase.
-3. You need to create a reusable class that cooperates with unrelated or unforeseen classes.
-4. You're migrating from a legacy system and need to bridge old and new interfaces.
-5. You want to decouple your code from a specific implementation.
-
-The key insight is that the adapter does NOT change the behavior of the adaptee — it only
-translates the interface. If you need to add behavior, use the Decorator pattern instead.
-```
+The invoice service gets each order from a legacy pricing library as two arrays matched by index,
+`String[] skus` and `Integer[] cents`. A new footer shows the most expensive line:
 
 ```java
-// Example: Adapting a legacy payment processor to a modern interface
-interface ModernPaymentGateway {
-    PaymentResult processPayment(String cardNumber, double amount);
-}
-
-class LegacyPaymentProcessor {
-    public int charge(String card, int amountInCents) {
-        // legacy implementation
-        return 0; // status code
-    }
-}
-
-class PaymentAdapter implements ModernPaymentGateway {
-    private final LegacyPaymentProcessor legacy;
-
-    PaymentAdapter(LegacyPaymentProcessor legacy) {
-        this.legacy = Objects.requireNonNull(legacy);
-    }
-
-    @Override
-    public PaymentResult processPayment(String cardNumber, double amount) {
-        int cents = (int) Math.round(amount * 100); // (int) (amount * 100) truncates: 19.99 * 100 = 1998.999... -> 1998
-        int statusCode = legacy.charge(cardNumber, cents);
-        return new PaymentResult(statusCode == 0, statusCode);
-    }
-}
+List<Integer> prices = Arrays.asList(cents);
+prices.sort(Comparator.reverseOrder());
+System.out.println("highest line: " + prices.get(0));
 ```
 
-**Q2: What is the difference between a class adapter and an object adapter?**
+Since the release, customers see SKU A-100 billed at 72.00. It costs 19.99, nobody changed a
+price, and the footer's number is right. Before reading on, work out what moved the prices.
+
+An adapter makes an object you already have usable through an interface its class doesn't
+implement.
+
+## Arrays.asList Adapts an Array Without Copying It, So Sorting the List Reorders the Array
+
+The invoice lines after the footer, then the same code copying first with
+`new ArrayList<>(Arrays.asList(cents))`:
 
 ```text
-A2: The two variants differ in their mechanism:
-
-Class Adapter (inheritance-based):
-- Extends the adaptee class AND implements the target interface
-- Can override adaptee methods directly
-- Limited by Java's single inheritance — can only adapt one class
-- Creates a tighter coupling between adapter and adaptee
-- Cannot adapt subclasses of the adaptee
-
-Object Adapter (composition-based):
-- Implements the target interface and holds a reference to the adaptee
-- Delegates calls to the adaptee through the reference
-- Can adapt any subclass of the adaptee (polymorphism)
-- More flexible and loosely coupled
-- Can work with multiple adaptees if needed
-
-In Java, object adapters are strongly preferred because of single inheritance limitations.
-Class adapters are more common in languages with multiple inheritance like C++.
+highest line: 7200
+A-100  7200
+B-200  1999
+C-300  1250
+D-400  450
+---
+highest line: 7200
+A-100  1999
+B-200  450
+C-300  7200
+D-400  1250
 ```
+
+`Arrays.asList` returns a `List` that reads and writes the array you passed. The sort rearranged
+`cents`, so every price now sits beside another SKU. The javadoc
+calls it "a fixed-size list backed by the specified array", and the backing works both ways:
 
 ```java
-// Class Adapter — extends LegacyPlayer and implements MediaPlayer
-class AudioClassAdapter extends LegacyAudioPlayer implements MediaPlayer {
-    @Override
-    public String play(String filename) {
-        return playMp3(filename); // direct call via inheritance
-    }
-}
+String[] codes = {"EUR", "USD", "GBP"};
+List<String> list = Arrays.asList(codes);
+list.set(0, "CHF");                       // through the list
+codes[2] = "JPY";                         // through the array
+System.out.println("array " + Arrays.toString(codes) + "  list " + list);
 
-// Object Adapter — wraps LegacyPlayer and implements MediaPlayer
-class AudioObjectAdapter implements MediaPlayer {
-    private final LegacyAudioPlayer legacy;
-
-    AudioObjectAdapter(LegacyAudioPlayer legacy) {
-        this.legacy = legacy;
-    }
-
-    @Override
-    public String play(String filename) {
-        return legacy.playMp3(filename); // delegation
-    }
-}
+int[] ids = {7, 3, 9};
+var wrong = Arrays.asList(ids);           // List<int[]>, one element
+System.out.println("asList(int[]): size " + wrong.size() + ", contains(7) " + wrong.contains(7));
 ```
-
-**Q3: How does the Adapter pattern differ from the Facade and Decorator patterns?**
 
 ```text
-A3: These three structural patterns are often confused but serve different purposes:
-
-Adapter:
-- Converts one interface to another
-- Makes two incompatible interfaces work together
-- Does NOT add new behavior
-- Works with a single class (the adaptee)
-
-Decorator:
-- Adds new responsibilities/behavior to an object
-- Keeps the SAME interface as the wrapped object
-- Can be stacked (multiple decorators on one object)
-- Follows the same interface hierarchy
-
-Facade:
-- Provides a simplified interface to a complex subsystem
-- Hides the complexity of multiple classes behind a unified API
-- Does not wrap a single object; it orchestrates many objects
-- Creates a higher-level interface
-
-The key distinction: Adapter changes interfaces, Decorator adds behavior,
-and Facade simplifies interfaces.
+array [CHF, USD, JPY]  list [CHF, USD, JPY]
+asList(int[]): size 1, contains(7) false
 ```
+
+That is the adapter: the same data behind a second interface, with no copy, which is why a caller
+who wanted a list of their own got someone else's array. The view keeps the array's size, so `add` and `remove` throw (unit 8.1.3).
+
+The last line is the other trap. `asList(T...)` adapts arrays of objects only. Given an `int[]`, `T`
+becomes `int[]` and you get a one-element list holding the array. It compiles, and `contains(7)`
+answers `false`. The JDK has no `List<Integer>` view of an `int[]`.
+
+Copy when the receiver must not see your later changes, or you must not see its changes:
+`new ArrayList<>(...)` if it may change the list, `List.copyOf(...)` if it may not.
+
+<!-- practice 1 -->
+
+## InputStreamReader Adapts Bytes to Chars Through a Charset, and the One-Argument Constructor Takes the JVM's Default
+
+A parser that takes a `Reader` can't read a socket's or a file's `InputStream`: one deals in bytes,
+the other in characters. `InputStreamReader` sits between them, and the charset is the table it
+translates with. One string's UTF-8 bytes, read four ways. `drain` reads a `Reader` to the end,
+`perRead` does `new String(buf, 0, n, UTF_8)` for each `read()`, and `trickle` wraps the bytes in a
+stream that returns at most 3 bytes per read, as a socket may:
 
 ```java
-// Adapter: changes the interface
-class XmlToJsonAdapter implements JsonDataSource {
-    private final XmlDataSource xmlSource;
-    // converts XML interface calls to JSON interface calls
-}
-
-// Decorator: same interface, adds behavior
-class CachingDataSource implements DataSource {
-    private final DataSource wrapped;
-    // adds caching behavior, same DataSource interface
-}
-
-// Facade: simplifies multiple subsystems
-class OrderFacade {
-    private final InventoryService inventory;
-    private final PaymentService payment;
-    private final ShippingService shipping;
-    // simplifies order placement across all three services
-}
+byte[] utf8 = "Zürich → Genève".getBytes(StandardCharsets.UTF_8);
+System.out.println("default charset: " + java.nio.charset.Charset.defaultCharset());
+System.out.println("no charset:    " + drain(new InputStreamReader(new ByteArrayInputStream(utf8))));
+System.out.println("UTF_8:         " + drain(new InputStreamReader(new ByteArrayInputStream(utf8), StandardCharsets.UTF_8)));
+System.out.println("per read:      " + perRead(trickle(utf8)));
+System.out.println("reader, trickle: " + drain(new InputStreamReader(trickle(utf8), StandardCharsets.UTF_8)));
 ```
-
-**Q4: Can you give real-world examples of the Adapter pattern in the Java SDK?**
 
 ```text
-A4: The Java SDK uses the Adapter pattern extensively:
-
-1. Arrays.asList(T... a) — adapts an array to the List interface. The returned
-   list is backed by the array, providing a List view of array data.
-
-2. InputStreamReader — adapts InputStream (byte-oriented) to Reader (character-oriented).
-   It bridges the gap between byte streams and character streams.
-
-3. OutputStreamWriter — adapts OutputStream to Writer, the reverse of InputStreamReader.
-
-4. Collections.enumeration(Collection) — adapts a Collection to the legacy
-   Enumeration interface for backward compatibility.
-
-5. Collections.list(Enumeration) — adapts a legacy Enumeration to a List.
-
-6. java.util.concurrent.FutureTask — adapts Callable to both Runnable and Future.
-
-7. XmlAdapter in JAXB — used for custom marshalling/unmarshalling between XML and Java
-   types. JAXB is no longer part of the JDK: it was removed in Java 11 (JEP 320) and now
-   ships separately as Jakarta XML Binding (jakarta.xml.bind.annotation.adapters.XmlAdapter).
-
-Each of these converts one interface to another without changing the underlying behavior.
+$ java Decode
+default charset: UTF-8
+no charset:    Zürich → Genève
+UTF_8:         Zürich → Genève
+per read:      Zürich ��� Genève
+reader, trickle: Zürich → Genève
+$ java -Dfile.encoding=windows-1252 Decode
+default charset: windows-1252
+no charset:    ZÃ¼rich â†’ GenÃ¨ve
+UTF_8:         Zürich → Genève
+per read:      Zürich ��� Genève
+reader, trickle: Zürich → Genève
 ```
 
-```java
-// Arrays.asList — adapts array to List
-String[] array = {"a", "b", "c"};
-List<String> list = Arrays.asList(array); // List view of the array
+The constructor without a charset uses the JVM's default: UTF-8 on Java 18 and later unless the
+JVM is started with another `file.encoding` (unit 1.4.1 has the
+history). The same jar reads the same bytes correctly on a laptop and turns `ü` into `Ã¼` on a
+server whose start script sets `windows-1252`. Single-byte charsets like that one give almost every
+byte a character, and Latin-1 gives all 256 one, so each byte of `ü` became a wrong character
+rather than `�`. Nothing throws, so the broken names are stored. Pass
+the charset the data is in.
 
-// InputStreamReader — adapts InputStream to Reader
-InputStream byteStream = new FileInputStream("file.txt");
-Reader charReader = new InputStreamReader(byteStream, StandardCharsets.UTF_8);
+The `per read` line is why decoding needs an adapter that keeps state, not a `new String` per
+buffer. The arrow is three bytes in UTF-8, the reads cut it apart, and each piece decoded alone is
+malformed and becomes `�`. `InputStreamReader` holds the bytes of an unfinished character until the
+next read completes it, so it decoded the same trickle correctly.
 
-// Collections.enumeration — adapts Collection to Enumeration
-List<String> items = List.of("x", "y");
-Enumeration<String> enumeration = Collections.enumeration(items);
-```
-
-**Q5: How can you use Java lambdas as lightweight adapters?**
+When the bytes aren't in the charset you named, the adapter doesn't fail by default. Latin-1 bytes
+read as UTF-8, once through a `Charset` and once through `UTF_8.newDecoder()`:
 
 ```text
-A5: When the target interface is a functional interface (single abstract method), you can
-use a lambda expression as an inline adapter without creating a dedicated adapter class.
-This is a modern Java approach that reduces boilerplate significantly.
-
-This works because:
-1. A lambda expression implements a functional interface
-2. The lambda body can delegate to the adaptee's method
-3. It can also transform parameters and return values
-
-This approach is best for simple adapters with straightforward translations. For complex
-adapters that need to maintain state or handle multiple methods, a dedicated adapter class
-is still preferred.
+Charset:        Gen�ve
+CharsetDecoder: java.nio.charset.MalformedInputException: Input length = 1
 ```
 
+The `Charset` constructor replaced the malformed byte with `U+FFFD`. A decoder from `newDecoder()`
+reports it, so where a feed in the wrong charset must be rejected, pass a decoder.
+
+<!-- practice 2 -->
+
+## A Callback Adapter Must Complete the Future on Every Path the Legacy Call Can Take
+
+A legacy quote client answers through a listener, on its own I/O thread, about 50 ms after
+`request` is called. It checks its argument on the caller's thread first:
+
 ```java
-// Traditional adapter class
-class StringComparatorAdapter implements Comparator<String> {
-    private final LegacyStringComparer comparer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-    StringComparatorAdapter(LegacyStringComparer comparer) {
-        this.comparer = comparer;
-    }
+interface QuoteListener {
+    void onQuote(String symbol, long cents);
+    void onError(String symbol, int code);
+}
 
-    @Override
-    public int compare(String s1, String s2) {
-        return comparer.compareStrings(s1, s2);
+final class LegacyQuoteClient {
+    private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "quote-io");
+        t.setDaemon(true);
+        return t;
+    });
+
+    void request(String symbol, QuoteListener listener) {
+        if (symbol.isBlank()) throw new IllegalArgumentException("blank symbol");
+        io.execute(() -> {
+            try { Thread.sleep(50); } catch (InterruptedException e) { return; }
+            if (symbol.equals("ZZZZ")) listener.onError(symbol, 404);
+            else listener.onQuote(symbol, 12_345);
+        });
     }
 }
-
-// Lambda-based adapter — same result, less code
-LegacyStringComparer comparer = new LegacyStringComparer();
-Comparator<String> adapted = (s1, s2) -> comparer.compareStrings(s1, s2);
-// Or with method reference:
-Comparator<String> adapted2 = comparer::compareStrings;
 ```
 
-**Q6: What are the trade-offs of using the Adapter pattern?**
-
-```text
-A6: Trade-offs to consider:
-
-Advantages:
-- Promotes code reuse by allowing existing classes to work with new systems
-- Follows the Open/Closed Principle — extend without modifying
-- Follows the Single Responsibility Principle — separation of interface translation
-- Reduces coupling between client code and third-party or legacy code
-- Enables gradual migration from legacy to modern interfaces
-
-Disadvantages:
-- Adds an extra layer of indirection, increasing complexity
-- Can become a maintenance burden if the adaptee's interface changes frequently
-- Performance overhead of delegation (usually negligible)
-- If many adapters are needed, it may indicate a deeper design problem
-- Class adapters are limited by single inheritance in Java
-
-When NOT to use:
-- When you control both interfaces and can simply change one to match the other
-- When the interfaces are too different — a more significant redesign may be needed
-- When the overhead of the adapter layer is not justified by the decoupling benefit
-```
+The new code wants a `CompletableFuture<Long>`. The first adapter completes the future when a
+quote arrives:
 
 ```java
-// Example of when NOT to use an adapter:
-// If you control both interfaces, just align them
-interface DataFetcher {
-    List<String> fetch(String query); // Change this to match what clients need
-}
-
-// Example of when an adapter IS appropriate:
-// Third-party library you cannot modify
-class ThirdPartySearchEngine {
-    public SearchResults search(SearchQuery query) { ... }
-}
-
-// Your system expects a different interface
-interface MySearchService {
-    List<Result> find(String keyword);
-}
-
-// Adapter bridges the gap
-class SearchAdapter implements MySearchService {
-    private final ThirdPartySearchEngine engine;
-    // ...
+static CompletableFuture<Long> quoteV1(LegacyQuoteClient client, String symbol) {
+    CompletableFuture<Long> f = new CompletableFuture<>();
+    client.request(symbol, new QuoteListener() {
+        @Override public void onQuote(String s, long cents) { f.complete(cents); }
+        @Override public void onError(String s, int code) { System.out.println("  quote failed: " + code); }
+    });
+    return f;
 }
 ```
+
+The caller formats the price and shows `n/a` on any failure:
+`.thenApply(c -> c / 100 + "." + c % 100).exceptionally(e -> "n/a")`. This run adds
+`.orTimeout(1, SECONDS)` after that, so a hang shows up as a timeout, and prints whatever the call
+throws. Three symbols through `quoteV1`, then the same three through the fixed adapter below:
+
+```text
+v1     'ACME' 123.45
+  quote failed: 404
+v1     'ZZZZ' java.util.concurrent.CompletionException: java.util.concurrent.TimeoutException
+v1     ' '    java.lang.IllegalArgumentException: blank symbol
+fixed  'ACME' 123.45
+fixed  'ZZZZ' n/a
+fixed  ' '    n/a
+```
+
+A `CompletableFuture` made with `new` completes only when some code calls `complete` or
+`completeExceptionally`. The unknown symbol reached `onError`, which logged and returned, so
+nothing completed the future. Without the timeout, `join()` would block that request's thread for
+good. The blank symbol failed another
+way: `request` threw before any callback existed, and the exception left `quoteV1` itself, past
+the `exceptionally` the caller wrote for failures.
+
+The fixed adapter maps each way the legacy call can end to the future:
+
+```java
+static CompletableFuture<Long> quote(LegacyQuoteClient client, String symbol) {
+    CompletableFuture<Long> f = new CompletableFuture<>();
+    try {
+        client.request(symbol, new QuoteListener() {
+            @Override public void onQuote(String s, long cents) { f.complete(cents); }
+            @Override public void onError(String s, int code) {
+                f.completeExceptionally(new IllegalStateException(s + ": error " + code));
+            }
+        });
+    } catch (RuntimeException e) {
+        f.completeExceptionally(e);
+    }
+    return f;
+}
+```
+
+### Continuations Run on Whichever Thread Completes the Future
+
+`thenApply` itself returns a new stage at once and never blocks the thread that calls it. The
+question is where its function runs. One stage attached while the quote is in flight, one after
+`join()` has returned:
+
+```java
+CompletableFuture<Long> pending = quote(client, "ACME");
+CompletableFuture<String> early = pending.thenApply(c -> Thread.currentThread().getName());
+pending.join();
+CompletableFuture<String> late = pending.thenApply(c -> Thread.currentThread().getName());
+```
+
+```text
+attached before the answer runs on: quote-io
+attached after the answer runs on:  main
+```
+
+`complete` runs the stages already waiting on its own thread, here the client's only I/O thread,
+so a slow stage holds up every other quote. The adapter can't know which stages will be slow, so a
+caller with real work uses `thenApplyAsync(fn, executor)`.
+
+<!-- practice 3 -->
+
+## Java Has Only Object Adapters When the Target Is a Class
+
+The textbook class adapter extends the adaptee and implements the target, so it inherits the code
+it translates to. Trying that for bytes and characters:
+
+```java
+import java.io.ByteArrayInputStream;
+import java.io.Reader;
+
+/** A class adapter: is-a ByteArrayInputStream, and should be usable as a Reader. */
+class BytesAsReader extends ByteArrayInputStream implements Reader {
+    BytesAsReader(byte[] bytes) { super(bytes); }
+}
+```
+
+```text
+BytesAsReader.java:5: error: interface expected here
+class BytesAsReader extends ByteArrayInputStream implements Reader {
+                                                            ^
+1 error
+```
+
+`Reader` is an abstract class, and a Java class extends only one. When the target is a class, the
+adapter extends the target and holds the adaptee in a field, an object adapter. That is how
+`InputStreamReader` is built, and its `trickle` run above is that adapter working. When the target is an interface, a class adapter compiles but adapts
+only the instances it constructs itself, never `System.in` or the stream a socket hands you. It
+also exposes the adaptee's public methods, so callers can change its state behind the
+translation. An object adapter forwards to the object it holds, as the forwarding wrapper of unit
+8.4.1 does, and for a single-method target a method reference is the whole adapter (unit 4.3.1).
+
+The other wrappers in this module keep the interface they wrap: a decorator adds behaviour behind
+it (unit 9.2.2), and a proxy controls access to its calls (unit 9.2.3).
+
+<!-- practice 4 -->
+
+## Summary
+
+- **`Arrays.asList` is a view.** Sorting or setting through it changes the array, and `asList` of
+  an `int[]` is a one-element `List<int[]>`. Copy when the receiver needs a list of its own.
+- **`InputStreamReader` decodes with a charset.** Without one it takes the JVM's default. It
+  keeps a split character between reads, and only a `CharsetDecoder` makes it reject bad bytes.
+- **A callback adapter completes its future on every path.** A forgotten error callback leaves
+  `join()` waiting forever, and a synchronous throw must become a failed future. Stages attached
+  early run on the legacy client's thread, so slow ones go to an executor.
+- **When the target is a class, Java allows only an object adapter**, and for an interface target
+  it is still the only kind that adapts an object you were given.
+
+## Reference
+
+**Adapters in the JDK (Java 21):**
+
+| Call | Adapts | Behaviour |
+|---|---|---|
+| `Arrays.asList(T...)` | object array to `List` | view: `set` and `sort` reach the array; `add`, `remove` throw |
+| `new InputStreamReader(in)` | `InputStream` to `Reader` | default charset |
+| `new InputStreamReader(in, Charset)` | same | malformed input replaced with `U+FFFD` |
+| `new InputStreamReader(in, CharsetDecoder)` | same | the decoder's actions; `newDecoder()` reports |
+| `new OutputStreamWriter(out, Charset)` | `OutputStream` to `Writer` | unmappable characters replaced |
+| `Enumeration.asIterator()` (Java 9) | `Enumeration` to `Iterator` | view |
+| `Collections.list(Enumeration)` | `Enumeration` to `ArrayList` | a copy, not a view |
+| `Executors.callable(Runnable, T)` | `Runnable` to `Callable<T>` | returns the given result |
+
+**Where a `CompletableFuture` stage runs** (the javadoc lets a non-async stage run on the
+completing thread or on any caller of a completion method; the first two rows are this page's run):
+
+| Stage | Ran on |
+|---|---|
+| `thenApply` attached before completion | the thread that called `complete` |
+| `thenApply` attached after completion | the thread that attached it |
+| `thenApplyAsync(fn)` | `ForkJoinPool.commonPool()`; a new thread per task if its parallelism is below 2 |
+| `thenApplyAsync(fn, executor)` | the given executor |
+
+## Challenges
+
+1. A method returns `Arrays.asList(internalArray)` so that callers can't add to it. What can a
+   caller still change? Choose between `List.copyOf` and `Collections.unmodifiableList` for the
+   fix: which one copies on every call, and which one still shows later changes to the array?
+2. The legacy client calls `onError` and then, after an internal retry, `onQuote` for the same
+   request. What does the fixed adapter's caller see, and is that the answer you want?
+3. A caller cancels the future the adapter returned, and the legacy request keeps running. What
+   would the adapter need from the legacy API to stop it, and what can it do if there is nothing?
+
+## Design Note: Why Arrays.asList Is a View
+
+The javadoc calls `asList` a "bridge between array-based and collection-based APIs", the
+counterpart of `Collection.toArray()`. A view makes the bridge cost one small object whatever the
+array's size, and lets list algorithms such as `Collections.sort` or `Collections.reverse` work on
+an array in place. A copy would have been safe to hand out and useless for that second job.
+
+The price is aliasing that no type shows: a `List<Integer>` parameter doesn't say whether someone's
+array sits behind it. `List.of`, added in Java 9, took the other side: it copies the array and
+refuses nulls and every change.
 
 ## Code Examples
 

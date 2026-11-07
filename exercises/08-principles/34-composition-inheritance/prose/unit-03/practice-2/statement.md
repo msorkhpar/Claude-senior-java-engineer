@@ -1,29 +1,12 @@
-Composition makes a service testable: it receives its parts through the constructor, so a
-test can hand it an in-memory sender that records what was sent. The page's design:
+The shop's stock service wants a dashboard: how many stock calls succeed and how many fail. The
+warehouse store `MapStock` is one implementation of `Stock`; the checkout uses another, and the
+tests use fakes. `MeteredStock` wraps any of them and is itself a `Stock`, so the code that calls
+the stock doesn't change. The dashboard reads `succeeded()` and `failed()` while checkout threads
+are calling.
 
-```java
-interface NotificationSender {
-    boolean send(String recipient, String message);
-}
+The counters are in place. Finish `MeteredStock.level` and `MeteredStock.set` in `src/main/java/practice/Stocks.java`.
 
-interface MessageFormatter {
-    String format(String template, Map<String, String> variables);
-}
-```
-
-Both interfaces are given. Write `TemplateFormatter` and `NotificationService` in
-`Notifications`:
-
-- `TemplateFormatter.format` replaces **every** `${key}` with its value, and leaves a
-  placeholder with no value as it is: `"Hi ${name}, bye ${name}! ${missing}"` with
-  `name = Ann` is `"Hi Ann, bye Ann! ${missing}"`. A key is whatever lies between `${` and
-  `}` (so `${user.name}` works), and a value is inserted exactly as it is: `$5` stays `$5`,
-  and a value that looks like a placeholder, such as `${b}`, is not expanded again;
-- `new NotificationService(sender, formatter)` keeps **the parts it is given**, and
-  `notify(recipient, template, variables)` formats with that formatter and sends with that
-  sender. With a recording sender, `notify("admin", "Alert: ${event}", {event=login})`
-  sends `"Alert: login"` to `admin` and returns `true`;
-- `notify` returns what the sender returned, and counts it: `getSuccessCount()` counts sends
-  that returned `true`, `getFailureCount()` those that returned `false`. The page keeps both
-  counts in `AtomicInteger`s so concurrent calls can share the service; the tests here check
-  the counts one call at a time, and do not grade that choice.
+When you're done, a call through `MeteredStock` behaves exactly as a call to the stock it wraps:
+same answer, same exception. Every call is counted once, as a success if it returned and as a
+failure if it threw. Callers already catch `IllegalArgumentException` for a negative count, and
+some catch the exceptions their own store throws. About ten lines in total.

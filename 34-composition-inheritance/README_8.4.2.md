@@ -1,476 +1,298 @@
 # 8.4.2. Applying Composition over Inheritance in Concurrent Programming
 
-## Concept Explanation
+A webhook service keeps each customer's endpoint URLs in a list that every event walks. The list
+class extends `Vector<String>` and adds one method, a `synchronized subscribe(url)` that adds the
+URL only if it isn't there yet. Since events far outnumber new subscriptions, someone changes
+`extends Vector<String>` to `extends CopyOnWriteArrayList<String>`, whose reads take no lock, and a
+new nightly import job adds URLs with the list's own `addIfAbsent(url)`. It compiles, every test
+passes, and a week later a customer reports receiving each order event twice: their URL is in the
+list twice.
 
-In concurrent programming, the choice between composition and inheritance has amplified consequences. Inheritance creates hidden dependencies between classes, and when multiple threads interact with an inheritance hierarchy, those hidden dependencies become potential sources of race conditions, deadlocks, and data corruption. Composition, by contrast, makes dependencies explicit, boundaries clear, and synchronization points visible.
+Every output below is from Java 21 on a 20-core machine.
 
-**Real-world analogy**: Imagine a restaurant kitchen. The inheritance approach is like having a "head chef" who does everything -- cooking, plating, cleaning -- and apprentices who override specific steps. If two apprentices try to work simultaneously, they clash because they share the head chef's workspace and tools implicitly. The composition approach is like having independent stations: a grill station, a prep station, a plating station. Each station has its own tools and workspace. Multiple cooks can work simultaneously because the boundaries are clear, and coordination happens through explicit handoffs (passing plates), not implicit shared state.
-
-### 8.4.2.1 Favoring Object Composition for Flexibility
-
-In concurrent systems, flexibility means being able to swap, configure, and combine behaviors without restructuring class hierarchies. Composition achieves this by injecting behavior objects (strategies, policies, handlers) that can be changed at construction time or even at runtime.
-
-For example, a retry mechanism for network calls can be composed with different retry strategies (fixed delay, exponential backoff, no retry) without creating a hierarchy of executor subclasses. Each strategy is a separate, testable component.
-
-### 8.4.2.2 Avoiding Deep Inheritance Hierarchies
-
-Deep hierarchies like `Thread -> WorkerThread -> RetryableWorkerThread -> LoggingRetryableWorkerThread` are particularly dangerous in concurrent code because:
-- Each level may add its own synchronization, leading to nested locks and deadlock risks.
-- Overriding a method in a subclass may inadvertently bypass synchronization added in a parent class.
-- Testing requires instantiating the entire hierarchy, making unit testing difficult.
-
-The alternative is to use the decorator pattern: start with a base implementation and wrap it with independent decorators for logging, retrying, synchronization, etc. Each decorator has a single responsibility and can be applied in any combination.
-
-## Key Points to Remember
-
-- Composition makes synchronization boundaries explicit -- each composed component manages its own thread safety.
-- Inheritance can silently break synchronization when a subclass overrides a synchronized method without maintaining the lock contract.
-- Decorators (composition-based wrappers) allow adding cross-cutting concerns (logging, retries, metrics, synchronization) independently.
-- Composed objects can be tested in isolation, even in concurrent scenarios, because they do not depend on a superclass's internal threading behavior.
-- Constructor injection of composed strategies makes concurrency policies configurable without code changes.
-- Deep inheritance hierarchies with synchronized methods create lock ordering risks that are difficult to reason about.
-- Virtual threads (Java 21) work naturally with composed task runners because each decorator simply delegates without blocking platform threads.
-
-## Relevant Java 21 Features
-
-- **Virtual threads (JEP 444)**: Composition pairs well with virtual threads. Composed task runners can be executed on virtual threads without concern about blocking platform threads. Each decorator in a composition chain runs on the same virtual thread, keeping the execution model simple.
-- **Structured concurrency (JEP 453, preview in Java 21)**: Encourages scoped, composable concurrency patterns rather than deep thread hierarchies.
-- **Records as strategy objects**: Immutable records can serve as lightweight strategy implementations that are inherently thread-safe.
-- **Sealed interfaces for strategy types**: Sealed interfaces can define a closed set of strategy implementations, combining the benefits of restricted inheritance with composition-based usage.
-
-## Common Pitfalls and How to Avoid Them
-
-1. **Breaking synchronization through inheritance**
-
-   When a subclass overrides a synchronized method without maintaining the synchronization contract, the thread safety of the parent class is silently broken:
-
-   ```java
-   // PROBLEM: Subclass breaks parent's synchronization
-   class SafeCounter {
-       protected int count = 0;
-       public synchronized void increment() { count++; }
-       public synchronized int getCount() { return count; }
-   }
-
-   class ExtendedCounter extends SafeCounter {
-       @Override
-       public void increment() { // NOT synchronized! Breaks thread safety
-           count++;
-           // Additional logic
-       }
-   }
-   ```
-
-   **Fix**: Use composition to add behavior while preserving the original synchronization:
-
-   ```java
-   class ExtendedCounter implements Counter {
-       private final SafeCounter delegate;  // Thread-safe by its own contract
-
-       public void increment() {
-           delegate.increment();  // Delegates to synchronized method
-           // Additional logic (in its own synchronization scope if needed)
-       }
-   }
-   ```
-
-2. **Deadlocks from nested synchronization in deep hierarchies**
-
-   When a parent and child class both synchronize on different monitors, method calls that traverse the hierarchy can deadlock:
-
-   ```java
-   // PROBLEM: Parent locks on 'this', child locks on 'childLock'
-   class Parent {
-       synchronized void doWork() { /* ... */ }
-   }
-
-   class Child extends Parent {
-       private final Object childLock = new Object();
-       @Override
-       synchronized void doWork() { // locks 'this'
-           synchronized (childLock) {  // then locks childLock
-               super.doWork();
-           }
-       }
-   }
-   ```
-
-   **Fix**: Compose independent components with clear, non-overlapping lock scopes.
-
-3. **Tight coupling to Thread class through inheritance**
-
-   Extending `Thread` directly couples your logic to the threading mechanism:
-
-   ```java
-   // PROBLEM: Inheriting from Thread
-   class MyWorker extends Thread {
-       @Override
-       public void run() { /* worker logic */ }
-   }
-   ```
-
-   **Fix**: Implement `Runnable` or `Callable` and compose with an executor:
-
-   ```java
-   class MyWorker implements Runnable {
-       @Override
-       public void run() { /* worker logic */ }
-   }
-   // Usage: executor.submit(new MyWorker());
-   ```
-
-4. **Overriding methods that have implicit concurrency contracts**
-
-   Methods in concurrent classes (e.g., `ConcurrentHashMap.computeIfAbsent`) have specific atomicity guarantees. Overriding them in subclasses can violate those guarantees.
-
-   **Fix**: Wrap concurrent classes with composition rather than extending them.
-
-## Best Practices and Optimization Techniques
-
-1. **Compose retry strategies as objects**: Define retry behavior as a strategy interface with implementations (fixed, exponential, no-retry). Inject the strategy into executors rather than creating executor subclasses.
-2. **Use the decorator pattern for cross-cutting concerns**: Layer logging, metrics, synchronization, and error handling as independent decorators around a core implementation.
-3. **Inject concurrency policies through composition**: Thread pool configuration, timeout policies, and backpressure strategies should be composed, not hardcoded in base classes.
-4. **Keep composed components stateless when possible**: Stateless components are inherently thread-safe and can be shared freely.
-5. **Use `CopyOnWriteArrayList` for composed listener lists**: When composing observable behavior in concurrent contexts, use thread-safe collections for observer/listener lists.
-6. **Prefer immutable composed objects**: Immutable strategy objects, formatters, and validators eliminate the need for synchronization entirely.
-
-## Edge Cases and Their Handling
-
-1. **Null strategies/delegates**: Always validate composed objects with `Objects.requireNonNull()` in constructors.
-2. **Exception propagation through decorators**: Each decorator must decide whether to catch, wrap, or propagate exceptions. Document this behavior clearly.
-3. **Decorator ordering**: The order of decorator application matters (e.g., logging before synchronization vs. after). Make ordering explicit in factory methods.
-4. **Thread-local state in decorators**: Decorators that maintain thread-local state must ensure proper cleanup, especially on pooled platform threads, which are reused across tasks. Virtual threads are not pooled (one per task), but a `ThreadLocal` copy per virtual thread can cost a lot of memory when there are millions of them.
-5. **Shutdown and resource cleanup**: Composed components that hold resources (executors, connections) need explicit lifecycle management. Consider implementing `AutoCloseable`.
-
-## Interview-specific Insights
-
-Interviewers testing concurrent design often ask candidates to:
-- Refactor a thread-unsafe inheritance hierarchy into a composition-based design.
-- Explain why extending `Thread` is considered bad practice compared to implementing `Runnable`.
-- Design a retry mechanism using the Strategy pattern (composition) rather than subclassing.
-- Identify deadlock risks in inheritance hierarchies with synchronized methods.
-- Explain how decorators maintain thread safety when layered.
-
-Key tip: When discussing this topic in an interview, start with the problem (fragile base class in concurrent contexts), show the inheritance-based solution and its flaws, then demonstrate the composition-based solution. This shows both understanding and the ability to refactor.
-
-## Interview Q&A Section
-
-**Q1: Why is extending Thread considered bad practice? What should you do instead?**
-
-```text
-A1: Extending Thread is considered bad practice for several reasons:
-
-1. It uses up your single inheritance slot. If MyWorker extends Thread, it
-   cannot extend any other class.
-2. It tightly couples the task logic to the threading mechanism. The task
-   cannot be reused with different execution models (thread pools, virtual
-   threads, single-threaded executor).
-3. It conflates "what to do" with "how to run it." The Runnable interface
-   separates these concerns.
-4. Thread is a heavy class with many methods (setPriority, setDaemon, etc.)
-   that are irrelevant to the task logic.
-
-Instead, implement Runnable or Callable and submit tasks to an ExecutorService.
-This is composition: the task (what) is composed with the executor (how).
-With Java 21 virtual threads, this becomes even more important because you
-want tasks to be lightweight and executor-agnostic.
-```
+## A Subclass's synchronized Method Excludes Only Code That Locks this
 
 ```java
-// BAD: Inheriting from Thread
-class DataProcessor extends Thread {
-    private final List<String> data;
-    DataProcessor(List<String> data) { this.data = data; }
-
-    @Override
-    public void run() {
-        data.forEach(item -> System.out.println(item.toUpperCase()));
+static class Subscribers extends CopyOnWriteArrayList<String> {
+    synchronized boolean subscribe(String url) {
+        if (contains(url)) return false;
+        validate(url);
+        add(url);
+        return true;
     }
-}
-new DataProcessor(data).start(); // Tied to platform threads
-
-// GOOD: Composition with Runnable + Executor
-class DataProcessor implements Runnable {
-    private final List<String> data;
-    DataProcessor(List<String> data) { this.data = data; }
-
-    @Override
-    public void run() {
-        data.forEach(item -> System.out.println(item.toUpperCase()));
-    }
-}
-// Can run on platform threads, virtual threads, or single-threaded executor
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    executor.submit(new DataProcessor(data));
 }
 ```
 
-**Q2: How do you add retry logic to a concurrent task without inheritance?**
+`contains` and `add` are each atomic, and `subscribe` holds the subclass's monitor across both, so
+two `subscribe` calls on the same object can't overlap. Which lock does the import's
+`addIfAbsent` take?
 
-```text
-A2: Use the Strategy pattern via composition. Define a RetryStrategy interface
-that encapsulates the retry policy (max retries, delay calculation, which
-exceptions to retry). Then compose this strategy into a ResilientExecutor
-that applies the retry logic around any task.
-
-Benefits over inheritance:
-- Retry strategies can be tested independently.
-- Different retry strategies can be swapped at runtime or configuration time.
-- The executor does not need to know the details of the retry policy.
-- New retry strategies (circuit breaker, jitter, etc.) can be added without
-  modifying the executor class.
-
-This approach follows both Composition over Inheritance and the Open/Closed
-Principle.
-```
+In the run, `validate` waits on a latch when called from a thread named `subscribe`, so that
+thread stops after its `contains` found nothing. The main thread then calls `addIfAbsent` for the
+same URL:
 
 ```java
-// Strategy interface for retry behavior
-interface RetryStrategy {
-    boolean shouldRetry(int attempt, Exception lastException);
-    long delayMillis(int attempt);
-}
+Thread subscriber = new Thread(() -> subs.subscribe(URL), "subscribe");
+subscriber.start();
+checked.await();                              // subscribe() holds the monitor, saw no URL
+boolean imported = subs.addIfAbsent(URL);     // the import job, on the same list
+resume.countDown();
+subscriber.join();
+```
 
-// Concrete strategies
-class FixedRetryStrategy implements RetryStrategy {
-    private final int maxRetries;
-    private final long delayMs;
-    // ... implementation
-}
+```text
+import's addIfAbsent: true, copies of the URL: 2
+```
 
-class ExponentialBackoffStrategy implements RetryStrategy {
-    private final int maxRetries;
-    private final long initialDelayMs;
-    private final long maxDelayMs;
-    // ... delay = initialDelayMs * 2^(attempt - 1), capped at maxDelayMs; compute the
-    // doubling as a shift that is checked first, or large attempts overflow to 0 or negative
-}
+`addIfAbsent` didn't wait. `CopyOnWriteArrayList` locks an internal field,
+`final transient Object lock`, and never `this`, so the subclass's `synchronized` excluded only
+other `subscribe` calls. Every reading and writing operation of `Vector` locks `this`, so over
+`Vector` the same subclass excluded every other caller. `Vector`'s javadoc says only that it "is
+synchronized"; which object it locks is in its source.
 
-// Executor composes the strategy
-class ResilientExecutor {
-    private final RetryStrategy retryStrategy;
+Without the latch, eight threads add the same 2,000 URLs, half through `subscribe` and half
+through `addIfAbsent`; a second test sends all of them through `subscribe`:
 
-    ResilientExecutor(RetryStrategy strategy) {
-        this.retryStrategy = Objects.requireNonNull(strategy);
+```text
+subclass: subscribe() vs addIfAbsent()   duplicates in 5 runs: [2, 84, 1, 0, 1]
+subclass: subscribe() only               duplicates in 5 runs: [0, 0, 0, 0, 0]
+```
+
+The window is the stretch between `contains` and `add`, and a run with no duplicates proves
+nothing; the forced interleaving shows the race every time. A subclass also inherits every public method of the base,
+and each one reaches the same data under the base's own lock: `add`, `set`, `addAllAbsent`,
+`removeIf`. The subclass can't take them away. Unit 8.4.1 shows the same coupling without threads:
+a `HashSet` subclass whose count depends on how `addAll` is written inside.
+
+## A Helper Outside the Class Must Take the Lock the Class Takes
+
+Each tenant's request handler gets its own service over one shared `Collections.synchronizedList`:
+
+```java
+static class SubscriptionService {
+    private final List<String> urls;              // one Collections.synchronizedList, shared
+
+    SubscriptionService(List<String> urls) {
+        this.urls = urls;
     }
 
-    <T> T execute(Supplier<T> task) throws Exception {
-        int attempt = 0;
-        Exception lastException = null;
-        while (true) {
-            attempt++;
-            try {
-                return task.get();
-            } catch (Exception e) {
-                lastException = e;
-                if (!retryStrategy.shouldRetry(attempt, e)) throw e;
-                Thread.sleep(retryStrategy.delayMillis(attempt));
-            }
+    synchronized boolean subscribe(String url) {
+        if (urls.contains(url)) return false;
+        validate(url);
+        urls.add(url);
+        return true;
+    }
+}
+```
+
+A second version's `subscribe` is not `synchronized` and wraps its body in
+`synchronized (urls) { ... }` instead. Eight threads, one service each:
+
+```text
+helper locking itself, one per thread    duplicates in 5 runs: [183, 250, 209, 97, 624]
+helper locking the list, one per thread  duplicates in 5 runs: [0, 0, 0, 0, 0]
+```
+
+The `synchronized` method locks the service, and there are eight services: the per-object lock
+of unit 6.2.1's order counter. `Collections.synchronizedList`'s methods lock the returned
+wrapper for one call each, which is why its javadoc tells callers to synchronize on it for iteration (unit 6.5.2).
+Locking the collection a helper works on is called client-side locking, and it holds only while
+the class keeps locking that object. Over a `CopyOnWriteArrayList` or a `ConcurrentHashMap`,
+`synchronized (urls)` excludes none of the class's own methods.
+
+<!-- practice 3 -->
+
+## A Class That Owns the State and the Lock Doesn't Depend on What It Wraps
+
+`SubscriberSet` holds the list as a private field and does its own locking:
+
+```java
+static final class SubscriberSet {
+    private final Object lock = new Object();
+    private final List<String> urls = new ArrayList<>();
+
+    boolean subscribe(String url) {
+        synchronized (lock) {
+            if (urls.contains(url)) return false;
+            validate(url);
+            urls.add(url);
+            return true;
+        }
+    }
+
+    boolean unsubscribe(String url) {
+        synchronized (lock) {
+            return urls.remove(url);
+        }
+    }
+
+    List<String> snapshot() {
+        synchronized (lock) {
+            return List.copyOf(urls);
         }
     }
 }
 ```
 
-**Q3: How do decorators help avoid deep inheritance hierarchies in concurrent code?**
+The same latch, with the second caller another `subscribe` on a thread named `import`; the run
+reads that thread's state and lock owner from `ThreadMXBean.getThreadInfo`:
 
 ```text
-A3: In concurrent code, requirements like logging, synchronization, retrying,
-and metrics often lead to class explosion through inheritance:
-  BaseTask -> LoggingTask -> SynchronizedLoggingTask -> RetryingSynchronizedLoggingTask
-
-This hierarchy has several problems:
-- Each combination requires a new class (N features = 2^N classes).
-- Synchronization in parent classes can conflict with child classes.
-- Testing requires the entire hierarchy.
-
-Decorators solve this by wrapping a base implementation with single-purpose
-wrappers:
-  SynchronizedTaskRunner(LoggingTaskRunner(UpperCaseRunner))
-
-Each decorator:
-- Implements the same interface as the base.
-- Holds a reference to the delegate (composition).
-- Adds one concern (logging OR synchronization OR retrying).
-- Can be applied in any combination and order.
-
-For concurrency specifically:
-- SynchronizedTaskRunner adds a lock around the delegate call.
-- LoggingTaskRunner records start/end/error without affecting threading.
-- The base runner focuses purely on business logic.
+import: BLOCKED, lock owner: subscribe
+copies of the URL: 1
 ```
-
-```java
-// Base interface
-interface TaskRunner {
-    String run(String input) throws Exception;
-}
-
-// Base implementation: pure business logic
-class UpperCaseRunner implements TaskRunner {
-    @Override
-    public String run(String input) { return input.toUpperCase(); }
-}
-
-// Decorator 1: Logging (no synchronization concern)
-class LoggingTaskRunner implements TaskRunner {
-    private final TaskRunner delegate;
-    private final List<String> logs = new CopyOnWriteArrayList<>();
-
-    LoggingTaskRunner(TaskRunner delegate) { this.delegate = delegate; }
-
-    @Override
-    public String run(String input) throws Exception {
-        logs.add("START: " + input);
-        String result = delegate.run(input);
-        logs.add("SUCCESS: " + result);
-        return result;
-    }
-}
-
-// Decorator 2: Thread safety
-class SynchronizedTaskRunner implements TaskRunner {
-    private final TaskRunner delegate;
-    private final ReentrantLock lock = new ReentrantLock();
-
-    SynchronizedTaskRunner(TaskRunner delegate) { this.delegate = delegate; }
-
-    @Override
-    public String run(String input) throws Exception {
-        lock.lock();
-        try { return delegate.run(input); }
-        finally { lock.unlock(); }
-    }
-}
-
-// Compose freely:
-TaskRunner runner = new SynchronizedTaskRunner(
-    new LoggingTaskRunner(
-        new UpperCaseRunner()
-    )
-);
-```
-
-**Q4: What problems arise when overriding synchronized methods in subclasses?**
 
 ```text
-A4: Overriding synchronized methods in subclasses creates several problems:
-
-1. Missing synchronization: If the subclass forgets the 'synchronized'
-   keyword, the thread safety contract of the parent is silently broken.
-   The subclass method runs without holding the monitor.
-
-2. Different lock semantics: The parent may synchronize on 'this', but the
-   subclass might add synchronization on a different object, creating
-   potential for deadlocks when both locks are held.
-
-3. Extended critical sections: A subclass might add additional logic inside
-   the synchronized method, holding the lock longer than intended and
-   reducing throughput.
-
-4. Super calls within locks: Calling super.method() from a subclass's
-   synchronized method means the lock is already held. If the super method
-   also tries to acquire the same lock, Java's reentrant locking prevents
-   deadlock, but it may not prevent logical errors.
-
-5. Invisible lock ordering: When a hierarchy has multiple synchronized
-   methods that call each other, the lock ordering becomes implicit and
-   fragile.
-
-Composition avoids ALL of these issues because each component manages its
-own synchronization independently.
+composed class with its own lock         duplicates in 5 runs: [0, 0, 0, 0, 0]
 ```
 
-```java
-// PROBLEM: Subclass breaks thread safety
-class ThreadSafeStack<E> {
-    private final List<E> items = new ArrayList<>();
+The inner list can be a plain `ArrayList`: no reference to it leaves the class, so every access
+goes through `lock`, whatever the list's own locking is. Swapping the inner list for another type
+touches no caller (unit 8.4.3).
 
-    public synchronized void push(E item) { items.add(item); }
-    public synchronized E pop() { return items.remove(items.size() - 1); }
-    public synchronized int size() { return items.size(); }
-}
+Every operation callers need is a method you write: there is no
+inherited `removeIf` or `iterator`. One lock now serializes readers too, so every event's walk
+starts with a `snapshot()` copy taken under the lock, the cost the switch to
+`CopyOnWriteArrayList` was meant to remove. And the guarantee holds only while the list stays
+private: a constructor that stored a list the caller passed in, or a getter that returned it,
+would give callers a path around the lock.
 
-// Subclass drops synchronized from the override
-class LoggingStack<E> extends ThreadSafeStack<E> {
-    @Override
-    public void push(E item) {  // NOT synchronized!
-        System.out.println("Pushing: " + item);
-        super.push(item);  // super IS synchronized, but the println is not
-    }
-    // This override still only calls super, so the stack stays safe -- but the log
-    // order can now differ from the push order, and nothing stops the next override
-    // from touching inherited state without the lock (see ExtendedCounter above)
-}
+<!-- practice 1 -->
 
-// SOLUTION: Composition
-class LoggingStackWrapper<E> implements Stack<E> {
-    private final Stack<E> delegate;  // Can be any thread-safe Stack
+## When the Class Already Has the Compound Action, Call It
 
-    @Override
-    public void push(E item) {
-        System.out.println("Pushing: " + item);
-        delegate.push(item);  // Thread safety is delegate's responsibility; the wrapper
-                              // can only reach the stack through its synchronized methods
-    }
-}
-```
-
-**Q5: How do composition and virtual threads (Java 21) work together?**
+`CopyOnWriteArrayList` already had the action the subclass wrote:
 
 ```text
-A5: Virtual threads and composition are natural partners because:
-
-1. Virtual threads are lightweight, so creating a virtual thread per task
-   is feasible. Composed task runners (decorators) add minimal overhead
-   per virtual thread.
-
-2. Virtual threads encourage a "task as a unit of work" model. Composition
-   allows building these tasks from small, reusable components (strategies,
-   formatters, validators) rather than inheriting from a monolithic base task.
-
-3. Virtual threads unmount from platform threads during blocking operations.
-   Composed decorators that delegate through the chain naturally support this
-   because each decorator simply calls the next, and if the innermost
-   operation blocks, the virtual thread unmounts cleanly.
-
-4. With structured concurrency (JEP 453), composed subtasks can be managed
-   as a group. Each subtask is a composed pipeline that runs on its own
-   virtual thread.
-
-5. In Java 21, blocking inside a synchronized block pins the virtual thread
-   to its carrier platform thread, so prefer ReentrantLock in decorators,
-   which virtual threads handle efficiently. (JDK 24, JEP 491, removed this
-   pinning for synchronized.)
+CopyOnWriteArrayList.addIfAbsent         duplicates in 5 runs: [0, 0, 0, 0, 0]
 ```
+
+`addIfAbsent` is atomic against every other method of the list: it adds under the list's lock,
+and checks again there if the array changed since its first look. A composed class that keeps a `CopyOnWriteArrayList` private and calls
+`addIfAbsent` from `subscribe` needs no lock of its own, and its readers keep walking without one.
+
+An API gateway keeps one rate limiter per client in a `ConcurrentHashMap`:
 
 ```java
-// Composed pipeline executed on virtual threads
-var pipeline = new ProcessingPipeline<String>()
-    .addStage(String::trim)
-    .addStage(String::toUpperCase)
-    .addStage(s -> s + " [processed]");
-
-// Each item runs on its own virtual thread
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    List<Future<String>> futures = items.stream()
-        .map(item -> executor.submit(() -> pipeline.execute(item)))
-        .toList();
-
-    for (var future : futures) {
-        System.out.println(future.get());
+static RateLimiter getThenPut(String client) {
+    RateLimiter l = limiters.get(client);
+    if (l == null) {
+        l = new RateLimiter(client);
+        limiters.put(client, l);
     }
+    return l;
 }
 
-// Decorator-based runner on virtual threads
-TaskRunner runner = new SynchronizedTaskRunner(
-    new LoggingTaskRunner(new UpperCaseRunner())
-);
-
-try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    executor.submit(() -> runner.run("hello"));
-    executor.submit(() -> runner.run("world"));
+static RateLimiter computeIfAbsent(String client) {
+    return limiters.computeIfAbsent(client, RateLimiter::new);
 }
 ```
+
+Eight threads ask for the same 10,000 clients; the run counts the limiters constructed and the
+clients that were handed two different ones:
+
+```text
+get, then put    limiters created: 11145, clients given two limiters: 871
+computeIfAbsent  limiters created: 10000, clients given two limiters: 0
+```
+
+Two more runs gave 1,286 and 10 split clients for get-then-put, and 0 for `computeIfAbsent`. A
+split client is counted against two or more limiters (up to one per thread), so it gets a
+multiple of its quota. The javadoc of `computeIfAbsent` states the guarantee: the whole call is
+atomic, and the function runs exactly once per call if the key is absent, else not at all. Some
+updates to the map by other threads may wait while it runs, so the function should be short, and
+it must not modify the map.
+
+Inheriting from `ConcurrentHashMap` to add a `synchronized` compound method fails as the list
+subclass did: the map's own methods never lock the map object (unit 6.5.2). Removing a limiter has
+the same shape. `remove(client, limiter)` removes the entry only if it still maps to that limiter,
+so a caller holding a limiter that an admin reset already replaced leaves the new one in place:
+
+```text
+remove(key, stale limiter): false, current one still mapped: true
+```
+
+A plain `remove(client)` would have removed the new limiter. When no single call expresses the
+action, such as a limiter and its quota in two maps changing together, a composed class's own lock
+has to guard both maps, and the maps' own concurrency then buys nothing.
+
+### putIfAbsent Builds the Value Before It Knows It Is Needed
+
+`putIfAbsent` is atomic too, and a third version uses it correctly, returning the winner:
+
+```java
+static RateLimiter putIfAbsent(String client) {
+    RateLimiter fresh = new RateLimiter(client);
+    RateLimiter old = limiters.putIfAbsent(client, fresh);
+    return old != null ? old : fresh;
+}
+```
+
+```text
+putIfAbsent      limiters created: 80000, clients given two limiters: 0
+```
+
+No client was split, but every call built a limiter, and 70,000 were thrown away: the value is an
+argument, so it exists before the map sees the key. Where the constructor registers a metric,
+reads a quota from a database or opens a connection, that work runs on every lookup, not once per
+client. `putIfAbsent` fits a value that already exists or costs nothing to make.
+
+<!-- practice 2 -->
+
+## Summary
+
+- **A subclass's `synchronized` excludes only code that locks `this`.** Over a base that locks a
+  private object, like `CopyOnWriteArrayList`, the compound action races with every inherited
+  write, and a stress test may miss it.
+- **A helper must take the lock the class itself takes.** Locking the helper excludes nothing;
+  locking the collection works only where its contract names that lock, as
+  `Collections.synchronizedList` does.
+- **A class that owns its state and its lock is correct whatever it wraps**, while no reference to
+  the state escapes. It pays with methods you write and one lock for readers too.
+- **When the class already has the compound action, call it.** `addIfAbsent`,
+  `computeIfAbsent` and `remove(key, value)` are atomic against the class's own methods;
+  `putIfAbsent` builds its value on every call.
+
+## Reference
+
+**Which lock a thread-safe JDK class takes (Java 21):**
+
+| Class | Its methods lock | `synchronized (obj)` from outside |
+|---|---|---|
+| `Vector`, `Hashtable` | `this` (in the source; the javadoc says "synchronized") | excludes their methods |
+| `Collections.synchronizedList/Map/Set` | the returned wrapper (the javadoc tells callers to lock it for iteration) | excludes their methods |
+| `CopyOnWriteArrayList` | an internal `lock` field, for writes and sub-list views | excludes none of their methods |
+| `ConcurrentHashMap` | per bin, for writes; never the map object | excludes none of their methods |
+
+**Atomic compound actions the JDK provides:**
+
+| Class | Methods |
+|---|---|
+| `CopyOnWriteArrayList` | `addIfAbsent`, `addAllAbsent` |
+| `ConcurrentHashMap` | `putIfAbsent`, `computeIfAbsent`, `computeIfPresent`, `compute`, `merge`, `remove(key, value)`, `replace(key, old, new)` |
+| `Collections.synchronizedMap` | the same `Map` methods, each under the wrapper's lock |
+
+## Challenges
+
+1. The subscriber list must also cap each customer at five URLs. Can `CopyOnWriteArrayList`'s own
+   methods express "add if absent and fewer than five", and if not, what does the composed class
+   cost its readers?
+2. Run the `subscribe()` vs `addIfAbsent()` stress test with 64 threads and with `validate`
+   removed. How many runs does it take to see one duplicate, and what does that say about load
+   tests as proof of thread safety?
+3. A team wants `TracingConcurrentHashMap extends ConcurrentHashMap` that logs every `put`. Which
+   inherited methods add entries without calling `put`, and how would a composed version avoid
+   the question?
+
+## Design Note: Why the Newer Collections Keep Their Locks Out of Reach
+
+`Vector` and `Hashtable` lock `this`, which makes client-side locking and subclassing work, and
+also lets any holder of a reference stall every caller (unit 6.2.1). The `java.util.concurrent`
+classes lock something no caller can reach: `CopyOnWriteArrayList` an internal object,
+`ConcurrentHashMap` its bins. Their locking stays an implementation detail they can change. The
+price is that every compound action a caller needs has to be a method on the class, since there
+is no lock to extend from outside: `CopyOnWriteArrayList` has `addIfAbsent`, but no "add if absent
+and below a limit".
 
 ## Code Examples
 
